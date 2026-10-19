@@ -19,12 +19,35 @@ def collect_windows() -> dict:
         if any(word in str(item.get("title", "")).casefold() for word in ("metatrader", "terminal64", "terminal"))
     ]
     details = None
+    safe_ui_action = None
     if matches:
-        try:
-            details = windows_tools.inspect_window(str(matches[0]["title"]), limit=80)
-        except Exception as exc:
-            details = {"inspection_error": f"{type(exc).__name__}: {str(exc)[:300]}"}
-    return {"visible_window_count": len(windows), "mt5_windows": matches[:10], "inspection": details}
+        title = str(matches[0]["title"])
+        details = windows_tools.inspect_window(title, limit=80)
+        cancel_controls = [
+            control for control in details.get("controls", [])
+            if str(control.get("name", "")).strip().casefold() == "cancel" and control.get("enabled")
+        ]
+        if len(cancel_controls) == 1:
+            safe_ui_action = windows_tools.click_window_control(title, "Cancel")
+            time.sleep(1)
+            after_details = windows_tools.inspect_window(title, limit=80)
+            after_windows = windows_tools.list_open_windows(limit=200)
+            safe_ui_action["main_window_still_visible"] = any(
+                "metatrader 5" in str(item.get("title", "")).casefold()
+                for item in after_windows
+            )
+            safe_ui_action["account_dialog_still_in_control_tree"] = any(
+                str(control.get("name", "")).strip().casefold() == "open an account"
+                for control in after_details.get("controls", [])
+            )
+            if not safe_ui_action["main_window_still_visible"]:
+                raise RuntimeError("MT5 main window disappeared after clicking the harmless Cancel button.")
+    return {
+        "visible_window_count": len(windows),
+        "mt5_windows": matches[:10],
+        "inspection": details,
+        "safe_ui_action": safe_ui_action,
+    }
 
 
 def main() -> int:
