@@ -85,3 +85,14 @@
 - التالي: تحديث التقرير النهائي بهذه الجولة، ثم الانتقال إلى تجهيز ملفات EA والبيانات التاريخية إذا كانت متاحة ضمن المشروع، دون اختلاق EA أو نتائج.
 
 - توضيح MT5 بعد مراجعة سجل التشغيل #156: MetaEditor **ترجم ملفًا تجريبيًا مؤقتًا** `AuroraCompileSmoke.mq5` بصفر أخطاء. هذا فحص لسلامة بيئة MetaEditor فقط، وليس ترجمة EA المستخدم. كما أكد السجل مصادقة Headway التجريبية دون أوامر تداول.
+
+
+## أحدث نتيجة مؤكدة — توسيع حارس الروابط إلى 6/6 — 2026-10-19 12:58 UTC
+- [Windows validation #163 / 39255692194](https://github.com/staryuzar/-/actions/runs/39255692194) — **PASS لجميع الوظائف الخمس**: تقرير القرار، Chrome، MT5، Python 3.11، Python 3.13.
+- Chrome وLocalToolExecutor الحقيقي: **6/6 PASS** في اختبارات منفّذ الأدوات. بعد فتح وقراءة `https://example.com/`، رُفضت عناوين loopback عبر `127.0.0.1` و`localhost` وIPv6 `::1`، ورُفض `file://`؛ بقيت الصفحة العامة كما هي في كل محاولة مرفوضة.
+- اختبارات Chrome الأخرى السابقة لا تزال موثقة بـ12/12. Python 3.11 و3.13: **231 passed + 122 subtests** لكل إصدار.
+- MT5: تشغيل ومصادقة Headway التجريبية، وترجمة EA عينة مؤقتة بصفر أخطاء فقط؛ لا EA مستخدم ولا Strategy Tester ولا صفقات.
+- Artifact Chrome/ToolExecutor: [12187408176](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187408176), SHA-256 `cdc8e1611070be7a9eeacaec54720bbbf948b523711b036b77d669edc2f56168`.
+- حزمة التطبيق المعدلة من Windows CI: [Aurora-Control-Room-v2.4.0-patched — 12188100049](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12188100049), SHA-256 `5fa7b5e4553f51e59e5bce350c368e03fd26bac31a4eee0eac686c9fedc1c0d6`.
+- تقارير Python: [3.11 — 12187742741](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187742741)، [3.13 — 12187383471](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187383471). تقرير MT5: [12187688089](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187688089).
+- الخطوة التالية: مراجعة حزمة v2.4.0 المعدلة ومخرجات اختبارها، ثم اختبار حالات أخطاء أدوات إضافية. لا تدّعِ اختبار Gmail أو EA التداول أو Strategy Tester ما لم تُنفّذ تلك الاختبارات فعليًا.
