@@ -197,6 +197,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Extract assistant source for integration test
+        shell: pwsh
+        run: |
+          Expand-Archive -LiteralPath "Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip" -DestinationPath "ci_browser_source" -Force
+          if (!(Test-Path "ci_browser_source/browser_control.py")) { throw "browser_control.py missing from source package" }
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
