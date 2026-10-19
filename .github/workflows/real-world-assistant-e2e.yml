@@ -5,19 +5,6 @@ on:
     branches:
       - real-world-assistant-e2e
   workflow_dispatch:
-    inputs:
-      provider:
-        description: "AI provider whose real API will be used"
-        required: true
-        type: choice
-        options:
-          - gemini
-          - openrouter
-        default: gemini
-      model:
-        description: "Optional model override; leave blank to use the app default"
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -32,12 +19,9 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 15
     env:
-      AI_PROVIDER: ${{ inputs.provider || 'gemini' }}
+      AI_PROVIDER: gemini
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      GEMINI_MODEL: ${{ inputs.model }}
-      OPENROUTER_MODEL: ${{ inputs.model }}
-      AURORA_DATA_DIR: ${{ runner.temp }}\aurora-real-e2e-data
+      AURORA_DATA_DIR: ${{ runner.temp }}/aurora-real-e2e-data
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     steps:
       - name: Checkout repository
@@ -46,12 +30,10 @@ jobs:
       - name: Require a real provider credential (no mocks)
         shell: pwsh
         run: |
-          $provider = $env:AI_PROVIDER
-          $key = if ($provider -eq "gemini") { $env:GEMINI_API_KEY } else { $env:OPENROUTER_API_KEY }
-          if ([string]::IsNullOrWhiteSpace($key)) {
-            throw "BLOCKED: Add the real $provider API key as repository Actions secret $(if ($provider -eq 'gemini') {'GEMINI_API_KEY'} else {'OPENROUTER_API_KEY'}). This workflow intentionally does not use a mock model."
+          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
+            throw "BLOCKED: Add a real Gemini API key as repository Actions secret GEMINI_API_KEY. This workflow intentionally does not use a mock model."
           }
-          Write-Host "A real $provider credential is configured; secret value is not displayed."
+          Write-Host "A real Gemini credential is configured; secret value is not displayed."
 
       - name: Extract actual application package
         shell: pwsh
@@ -100,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $env:PYTHONPATH = (Resolve-Path "aurora_app").Path
-          python .github/scripts/live_assistant_e2e.py --url "http://127.0.0.1:8765" --report "$env:RUNNER_TEMP\aurora-live-e2e-report.json"
+          python .github/scripts/live_assistant_e2e.py --url "http://127.0.0.1:8765" --report "$env:RUNNER_TEMP/aurora-live-e2e-report.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload actual run report and application logs
@@ -109,9 +91,9 @@ jobs:
         with:
           name: aurora-real-world-e2e-report
           path: |
-            ${{ runner.temp }}\aurora-live-e2e-report.json
-            ${{ runner.temp }}\aurora-live.stdout.log
-            ${{ runner.temp }}\aurora-live.stderr.log
+            ${{ runner.temp }}/aurora-live-e2e-report.json
+            ${{ runner.temp }}/aurora-live.stdout.log
+            ${{ runner.temp }}/aurora-live.stderr.log
           if-no-files-found: warn
 
       - name: Stop actual application process
