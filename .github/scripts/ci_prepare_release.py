@@ -439,7 +439,7 @@ def apply_browser_page_title(root: Path) -> None:
             tool_text = tool_text.replace(old, new, 1)
         else:
             raise SystemExit("Could not safely locate current or legacy browser_read_page implementation; refusing a fuzzy patch.")
-        tool_source.write_text(tool_text, encoding="utf-8", newline="\\n")
+        tool_source.write_text(tool_text, encoding="utf-8", newline="\n")
 
     core = root / "assistant_core.py"
     core_text = core.read_text(encoding="utf-8")
