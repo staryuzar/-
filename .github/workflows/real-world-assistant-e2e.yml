@@ -98,6 +98,7 @@ jobs:
         shell: pwsh
         run: |
           python .github/scripts/ci_prepare_release.py aurora_app
+          python .github/scripts/ci_enrich_knowledge.py aurora_app
           if (!(Test-Path "aurora_app\tests\test_gemini_503_retry.py")) {
             throw "Gemini bounded-retry regression test was not created by the patcher."
           }
