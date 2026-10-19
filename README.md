@@ -111,3 +111,11 @@
 - Python 3.11 و3.13: **231 passed + 122 subtests** لكل إصدار؛ MT5 demo smoke ناجح، وعينة EA مؤقتة فقط تُرجمت بصفر أخطاء.
 - [حزمة التطبيق المعدلة v2.4.0](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12188100049)؛ [تقرير Chrome](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187408176).
 - EA المستخدم وStrategy Tester وGmail لم تُختبر بعد. انظر [تقرير الاستئناف](.github/RESUME_REPORT_2026-10-19_AR.md).
+
+
+### Windows validation #167 — أحدث نتيجة فعلية
+- [Run #167](https://github.com/staryuzar/-/actions/runs/39256415719) — جميع الوظائف الخمس نجحت.
+- Chrome **12/12**، وLocalToolExecutor **9/9** (يشمل رفض صيغ IPv4 البديلة 127.1 و2130706433 و0177.0.0.1 ورفض localhost وIPv6 وfile://).
+- Python 3.11 و3.13: **231 passed + 122 subtests** لكل إصدار. MT5 demo smoke ناجح؛ عينة EA مؤقتة فقط تُرجمت بصفر أخطاء، ولا توجد صفقات.
+- [تقرير Chrome والأدوات](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12187568822)؛ [حزمة v2.4.0 المعدلة](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12188130607)؛ [تقرير MT5](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12187239644).
+- EA المستخدم وStrategy Tester وGmail لم تُختبر بعد. راجع [تقرير الاستئناف](.github/RESUME_REPORT_2026-10-19_AR.md).
