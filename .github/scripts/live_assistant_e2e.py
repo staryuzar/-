@@ -21,6 +21,7 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 from urllib.request import urlopen
 from assistant_e2e_contract import (
     assistant_reply_evidence_diagnostics,
+    classify_submission_evidence,
     assistant_reply_has_known_page_text,
     assistant_reply_has_page_identity,
     assistant_reply_has_page_text_field,
@@ -103,6 +104,7 @@ def main() -> int:
             "إذا كان المتصفح قد ترجم الصفحة، انقل الترجمة الظاهرة بأمانة. النص الإنجليزي المتوقع إذا ظهر "
             "بلغة المصدر هو: This domain is for use in documentation examples without needing permission."
         )
+        body_before_send = driver.find_element(By.TAG_NAME, "body").text
         chat_input = driver.find_element(By.CSS_SELECTOR, '[data-testid="stChatInput"] textarea')
         chat_input.send_keys(prompt)
         chat_input.send_keys(Keys.ENTER)
@@ -126,16 +128,30 @@ def main() -> int:
             "HTTP 404", "HTTP 429", "TimeoutException",
         )
 
-        # First prove that Streamlit actually accepted and rendered this exact prompt.
+        # Some Aurora reruns intentionally hide the submitted user bubble while the
+        # execution planner is active. Accept a newly appearing processing marker as
+        # provisional submit evidence only; final proof still requires the exact prompt
+        # in persisted SQLite tool records and verified browser effects.
         try:
-            WebDriverWait(driver, 20, poll_frequency=1).until(
-                lambda d: prompt in d.find_element(By.TAG_NAME, "body").text
-            )
-            report["checks"].append("PASS: submitted prompt is visible in the real chat history")
+            def submission_evidence(d):
+                current_body = d.find_element(By.TAG_NAME, "body").text
+                return classify_submission_evidence(current_body, body_before_send, prompt) or False
+
+            submission_state = WebDriverWait(driver, 25, poll_frequency=1).until(submission_evidence)
+            report["submission_evidence"] = submission_state
+            if submission_state == "prompt_visible":
+                report["checks"].append("PASS: submitted prompt is visible in the real chat history")
+            elif submission_state == "processing_indicator_only":
+                report["checks"].append(
+                    "PASS: new assistant planning indicator appeared after submit; exact prompt and effects still require final SQLite contract"
+                )
         except TimeoutException:
             body_text = driver.find_element(By.TAG_NAME, "body").text
             report["diagnostic_excerpt"] = redact_excerpt(body_text)
-            raise AssertionError("The submitted prompt did not appear in chat history; input submission was not verified.")
+            report["submission_evidence"] = "not_observed"
+            raise AssertionError(
+                "Neither the exact submitted prompt nor a new assistant processing indicator appeared; submission was not verified."
+            )
 
         def task_completed(d):
             text = d.find_element(By.TAG_NAME, "body").text

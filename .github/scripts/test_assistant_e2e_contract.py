@@ -11,6 +11,7 @@ from pathlib import Path
 
 from assistant_e2e_contract import (
     assistant_reply_evidence_diagnostics,
+    classify_submission_evidence,
     assistant_reply_has_known_page_text,
     assistant_reply_has_page_identity,
     assistant_reply_has_page_text_field,
@@ -105,6 +106,24 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
         self.assertTrue(assistant_reply_has_page_text_field(translated))
         self.assertTrue(assistant_reply_has_known_page_text(translated))
         self.assertEqual(self.check(reply=translated), [])
+
+    def test_submission_acceptance_when_prompt_is_visible(self):
+        prompt = "open example.com now"
+        self.assertEqual(classify_submission_evidence("History: " + prompt, "Initial UI", prompt), "prompt_visible")
+
+    def test_submission_acceptance_when_new_planning_indicator_appears(self):
+        prompt = "open example.com now"
+        baseline = "Initial UI: assistant connected"
+        active = baseline + "\\nالجولة 2: يخطط المساعد للخطوة التالية ويسترجع سياق المهمة المحفوظ."
+        self.assertEqual(classify_submission_evidence(active, baseline, prompt), "processing_indicator_only")
+
+    def test_stale_planning_indicator_is_not_submission_evidence(self):
+        prompt = "open example.com now"
+        baseline = "الجولة 2: يخطط المساعد للخطوة التالية ويسترجع سياق المهمة المحفوظ."
+        self.assertIsNone(classify_submission_evidence(baseline, baseline, prompt))
+
+    def test_empty_submission_is_not_evidence(self):
+        self.assertIsNone(classify_submission_evidence("blank UI", "blank UI", "required prompt"))
 
     def test_diagnostics_identify_real_translated_reply_components(self):
         translated = (

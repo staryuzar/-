@@ -141,6 +141,26 @@ def assistant_reply_has_known_page_text(value: Any) -> bool:
     return known_english in text or known_arabic in text
 
 
+def classify_submission_evidence(body_text: Any, baseline_body_text: Any, prompt: str) -> str | None:
+    """Classify transient prompt-acceptance evidence; never treat it as final task success."""
+    body = str(body_text or "")
+    baseline = str(baseline_body_text or "")
+    requested = str(prompt or "")
+    if requested and requested in body:
+        return "prompt_visible"
+    # Aurora may temporarily hide the submitted user bubble while the assistant is
+    # planning. Accept only a newly appeared, explicit processing marker; the strict
+    # end-of-task SQLite/tool contract still proves the exact prompt and real effects.
+    indicators = (
+        "يخطط المساعد للخطوة التالية ويسترجع سياق المهمة المحفوظ",
+        "يخطط المساعد للخطوة التالية",
+    )
+    for indicator in indicators:
+        if indicator in body and indicator not in baseline:
+            return "processing_indicator_only"
+    return None
+
+
 def assistant_reply_evidence_diagnostics(value: Any) -> dict[str, bool]:
     """Return non-secret evidence booleans to diagnose E2E timeouts without weakening checks."""
     return {
