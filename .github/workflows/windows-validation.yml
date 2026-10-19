@@ -1,0 +1,104 @@
+name: Aurora Windows validation
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aurora-windows-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-tests:
+    name: Windows / Python ${{ matrix.python-version }}
+    runs-on: windows-2022
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare source tree for validation
+        shell: pwsh
+        run: |
+          $archive = Join-Path $PWD "Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip"
+          New-Item -ItemType Directory -Path "ci_source" -Force | Out-Null
+          if (Test-Path $archive) {
+            Expand-Archive -LiteralPath $archive -DestinationPath "ci_source" -Force
+            Write-Host "Extracted uploaded Aurora ZIP into ci_source"
+          } elseif (Test-Path (Join-Path $PWD "requirements.txt")) {
+            Get-ChildItem -Force | Where-Object { $_.Name -notin @(".git", "ci_source") } | ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination "ci_source" -Recurse -Force
+            }
+            Write-Host "Copied unpacked Aurora source tree into ci_source"
+          } else {
+            throw "Neither Aurora ZIP nor unpacked requirements.txt source tree was found."
+          }
+          if (!(Test-Path "ci_source\requirements.txt")) { throw "requirements.txt not found in prepared source" }
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: ci_source/requirements.txt
+
+      - name: Install dependencies
+        shell: pwsh
+        working-directory: ci_source
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+
+      - name: Confirm real Windows runtime and desktop imports
+        shell: pwsh
+        working-directory: ci_source
+        run: |
+          python -c "import os, sys; print('Python:', sys.version); print('OS:', os.name); assert os.name == 'nt', 'Expected Windows runner'"
+          python -c "import pywinauto, pyautogui, pyperclip; print('Windows GUI libraries import successfully')"
+
+      - name: Normalize Windows-only test assumptions in legacy ZIP
+        shell: pwsh
+        run: python .github/scripts/ci_windows_test_compat.py ci_source
+
+      - name: Compile Python files
+        shell: pwsh
+        working-directory: ci_source
+        run: python -m compileall -q .
+
+      - name: Run automated test suite
+        shell: pwsh
+        working-directory: ci_source
+        run: python -m pytest -q --junitxml=windows-test-results.xml
+
+      - name: Verify batch files have no UTF-8 BOM
+        shell: pwsh
+        working-directory: ci_source
+        run: |
+          $files = @('START_WINDOWS.bat', 'RUN_TESTS_WINDOWS.bat', 'DIAGNOSE_WINDOWS.bat')
+          foreach ($file in $files) {
+            $path = Join-Path $PWD $file
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+              throw "$file starts with a UTF-8 BOM"
+            }
+            Write-Host "$file BOM check passed"
+          }
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-results-py${{ matrix.python-version }}
+          path: ci_source/windows-test-results.xml
+          if-no-files-found: warn
