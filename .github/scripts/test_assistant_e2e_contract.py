@@ -84,7 +84,7 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
 
     def test_correct_url_without_expected_heading_is_rejected(self):
         missing = self.check(reply="The page heading was different.")
-        self.assertIn("expected page heading Example Domain in assistant reply", missing)
+        self.assertIn("matching Example Domain document title and H1 values in assistant reply", missing)
 
     def test_actions_without_verified_effect_are_rejected(self):
         missing = self.check(steps="فتح موقع في متصفح المساعد؛ قراءة محتوى الصفحة الحالية")
