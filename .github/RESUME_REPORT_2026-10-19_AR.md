@@ -326,3 +326,28 @@
 - آخر إثبات فعلي: [E2E #39249428681](https://github.com/staryuzar/-/actions/runs/39249428681) نجح مع تطبيق Aurora الحقيقي وGemini وChrome وexample.com، وتقرير artifact `12184803148` يثبت سجلي فتح الصفحة وقراءتها والأثر المتحقق.
 - [Windows validation #39249437320](https://github.com/staryuzar/-/actions/runs/39249437320) نجح في Python 3.11 و3.13 وChrome وMT5 demo smoke. هذا لا يثبت تشغيل المستشار الشخصي أو نجاح Strategy Tester أو تداول حقيقي؛ هذه مهام مستقلة ما زالت ضمن قائمة العمل.
 - لا ندّعي وجود شاشة Windows تفاعلية دائمة متاحة بعد نهاية التشغيل. سجلات GitHub Actions والتقارير والـArtifacts هي نقطة الاستئناف القابلة للتكرار.
+
+
+## تحديث بعد اختبار Chrome الموسع — 2026-10-19 12:27 UTC
+
+### تغيير الكود
+- الالتزام: [a60a4ec019bcdb083d16b2591b8e6047ab94c216](https://github.com/staryuzar/-/commit/a60a4ec019bcdb083d16b2591b8e6047ab94c216).
+- أُضيف إلى `.github/scripts/live_browser_smoke.py` اختبار يمرر عنوانًا غير صالح إلى Chrome، ويتحقق من رفضه مع بقاء عنوان الصفحة الحالية دون تغيير وإمكانية قراءة نص الصفحة بعد الرفض.
+
+### تحقق Windows حقيقي بعد التغيير
+- [التشغيل #140 / 39251604674](https://github.com/staryuzar/-/actions/runs/39251604674) — workflow كامل PASS؛ لا توجد jobs متخطاة ضمن وظائف الاختبار الأساسية.
+- Chrome على Windows Server 2022: **8/8 PASS**، بما فيها الاختبار الجديد `malformed navigation URL rejected without leaving the current page`.
+- LocalToolExecutor الحقيقي: **3/3 PASS**؛ فتح example.com وقراءة العنوان والنص، ورفض loopback دون تغيير الصفحة العامة.
+- Python 3.11: **231 passed, 122 subtests passed**.
+- Python 3.13: **231 passed, 122 subtests passed**.
+- MT5 demo smoke: **PASS** في التشغيل نفسه؛ تأكدت المصادقة التجريبية ولم تُفتح صفقات.
+- Artifact Chrome: [12184889189](https://github.com/staryuzar/-/actions/runs/39251604674/artifacts/12184889189), SHA-256 `37b46de6b456fe57abe2d2bfe233e9ff6a80723145278be4556dc874a220b723`.
+- Artifact MT5: [12186291928](https://github.com/staryuzar/-/actions/runs/39251604674/artifacts/12186291928), SHA-256 `0b2de911b86d23d300ed4c1fe8f57dc5ea1e4f990067c2b1569b4bcc0fdc8ec6`.
+- Artifact نتائج Python 3.11: [12185054211](https://github.com/staryuzar/-/actions/runs/39251604674/artifacts/12185054211).
+- Artifact نتائج Python 3.13: [12185238805](https://github.com/staryuzar/-/actions/runs/39251604674/artifacts/12185238805).
+
+### حدود الإثبات وما يلي
+- هذا التحقق يثبت اختبارًا إضافيًا لسلوك Chrome على Windows، ولا يثبت وحده أن كل حالات تصفح الويب أصبحت مغطاة.
+- لم يُترجم EA الخاص بالمستخدم ولم يُشغّل MT5 Strategy Tester؛ لا تزال هذه مرحلة منفصلة. لم تُفتح صفقات حقيقية.
+- الخطوة التالية: حالات فشل آمنة إضافية للانتظار/العناصر غير الموجودة/الروابط غير المسموحة، ثم مسار ترجمة EA الفعلي وStrategy Tester مع بيانات تاريخية وتقارير نتائج محفوظة.
+- لا حاجة لتشغيل Gemini E2E مرة أخرى الآن؛ الاختبار الجديد لا يغيّر تدفق النموذج ويجب الحفاظ على الحصة. أعد تشغيله فقط عند تغيير تدفق المحادثة أو عقد الأدلة النهائي.
