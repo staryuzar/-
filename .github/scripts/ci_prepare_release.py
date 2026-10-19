@@ -101,7 +101,180 @@ if __name__ == "__main__":
 '''
 
 
+GEMINI_RETRY_TEST = '''"""Bounded retry behavior for temporary Gemini service overload."""
+import io
+import json
+import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError
+
+from gemini_native_client import GeminiNativeError, native_gemini_chat_completion
+
+
+class FakeResponse:
+    status = 200
+
+    def __init__(self, payload):
+        self.payload = json.dumps(payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, n=-1):
+        return self.payload[:n]
+
+
+def http_error(status, provider_status, message):
+    payload = {"error": {"status": provider_status, "message": message}}
+    return HTTPError(
+        "https://generativelanguage.googleapis.com/", status, "failure", {},
+        io.BytesIO(json.dumps(payload).encode("utf-8")),
+    )
+
+
+def success_response():
+    return FakeResponse({"candidates": [{"content": {"parts": [{"text": "ready"}]}}]})
+
+
+class Gemini503RetryTests(unittest.TestCase):
+    def _call(self):
+        return native_gemini_chat_completion(
+            "TEST_API_KEY", "gemini-3.8-flash", "system",
+            [{"role": "user", "content": "hello"}],
+        )
+
+    def test_one_503_retries_once_and_then_succeeds(self):
+        with patch(
+            "gemini_native_client.urlopen",
+            side_effect=[http_error(503, "UNAVAILABLE", "temporary high demand"), success_response()],
+        ) as mocked, patch("gemini_native_client.time.sleep") as sleep:
+            result = self._call()
+        self.assertEqual(result.choices[0].message.content, "ready")
+        self.assertEqual(mocked.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_persistent_503_stops_after_one_retry(self):
+        with patch(
+            "gemini_native_client.urlopen",
+            side_effect=[
+                http_error(503, "UNAVAILABLE", "temporary high demand"),
+                http_error(503, "UNAVAILABLE", "still unavailable"),
+            ],
+        ) as mocked, patch("gemini_native_client.time.sleep") as sleep:
+            with self.assertRaises(GeminiNativeError) as caught:
+                self._call()
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertEqual(mocked.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_429_is_not_retried(self):
+        with patch(
+            "gemini_native_client.urlopen",
+            side_effect=http_error(429, "RESOURCE_EXHAUSTED", "quota"),
+        ) as mocked, patch("gemini_native_client.time.sleep") as sleep:
+            with self.assertRaises(GeminiNativeError) as caught:
+                self._call()
+        self.assertEqual(caught.exception.status_code, 429)
+        mocked.assert_called_once()
+        sleep.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+
+
+def apply_gemini_503_retry(root: Path) -> None:
+    """Retry a single Gemini HTTP 503 after two seconds; never auto-retry HTTP 429."""
+    source = root / "gemini_native_client.py"
+    if not source.is_file():
+        raise SystemExit(f"Expected Gemini native client not found: {source}")
+    text = source.read_text(encoding="utf-8")
+    marker = "# AURORA_GEMINI_503_RETRY: exactly one bounded retry for transient overload."
+    if marker not in text:
+        import_anchor = "import json\nimport uuid\n"
+        if import_anchor not in text:
+            raise SystemExit("Could not safely locate Gemini native-client imports for retry patch.")
+        text = text.replace(import_anchor, "import json\nimport time\nimport uuid\n", 1)
+
+        old_block = '''    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read(2_000_000).decode("utf-8", "replace")
+            status = int(getattr(response, "status", 200))
+    except HTTPError as exc:
+        try:
+            raw = exc.read(64_000).decode("utf-8", "replace")
+        except Exception:
+            raw = ""
+        raise GeminiNativeError(int(exc.code), _safe_google_error(int(exc.code), raw, api_key)) from None
+    except URLError as exc:
+        reason = str(getattr(exc, "reason", exc)).replace(api_key, "[مفتاح مخفي]")[:260]
+        raise GeminiNativeError(None, "تعذر الوصول إلى Google عبر الشبكة أو DNS أو TLS: " + reason) from None
+    except TimeoutError:
+        raise GeminiNativeError(None, "انتهت مهلة الاتصال بـ Gemini؛ لم تُعد المحاولة تلقائيًا.") from None
+    except Exception as exc:
+        message = str(exc).replace(api_key, "[مفتاح مخفي]")[:260]
+        raise GeminiNativeError(None, type(exc).__name__ + ": " + message) from None
+'''
+        new_block = '''    # AURORA_GEMINI_503_RETRY: exactly one bounded retry for transient overload.
+    retry_503_count = 0
+    while True:
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                raw = response.read(2_000_000).decode("utf-8", "replace")
+                status = int(getattr(response, "status", 200))
+            break
+        except HTTPError as exc:
+            try:
+                raw = exc.read(64_000).decode("utf-8", "replace")
+            except Exception:
+                raw = ""
+            # No function call has been returned, so no tool/effect was run yet.
+            # Retry only a temporary 503 once; never retry quota or auth errors.
+            if int(exc.code) == 503 and retry_503_count == 0:
+                retry_503_count += 1
+                time.sleep(2)
+                continue
+            raise GeminiNativeError(int(exc.code), _safe_google_error(int(exc.code), raw, api_key)) from None
+        except URLError as exc:
+            reason = str(getattr(exc, "reason", exc)).replace(api_key, "[مفتاح مخفي]")[:260]
+            raise GeminiNativeError(None, "تعذر الوصول إلى Google عبر الشبكة أو DNS أو TLS: " + reason) from None
+        except TimeoutError:
+            raise GeminiNativeError(None, "انتهت مهلة الاتصال بـ Gemini؛ لم تُعد المحاولة تلقائيًا.") from None
+        except Exception as exc:
+            message = str(exc).replace(api_key, "[مفتاح مخفي]")[:260]
+            raise GeminiNativeError(None, type(exc).__name__ + ": " + message) from None
+'''
+        if old_block not in text:
+            raise SystemExit("Could not safely locate the Gemini HTTP transport block; refusing a fuzzy replacement.")
+        text = text.replace(old_block, new_block, 1)
+        source.write_text(text, encoding="utf-8", newline="\n")
+
+    test_path = root / "tests" / "test_gemini_503_retry.py"
+    test_path.parent.mkdir(parents=True, exist_ok=True)
+    if not test_path.exists():
+        test_path.write_text(GEMINI_RETRY_TEST, encoding="utf-8", newline="\n")
+
+    report = root / "PATCH_REPORT_AR.md"
+    if report.exists():
+        report_text = report.read_text(encoding="utf-8")
+        report_marker = "### معالجة ضغط Gemini المؤقت (HTTP 503)"
+        if report_marker not in report_text:
+            report_text += (
+                "\n\n" + report_marker + "\n"
+                "- إذا أعاد Gemini HTTP 503، ينتظر العميل ثانيتين ثم يعيد الطلب مرة واحدة فقط.\\n"
+                "- لا تتم إعادة المحاولة عند HTTP 429 (الحصة)، أو خطأ المفتاح/الصلاحيات، أو صيغة طلب غير صالحة.\\n"
+                "- أضيفت اختبارات انحدار لنجاح المحاولة الثانية، وفشل محاولتين، وعدم إعادة 429.\\n"
+            )
+            report.write_text(report_text, encoding="utf-8", newline="\n")
+
+
+
 def apply_fixes(root: Path) -> None:
+    apply_gemini_503_retry(root)
     source = root / "windows_tools.py"
     text = source.read_text(encoding="utf-8")
     switch_signature = 'def switch_existing_chrome_tab(tab_query: str = "Gmail") -> dict[str, Any]:'
