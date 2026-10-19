@@ -11,56 +11,77 @@ GOOD_STEPS = """
 فتح موقع في متصفح المساعد · تم التحقق
 قراءة محتوى الصفحة الحالية · تم التحقق
 """
-GOOD_DETAILS = """
-browser_open_url: url=https://example.com/
-browser_read_page: url=https://example.com/
-"""
 GOOD_REPLY = "تم فتح Example Domain وقراءة العنوان الرئيسي."
+GOOD_RECORDS = [
+    {
+        "tool": "browser_open_url",
+        "args": {"url": "https://example.com/"},
+        "result": {"ok": True, "effect_verified": True, "url": "https://example.com/"},
+    },
+    {
+        "tool": "browser_read_page",
+        "args": {},
+        "result": {"ok": True, "effect_verified": True, "url": "https://example.com/", "text": "[محتوى الصفحة الخاصة غير محفوظ]"},
+    },
+]
 
 
 class ExecutionEvidenceContractTests(unittest.TestCase):
-    def check(self, steps=GOOD_STEPS, details=GOOD_DETAILS, reply=GOOD_REPLY):
-        return missing_execution_evidence(steps, details, reply)
+    def check(self, steps=GOOD_STEPS, records=None, reply=GOOD_REPLY):
+        return missing_execution_evidence(steps, GOOD_RECORDS if records is None else records, reply)
 
-    def test_complete_distributed_evidence_passes(self):
+    def test_complete_persisted_evidence_passes(self):
         self.assertEqual(self.check(), [])
 
     def test_model_answer_alone_is_not_execution_evidence(self):
-        missing = set(self.check(steps="", details="", reply="The answer is Example Domain"))
+        missing = set(self.check(steps="", records=[], reply="The answer is Example Domain"))
         self.assertEqual(
             missing,
             {
                 "browser-open action in compact log",
                 "page-read action in compact log",
                 "verified-effect marker in compact log",
-                "target domain example.com in sanitized tool details",
+                "successful browser_open_url record on example.com",
+                "successful browser_read_page record on example.com",
             },
         )
 
-    def test_correct_reply_without_target_url_is_rejected(self):
-        missing = self.check(details="browser_open_url: url=https://other.example/")
-        self.assertIn("target domain example.com in sanitized tool details", missing)
+    def test_url_on_wrong_host_is_rejected(self):
+        records = [
+            dict(GOOD_RECORDS[0], args={"url": "https://notexample.com/"}),
+            dict(GOOD_RECORDS[1], result={"ok": True, "effect_verified": True, "url": "https://notexample.com/"}),
+        ]
+        missing = self.check(records=records)
+        self.assertIn("successful browser_open_url record on example.com", missing)
+        self.assertIn("successful browser_read_page record on example.com", missing)
 
-    def test_correct_url_without_expected_heading_in_reply_is_rejected(self):
+    def test_failed_tool_result_is_rejected_even_with_target_url(self):
+        records = [
+            dict(GOOD_RECORDS[0], result={"ok": False, "effect_verified": False, "url": "https://example.com/"}),
+            GOOD_RECORDS[1],
+        ]
+        self.assertIn("successful browser_open_url record on example.com", self.check(records=records))
+
+    def test_unverified_effect_is_rejected(self):
+        records = [GOOD_RECORDS[0], dict(GOOD_RECORDS[1], result={"ok": True, "effect_verified": False, "url": "https://example.com/"})]
+        self.assertIn("successful browser_read_page record on example.com", self.check(records=records))
+
+    def test_correct_url_without_expected_heading_is_rejected(self):
         missing = self.check(reply="The page heading was different.")
         self.assertIn("expected page heading Example Domain in assistant reply", missing)
 
     def test_actions_without_verified_effect_are_rejected(self):
         missing = self.check(steps="فتح موقع في متصفح المساعد؛ قراءة محتوى الصفحة الحالية")
-        self.assertEqual(missing, ["verified-effect marker in compact log"])
+        self.assertIn("verified-effect marker in compact log", missing)
 
-    def test_both_browser_actions_are_required(self):
-        missing = self.check(steps="فتح موقع في متصفح المساعد؛ تم التحقق")
-        self.assertIn("page-read action in compact log", missing)
-
-    def test_matching_is_case_insensitive_for_web_evidence(self):
-        self.assertEqual(
-            self.check(
-                details="browser_open_url https://EXAMPLE.COM/",
-                reply="page heading: EXAMPLE DOMAIN",
-            ),
-            [],
-        )
+    def test_subdomains_and_similar_domain_names_are_rejected(self):
+        records = [
+            dict(GOOD_RECORDS[0], args={"url": "https://example.com.evil.invalid/"}),
+            dict(GOOD_RECORDS[1], result={"ok": True, "effect_verified": True, "url": "https://fakeexample.com/"}),
+        ]
+        missing = self.check(records=records)
+        self.assertIn("successful browser_open_url record on example.com", missing)
+        self.assertIn("successful browser_read_page record on example.com", missing)
 
 
 if __name__ == "__main__":

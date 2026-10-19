@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -20,6 +21,57 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from urllib.request import urlopen
 from assistant_e2e_contract import missing_execution_evidence
+
+
+
+def persisted_tool_log(data_dir: str, prompt: str) -> list[dict]:
+    """Read safe tool records from the isolated app SQLite store for this exact prompt."""
+    root = Path(str(data_dir or "").strip())
+    if not str(data_dir or "").strip():
+        raise AssertionError("AURORA_DATA_DIR is not configured for the isolated E2E session.")
+    database = root / "aurora.sqlite3"
+    deadline = time.monotonic() + 15
+    last_reason = "conversation not found"
+    while time.monotonic() < deadline:
+        if database.is_file():
+            try:
+                # Read-only connection ensures the test does not mutate app state.
+                uri = database.resolve().as_uri() + "?mode=ro"
+                with sqlite3.connect(uri, uri=True, timeout=5) as connection:
+                    rows = connection.execute(
+                        "SELECT messages_json, log_json FROM conversations ORDER BY updated_at DESC LIMIT 30"
+                    ).fetchall()
+                for messages_json, log_json in rows:
+                    try:
+                        messages = json.loads(messages_json or "[]")
+                        logs = json.loads(log_json or "[]")
+                    except (TypeError, json.JSONDecodeError):
+                        continue
+                    matched = any(
+                        isinstance(message, dict)
+                        and message.get("role") == "user"
+                        and prompt in str(message.get("content") or "")
+                        for message in messages
+                    )
+                    if matched:
+                        if not isinstance(logs, list):
+                            raise AssertionError("Persisted tool log is not a JSON list.")
+                        return [entry for entry in logs if isinstance(entry, dict)]
+                last_reason = "exact submitted prompt was not present in recent conversation rows"
+            except sqlite3.Error as exc:
+                last_reason = f"SQLite read unavailable ({type(exc).__name__})"
+        time.sleep(1)
+    raise AssertionError("Could not retrieve the persisted tool log for this E2E prompt: " + last_reason)
+
+
+def visible_assistant_reply(driver, prompt: str) -> str:
+    """Return visible chat-message text excluding the exact user prompt bubble."""
+    replies = []
+    for message in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stChatMessage"]'):
+        text = str(message.text or "").strip()
+        if text and prompt not in text:
+            replies.append(text)
+    return "\n".join(replies)
 
 
 def main() -> int:
@@ -117,7 +169,8 @@ def main() -> int:
 
         def task_completed(d):
             text = d.find_element(By.TAG_NAME, "body").text
-            if "Example Domain" in text and len(text) > len(prompt) + 50:
+            reply = visible_assistant_reply(d, prompt)
+            if "example domain" in reply.casefold():
                 return "success"
             lower = text.lower()
             if any(marker.lower() in lower for marker in failure_markers):
@@ -192,59 +245,47 @@ def main() -> int:
                 + ", ".join(missing)
             )
 
-        # Verify the target host against the detailed, privacy-redacted tool records.
-        # Their URLs remain visible with query strings/fragments removed; page text is
-        # deliberately redacted and is verified separately against the assistant reply.
-        activity_expander = None
-        for expander in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stExpander"]'):
-            if "نشاط الجهاز وسجل الأدوات" in expander.text:
-                activity_expander = expander
-                break
-        if activity_expander is None:
-            raise AssertionError("Detailed tool activity expander was not found; target URL cannot be verified.")
-        activity_summary = activity_expander.find_element(By.CSS_SELECTOR, "summary")
-        if activity_summary.get_attribute("aria-expanded") != "true":
-            activity_summary.click()
-
-        # Expand the per-action details panels so the redacted URL fields are present.
-        for _ in range(30):
-            collapsed_details = None
-            for details_panel in activity_expander.find_elements(By.CSS_SELECTOR, '[data-testid="stExpander"]'):
-                try:
-                    summary = details_panel.find_element(By.CSS_SELECTOR, "summary")
-                except WebDriverException:
-                    continue
-                if summary.text.strip() == "التفاصيل" and summary.get_attribute("aria-expanded") != "true":
-                    collapsed_details = summary
-                    break
-            if collapsed_details is None:
-                break
-            collapsed_details.click()
-
-        detailed_tool_log_text = activity_expander.text
+        # The UI intentionally redacts page content and hides nested JSON values.
+        # Read the app's own persisted, already-redacted tool records for this exact prompt.
+        assistant_reply = visible_assistant_reply(driver, prompt)
+        data_dir = os.getenv("AURORA_DATA_DIR", "").strip()
+        tool_records = persisted_tool_log(data_dir, prompt)
         missing = missing_execution_evidence(
             execution_log_text,
-            detailed_tool_log_text,
-            body_text,
+            tool_records,
+            assistant_reply,
         )
         if missing:
             report["missing_execution_evidence"] = missing
             report["execution_log_excerpt"] = redact_excerpt(execution_log_text)
+            # Never put full tool args/results or page content into the CI report.
+            report["persisted_tool_record_count"] = len(tool_records)
             raise AssertionError(
-                "The evidence contract failed across the execution log, detailed tool records, and assistant reply. "
-                "Missing evidence: " + ", ".join(missing)
+                "The evidence contract failed across the compact execution log, persisted redacted tool records, "
+                "and assistant reply. Missing evidence: " + ", ".join(missing)
             )
 
+        open_records = [r for r in tool_records if r.get("tool") == "browser_open_url"]
+        read_records = [r for r in tool_records if r.get("tool") == "browser_read_page"]
         report["execution_evidence"] = {
-            "target_domain_in_detailed_tool_log": "example.com" in detailed_tool_log_text.casefold(),
-            "expected_page_heading_in_assistant_reply": "example domain" in body_text.casefold(),
+            "persisted_successful_open_url_record": any(
+                isinstance(r.get("result"), dict) and r["result"].get("ok") is True
+                and r["result"].get("effect_verified") is True for r in open_records
+            ),
+            "persisted_successful_read_page_record": any(
+                isinstance(r.get("result"), dict) and r["result"].get("ok") is True
+                and r["result"].get("effect_verified") is True for r in read_records
+            ),
+            "target_host_found_in_persisted_redacted_records": True,
+            "expected_page_heading_in_assistant_reply": "example domain" in assistant_reply.casefold(),
             "browser_open_action_in_execution_log": "فتح موقع في متصفح المساعد" in execution_log_text,
             "page_read_action_in_execution_log": "قراءة محتوى الصفحة الحالية" in execution_log_text,
             "verified_effect_in_execution_log": "تم التحقق" in execution_log_text,
         }
-        report["checks"].append("PASS: action log, sanitized tool details, and assistant reply jointly prove the real browser effect")
+        report["persisted_tool_record_count"] = len(tool_records)
+        report["checks"].append("PASS: compact UI action log, persisted redacted tool records, and assistant reply prove the real browser effect")
         report["result"] = "PASS"
-        report["assistant_output_excerpt"] = redact_excerpt(body_text[-1800:])
+        report["assistant_output_excerpt"] = redact_excerpt(assistant_reply[-1800:])
         return 0
     except Exception as exc:
         report["result"] = "FAIL"
