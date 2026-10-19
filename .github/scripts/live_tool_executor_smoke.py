@@ -117,7 +117,8 @@ def main() -> int:
                     search_input = None
             if search_input is None:
                 raise AssertionError("Could not locate the visible DuckDuckGo search input for a safe text-entry test.")
-            search_input.click()
+            # Focus and clear through the live DOM to avoid overlay click interception; no form is submitted.
+            driver.execute_script("arguments[0].value = ''; arguments[0].focus();", search_input)
             typed_text = "Aurora draft typing check - not submitted"
             typed = executor.execute("browser_type_text", {"text": typed_text})
             actual_value = str(search_input.get_attribute("value") or "")
