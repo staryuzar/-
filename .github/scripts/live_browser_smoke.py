@@ -39,6 +39,16 @@ HTML = b"""<!doctype html>
 </body></html>"""
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """Suppress only expected client disconnects from the deliberate timeout fixture."""
+
+    def handle_error(self, request, client_address):
+        exc_type, exc, _traceback = sys.exc_info()
+        if isinstance(exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/slow"):
@@ -59,7 +69,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = QuietThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     driver = None
