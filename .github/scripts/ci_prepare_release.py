@@ -526,17 +526,32 @@ def apply_fixes(root: Path) -> None:
             report.write_text(report_text, encoding="utf-8", newline="\n")
 
 
+def is_release_excluded(path: Path) -> bool:
+    """Keep caches, local secrets, databases, and runtime artifacts out of the ZIP."""
+    excluded_dirs = {
+        ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+        "__pycache__", ".venv", "venv", "htmlcov", "node_modules",
+    }
+    if any(part in excluded_dirs for part in path.parts):
+        return True
+    if path.name == ".env":
+        return True
+    if path.suffix.lower() in {
+        ".pyc", ".pyo", ".log", ".sqlite", ".sqlite3", ".db", ".coverage",
+    }:
+        return True
+    return False
+
+
 def rebuild_manifest(root: Path) -> None:
     manifest = root / "PACKAGE_SHA256SUMS_AR.txt"
     header = [
         "SHA-256 checksums for Aurora Control Room — patched CI release package",
-        "Generated from the patched release tree; this list excludes itself.",
+        "Generated from the patched release tree; this list excludes itself and non-release artifacts.",
     ]
     lines = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or path == manifest:
-            continue
-        if "__pycache__" in path.parts or path.suffix == ".pyc":
+        if not path.is_file() or path == manifest or is_release_excluded(path):
             continue
         relative = path.relative_to(root).as_posix()
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -548,9 +563,7 @@ def build_zip(root: Path, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in sorted(root.rglob("*")):
-            if not path.is_file() or path == output:
-                continue
-            if "__pycache__" in path.parts or path.suffix == ".pyc":
+            if not path.is_file() or path == output or is_release_excluded(path):
                 continue
             archive.write(path, arcname=path.relative_to(root).as_posix())
 
