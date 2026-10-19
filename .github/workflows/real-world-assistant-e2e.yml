@@ -1,0 +1,166 @@
+name: Aurora real-world assistant E2E
+
+# This workflow makes one real provider call only after an explicit opt-in.
+# 2026-10-19: re-run the real path after the user rotated the provider credential;
+# the live job remains gated by the explicit [run-live-e2e] commit marker.
+# Manual dispatch is default-safe (confirm_provider_call=no). On the dev branch, a push
+# starts the live job only when its commit message contains [run-live-e2e].
+on:
+  push:
+    branches:
+      - real-world-assistant-e2e
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/real-world-assistant-e2e.yml"
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Real model provider to use (the selected GitHub Actions secret must exist)"
+        required: true
+        type: choice
+        options:
+          - "gemini"
+          - "openrouter"
+        default: "gemini"
+      confirm_provider_call:
+        description: "Run one real model/UI/browser task (uses the selected provider's quota)"
+        required: true
+        type: choice
+        options:
+          - "yes"
+          - "no"
+        default: "no"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aurora-real-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-assistant-task:
+    if: (github.event_name == 'workflow_dispatch' && inputs.confirm_provider_call == 'yes') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-live-e2e]'))
+    name: Real Windows + live website + real model/tool call
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      AI_PROVIDER: ${{ inputs.provider || 'gemini' }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Require the selected real provider credential (no mocks)
+        shell: pwsh
+        run: |
+          $provider = "$env:AI_PROVIDER".Trim().ToLowerInvariant()
+          if ($provider -eq "gemini") {
+            $credential = $env:GEMINI_API_KEY
+            $secretName = "GEMINI_API_KEY"
+          } elseif ($provider -eq "openrouter") {
+            $credential = $env:OPENROUTER_API_KEY
+            $secretName = "OPENROUTER_API_KEY"
+          } else {
+            throw "Unsupported model provider selection."
+          }
+          if ([string]::IsNullOrWhiteSpace($credential)) {
+            throw "BLOCKED: The selected provider has no credential. Add the corresponding repository Actions secret $secretName. Secret values are never displayed."
+          }
+          Write-Host "A real $provider credential is configured; secret value is not displayed."
+
+      - name: Preflight selected provider credential and model without generating tokens
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP "provider-preflight.json"
+          if ($env:AI_PROVIDER -eq "gemini") {
+            python .github/scripts/provider_api_preflight.py --provider gemini --model "gemini-3.8-flash" --report "$report"
+          } elseif ($env:AI_PROVIDER -eq "openrouter") {
+            python .github/scripts/provider_api_preflight.py --provider openrouter --report "$report"
+          } else {
+            throw "Unsupported model provider selection."
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Extract actual application package
+        shell: pwsh
+        run: |
+          $archive = "Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip"
+          if (!(Test-Path $archive)) { throw "The actual Aurora application ZIP is missing from this commit." }
+          Expand-Archive -LiteralPath $archive -DestinationPath "aurora_app" -Force
+          if (!(Test-Path "aurora_app\app.py") -or !(Test-Path "aurora_app\tool_executor.py")) {
+            throw "The extracted package does not contain the actual app and tool executor."
+          }
+
+      - name: Apply reviewed patches to the app under test
+        shell: pwsh
+        run: |
+          python .github/scripts/ci_prepare_release.py aurora_app
+          if (!(Test-Path "aurora_app\tests\test_gemini_503_retry.py")) {
+            throw "Gemini bounded-retry regression test was not created by the patcher."
+          }
+
+      - name: Install actual app dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r aurora_app\requirements.txt
+          python -m pip install selenium
+          python -m pip install pytest
+
+      - name: Start actual app and test the real assistant in the same Windows step
+        shell: pwsh
+        run: |
+          $env:AURORA_DATA_DIR = Join-Path $env:RUNNER_TEMP "aurora-real-e2e-data"
+          Add-Content -Path $env:GITHUB_ENV -Value "AURORA_DATA_DIR=$env:AURORA_DATA_DIR"
+          New-Item -ItemType Directory -Force -Path $env:AURORA_DATA_DIR | Out-Null
+          $env:PYTHONPATH = (Resolve-Path "aurora_app").Path
+          $stdout = Join-Path $env:RUNNER_TEMP "aurora-live.stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "aurora-live.stderr.log"
+          $server = Start-Process -FilePath python -ArgumentList @("-m","streamlit","run",(Join-Path (Resolve-Path "aurora_app").Path "app.py"),"--server.port","8765","--server.headless","true","--browser.gatherUsageStats","false") -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP "aurora-live-server.pid") -Value $server.Id
+          $healthy = $false
+          for ($i=0; $i -lt 45; $i++) {
+            $server.Refresh()
+            if ($server.HasExited) { break }
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:8765/_stcore/health" -TimeoutSec 2 -UseBasicParsing
+              if ($r.StatusCode -eq 200) { $healthy = $true; break }
+            } catch {}
+            Start-Sleep -Seconds 1
+          }
+          if (!$healthy) {
+            if (Test-Path $stdout) { Get-Content $stdout }
+            if (Test-Path $stderr) { Get-Content $stderr }
+            throw "Actual Aurora app did not become healthy."
+          }
+          Write-Host "Actual Aurora Streamlit app is running on the hosted Windows VM."
+          # Keep the app and real Chrome E2E inside one runner step. Windows Actions
+          # may clean up background processes at step boundaries, making localhost refuse
+          # connections when the browser test runs in a later step.
+          python .github/scripts/live_assistant_e2e.py --url "http://127.0.0.1:8765" --report "$env:RUNNER_TEMP/aurora-live-e2e-report.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload actual run report and application logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-real-world-e2e-report
+          path: |
+            ${{ runner.temp }}/aurora-live-e2e-report.json
+            ${{ runner.temp }}/aurora-live.stdout.log
+            ${{ runner.temp }}/aurora-live.stderr.log
+            ${{ runner.temp }}/provider-preflight.json
+          if-no-files-found: warn
+
+      - name: Stop actual application process
+        if: always()
+        shell: pwsh
+        run: |
+          $pidFile = Join-Path $env:RUNNER_TEMP "aurora-live-server.pid"
+          if (Test-Path $pidFile) {
+            $serverPid = [int](Get-Content $pidFile -Raw)
+            Stop-Process -Id $serverPid -Force -ErrorAction SilentlyContinue
+          }

@@ -101,7 +101,385 @@ if __name__ == "__main__":
 '''
 
 
+GEMINI_RETRY_TEST = '''"""Bounded retry behavior for temporary Gemini service overload."""
+import io
+import json
+import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError
+
+from gemini_native_client import GeminiNativeError, native_gemini_chat_completion
+
+
+class FakeResponse:
+    status = 200
+
+    def __init__(self, payload):
+        self.payload = json.dumps(payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, n=-1):
+        return self.payload[:n]
+
+
+def http_error(status, provider_status, message):
+    payload = {"error": {"status": provider_status, "message": message}}
+    return HTTPError(
+        "https://generativelanguage.googleapis.com/", status, "failure", {},
+        io.BytesIO(json.dumps(payload).encode("utf-8")),
+    )
+
+
+def success_response():
+    return FakeResponse({"candidates": [{"content": {"parts": [{"text": "ready"}]}}]})
+
+
+class Gemini503RetryTests(unittest.TestCase):
+    def _call(self):
+        return native_gemini_chat_completion(
+            "TEST_API_KEY", "gemini-3.8-flash", "system",
+            [{"role": "user", "content": "hello"}],
+        )
+
+    def test_one_503_retries_once_and_then_succeeds(self):
+        with patch(
+            "gemini_native_client.urlopen",
+            side_effect=[http_error(503, "UNAVAILABLE", "temporary high demand"), success_response()],
+        ) as mocked, patch("gemini_native_client.time.sleep") as sleep:
+            result = self._call()
+        self.assertEqual(result.choices[0].message.content, "ready")
+        self.assertEqual(mocked.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_persistent_503_stops_after_one_retry(self):
+        with patch(
+            "gemini_native_client.urlopen",
+            side_effect=[
+                http_error(503, "UNAVAILABLE", "temporary high demand"),
+                http_error(503, "UNAVAILABLE", "still unavailable"),
+            ],
+        ) as mocked, patch("gemini_native_client.time.sleep") as sleep:
+            with self.assertRaises(GeminiNativeError) as caught:
+                self._call()
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertEqual(mocked.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_429_is_not_retried(self):
+        with patch(
+            "gemini_native_client.urlopen",
+            side_effect=http_error(429, "RESOURCE_EXHAUSTED", "quota"),
+        ) as mocked, patch("gemini_native_client.time.sleep") as sleep:
+            with self.assertRaises(GeminiNativeError) as caught:
+                self._call()
+        self.assertEqual(caught.exception.status_code, 429)
+        mocked.assert_called_once()
+        sleep.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+
+
+def apply_gemini_503_retry(root: Path) -> None:
+    """Retry a single Gemini HTTP 503 after two seconds; never auto-retry HTTP 429."""
+    source = root / "gemini_native_client.py"
+    if not source.is_file():
+        raise SystemExit(f"Expected Gemini native client not found: {source}")
+    text = source.read_text(encoding="utf-8")
+    marker = "# AURORA_GEMINI_503_RETRY: exactly one bounded retry for transient overload."
+    if marker not in text:
+        import_anchor = "import json\nimport uuid\n"
+        if import_anchor not in text:
+            raise SystemExit("Could not safely locate Gemini native-client imports for retry patch.")
+        text = text.replace(import_anchor, "import json\nimport time\nimport uuid\n", 1)
+
+        old_block = '''    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read(2_000_000).decode("utf-8", "replace")
+            status = int(getattr(response, "status", 200))
+    except HTTPError as exc:
+        try:
+            raw = exc.read(64_000).decode("utf-8", "replace")
+        except Exception:
+            raw = ""
+        raise GeminiNativeError(int(exc.code), _safe_google_error(int(exc.code), raw, api_key)) from None
+    except URLError as exc:
+        reason = str(getattr(exc, "reason", exc)).replace(api_key, "[مفتاح مخفي]")[:260]
+        raise GeminiNativeError(None, "تعذر الوصول إلى Google عبر الشبكة أو DNS أو TLS: " + reason) from None
+    except TimeoutError:
+        raise GeminiNativeError(None, "انتهت مهلة الاتصال بـ Gemini؛ لم تُعد المحاولة تلقائيًا.") from None
+    except Exception as exc:
+        message = str(exc).replace(api_key, "[مفتاح مخفي]")[:260]
+        raise GeminiNativeError(None, type(exc).__name__ + ": " + message) from None
+'''
+        new_block = '''    # AURORA_GEMINI_503_RETRY: exactly one bounded retry for transient overload.
+    retry_503_count = 0
+    while True:
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                raw = response.read(2_000_000).decode("utf-8", "replace")
+                status = int(getattr(response, "status", 200))
+            break
+        except HTTPError as exc:
+            try:
+                raw = exc.read(64_000).decode("utf-8", "replace")
+            except Exception:
+                raw = ""
+            # No function call has been returned, so no tool/effect was run yet.
+            # Retry only a temporary 503 once; never retry quota or auth errors.
+            if int(exc.code) == 503 and retry_503_count == 0:
+                retry_503_count += 1
+                time.sleep(2)
+                continue
+            raise GeminiNativeError(int(exc.code), _safe_google_error(int(exc.code), raw, api_key)) from None
+        except URLError as exc:
+            reason = str(getattr(exc, "reason", exc)).replace(api_key, "[مفتاح مخفي]")[:260]
+            raise GeminiNativeError(None, "تعذر الوصول إلى Google عبر الشبكة أو DNS أو TLS: " + reason) from None
+        except TimeoutError:
+            raise GeminiNativeError(None, "انتهت مهلة الاتصال بـ Gemini؛ لم تُعد المحاولة تلقائيًا.") from None
+        except Exception as exc:
+            message = str(exc).replace(api_key, "[مفتاح مخفي]")[:260]
+            raise GeminiNativeError(None, type(exc).__name__ + ": " + message) from None
+'''
+        if old_block not in text:
+            raise SystemExit("Could not safely locate the Gemini HTTP transport block; refusing a fuzzy replacement.")
+        text = text.replace(old_block, new_block, 1)
+        source.write_text(text, encoding="utf-8", newline="\n")
+
+    test_path = root / "tests" / "test_gemini_503_retry.py"
+    test_path.parent.mkdir(parents=True, exist_ok=True)
+    if not test_path.exists():
+        test_path.write_text(GEMINI_RETRY_TEST, encoding="utf-8", newline="\n")
+
+    report = root / "PATCH_REPORT_AR.md"
+    if report.exists():
+        report_text = report.read_text(encoding="utf-8")
+        # Replace an old test count that predates the current 350-test CI matrix.
+        # The runtime count belongs in the CI JUnit reports, not in a timeless package note.
+        legacy_evidence = "- الدليل: 223 اختبارًا ناجحًا، ومن ضمنها اختبار المسار الأولي الجديد واختبار عدم تكرار الزرع عند إعادة التشغيل."
+        if legacy_evidence in report_text:
+            report_text = report_text.replace(
+                legacy_evidence,
+                "- الدليل والعدد الفعلي محفوظان في أحدث windows-test-results.xml على GitHub Actions لكل إصدار Python."
+            )
+        report_marker = "### معالجة ضغط Gemini المؤقت (HTTP 503)"
+        if report_marker not in report_text:
+            report_text += (
+                "\n\n" + report_marker + "\n"
+                "- إذا أعاد Gemini HTTP 503، ينتظر العميل ثانيتين ثم يعيد الطلب مرة واحدة فقط.\n"
+                "- لا تتم إعادة المحاولة عند HTTP 429 (الحصة)، أو خطأ المفتاح/الصلاحيات، أو صيغة طلب غير صالحة.\n"
+                "- أضيفت اختبارات انحدار لنجاح المحاولة الثانية، وفشل محاولتين، وعدم إعادة 429.\n"
+            )
+        report.write_text(report_text, encoding="utf-8", newline="\n")
+
+
+
+BROWSER_PAGE_TITLE_TEST = r'''
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from tool_executor import LocalToolExecutor
+
+
+class FakeHeading:
+    text = "Example Domain"
+    def is_displayed(self):
+        return True
+
+
+class FakeDriver:
+    current_url = "https://example.com/"
+    title = "Example Domain"
+    def find_element(self, by, selector):
+        if (by, selector) == ("tag name", "h1"):
+            return FakeHeading()
+        raise LookupError("unexpected element")
+
+
+class BrowserPageTitleTests(unittest.TestCase):
+    def test_read_page_returns_document_title_and_visible_text(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            driver = FakeDriver()
+            executor = LocalToolExecutor(
+                root / "Workspace",
+                root / "Drafts",
+                lambda: driver,
+                resolve_dns=False,
+                memory_path=root / "aurora.sqlite3",
+            )
+            with patch("tool_executor.get_visible_page_text", return_value="Example Domain visible heading"):
+                result = executor.execute("browser_read_page", {})
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["effect_verified"])
+        self.assertEqual(result["page_title"], "Example Domain")
+        self.assertEqual(result["page_h1"], "Example Domain")
+        self.assertIn("Example Domain visible heading", result["text"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+PAGE_TITLE_PRIVACY_TEST = r'''
+import json
+import unittest
+
+from assistant_core import redact_messages_for_storage, redact_tool_log
+
+
+PRIVATE_TITLE = "SENSITIVE_PRIVATE_PAGE_TITLE_9182"
+PRIVATE_H1 = "SENSITIVE_PRIVATE_H1_8821"
+PRIVATE_BODY = "SENSITIVE_PAGE_BODY_6621"
+PRIVATE_QUERY = "token=TOP_SECRET_QUERY_771"
+
+
+class PageTitlePrivacyTests(unittest.TestCase):
+    def test_tool_log_redacts_page_title_body_and_url_query(self):
+        _args, safe_output = redact_tool_log(
+            "browser_read_page",
+            {},
+            {
+                "ok": True,
+                "effect_verified": True,
+                "page_title": PRIVATE_TITLE,
+                "page_h1": PRIVATE_H1,
+                "text": PRIVATE_BODY,
+                "url": "https://example.com/private?" + PRIVATE_QUERY,
+            },
+        )
+        serialized = json.dumps(safe_output, ensure_ascii=False)
+        self.assertNotIn(PRIVATE_TITLE, serialized)
+        self.assertNotIn(PRIVATE_H1, serialized)
+        self.assertNotIn(PRIVATE_BODY, serialized)
+        self.assertNotIn(PRIVATE_QUERY, serialized)
+        self.assertIn("example.com/private", serialized)
+
+    def test_conversation_storage_redacts_page_title_and_page_body(self):
+        messages = [
+            {
+                "role": "assistant",
+                "tool_calls": [{
+                    "id": "call-page-read",
+                    "function": {"name": "browser_read_page", "arguments": "{}"},
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-page-read",
+                "content": json.dumps({
+                    "ok": True,
+                    "effect_verified": True,
+                    "page_title": PRIVATE_TITLE,
+                    "page_h1": PRIVATE_H1,
+                    "text": PRIVATE_BODY,
+                    "url": "https://example.com/private?" + PRIVATE_QUERY,
+                }),
+            },
+        ]
+        stored = json.dumps(redact_messages_for_storage(messages), ensure_ascii=False)
+        self.assertNotIn(PRIVATE_TITLE, stored)
+        self.assertNotIn(PRIVATE_H1, stored)
+        self.assertNotIn(PRIVATE_BODY, stored)
+        self.assertNotIn(PRIVATE_QUERY, stored)
+        self.assertIn("example.com/private", stored)
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+
+
+def apply_browser_page_title(root: Path) -> None:
+    """Return the browser document title to the model while redacting it from persisted logs."""
+    tool_source = root / "tool_executor.py"
+    tool_text = tool_source.read_text(encoding="utf-8")
+    if "page_h1=page_h1" not in tool_text:
+        old = '''        if name == "browser_read_page":
+            driver, current_url = self._browser_for_context(args)
+            text = get_visible_page_text(driver, limit=20000)
+            return new_tool_result(True, True, "تمت قراءة النص الظاهر في الصفحة.", url=current_url, text=text, private_account_warning=page_read_warning(current_url))
+'''
+        legacy = '''        if name == "browser_read_page":
+            driver, current_url = self._browser_for_context(args)
+            text = get_visible_page_text(driver, limit=20000)
+            try:
+                page_title = str(getattr(driver, "title", "") or "")[:250]
+            except Exception:
+                page_title = ""
+            # AURORA_BROWSER_PAGE_TITLE_RESULT: return transient title to model; redact it at rest.
+            return new_tool_result(True, True, "تمت قراءة عنوان الصفحة والنص الظاهر فيها.", url=current_url, page_title=page_title, text=text, private_account_warning=page_read_warning(current_url))
+'''
+        new = '''        if name == "browser_read_page":
+            driver, current_url = self._browser_for_context(args)
+            text = get_visible_page_text(driver, limit=20000)
+            try:
+                page_title = str(getattr(driver, "title", "") or "")[:250]
+            except Exception:
+                page_title = ""
+            try:
+                heading = driver.find_element("tag name", "h1")
+                page_h1 = str(getattr(heading, "text", "") or "")[:500] if heading.is_displayed() else ""
+            except Exception:
+                page_h1 = ""
+            # AURORA_BROWSER_PAGE_TITLE_RESULT: return transient title/H1 to model; redact at rest.
+            return new_tool_result(True, True, "تمت قراءة عنوان الصفحة والعنوان الرئيسي والنص الظاهر فيها.", url=current_url, page_title=page_title, page_h1=page_h1, text=text, private_account_warning=page_read_warning(current_url))
+'''
+        if legacy in tool_text:
+            tool_text = tool_text.replace(legacy, new, 1)
+        elif old in tool_text:
+            tool_text = tool_text.replace(old, new, 1)
+        else:
+            raise SystemExit("Could not safely locate current or legacy browser_read_page implementation; refusing a fuzzy patch.")
+        tool_source.write_text(tool_text, encoding="utf-8", newline="\n")
+
+    core = root / "assistant_core.py"
+    core_text = core.read_text(encoding="utf-8")
+    old_redact = 'for field in ("content", "text", "stdout", "stderr", "page_text", "controls", "windows", "results", "procedures"):'
+    new_redact = 'for field in ("content", "text", "stdout", "stderr", "page_text", "controls", "windows", "results", "procedures", "page_title", "page_h1"):'
+    if new_redact not in core_text:
+        if old_redact not in core_text:
+            raise SystemExit("Could not safely locate tool-output redaction fields.")
+        core_text = core_text.replace(old_redact, new_redact, 1)
+    old_storage = '"browser_read_page": ("text",),'
+    new_storage = '"browser_read_page": ("text", "page_title", "page_h1"),'
+    if new_storage not in core_text:
+        if old_storage not in core_text:
+            raise SystemExit("Could not safely locate persisted-message redaction rules.")
+        core_text = core_text.replace(old_storage, new_storage, 1)
+    core.write_text(core_text, encoding="utf-8", newline="\n")
+
+    app = root / "app.py"
+    app_text = app.read_text(encoding="utf-8")
+    old_description = "قراءة النص الظاهر حاليًا في الصفحة مباشرة في الوضع التلقائي."
+    new_description = "قراءة عنوان الصفحة في page_title وعنوان H1 المرئي في page_h1 إن وجد ونص الصفحة الظاهر مباشرة في الوضع التلقائي."
+    if new_description not in app_text:
+        if old_description not in app_text:
+            raise SystemExit("Could not safely locate browser_read_page tool description.")
+        app_text = app_text.replace(old_description, new_description, 1)
+        app.write_text(app_text, encoding="utf-8", newline="\n")
+
+    tests_dir = root / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    page_test = tests_dir / "test_browser_page_title.py"
+    if not page_test.exists():
+        page_test.write_text(BROWSER_PAGE_TITLE_TEST, encoding="utf-8", newline="\n")
+    privacy_test = tests_dir / "test_page_title_privacy.py"
+    if not privacy_test.exists():
+        privacy_test.write_text(PAGE_TITLE_PRIVACY_TEST, encoding="utf-8", newline="\n")
+
+
 def apply_fixes(root: Path) -> None:
+    apply_gemini_503_retry(root)
+    apply_browser_page_title(root)
     source = root / "windows_tools.py"
     text = source.read_text(encoding="utf-8")
     switch_signature = 'def switch_existing_chrome_tab(tab_query: str = "Gmail") -> dict[str, Any]:'

@@ -16,6 +16,7 @@ sys.path.insert(0, str(SOURCE_ROOT if (SOURCE_ROOT / "browser_control.py").is_fi
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import InvalidArgumentException, TimeoutException
 
 from browser_control import (
     find_text_target,
@@ -38,20 +39,37 @@ HTML = b"""<!doctype html>
 </body></html>"""
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """Suppress only expected client disconnects from the deliberate timeout fixture."""
+
+    def handle_error(self, request, client_address):
+        exc_type, exc, _traceback = sys.exc_info()
+        if isinstance(exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path.startswith("/slow"):
+            time.sleep(1.5)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(HTML)))
         self.end_headers()
-        self.wfile.write(HTML)
+        try:
+            self.wfile.write(HTML)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            # The delayed-response timeout test intentionally closes Chrome's request early.
+            if not self.path.startswith("/slow"):
+                raise
 
     def log_message(self, *_args):
         pass
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = QuietThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     driver = None
@@ -105,6 +123,55 @@ def main() -> None:
             checks.append("PASS: remote Chrome debugging endpoint rejected")
         else:
             raise AssertionError("Remote debugging endpoint was incorrectly accepted")
+
+        # An invalid URL must fail before Chrome leaves the known-good fixture.
+        known_good_url = driver.current_url
+        try:
+            driver.get("not a valid URL with spaces")
+        except InvalidArgumentException:
+            assert driver.current_url == known_good_url
+            assert "The page is loaded and readable." in get_visible_page_text(driver, limit=2000)
+            checks.append("PASS: malformed navigation URL rejected without leaving the current page")
+        else:
+            raise AssertionError("Malformed navigation URL was unexpectedly accepted")
+
+        # Missing targets must be reported, not guessed or clicked by fuzzy fallback.
+        try:
+            find_text_target(driver, "Aurora button that does not exist")
+        except ValueError:
+            assert driver.current_url == known_good_url
+            assert "The page is loaded and readable." in get_visible_page_text(driver, limit=2000)
+            checks.append("PASS: missing target rejected without guessing or navigating away")
+        else:
+            raise AssertionError("Missing target was unexpectedly selected")
+
+        # A delayed local response must trigger the configured page-load timeout and allow recovery.
+        driver.set_page_load_timeout(0.5)
+        try:
+            driver.get(f"http://127.0.0.1:{server.server_port}/slow")
+        except TimeoutException:
+            driver.execute_script("window.stop();")
+            checks.append("PASS: delayed page navigation triggers a bounded page-load timeout")
+        else:
+            raise AssertionError("Delayed page navigation did not trigger the configured timeout")
+        finally:
+            driver.set_page_load_timeout(30)
+        driver.get(f"http://127.0.0.1:{server.server_port}/")
+        assert driver.title == "Aurora Browser Test Fixture"
+        assert "The page is loaded and readable." in get_visible_page_text(driver, limit=2000)
+        checks.append("PASS: Chrome recovers to a known-good page after a navigation timeout")
+
+        # A bounded wait for a missing element must time out without navigation.
+        try:
+            WebDriverWait(driver, 0.25).until(
+                lambda d: d.find_element("id", "element-that-does-not-exist")
+            )
+        except TimeoutException:
+            assert driver.current_url == known_good_url
+            assert "The page is loaded and readable." in get_visible_page_text(driver, limit=2000)
+            checks.append("PASS: missing-element wait times out within a bound without leaving the page")
+        else:
+            raise AssertionError("Wait for a missing element unexpectedly succeeded")
 
         # Localhost is intentionally not a public navigation target for the assistant.
         try:

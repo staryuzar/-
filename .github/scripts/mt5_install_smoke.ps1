@@ -8,11 +8,66 @@ New-Item -ItemType Directory -Path $installDir, $logDir -Force | Out-Null
 $report = Join-Path $logDir "mt5-smoke-report.txt"
 $installer = Join-Path $root "mt5setup.exe"
 $terminal = $null
+$terminalProcess = $null
+$loginConfig = $null
 
 try {
     "Aurora MT5 integration smoke test" | Set-Content -LiteralPath $report -Encoding utf8
     "UTC start: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $report -Encoding utf8
     "Source: official MetaTrader 5 installer (MetaQuotes)" | Add-Content -LiteralPath $report -Encoding utf8
+
+    # Read the GitHub Actions secret only into process memory. Supported formats:
+    # JSON {"login":"...","password":"...","server":"..."} or two/three lines:
+    # account login, trading password, optional server. Never echo or upload values.
+    $credentialRaw = [string]$env:MT5_CREDENTIALS
+    if ([string]::IsNullOrWhiteSpace($credentialRaw)) {
+        throw "BLOCKED: repository Actions secret 'mt5' is missing. Configure it as JSON or as account-login/password on separate lines."
+    }
+    $accountLogin = ""
+    $accountPassword = ""
+    $accountServer = "mt5.demo.trade-hw.online"
+    $credentialObject = $null
+    if ($credentialRaw.TrimStart().StartsWith("{")) {
+        try { $credentialObject = ConvertFrom-Json -InputObject $credentialRaw -ErrorAction Stop } catch { $credentialObject = $null }
+    }
+    if ($null -ne $credentialObject) {
+        $accountLogin = [string]$credentialObject.login
+        if ([string]::IsNullOrWhiteSpace($accountLogin)) { $accountLogin = [string]$credentialObject.account }
+        $accountPassword = [string]$credentialObject.password
+        if (-not [string]::IsNullOrWhiteSpace([string]$credentialObject.server)) { $accountServer = [string]$credentialObject.server }
+    } else {
+        $credentialLines = @($credentialRaw -split "\r?\n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+        $namedFields = @{}
+        foreach ($line in $credentialLines) {
+            if ($line -match '(?i)^(login|account|password|server)\s*[:=]\s*(.*)$') {
+                $namedFields[$matches[1].ToLowerInvariant()] = $matches[2]
+            }
+        }
+        if ($namedFields.ContainsKey("login") -or $namedFields.ContainsKey("account") -or $namedFields.ContainsKey("password")) {
+            $accountLogin = [string]$namedFields["login"]
+            if ([string]::IsNullOrWhiteSpace($accountLogin)) { $accountLogin = [string]$namedFields["account"] }
+            $accountPassword = [string]$namedFields["password"]
+            if (-not [string]::IsNullOrWhiteSpace([string]$namedFields["server"])) { $accountServer = [string]$namedFields["server"] }
+        } elseif ($credentialLines.Count -ge 2) {
+            $accountLogin = [string]$credentialLines[0]
+            $accountPassword = [string]$credentialLines[1]
+            if ($credentialLines.Count -ge 3) { $accountServer = [string]$credentialLines[2] }
+        } else {
+            throw "Invalid format for repository Actions secret 'mt5'. Use JSON or at least two separate lines (login and password)."
+        }
+    }
+    if ($accountLogin -notmatch '^\d{4,20}$' -or [string]::IsNullOrWhiteSpace($accountPassword)) {
+        throw "Invalid account credential format in Actions secret 'mt5'; account/password values were not logged."
+    }
+    if ($accountLogin -match '[\r\n=]' -or $accountPassword -match '[\r\n]' -or $accountServer -match '[\r\n]') {
+        throw "Account credential fields contain unsupported line breaks or delimiters."
+    }
+    # Mask individual components as well as the complete multi-line secret.
+    Write-Output "::add-mask::$accountLogin"
+    Write-Output "::add-mask::$accountPassword"
+    Write-Output "::add-mask::$accountServer"
+    "Demo account secret detected; credential values suppressed." | Add-Content -LiteralPath $report -Encoding utf8
+
     $uri = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
     Invoke-WebRequest -Uri $uri -OutFile $installer -TimeoutSec 180
     if (!(Test-Path $installer) -or (Get-Item $installer).Length -lt 100000) {
@@ -76,7 +131,108 @@ void OnTick() {}
     $env:PYTHONPATH = $sourceDir
     python .github/scripts/mt5_assistant_launch_probe.py --source-dir "$sourceDir" --terminal-path "$($terminal.FullName)" --install-dir "$installDir" --report "$report"
     if ($LASTEXITCODE -ne 0) { throw "Aurora's launch_program integration probe failed." }
-    "LIMIT: no broker login, demo account, Strategy Tester run, or trade was performed; only a disposable sample EA was compiled, not the user’s EA." | Add-Content -LiteralPath $report -Encoding utf8
+
+    # Verify a real demo-account login using a temporary MT5 config.
+    # Trading remains disabled; no EA is attached and no orders are sent.
+    $loginConfig = Join-Path $root "mt5-demo-login.ini"
+    $configText = @"
+[Common]
+Login=$accountLogin
+Password=$accountPassword
+Server=$accountServer
+ProxyEnable=0
+KeepPrivate=0
+NewsEnable=0
+CertInstall=0
+
+[Experts]
+Enabled=0
+AllowLiveTrading=0
+AllowDllImport=0
+
+[Charts]
+ProfileLast=Default
+MaxBars=10000
+"@
+    [System.IO.File]::WriteAllText($loginConfig, $configText, [System.Text.UTF8Encoding]::new($false))
+    $loginForRedaction = [string]$accountLogin
+    $accountPassword = $null
+    $credentialRaw = $null
+    $credentialObject = $null
+    $namedFields = $null
+    $credentialLines = $null
+
+    $loginStartTime = Get-Date
+    # /login forces the requested account; the password is passed only via the private config file.
+    $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", "/config:$loginConfig", "/login:$loginForRedaction") -WorkingDirectory $installDir -PassThru
+    "Launched isolated MT5 process for demo authorization check; account details omitted." | Add-Content -LiteralPath $report -Encoding utf8
+    $authorizationConfirmed = $false
+    $authorizationRejected = $false
+    $loginDeadline = (Get-Date).AddSeconds(120)
+    $logRoots = @((Join-Path $installDir "Logs"), (Join-Path $installDir "MQL5\Logs"))
+    $appTerminalRoot = Join-Path $env:APPDATA "MetaQuotes\Terminal"
+    if (Test-Path $appTerminalRoot) {
+        foreach ($dataFolder in (Get-ChildItem -LiteralPath $appTerminalRoot -Directory -ErrorAction SilentlyContinue)) {
+            $logRoots += (Join-Path $dataFolder.FullName "Logs")
+            $logRoots += (Join-Path $dataFolder.FullName "MQL5\Logs")
+        }
+    }
+    $logRoots = @($logRoots | Select-Object -Unique)
+    $candidateLogFiles = 0
+    $freshLogFiles = 0
+    $diagnosticLines = New-Object System.Collections.Generic.List[string]
+    while ((Get-Date) -lt $loginDeadline) {
+        $logFiles = @()
+        foreach ($logRoot in $logRoots) {
+            if (Test-Path $logRoot) {
+                $logFiles += @(Get-ChildItem -LiteralPath $logRoot -Filter "*.log" -File -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTime -Descending | Select-Object -First 8)
+            }
+        }
+        $logFiles = @($logFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 24)
+        $candidateLogFiles = [Math]::Max($candidateLogFiles, $logFiles.Count)
+        foreach ($logFile in $logFiles) {
+            $isFreshLog = $logFile.LastWriteTime -ge $loginStartTime.AddSeconds(-3)
+            if ($isFreshLog) { $freshLogFiles++ }
+            $logText = ""
+            try { $logText = Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction Stop } catch { continue }
+            foreach ($logLine in ($logText -split "\r?\n")) {
+                $isServer = $logLine -match '(?i)(Headway-Demo|mt5\.demo\.trade-hw\.online)'
+                if ($isFreshLog -and $isServer -and $logLine -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
+                    $logLine -notmatch '(?i)(failed|invalid|not authorized|authorization error)') {
+                    $authorizationConfirmed = $true
+                    break
+                }
+                if ($isFreshLog -and $isServer -and $logLine -match '(?i)(authorization failed|failed to authorize|invalid account|invalid password|authorization rejected)') {
+                    $authorizationRejected = $true
+                }
+                if ($isFreshLog -and $diagnosticLines.Count -lt 10 -and
+                    $logLine -match '(?i)(Headway|mt5\.demo|authoriz|login|connect|network|server|failed|error|timeout|socket|resolve|proxy)') {
+                    $safeLine = [string]$logLine
+                    if (-not [string]::IsNullOrEmpty($loginForRedaction)) { $safeLine = $safeLine.Replace($loginForRedaction, "[LOGIN REDACTED]") }
+                    $safeLine = $safeLine -replace '(?i)(password|passwd)\s*[:=]\s*\S+', '$1=[REDACTED]'
+                    $safeLine = $safeLine -replace '\b\d{4,20}\b', '[NUMBER REDACTED]'
+                    if ($safeLine.Length -gt 260) { $safeLine = $safeLine.Substring(0, 260) }
+                    if (-not $diagnosticLines.Contains($safeLine)) { [void]$diagnosticLines.Add($safeLine) }
+                }
+            }
+            if ($authorizationConfirmed) { break }
+        }
+        if ($authorizationConfirmed) { break }
+        if ($authorizationRejected) { break }
+        Start-Sleep -Seconds 3
+    }
+    if (-not $authorizationConfirmed) {
+        "Login diagnostics: candidate log files=$candidateLogFiles; fresh log files seen=$freshLogFiles; searched roots=$($logRoots.Count)." | Add-Content -LiteralPath $report -Encoding utf8
+        foreach ($safeLine in $diagnosticLines) { "Sanitized MT5 log: $safeLine" | Add-Content -LiteralPath $report -Encoding utf8 }
+    }
+    if ($authorizationConfirmed) {
+        "RESULT: PASS — MT5 logs confirmed authorization to the Headway demo server. No orders were placed." | Add-Content -LiteralPath $report -Encoding utf8
+    } elseif ($authorizationRejected) {
+        throw "MT5 server rejected or could not validate the demo-account authorization. Credential values and raw terminal logs were not written to the report."
+    } else {
+        throw "MT5 demo authorization was not confirmed within 120 seconds. Sanitized connection diagnostics were added; credentials and raw terminal logs were not uploaded."
+    }
     Get-Content -LiteralPath $report
 }
 catch {
@@ -84,4 +240,11 @@ catch {
     Get-Content -LiteralPath $report
     throw
 }
-finally { }
+finally {
+    if ($terminalProcess -and !$terminalProcess.HasExited) {
+        Stop-Process -Id $terminalProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+    if ($loginConfig -and (Test-Path -LiteralPath $loginConfig)) {
+        Remove-Item -LiteralPath $loginConfig -Force -ErrorAction SilentlyContinue
+    }
+}
