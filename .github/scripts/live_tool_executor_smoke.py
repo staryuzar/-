@@ -102,8 +102,10 @@ def main() -> int:
             checks.append("PASS: actual browser_search_web opened DuckDuckGo with the requested query and browser_read_page read the live search page")
 
             # Exercise text entry on a real browser input without submitting the search or sending a message.
-            driver.get("https://duckduckgo.com/")
-            validate_current_page(driver, resolve_dns=True)
+            home = executor.execute("browser_open_url", {"url": "https://duckduckgo.com/"})
+            home_url = str(home.get("url") or driver.current_url or "")
+            if not home.get("ok") or not home.get("effect_verified") or not (urlsplit(home_url).hostname or "").casefold().endswith("duckduckgo.com"):
+                raise AssertionError("The actual browser_open_url tool did not verify the DuckDuckGo home page.")
             search_input = None
             for selector in ("name", "id"):
                 try:
