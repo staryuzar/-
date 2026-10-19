@@ -261,15 +261,23 @@ def apply_gemini_503_retry(root: Path) -> None:
     report = root / "PATCH_REPORT_AR.md"
     if report.exists():
         report_text = report.read_text(encoding="utf-8")
+        # Replace an old test count that predates the current 350-test CI matrix.
+        # The runtime count belongs in the CI JUnit reports, not in a timeless package note.
+        legacy_evidence = "- الدليل: 223 اختبارًا ناجحًا، ومن ضمنها اختبار المسار الأولي الجديد واختبار عدم تكرار الزرع عند إعادة التشغيل."
+        if legacy_evidence in report_text:
+            report_text = report_text.replace(
+                legacy_evidence,
+                "- الدليل والعدد الفعلي محفوظان في أحدث windows-test-results.xml على GitHub Actions لكل إصدار Python."
+            )
         report_marker = "### معالجة ضغط Gemini المؤقت (HTTP 503)"
         if report_marker not in report_text:
             report_text += (
                 "\n\n" + report_marker + "\n"
-                "- إذا أعاد Gemini HTTP 503، ينتظر العميل ثانيتين ثم يعيد الطلب مرة واحدة فقط.\\n"
-                "- لا تتم إعادة المحاولة عند HTTP 429 (الحصة)، أو خطأ المفتاح/الصلاحيات، أو صيغة طلب غير صالحة.\\n"
-                "- أضيفت اختبارات انحدار لنجاح المحاولة الثانية، وفشل محاولتين، وعدم إعادة 429.\\n"
+                "- إذا أعاد Gemini HTTP 503، ينتظر العميل ثانيتين ثم يعيد الطلب مرة واحدة فقط.\n"
+                "- لا تتم إعادة المحاولة عند HTTP 429 (الحصة)، أو خطأ المفتاح/الصلاحيات، أو صيغة طلب غير صالحة.\n"
+                "- أضيفت اختبارات انحدار لنجاح المحاولة الثانية، وفشل محاولتين، وعدم إعادة 429.\n"
             )
-            report.write_text(report_text, encoding="utf-8", newline="\n")
+        report.write_text(report_text, encoding="utf-8", newline="\n")
 
 
 
