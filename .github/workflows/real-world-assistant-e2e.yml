@@ -3,7 +3,11 @@ name: Aurora real-world assistant E2E
 on:
   push:
     branches:
+      - main
       - real-world-assistant-e2e
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
