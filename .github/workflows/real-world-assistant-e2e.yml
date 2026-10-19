@@ -48,12 +48,21 @@ jobs:
             throw "The extracted package does not contain the actual app and tool executor."
           }
 
+      - name: Apply reviewed patches to the app under test
+        shell: pwsh
+        run: |
+          python .github/scripts/ci_prepare_release.py aurora_app
+          if (!(Test-Path "aurora_app\tests\test_gemini_503_retry.py")) {
+            throw "Gemini bounded-retry regression test was not created by the patcher."
+          }
+
       - name: Install actual app dependencies
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r aurora_app\requirements.txt
           python -m pip install selenium
+          python -m pip install pytest
 
       - name: Start actual app and test the real assistant in the same Windows step
         shell: pwsh
