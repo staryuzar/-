@@ -4,6 +4,18 @@
 
 > **للاستئناف في أي محادثة لاحقة:** اقرأ [تقرير الاستئناف الدائم بالعربية](.github/RESUME_REPORT_2026-10-19_AR.md) أولًا؛ يتضمن السجل الزمني الكامل والنتائج وروابط Actions ونقطة العمل التالية. لا تبدأ من الصفر. أبقِ ملفات المختبر وسكربتاته وتقاريره في GitHub.
 
+## الحالة الحالية المؤكدة — 2026-10-19 13:18 UTC
+
+**هذا الملخص أحدث من كتل النتائج التاريخية أدناه؛ عند التعارض اعتمد النتائج هنا وتقرير الاستئناف.**
+
+- **E2E حقيقي بلا محاكاة: PASS** — [run #63 / 39257610584](https://github.com/staryuzar/-/actions/runs/39257610584). Gemini الحقيقي ردّ عبر واجهة Aurora، وChrome فتح `example.com` وقرأه، وأثبتت سجلات SQLite وجود عمليتي فتح الصفحة وقراءتها للطلب نفسه. [تقرير التشغيل](https://github.com/staryuzar/-/actions/runs/39257610584/artifacts/12189520240).
+- **Windows validation #172: PASS** — [run 39258473692](https://github.com/staryuzar/-/actions/runs/39258473692). Python 3.11: **353/353**؛ Python 3.13: **353/353**؛ صفر فشل وأخطاء ومتخطيات في الإصدارين.
+- **Chrome: 12/12 PASS**، و**LocalToolExecutor: 9/9 PASS**، دون traceback غير ضروري من انقطاع socket المتوقع في اختبار المهلة. [تقرير Chrome ومنفّذ الأدوات](https://github.com/staryuzar/-/actions/runs/39258473692/artifacts/12188991184).
+- **MT5: PASS** — تشغيل المنصة والمصادقة على خادم Headway التجريبي، وترجمة عينة MQL5 مؤقتة بصفر أخطاء وصفر تحذيرات؛ لم تُفتح صفقات. [تقرير MT5](https://github.com/staryuzar/-/actions/runs/39258473692/artifacts/12189311616).
+- **الحزمة المصححة**: [artifact 12189581073](https://github.com/staryuzar/-/actions/runs/39258473692/artifacts/12189581073). بصمة الأرشيف الخارجي SHA-256: `2e258d099307f6e2e2f374c461f6808a0249bd3657de89a113224f42f84c512f`.
+- **ما لم يكتمل بعد:** لم يُختبر Gmail الشخصي، ولم يُترجم EA التداول الخاص بالمستخدم أو يُشغّل Strategy Tester؛ ملفات EA والبيانات اللازمة غير موجودة في شجرة المستودع. كما أن نجاح Windows Server 2022 لا يغني عن فحص تشغيل محلي على Windows 10 Pro 1909.
+
+
 ## تحديث إضافي — فحص المفتاح والنموذج قبل الاختبار الحي
 
 - أبلغ المستخدم أنه غيّر `GEMINI_API_KEY`. لا يمكن قراءة قيمة السر مباشرة، لذلك لا نعلن أنه صالح قبل اختباره.
@@ -20,7 +32,7 @@
 - [Windows validation #125 — SUCCESS](https://github.com/staryuzar/-/actions/runs/39237010918): `scope-check` وحدها عملت بنجاح؛ Python/Chrome/MT5 تم تخطيها لأن التغيير توثيقي فقط.
 - [افتح أسرار GitHub Actions لتحديث المفتاح](https://github.com/staryuzar/-/settings/secrets/actions). حدّث `GEMINI_API_KEY` أو `OPENROUTER_API_KEY` حسب المزود الذي لديك له رصيد.
 - بعد حفظ السر: افتح [سير اختبار E2E الحقيقي](https://github.com/staryuzar/-/actions/workflows/real-world-assistant-e2e.yml)، اختر الفرع `real-world-assistant-e2e`، ومزوّد السر الصحيح، وغيّر `confirm_provider_call` إلى `yes` لتشغيل طلب واحد فعلي فقط.
-- النجاح يتطلب استجابة نموذج وسجلات تنفيذ فعلية لفتح وقراءة `example.com` في المحادثة نفسها؛ لا يوجد نجاح حي مثبت منذ HTTP 429 السابق.
+- كان هذا هو الوضع قبل إعادة التحقق؛ أحدث نتيجة حية ناجحة موثقة الآن هي [run 39257610584](https://github.com/staryuzar/-/actions/runs/39257610584)، مع سجلات تنفيذ فعلية لفتح وقراءة `example.com` في المحادثة نفسها.
 - تفاصيل نقطة الاستئناف: [تقرير العمل العربي](.github/RESUME_REPORT_2026-10-19_AR.md).
 ## آخر نتائج الاختبارات المؤكدة — 2026-10-19
 
