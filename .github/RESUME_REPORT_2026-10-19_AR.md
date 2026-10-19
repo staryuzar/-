@@ -424,3 +424,24 @@
 - سجل MT5 يثبت أن MetaEditor ترجم الملف التجريبي المؤقت `AuroraCompileSmoke.mq5` بصفر أخطاء: `RESULT: PASS — MetaEditor compiled a disposable sample EA with zero errors.`
 - هذا ليس EA المستخدم ولا يثبت صحة استراتيجية تداول. سجل الواجهة أكد ظهور MT5، وسجل المنصة أكد المصادقة على خادم Headway التجريبي، ولم تُفتح أي أوامر.
 - لا توجد ملفات EA مستخدم `.mq5/.mqh/.ex5` أو إعدادات `.set` أو بيانات تاريخية `.csv` ضمن شجرة المستودع الحالية؛ Strategy Tester لم يُشغّل بعد.
+
+
+## متابعة الاستئناف — تشغيل Windows #163 ناجح — 2026-10-19 12:58 UTC
+
+### نتائج أحدث commit لاختبارات الحماية
+- [Windows validation #163 / 39255692194](https://github.com/staryuzar/-/actions/runs/39255692194) — **نجاح كامل** للوظائف الخمس.
+- تعديل حارس URL في [commit f3a2cee](https://github.com/staryuzar/-/commit/f3a2cee2a2a751515da13689821ad8375a9b83cb) أضاف اختبار `localhost` وIPv6 loopback `::1` إلى فحوص `LocalToolExecutor` الحقيقية.
+- النتيجة: **6/6** اختبارات منفّذ الأدوات ناجحة، مع إثبات أن المحاولات المرفوضة لم تغيّر الصفحة العامة المفتوحة. اختبارات Chrome المستقلة للانتظار/المهلة/التعافي موثقة في تشغيل #156 بـ12/12.
+- Python 3.11: `231 passed, 122 subtests passed`؛ Python 3.13: `231 passed, 122 subtests passed`.
+- Artifact Chrome/ToolExecutor: [12187408176](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187408176), SHA-256 `cdc8e1611070be7a9eeacaec54720bbbf948b523711b036b77d669edc2f56168`.
+- حزمة التطبيق الناتجة من Windows CI: [Aurora-Control-Room-v2.4.0-patched — 12188100049](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12188100049), SHA-256 `5fa7b5e4553f51e59e5bce350c368e03fd26bac31a4eee0eac686c9fedc1c0d6`.
+- تقارير الاختبارات: [Python 3.11](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187742741)، [Python 3.13](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187383471)، [MT5](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187688089).
+
+### توضيح نطاق الاختبار
+- MT5 شُغّل على Windows runner وتحققت مصادقة Headway التجريبية. MetaEditor ترجم عينة EA مؤقتة فقط بصفر أخطاء. لم تُترجم ملفات EA الخاصة بالمستخدم، ولم يُشغّل Strategy Tester، ولم تُفتح صفقات.
+- لا توجد ملفات EA تاريخية مؤكدة ضمن شجرة المستودع حتى الآن. لا ينبغي اختراع EA أو نتائج أداء لتجاوز هذا النقص.
+
+### الخطوة التالية المحددة
+1. تنزيل وفحص artifact `Aurora-Control-Room-v2.4.0-patched` ومقارنته بالمصدر واختبارات CI، مع الحفاظ على ملف المصدر الأصلي وسجل SHA-256.
+2. مواصلة اختبار حالات URL غير المسموح، والمهلات، وفشل أداة/رد فارغ، مع عدم استخدام بيانات شخصية أو إرسال بريد فعلي.
+3. إعادة فحص شجرة المستودع بحثًا عن EA وملفات البيانات؛ إن لم توجد، سجّل ذلك بوضوح ولا تدّعِ Strategy Tester.
