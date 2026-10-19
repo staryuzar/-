@@ -5,8 +5,16 @@ name: Aurora real-world assistant E2E
 on:
   workflow_dispatch:
     inputs:
+      provider:
+        description: "Real model provider to use (the selected GitHub Actions secret must exist)"
+        required: true
+        type: choice
+        options:
+          - "gemini"
+          - "openrouter"
+        default: "gemini"
       confirm_provider_call:
-        description: "Run one real Gemini/UI/browser task (consumes provider quota)"
+        description: "Run one real model/UI/browser task (uses the selected provider's quota)"
         required: true
         type: choice
         options:
@@ -28,20 +36,31 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 15
     env:
-      AI_PROVIDER: gemini
+      AI_PROVIDER: ${{ inputs.provider }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Require a real provider credential (no mocks)
+      - name: Require the selected real provider credential (no mocks)
         shell: pwsh
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
-            throw "BLOCKED: Add a real Gemini API key as repository Actions secret GEMINI_API_KEY. This workflow intentionally does not use a mock model."
+          $provider = "${{ inputs.provider }}".Trim().ToLowerInvariant()
+          if ($provider -eq "gemini") {
+            $credential = $env:GEMINI_API_KEY
+            $secretName = "GEMINI_API_KEY"
+          } elseif ($provider -eq "openrouter") {
+            $credential = $env:OPENROUTER_API_KEY
+            $secretName = "OPENROUTER_API_KEY"
+          } else {
+            throw "Unsupported model provider selection."
           }
-          Write-Host "A real Gemini credential is configured; secret value is not displayed."
+          if ([string]::IsNullOrWhiteSpace($credential)) {
+            throw "BLOCKED: The selected provider has no credential. Add the corresponding repository Actions secret $secretName. Secret values are never displayed."
+          }
+          Write-Host "A real $provider credential is configured; secret value is not displayed."
 
       - name: Extract actual application package
         shell: pwsh
