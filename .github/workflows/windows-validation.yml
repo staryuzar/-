@@ -58,8 +58,8 @@ jobs:
             $lines = @(
               "# Original package audit",
               "",
-              "- Archive: `Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip`",
-              "- SHA-256: `$hash`",
+              "- Archive: Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip",
+              "- SHA-256: $hash",
               "- File entries: $($entries.Count)",
               "- Total uncompressed bytes: $(($entries | Measure-Object -Property Length -Sum).Sum)",
               "",
@@ -69,7 +69,7 @@ jobs:
             foreach ($required in @("requirements.txt", "START_WINDOWS.bat", "RUN_TESTS_WINDOWS.bat", "DIAGNOSE_WINDOWS.bat")) {
               $entry = $entries | Where-Object { $_.FullName -eq $required -or $_.FullName.EndsWith("/$required") } | Select-Object -First 1
               if ($null -eq $entry) {
-                $lines += "- FAIL — `$required` not found"
+                $lines += "- FAIL — $required not found"
                 continue
               }
               $stream = $entry.Open()
@@ -79,13 +79,13 @@ jobs:
               } finally { $stream.Dispose() }
               $hasBom = $read -eq 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
               if ($required.EndsWith(".bat") -and $hasBom) {
-                $lines += "- WARN — `$required`: UTF-8 BOM present in ORIGINAL archive (the later test compatibility step may remove it)"
+                $lines += "- WARN — $required: UTF-8 BOM present in ORIGINAL archive (the later test compatibility step may remove it)"
               } else {
-                $lines += "- PASS — `$required` exists; BOM=$hasBom"
+                $lines += "- PASS — $required exists; BOM=$hasBom"
               }
             }
             $lines += @("", "## Archive entries", "")
-            $lines += $entries | ForEach-Object { "- `$($_.FullName)` ($($_.Length) bytes)" }
+            $lines += $entries | ForEach-Object { "- $($_.FullName) ($($_.Length) bytes)" }
             $lines | Set-Content -LiteralPath (Join-Path $PWD "ci_archive_audit.md") -Encoding utf8
             Write-Host ($lines -join "`n")
           } finally { $zip.Dispose() }
