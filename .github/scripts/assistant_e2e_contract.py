@@ -124,10 +124,13 @@ def assistant_reply_has_page_text_field(value: Any) -> bool:
 
 
 def assistant_reply_has_page_identity(value: Any) -> bool:
+    """Require the title field and a known original/translated title value."""
     text = _normalized_reply(value)
-    return any(label in text for label in (
+    has_title_field = assistant_reply_has_page_title(text)
+    has_known_title = any(label in text for label in (
         "example domain", "مثال النطاق", "نطاق المثال", "domain example"
     ))
+    return has_title_field and has_known_title
 
 
 def assistant_reply_has_known_page_text(value: Any) -> bool:

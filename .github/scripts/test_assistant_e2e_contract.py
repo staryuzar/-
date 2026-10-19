@@ -92,7 +92,7 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
 
     def test_missing_known_page_text_phrase_is_rejected(self):
         missing = self.check(reply="Document title: Example Domain; Page text: a different sentence.")
-        self.assertIn("known example.com body phrase in assistant reply", missing)
+        self.assertIn("known example.com body phrase in English or verified Arabic translation", missing)
 
     def test_verified_arabic_translation_is_accepted(self):
         translated = (
