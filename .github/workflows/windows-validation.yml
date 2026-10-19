@@ -1,0 +1,87 @@
+name: Aurora Windows validation
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-tests:
+    name: Windows / Python ${{ matrix.python-version }}
+    runs-on: windows-2022
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract uploaded Aurora package
+        shell: pwsh
+        run: |
+          $archive = Join-Path $PWD "Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip"
+          if (!(Test-Path $archive)) { throw "Aurora ZIP archive not found: $archive" }
+          Expand-Archive -LiteralPath $archive -DestinationPath "ci_source" -Force
+          if (!(Test-Path "ci_source\requirements.txt")) { throw "requirements.txt not found after extraction" }
+          Write-Host "Extracted source package into ci_source"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: ci_source/requirements.txt
+
+      - name: Install dependencies
+        shell: pwsh
+        working-directory: ci_source
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+
+      - name: Confirm real Windows runtime and desktop imports
+        shell: pwsh
+        working-directory: ci_source
+        run: |
+          python -c "import os, sys; print('Python:', sys.version); print('OS:', os.name); assert os.name == 'nt', 'Expected Windows runner'"
+          python -c "import pywinauto, pyautogui, pyperclip; print('Windows GUI libraries import successfully')"
+
+      - name: Compile Python files
+        shell: pwsh
+        working-directory: ci_source
+        run: python -m compileall -q .
+
+      - name: Run automated test suite
+        shell: pwsh
+        working-directory: ci_source
+        run: python -m pytest -q --junitxml=windows-test-results.xml
+
+      - name: Verify batch files have no UTF-8 BOM
+        shell: pwsh
+        working-directory: ci_source
+        run: |
+          $files = @('START_WINDOWS.bat', 'RUN_TESTS_WINDOWS.bat', 'DIAGNOSE_WINDOWS.bat')
+          foreach ($file in $files) {
+            $path = Join-Path $PWD $file
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+              throw "$file starts with a UTF-8 BOM"
+            }
+            Write-Host "$file BOM check passed"
+          }
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-results-py${{ matrix.python-version }}
+          path: ci_source/windows-test-results.xml
+          if-no-files-found: warn
