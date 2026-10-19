@@ -55,7 +55,7 @@ def main() -> int:
     report = {
         "started_utc": datetime.now(timezone.utc).isoformat(),
         "provider": provider,
-        "test_type": "REAL_E2E_NO_MOCKS_SKILL_PACK_SEARCH",
+        "test_type": "REAL_E2E_NO_MOCKS_SKILL_PACK_SEARCH_RETRY",
         "target": "DuckDuckGo live search followed by https://example.com/",
         "checks": [],
     }
