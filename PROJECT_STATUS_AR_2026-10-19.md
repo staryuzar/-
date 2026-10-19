@@ -87,3 +87,17 @@
 3. لم تُختبر جلسة Gmail الشخصية؛ اختبار E2E استخدم موقعًا عامًا. لا تدّعِ إرسال/قراءة بريد فعلي.
 4. التحقق على Windows Server 2022 لا يثبت التوافق الكامل مع Windows 10 Pro 1909. يبقى فحص التشغيل المحلي على جهاز المستخدم خطوة مستقلة.
 5. المرجع الأساسي للاستئناف من الآن هو [README.md](https://github.com/staryuzar/-/blob/main/README.md) و[تقرير الاستئناف الدائم](https://github.com/staryuzar/-/blob/main/.github/RESUME_REPORT_2026-10-19_AR.md). لا تبدأ من الصفر.
+
+
+## تطوير متوازٍ جديد — مهارات MT5 وChrome
+
+فرع العمل: parallel-mt5-chrome-learning.
+
+أضيفت أدلة عربية لـMT5 وChrome والمراسلة، وسكربت إثراء لحزمة الإصدار يزرع وصفات تشغيلية جديدة في ذاكرة SQLite، ويوسع كلمات استرجاع المهارات، ويحدّث تعليمات النظام، ويضمّن تقرير بنية وفهرس SHA-256 داخل ZIP. أُضيف اختبار مخصص للتحقق من وجود الأدلة واسترجاع الوصفات. لا تعتمد الحزمة قبل نجاح Windows validation على PR.
+
+- [دليل MT5](.github/training/MT5_FIELD_GUIDE_AR.md)
+- [دليل Chrome والمراسلة](.github/training/CHROME_MESSAGING_GUIDE_AR.md)
+- [تقرير بنية الحزمة](.github/training/PACKAGE_ARCHITECTURE_REPORT_AR.md)
+- [سكربت إثراء الحزمة](.github/scripts/ci_enrich_knowledge.py)
+
+الحدود: ملفات EA الشخصية وبيانات Strategy Tester غير موجودة، وGmail الشخصي لم يُختبر، ولا يزال التوافق المحلي على Windows 10 Pro 1909 غير مثبت.

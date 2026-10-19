@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote_plus, urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "ci_browser_source"
@@ -86,6 +86,52 @@ def main() -> int:
             if not body_text.strip():
                 raise AssertionError("browser_read_page returned empty visible body text.")
             checks.append("PASS: real browser_read_page returned the document title and known phrase from the live page body")
+
+            # Exercise Aurora's actual search tool against a live search engine; no account or send action.
+            searched = executor.execute("browser_search_web", {"query": "site:example.com Example Domain"})
+            search_url = str(searched.get("url") or driver.current_url or "")
+            search_host = (urlsplit(search_url).hostname or "").casefold().rstrip(".")
+            if not searched.get("ok") or not searched.get("effect_verified") or not search_host.endswith("duckduckgo.com"):
+                raise AssertionError("The actual browser_search_web tool did not verify navigation to DuckDuckGo.")
+            decoded_search_url = unquote_plus(search_url).casefold()
+            if "example.com" not in decoded_search_url or "example domain" not in decoded_search_url:
+                raise AssertionError("The live search URL did not retain the requested search terms.")
+            search_read = executor.execute("browser_read_page", {})
+            if not search_read.get("ok") or not search_read.get("effect_verified") or not str(search_read.get("text") or "").strip():
+                raise AssertionError("The actual browser_read_page tool could not read the live search page.")
+            checks.append("PASS: actual browser_search_web opened DuckDuckGo with the requested query and browser_read_page read the live search page")
+
+            # Exercise text entry on a real browser input without submitting the search or sending a message.
+            home = executor.execute("browser_open_url", {"url": "https://duckduckgo.com/"})
+            home_url = str(home.get("url") or driver.current_url or "")
+            if not home.get("ok") or not home.get("effect_verified") or not (urlsplit(home_url).hostname or "").casefold().endswith("duckduckgo.com"):
+                raise AssertionError("The actual browser_open_url tool did not verify the DuckDuckGo home page.")
+            search_input = None
+            for selector in ("name", "id"):
+                try:
+                    search_input = driver.find_element(selector, "q" if selector == "name" else "searchbox_input")
+                    if search_input.is_displayed() and search_input.is_enabled():
+                        break
+                    search_input = None
+                except Exception:
+                    search_input = None
+            if search_input is None:
+                raise AssertionError("Could not locate the visible DuckDuckGo search input for a safe text-entry test.")
+            # Focus and clear through the live DOM to avoid overlay click interception; no form is submitted.
+            driver.execute_script("arguments[0].value = ''; arguments[0].focus();", search_input)
+            typed_text = "Aurora draft typing check - not submitted"
+            typed = executor.execute("browser_type_text", {"text": typed_text, "selector": "input[name='q']"})
+            actual_value = str(search_input.get_attribute("value") or "")
+            if not typed.get("ok") or not typed.get("effect_verified") or typed_text not in actual_value:
+                print(
+                    "SAFE TEXT-ENTRY DIAGNOSTIC: "
+                    f"ok={bool(typed.get('ok'))}; effect_verified={bool(typed.get('effect_verified'))}; "
+                    f"typed_text_found={typed_text in actual_value}; value_length={len(actual_value)}; "
+                    f"active_tag={str(driver.switch_to.active_element.tag_name or '')[:30]}; "
+                    f"active_type={str(driver.switch_to.active_element.get_attribute('type') or '')[:30]}"
+                )
+                raise AssertionError("The actual browser_type_text tool did not place the expected text in the active input.")
+            checks.append("PASS: actual browser_type_text entered a draft into a live Chrome input without submitting it")
 
             before = str(driver.current_url or "")
             blocked = executor.execute("browser_open_url", {"url": "http://127.0.0.1:8765/"})
