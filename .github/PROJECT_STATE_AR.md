@@ -70,3 +70,16 @@
 - نتائج Python 3.11: [12186676693](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12186676693). نتائج Python 3.13: [12187240668](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12187240668).
 - لا توجد ملفات `.mq5` أو `.mqh` أو `.ex5` أو `.set` أو بيانات `.csv` ضمن شجرة GitHub الحالية. لذلك لا يمكن ادعاء اختبار EA المستخدم أو Strategy Tester؛ يلزم إدخال ملف المستشار والبيانات كمرحلة منفصلة. لم تُفتح صفقات.
 - التالي: مراجعة أخيرة لسكربت الاختبار والتقرير، ثم توسيع حالات الروابط غير المسموحة/الانتظار إن لزم، وبعدها تجهيز EA الفعلي لاختبار الترجمة وStrategy Tester.
+
+
+## آخر نتيجة مؤكدة بعد إضافة رفض file:// — 2026-10-19 12:51 UTC
+- [Windows validation #156 / 39254455005](https://github.com/staryuzar/-/actions/runs/39254455005) — **PASS بالكامل**، الالتزام `45c21774f6c49b7db6c97f8ffdeaf7a28ebc5037`.
+- Chrome: **12/12 PASS**، يتضمن timeout حقيقيًا وتعافيًا، ورفض عنصر مفقود، ورابط غير صالح.
+- LocalToolExecutor الحقيقي: **4/4 PASS**: فتح example.com، قراءة عنوان الصفحة ونصها، رفض loopback، ورفض `file://` دون تغيير الصفحة العامة.
+- تم تحسين fixture لتجاهل انقطاع الاتصال المتوقع من Chrome أثناء اختبار مهلة التحميل؛ تشغيل #156 لم يسجل `ConnectionAbortedError` ولم تظهر stack trace مزعجة في سجل الاختبار.
+- Python 3.11 و3.13: `231 passed, 122 subtests passed` لكل إصدار. MT5 demo smoke PASS دون صفقات.
+- Artifact Chrome + tool executor: [12187032556](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187032556), SHA-256 `95cda3c2302217e4161b6e124f21aa3c2017c8180761ade4fb516989837390cf`.
+- Artifact MT5: [12187986149](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187986149), SHA-256 `68024b23d86b151075673be0bdad6e8747dde7007d4fdde0418b05f0489afb81`.
+- نتائج Python 3.11: [12187087482](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187087482). نتائج Python 3.13: [12187052600](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187052600).
+- لا توجد ملفات EA `.mq5/.mqh/.ex5` أو إعدادات `.set` أو بيانات تاريخية `.csv` في شجرة المستودع. اختبار المستشار وStrategy Tester لم يُنفذا بعد؛ لا توجد صفقات حقيقية.
+- التالي: تحديث التقرير النهائي بهذه الجولة، ثم الانتقال إلى تجهيز ملفات EA والبيانات التاريخية إذا كانت متاحة ضمن المشروع، دون اختلاق EA أو نتائج.
