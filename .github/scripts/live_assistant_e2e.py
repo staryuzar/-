@@ -165,35 +165,86 @@ def main() -> int:
         if execution_log_expander is None:
             raise AssertionError("Assistant execution log expander was not found; tool execution cannot be independently verified.")
 
-        # Validate only text inside the expanded execution log. The chat response,
-        # prompt, page chrome, or a different log entry must not satisfy this gate.
+        # The compact execution list intentionally hides URLs and page text.
+        # First require both browser action labels and a verified-effect marker there.
         def verified_execution_log(_driver):
             log_text = execution_log_expander.text
-            return log_text if not missing_execution_evidence(log_text) else False
+            required = (
+                "فتح موقع في متصفح المساعد",
+                "قراءة محتوى الصفحة الحالية",
+                "تم التحقق",
+            )
+            return log_text if all(marker in log_text for marker in required) else False
 
         try:
             execution_log_text = WebDriverWait(driver, 20, poll_frequency=1).until(verified_execution_log)
         except TimeoutException:
             execution_log_text = execution_log_expander.text
-            missing = missing_execution_evidence(execution_log_text)
             report["execution_log_excerpt"] = redact_excerpt(execution_log_text)
+            missing = [m for m in (
+                "فتح موقع في متصفح المساعد",
+                "قراءة محتوى الصفحة الحالية",
+                "تم التحقق",
+            ) if m not in execution_log_text]
             report["missing_execution_evidence"] = missing
             raise AssertionError(
-                "The expanded assistant execution log did not independently prove the real browser effect. "
+                "The compact execution log did not show both browser actions and a verified effect. Missing: "
+                + ", ".join(missing)
+            )
+
+        # Verify the target host against the detailed, privacy-redacted tool records.
+        # Their URLs remain visible with query strings/fragments removed; page text is
+        # deliberately redacted and is verified separately against the assistant reply.
+        activity_expander = None
+        for expander in driver.find_elements(By.CSS_SELECTOR, '[data-testid="stExpander"]'):
+            if "نشاط الجهاز وسجل الأدوات" in expander.text:
+                activity_expander = expander
+                break
+        if activity_expander is None:
+            raise AssertionError("Detailed tool activity expander was not found; target URL cannot be verified.")
+        activity_summary = activity_expander.find_element(By.CSS_SELECTOR, "summary")
+        if activity_summary.get_attribute("aria-expanded") != "true":
+            activity_summary.click()
+
+        # Expand the per-action details panels so the redacted URL fields are present.
+        for _ in range(30):
+            collapsed_details = None
+            for details_panel in activity_expander.find_elements(By.CSS_SELECTOR, '[data-testid="stExpander"]'):
+                try:
+                    summary = details_panel.find_element(By.CSS_SELECTOR, "summary")
+                except WebDriverException:
+                    continue
+                if summary.text.strip() == "التفاصيل" and summary.get_attribute("aria-expanded") != "true":
+                    collapsed_details = summary
+                    break
+            if collapsed_details is None:
+                break
+            collapsed_details.click()
+
+        detailed_tool_log_text = activity_expander.text
+        missing = missing_execution_evidence(
+            execution_log_text,
+            detailed_tool_log_text,
+            body_text,
+        )
+        if missing:
+            report["missing_execution_evidence"] = missing
+            report["execution_log_excerpt"] = redact_excerpt(execution_log_text)
+            raise AssertionError(
+                "The evidence contract failed across the execution log, detailed tool records, and assistant reply. "
                 "Missing evidence: " + ", ".join(missing)
             )
 
         report["execution_evidence"] = {
-            "target_domain_in_execution_log": "example.com" in execution_log_text.casefold(),
-            "expected_page_heading_in_execution_log": "example domain" in execution_log_text.casefold(),
+            "target_domain_in_detailed_tool_log": "example.com" in detailed_tool_log_text.casefold(),
+            "expected_page_heading_in_assistant_reply": "example domain" in body_text.casefold(),
             "browser_open_action_in_execution_log": "فتح موقع في متصفح المساعد" in execution_log_text,
             "page_read_action_in_execution_log": "قراءة محتوى الصفحة الحالية" in execution_log_text,
             "verified_effect_in_execution_log": "تم التحقق" in execution_log_text,
         }
-        report["checks"].append("PASS: execution log itself proves example.com open, Example Domain read, and verified effect")
+        report["checks"].append("PASS: action log, sanitized tool details, and assistant reply jointly prove the real browser effect")
         report["result"] = "PASS"
-        final_body_text = driver.find_element(By.TAG_NAME, "body").text
-        report["assistant_output_excerpt"] = redact_excerpt(final_body_text[-1800:])
+        report["assistant_output_excerpt"] = redact_excerpt(body_text[-1800:])
         return 0
     except Exception as exc:
         report["result"] = "FAIL"
