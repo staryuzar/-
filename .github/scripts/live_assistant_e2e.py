@@ -56,7 +56,7 @@ def main() -> int:
         "started_utc": datetime.now(timezone.utc).isoformat(),
         "provider": provider,
         "test_type": "REAL_E2E_NO_MOCKS",
-        "target": "https://example.com/",
+        "target": "DuckDuckGo live search followed by https://example.com/",
         "checks": [],
     }
     driver = None
@@ -97,8 +97,9 @@ def main() -> int:
         report["checks"].append("PASS: actual Streamlit chat UI rendered in real Chrome")
 
         prompt = (
-            "نفّذ المهمة فعليًا باستخدام أدوات المتصفح، وليس من معرفتك السابقة: "
-            "افتح الموقع العام https://example.com/ في متصفح المساعد، ثم اقرأ عنوان المستند "
+            "نفّذ المهمة فعليًا باستخدام أدوات المتصفح، وليس من معرفتك السابقة. الخطوة الأولى إلزامية: "
+            "استخدم أداة البحث browser_search_web للبحث عن site:example.com Example Domain، ولا تتجاوز البحث. "
+            "بعد ذلك افتح الموقع العام https://example.com/ في متصفح المساعد، ثم اقرأ عنوان المستند "
             "وأول جملة من النص الظاهر في الصفحة. أجب بحقلين مستقلين: Document title: أو عنوان المستند:؛ "
             "وPage text: أو نص الصفحة:. انقل النص كما أعادته أداة القراءة دون تخمين؛ "
             "إذا كان المتصفح قد ترجم الصفحة، انقل الترجمة الظاهرة بأمانة. النص الإنجليزي المتوقع إذا ظهر "
@@ -254,6 +255,19 @@ def main() -> int:
             tool_records,
             assistant_reply,
         )
+        search_records = [r for r in tool_records if r.get("tool") == "browser_search_web"]
+        verified_search_record = any(
+            isinstance(r.get("result"), dict)
+            and r["result"].get("ok") is True
+            and r["result"].get("effect_verified") is True
+            for r in search_records
+        )
+        report["search_evidence"] = {
+            "persisted_successful_search_record": verified_search_record,
+            "search_record_count": len(search_records),
+        }
+        if not verified_search_record:
+            missing.append("verified browser_search_web search record")
         if missing:
             report["missing_execution_evidence"] = missing
             report["execution_log_excerpt"] = redact_excerpt(execution_log_text)
@@ -267,6 +281,7 @@ def main() -> int:
         open_records = [r for r in tool_records if r.get("tool") == "browser_open_url"]
         read_records = [r for r in tool_records if r.get("tool") == "browser_read_page"]
         report["execution_evidence"] = {
+            "persisted_successful_search_record": verified_search_record,
             "persisted_successful_open_url_record": any(
                 isinstance(r.get("result"), dict) and r["result"].get("ok") is True
                 and r["result"].get("effect_verified") is True for r in open_records
