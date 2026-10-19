@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
+from contextlib import closing
 import unittest
 from pathlib import Path
 
@@ -103,7 +104,7 @@ class PersistedToolLogTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.database = Path(self.temp.name) / "aurora.sqlite3"
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection:
             connection.execute(
                 "CREATE TABLE conversations (id TEXT, updated_at TEXT, messages_json TEXT, log_json TEXT)"
             )
@@ -113,7 +114,7 @@ class PersistedToolLogTests(unittest.TestCase):
 
     def add_conversation(self, conversation_id, prompt, records, updated="2026-10-19T00:00:00Z"):
         messages = [{"role": "user", "content": prompt}]
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection:
             connection.execute(
                 "INSERT INTO conversations VALUES (?, ?, ?, ?)",
                 (conversation_id, updated, json.dumps(messages), json.dumps(records)),
@@ -136,7 +137,7 @@ class PersistedToolLogTests(unittest.TestCase):
     def test_uses_read_only_database_connection(self):
         self.add_conversation("target", PROMPT, GOOD_RECORDS)
         load_persisted_tool_records(self.database, PROMPT, timeout_seconds=0.01)
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection:
             count = connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
         self.assertEqual(count, 1)
 

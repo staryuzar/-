@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 import time
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,7 @@ def load_persisted_tool_records(
         if database.is_file():
             try:
                 uri = database.resolve().as_uri() + "?mode=ro"
-                with sqlite3.connect(uri, uri=True, timeout=5) as connection:
+                with closing(sqlite3.connect(uri, uri=True, timeout=5)) as connection:
                     rows = connection.execute(
                         "SELECT messages_json, log_json FROM conversations ORDER BY updated_at DESC LIMIT 30"
                     ).fetchall()
