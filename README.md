@@ -133,7 +133,7 @@
 - EA المستخدم وStrategy Tester وGmail لم تُختبر بعد. راجع [تقرير الاستئناف](.github/RESUME_REPORT_2026-10-19_AR.md).
 
 
-## تطوير متوازٍ: مهارات MT5 وChrome والمراسلة — قيد التحقق
+## تطوير متوازٍ: مهارات MT5 وChrome والمراسلة — تم الدمج والتحقق
 
 أُضيفت في فرع التطوير حزمة مهارات عربية تُضمَّن داخل إصدار ZIP الناتج، وليست مجرد ملفات في المستودع:
 
@@ -144,4 +144,4 @@
 
 الملفات المصدرية: [MT5 guide](.github/training/MT5_FIELD_GUIDE_AR.md)، [Chrome/messaging guide](.github/training/CHROME_MESSAGING_GUIDE_AR.md)، [package architecture](.github/training/PACKAGE_ARCHITECTURE_REPORT_AR.md)، و[CI packager](.github/scripts/ci_enrich_knowledge.py).
 
-**الحالة:** التعديل على فرع parallel-mt5-chrome-learning ويحتاج نجاح Windows validation على PR قبل اعتماد الحزمة. هذا لا يثبت بعد ترجمة EA المستخدم أو تشغيل Strategy Tester أو إرسال بريد حقيقي.
+**الحالة النهائية:** تم الدمج في main بالالتزام `34623c0bcf7a772f4dc49a7794fc3b5d81c54d6f`. نجح Windows validation #187: 353/353 اختبارًا على Python 3.11 و353/353 على Python 3.13، وChrome 12/12 وLocalToolExecutor 11/11، واختبار المهارات، وبدء Streamlit، وتكامل MT5 التجريبي. [تنزيل الحزمة مع التقرير الداخلي](https://github.com/staryuzar/-/actions/runs/39262135506/artifacts/12190788001). SHA-256 للأرشيف الخارجي: `44a86f7b70137371d5209487e7631e58f65e3c3844c0248aecd022ae1e7871b1`. هذا لا يثبت ترجمة EA المستخدم أو تشغيل Strategy Tester أو إرسال بريد شخصي.
