@@ -28,7 +28,12 @@ try {
     if ($null -eq $terminal) {
         $terminal = Get-ChildItem -LiteralPath $installDir -Filter "terminal.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     }
-    if ($null -eq $terminal) {\n        $entries = @(Get-ChildItem -LiteralPath $installDir -Force -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { $_.FullName })\n        "Install directory entries: $($entries -join "; ")" | Add-Content -LiteralPath $report -Encoding utf8\n        throw "Installer exit code $($install.ExitCode); terminal64.exe/terminal.exe was not found in the requested install directory."\n    }
+    if ($null -eq $terminal) {
+        $entries = @(Get-ChildItem -LiteralPath $installDir -Force -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { $_.FullName })
+        $joinedEntries = $entries -join "; "
+        "Install directory entries: $joinedEntries" | Add-Content -LiteralPath $report -Encoding utf8
+        throw "Installer exit code $($install.ExitCode); terminal64.exe/terminal.exe was not found in the requested install directory."
+    }
     "Terminal path: $($terminal.FullName)" | Add-Content -LiteralPath $report -Encoding utf8
     $version = (Get-Item -LiteralPath $terminal.FullName).VersionInfo
     "Product version: $($version.ProductVersion)" | Add-Content -LiteralPath $report -Encoding utf8
