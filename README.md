@@ -73,3 +73,10 @@
 - **نجاح Windows + Python + Chrome + MT5 التجريبي:** [التشغيل 39249437320](https://github.com/staryuzar/-/actions/runs/39249437320).
 - هذا يثبت سيناريو متصفح واحدًا محددًا فقط؛ لا يثبت بعد Gmail أو خدمات تتطلب تسجيل دخول، ولا تداول EA، ولا اختبار Strategy Tester.
 - المرجع الدائم: [تقرير الاستئناف التفصيلي](https://github.com/staryuzar/-/blob/real-world-assistant-e2e/.github/RESUME_REPORT_2026-10-19_AR.md).
+
+
+### أحدث تحقق Windows — 19 أكتوبر 2026
+- [Windows validation #140](https://github.com/staryuzar/-/actions/runs/39251604674) — PASS بعد إضافة اختبار رفض عنوان URL غير صالح دون مغادرة الصفحة الحالية.
+- Chrome: 8/8؛ LocalToolExecutor: 3/3؛ Python 3.11 و3.13: 231 اختبارًا و122 subtests ناجحة في كل إصدار؛ تكامل MT5 التجريبي نجح دون فتح صفقات.
+- [تقرير Chrome](https://github.com/staryuzar/-/actions/runs/39251604674/artifacts/12184889189)؛ [تقرير MT5](https://github.com/staryuzar/-/actions/runs/39251604674/artifacts/12186291928).
+- لم يُختبر EA المستخدم أو Strategy Tester بعد. نقطة الاستئناف: [PROJECT_STATE_AR.md](.github/PROJECT_STATE_AR.md) و[RESUME_REPORT_2026-10-19_AR.md](.github/RESUME_REPORT_2026-10-19_AR.md).
