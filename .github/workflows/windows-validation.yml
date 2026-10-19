@@ -280,7 +280,9 @@ jobs:
       - name: Install Windows automation dependencies
         shell: pwsh
         run: python -m pip install --upgrade pip pywinauto pyautogui pyperclip
-      - name: Download, install, and launch official MetaTrader 5 through Aurora
+      - name: Download, install, launch, and authenticate Headway demo MT5
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
         shell: pwsh
         run: ./.github/scripts/mt5_install_smoke.ps1
       - name: Upload MetaTrader smoke report
