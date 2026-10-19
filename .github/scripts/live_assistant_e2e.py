@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from urllib.request import urlopen
 
 
@@ -83,12 +84,60 @@ def main() -> int:
         chat_input.send_keys(prompt)
         chat_input.send_keys(Keys.ENTER)
 
+        def redact_excerpt(value: str) -> str:
+            safe = str(value or "")
+            for secret_name in ("GEMINI_API_KEY", "OPENROUTER_API_KEY", "MT5_CREDENTIALS"):
+                secret = os.getenv(secret_name, "")
+                if secret:
+                    safe = safe.replace(secret, "[SECRET REDACTED]")
+            safe = re.sub(r"AIza[0-9A-Za-z_-]{20,}", "[GOOGLE KEY REDACTED]", safe)
+            safe = re.sub(r"(?i)(api[_-]?key|password|passwd)\s*[:=]\s*\S+", r"\1=[REDACTED]", safe)
+            return safe[-3000:]
+
+        failure_markers = (
+            "فشل طلب Google Gemini", "فشل طلب Gemini", "تعذر إكمال الطلب:",
+            "انتهت مهلة الاتصال بـ Gemini", "تعذر الوصول إلى Google عبر الشبكة",
+            "تعذر الاتصال بمزود النموذج", "لم يُرجع مزود النموذج أي اختيار",
+            "API_KEY_INVALID", "RESOURCE_EXHAUSTED", "PERMISSION_DENIED",
+            "API key not valid", "quota exceeded", "429", "HTTP 401", "HTTP 403",
+            "HTTP 404", "HTTP 429", "TimeoutException",
+        )
+
+        # First prove that Streamlit actually accepted and rendered this exact prompt.
+        try:
+            WebDriverWait(driver, 20, poll_frequency=1).until(
+                lambda d: prompt in d.find_element(By.TAG_NAME, "body").text
+            )
+            report["checks"].append("PASS: submitted prompt is visible in the real chat history")
+        except TimeoutException:
+            body_text = driver.find_element(By.TAG_NAME, "body").text
+            report["diagnostic_excerpt"] = redact_excerpt(body_text)
+            raise AssertionError("The submitted prompt did not appear in chat history; input submission was not verified.")
+
         def task_completed(d):
             text = d.find_element(By.TAG_NAME, "body").text
-            return "Example Domain" in text and len(text) > len(prompt) + 50
+            if "Example Domain" in text and len(text) > len(prompt) + 50:
+                return "success"
+            lower = text.lower()
+            if any(marker.lower() in lower for marker in failure_markers):
+                report["diagnostic_excerpt"] = redact_excerpt(text)
+                return "provider_or_app_error"
+            return False
 
-        WebDriverWait(driver, 180, poll_frequency=2).until(task_completed)
+        try:
+            task_state = WebDriverWait(driver, 180, poll_frequency=2).until(task_completed)
+        except TimeoutException:
+            body_text = driver.find_element(By.TAG_NAME, "body").text
+            report["diagnostic_excerpt"] = redact_excerpt(body_text)
+            report["result"] = "FAIL"
+            report["failure_stage"] = "waiting_for_model_or_tool_result"
+            raise AssertionError("Timed out waiting for the real assistant result; the sanitized visible UI snapshot is in the report.")
+
         body_text = driver.find_element(By.TAG_NAME, "body").text
+        if task_state != "success":
+            report["result"] = "FAIL"
+            report["failure_stage"] = "provider_or_app_error_visible_in_ui"
+            raise AssertionError("The real assistant UI displayed a provider/application error instead of the target website result.")
         report["checks"].append("PASS: actual assistant returned the live website heading/title text")
 
         # Inspect the real execution log. A correct-sounding answer without browser tool evidence is not a pass.
