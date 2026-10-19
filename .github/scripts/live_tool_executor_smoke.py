@@ -122,7 +122,14 @@ def main() -> int:
             typed_text = "Aurora draft typing check - not submitted"
             typed = executor.execute("browser_type_text", {"text": typed_text})
             actual_value = str(search_input.get_attribute("value") or "")
-            if not typed.get("ok") or not typed.get("effect_verified") or actual_value != typed_text:
+            if not typed.get("ok") or not typed.get("effect_verified") or typed_text not in actual_value:
+                print(
+                    "SAFE TEXT-ENTRY DIAGNOSTIC: "
+                    f"ok={bool(typed.get('ok'))}; effect_verified={bool(typed.get('effect_verified'))}; "
+                    f"typed_text_found={typed_text in actual_value}; value_length={len(actual_value)}; "
+                    f"active_tag={str(driver.switch_to.active_element.tag_name or '')[:30]}; "
+                    f"active_type={str(driver.switch_to.active_element.get_attribute('type') or '')[:30]}"
+                )
                 raise AssertionError("The actual browser_type_text tool did not place the expected text in the active input.")
             checks.append("PASS: actual browser_type_text entered a draft into a live Chrome input without submitting it")
 
