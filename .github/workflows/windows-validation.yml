@@ -54,6 +54,10 @@ jobs:
           python -c "import os, sys; print('Python:', sys.version); print('OS:', os.name); assert os.name == 'nt', 'Expected Windows runner'"
           python -c "import pywinauto, pyautogui, pyperclip; print('Windows GUI libraries import successfully')"
 
+      - name: Normalize Windows-only test assumptions in legacy ZIP
+        shell: pwsh
+        run: python ci_windows_test_compat.py ci_source
+
       - name: Compile Python files
         shell: pwsh
         working-directory: ci_source
