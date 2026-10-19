@@ -96,3 +96,15 @@
 - حزمة التطبيق المعدلة من Windows CI: [Aurora-Control-Room-v2.4.0-patched — 12188100049](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12188100049), SHA-256 `5fa7b5e4553f51e59e5bce350c368e03fd26bac31a4eee0eac686c9fedc1c0d6`.
 - تقارير Python: [3.11 — 12187742741](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187742741)، [3.13 — 12187383471](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187383471). تقرير MT5: [12187688089](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187688089).
 - الخطوة التالية: مراجعة حزمة v2.4.0 المعدلة ومخرجات اختبارها، ثم اختبار حالات أخطاء أدوات إضافية. لا تدّعِ اختبار Gmail أو EA التداول أو Strategy Tester ما لم تُنفّذ تلك الاختبارات فعليًا.
+
+
+## أحدث تحقق Windows — #167 — حارس صيغ IPv4 البديلة — 2026-10-19 13:03 UTC
+- [Windows validation #167 / 39256415719](https://github.com/staryuzar/-/actions/runs/39256415719) — **success** لجميع الوظائف الخمس: scope-check، Chrome، MT5، Python 3.11، Python 3.13.
+- Chrome: **12/12 PASS**. LocalToolExecutor الحقيقي: **9/9 PASS**؛ شمل فتح وقراءة example.com ورفض loopback، file://، localhost، IPv6 ::1، وصيغ IPv4 البديلة 127.1 و2130706433 و0177.0.0.1، دون تغيير الصفحة العامة.
+- Python 3.11 و3.13: **231 passed + 122 subtests** لكل إصدار.
+- MT5: PASS. تم تشغيل MT5، تأكيد مصادقة Headway demo، وترجمة عينة EA مؤقتة بصفر أخطاء؛ لم تُفتح صفقات. هذا ليس ترجمة EA المستخدم ولا اختبار Strategy Tester.
+- تقرير المتصفح والأدوات: [12187568822](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12187568822), SHA-256 `bc3ba03f64143ad86463962858e600bf4b66f99ca8eb56b72ea745513174bff3`.
+- حزمة v2.4.0 المعدلة: [12188130607](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12188130607), SHA-256 `78615d25085b3f5a6cb6af6921248a7c3b8b7dafd6a599343f7b0f987d76d3ee`.
+- تقرير MT5: [12187239644](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12187239644), SHA-256 `0f4c8e1f842c72d94d2bd95d81dbe18630ccbd32f4912d556131ac25815a9006`.
+- تقارير Python: [3.11 — 12188140721](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12188140721), [3.13 — 12187793694](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12187793694).
+- الخطوة التالية: إجراء E2E حقيقي للمساعد بعد تحديث حارس الروابط، ثم مراجعة تقريره. تبقى Gmail/إرسال الرسائل وEA المستخدم وStrategy Tester غير مثبتة الاختبار حتى الآن.
