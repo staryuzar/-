@@ -133,7 +133,9 @@ jobs:
 
       - name: Normalize Windows-only test assumptions in legacy ZIP
         shell: pwsh
-        run: python .github/scripts/ci_windows_test_compat.py ci_source
+        run: |
+          python .github/scripts/ci_windows_test_compat.py ci_source
+          python .github/scripts/ci_windows_test_compat.py release_source
 
       - name: Compile Python files
         shell: pwsh
