@@ -20,6 +20,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from urllib.request import urlopen
 from assistant_e2e_contract import (
+    assistant_reply_evidence_diagnostics,
     assistant_reply_has_known_page_text,
     assistant_reply_has_page_identity,
     assistant_reply_has_page_text_field,
@@ -139,6 +140,12 @@ def main() -> int:
         def task_completed(d):
             text = d.find_element(By.TAG_NAME, "body").text
             reply = visible_assistant_reply(d, prompt)
+            # Preserve criterion-level booleans in the report while waiting.
+            report["assistant_reply_evidence_diagnostics"] = assistant_reply_evidence_diagnostics(reply)
+            report["assistant_reply_chars"] = len(reply)
+            report["assistant_chat_message_count"] = len(
+                d.find_elements(By.CSS_SELECTOR, '[data-testid="stChatMessage"]')
+            )
             if assistant_reply_has_page_identity(reply) or assistant_reply_has_known_page_text(reply):
                 return "success"
             lower = text.lower()
@@ -152,9 +159,16 @@ def main() -> int:
         except TimeoutException:
             body_text = driver.find_element(By.TAG_NAME, "body").text
             report["diagnostic_excerpt"] = redact_excerpt(body_text)
+            reply_snapshot = visible_assistant_reply(driver, prompt)
+            report["assistant_reply_evidence_diagnostics"] = assistant_reply_evidence_diagnostics(reply_snapshot)
+            report["assistant_reply_chars"] = len(reply_snapshot)
+            report["assistant_reply_excerpt"] = redact_excerpt(reply_snapshot[-1800:])
+            report["assistant_chat_message_count"] = len(
+                driver.find_elements(By.CSS_SELECTOR, '[data-testid="stChatMessage"]')
+            )
             report["result"] = "FAIL"
             report["failure_stage"] = "waiting_for_model_or_tool_result"
-            raise AssertionError("Timed out waiting for the real assistant result; the sanitized visible UI snapshot is in the report.")
+            raise AssertionError("Timed out waiting for the real assistant result; per-condition evidence booleans and a sanitized reply excerpt are in the report.")
 
         body_text = driver.find_element(By.TAG_NAME, "body").text
         if task_state != "success":

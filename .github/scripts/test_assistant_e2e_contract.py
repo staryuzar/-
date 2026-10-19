@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from assistant_e2e_contract import (
+    assistant_reply_evidence_diagnostics,
     assistant_reply_has_known_page_text,
     assistant_reply_has_page_identity,
     assistant_reply_has_page_text_field,
@@ -104,6 +105,22 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
         self.assertTrue(assistant_reply_has_page_text_field(translated))
         self.assertTrue(assistant_reply_has_known_page_text(translated))
         self.assertEqual(self.check(reply=translated), [])
+
+    def test_diagnostics_identify_real_translated_reply_components(self):
+        translated = (
+            "عنوان المستند: مجال مثال\\n"
+            "نص الصفحة: هذا النطاق مُخصص للاستخدام في أمثلة التوثيق دون الحاجة إلى إذن."
+        )
+        self.assertEqual(
+            assistant_reply_evidence_diagnostics(translated),
+            {
+                "reply_nonempty": True,
+                "has_title_field": True,
+                "has_expected_title_identity": True,
+                "has_page_text_field": True,
+                "has_known_page_text": True,
+            },
+        )
 
     def test_google_translated_title_and_body_are_accepted(self):
         # Actual live UI output translated "Example Domain" to "مجال مثال" and

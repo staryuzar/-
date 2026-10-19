@@ -141,6 +141,17 @@ def assistant_reply_has_known_page_text(value: Any) -> bool:
     return known_english in text or known_arabic in text
 
 
+def assistant_reply_evidence_diagnostics(value: Any) -> dict[str, bool]:
+    """Return non-secret evidence booleans to diagnose E2E timeouts without weakening checks."""
+    return {
+        "reply_nonempty": bool(str(value or "").strip()),
+        "has_title_field": assistant_reply_has_page_title(value),
+        "has_expected_title_identity": assistant_reply_has_page_identity(value),
+        "has_page_text_field": assistant_reply_has_page_text_field(value),
+        "has_known_page_text": assistant_reply_has_known_page_text(value),
+    }
+
+
 def missing_execution_evidence(
     execution_log_text: str,
     tool_records: list[dict],
