@@ -38,6 +38,38 @@ try {
     "Product version: $($version.ProductVersion)" | Add-Content -LiteralPath $report -Encoding utf8
     "File version: $($version.FileVersion)" | Add-Content -LiteralPath $report -Encoding utf8
 
+    # Compile a harmless sample EA through MetaEditor; this does not log in or place trades.
+    $metaEditor = Get-ChildItem -LiteralPath $installDir -Filter "metaeditor64.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $metaEditor) { throw "MT5 terminal installed but metaeditor64.exe was not found." }
+    "MetaEditor path: $($metaEditor.FullName)" | Add-Content -LiteralPath $report -Encoding utf8
+    $expertsDir = Join-Path $installDir "MQL5\Experts"
+    New-Item -ItemType Directory -Path $expertsDir -Force | Out-Null
+    $eaSource = Join-Path $expertsDir "AuroraCompileSmoke.mq5"
+    $eaBinary = Join-Path $expertsDir "AuroraCompileSmoke.ex5"
+    $compileLog = Join-Path $expertsDir "AuroraCompileSmoke.log"
+    $eaCode = @'
+#property strict
+#property version "1.00"
+#property description "Aurora CI compile smoke EA"
+int OnInit() { return(INIT_SUCCEEDED); }
+void OnDeinit(const int reason) {}
+void OnTick() {}
+'@
+    [System.IO.File]::WriteAllText($eaSource, $eaCode, [System.Text.UTF8Encoding]::new($false))
+    $compileArgs = '/compile:"' + $eaSource + '" /log'
+    $compilerProcess = Start-Process -FilePath $metaEditor.FullName -ArgumentList $compileArgs -WorkingDirectory $installDir -PassThru
+    if (!$compilerProcess.WaitForExit(60000)) {
+        Stop-Process -Id $compilerProcess.Id -Force -ErrorAction SilentlyContinue
+        throw "MetaEditor command-line compilation timed out after 60 seconds."
+    }
+    Start-Sleep -Seconds 1
+    if (!(Test-Path $compileLog)) { throw "MetaEditor did not produce the expected compile log." }
+    $compileText = Get-Content -LiteralPath $compileLog -Raw
+    "MetaEditor compile log: $($compileText.Trim())" | Add-Content -LiteralPath $report -Encoding utf8
+    if (!(Test-Path $eaBinary) -or (Get-Item -LiteralPath $eaBinary).Length -le 0) { throw "MetaEditor did not produce a non-empty AuroraCompileSmoke.ex5 file." }
+    if ($compileText -notmatch '(?i)0 errors' -or $compileText -match '(?i)[1-9][0-9]* errors') { throw "MetaEditor compile log does not confirm zero errors." }
+    "RESULT: PASS — MetaEditor compiled a disposable sample EA with zero errors." | Add-Content -LiteralPath $report -Encoding utf8
+
     # Exercise the same launch/window-enumeration helpers used by the assistant. No account credentials are supplied.
     $sourceDir = Join-Path $PWD "ci_mt5_source"
     if (!(Test-Path (Join-Path $sourceDir "windows_tools.py"))) { throw "Assistant source was not extracted for the MT5 integration test." }
