@@ -101,3 +101,5 @@
 - Chrome **12/12**؛ LocalToolExecutor **4/4** (منها رفض `file://` وloopback)؛ Python 3.11/3.13 **231 اختبارًا + 122 اختبارًا فرعيًا** لكل إصدار؛ MT5 demo smoke PASS دون صفقات.
 - [Artifact Chrome/ToolExecutor](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187032556)؛ [Artifact MT5](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187986149).
 - لا يوجد EA أو بيانات تاريخية ضمن شجرة المستودع الحالية، لذلك لم يُترجم EA المستخدم ولم يُشغّل Strategy Tester. راجع [تقرير الاستئناف](.github/RESUME_REPORT_2026-10-19_AR.md).
+
+- توضيح MT5: MetaEditor ترجم عينة EA مؤقتة بصفر أخطاء؛ لم يُترجم EA المستخدم ولم يُشغّل Strategy Tester لغياب ملفات EA والبيانات من المستودع.
