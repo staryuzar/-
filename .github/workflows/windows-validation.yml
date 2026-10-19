@@ -23,14 +23,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract uploaded Aurora package
+      - name: Prepare source tree for validation
         shell: pwsh
         run: |
           $archive = Join-Path $PWD "Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip"
-          if (!(Test-Path $archive)) { throw "Aurora ZIP archive not found: $archive" }
-          Expand-Archive -LiteralPath $archive -DestinationPath "ci_source" -Force
-          if (!(Test-Path "ci_source\requirements.txt")) { throw "requirements.txt not found after extraction" }
-          Write-Host "Extracted source package into ci_source"
+          New-Item -ItemType Directory -Path "ci_source" -Force | Out-Null
+          if (Test-Path $archive) {
+            Expand-Archive -LiteralPath $archive -DestinationPath "ci_source" -Force
+            Write-Host "Extracted uploaded Aurora ZIP into ci_source"
+          } elseif (Test-Path (Join-Path $PWD "requirements.txt")) {
+            Get-ChildItem -Force | Where-Object { $_.Name -notin @(".git", "ci_source") } | ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination "ci_source" -Recurse -Force
+            }
+            Write-Host "Copied unpacked Aurora source tree into ci_source"
+          } else {
+            throw "Neither Aurora ZIP nor unpacked requirements.txt source tree was found."
+          }
+          if (!(Test-Path "ci_source\requirements.txt")) { throw "requirements.txt not found in prepared source" }
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -56,7 +65,7 @@ jobs:
 
       - name: Normalize Windows-only test assumptions in legacy ZIP
         shell: pwsh
-        run: python ci_windows_test_compat.py ci_source
+        run: python .github/scripts/ci_windows_test_compat.py ci_source
 
       - name: Compile Python files
         shell: pwsh
