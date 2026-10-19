@@ -78,10 +78,10 @@ def main() -> int:
                 # proxy/error pages while avoiding arbitrary query strings or secrets.
                 print(
                     "SAFE LIVE PAGE DIAGNOSTIC: "
-                    f"url={safe_url}; title={str(driver.title or '')[:120]!r}; "
-                    f"ready_state={str(driver.execute_script('return document.readyState') or '')[:30]!r}; "
-                    f"h1_count={len(direct_h1s)}; h1_values={direct_h1s!r}; "
-                    f"body_text_length={len(safe_text)}; body_excerpt={safe_text[:350]!r}"
+                    f"url={ascii(safe_url)}; title={ascii(str(driver.title or '')[:120])}; "
+                    f"ready_state={ascii(str(driver.execute_script('return document.readyState') or '')[:30])}; "
+                    f"h1_count={len(direct_h1s)}; h1_values={ascii(direct_h1s)}; "
+                    f"body_text_length={len(safe_text)}; body_excerpt={ascii(safe_text[:350])}"
                 )
                 raise AssertionError(
                     "browser_read_page did not return the visible H1. "

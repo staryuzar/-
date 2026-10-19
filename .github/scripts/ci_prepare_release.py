@@ -402,7 +402,7 @@ def apply_browser_page_title(root: Path) -> None:
     """Return the browser document title to the model while redacting it from persisted logs."""
     tool_source = root / "tool_executor.py"
     tool_text = tool_source.read_text(encoding="utf-8")
-    marker = "# AURORA_BROWSER_PAGE_TITLE_RESULT: return transient title to model; redact it at rest."
+    marker = "# AURORA_BROWSER_PAGE_TITLE_RESULT:"
     if marker not in tool_text:
         old = '''        if name == "browser_read_page":
             driver, current_url = self._browser_for_context(args)
@@ -448,7 +448,7 @@ def apply_browser_page_title(root: Path) -> None:
     app = root / "app.py"
     app_text = app.read_text(encoding="utf-8")
     old_description = "قراءة النص الظاهر حاليًا في الصفحة مباشرة في الوضع التلقائي."
-    new_description = "قراءة عنوان الصفحة في الحقل page_title والنص الظاهر حاليًا في الصفحة مباشرة في الوضع التلقائي."
+    new_description = "قراءة عنوان الصفحة في الحقل page_title والعنوان الرئيسي الظاهر في page_h1 والنص الظاهر حاليًا في الصفحة مباشرة في الوضع التلقائي."
     if new_description not in app_text:
         if old_description not in app_text:
             raise SystemExit("Could not safely locate browser_read_page tool description.")
