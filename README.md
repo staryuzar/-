@@ -4,15 +4,13 @@
 
 > **للاستئناف في أي محادثة لاحقة:** اقرأ [تقرير الاستئناف الدائم بالعربية](.github/RESUME_REPORT_2026-10-19_AR.md) أولًا؛ يتضمن السجل الزمني الكامل والنتائج وروابط Actions ونقطة العمل التالية. لا تبدأ من الصفر. أبقِ ملفات المختبر وسكربتاته وتقاريره في GitHub.
 
-## أحدث نتائج التطوير — 2026-10-19 (الاستئناف بعد #124)
+## أحدث نتائج التطوير — 2026-10-19 (التحقق #125)
 
-- [Windows validation #122 — SUCCESS](https://github.com/staryuzar/-/actions/runs/39235712400): 353 حالة ناجحة على Python 3.11 و353 على Python 3.13، Chrome 7/7 + أداة المتصفح 3/3، وMT5 demo authenticated بلا أوامر.
-- [Windows validation #123 — SUCCESS](https://github.com/staryuzar/-/actions/runs/39236235550) أثبت أن تغيير التوثيق فقط يتخطى الوظائف الثقيلة.
-- [Windows validation #124 — SUCCESS](https://github.com/staryuzar/-/actions/runs/39236392588) أكد بوابة التوثيق-only مرة أخرى.
-- تحديث الأسرار: https://github.com/staryuzar/-/settings/secrets/actions
-- شغّل الاختبار الحقيقي يدويًا من [Aurora real-world assistant E2E workflow](https://github.com/staryuzar/-/actions/workflows/real-world-assistant-e2e.yml)، واختر `gemini` أو `openrouter` ثم `confirm_provider_call=yes) فقط بعد حفظ سر صالح ذي حصة متاحة. لا تُكتب قيمة المفتاح في أي مكان آخر.
-- لا تعتبر E2E الحي ناجحًا إلا بعد رؤية استجابة النموذج ونجاح سجلي `browser_open_url` و`browser_read_page` على المهمة نفسها.
-- التفاصيل وخطوات الاستئناف: [تقرير الاستئناف الدائم بالعربية](.github/RESUME_REPORT_2026-10-19_AR.md).
+- [Windows validation #125 — SUCCESS](https://github.com/staryuzar/-/actions/runs/39237010918): `scope-check` وحدها عملت بنجاح؛ Python/Chrome/MT5 تم تخطيها لأن التغيير توثيقي فقط.
+- [افتح أسرار GitHub Actions لتحديث المفتاح](https://github.com/staryuzar/-/settings/secrets/actions). حدّث `GEMINI_API_KEY` أو `OPENROUTER_API_KEY` حسب المزود الذي لديك له رصيد.
+- بعد حفظ السر: افتح [سير اختبار E2E الحقيقي](https://github.com/staryuzar/-/actions/workflows/real-world-assistant-e2e.yml)، اختر الفرع `real-world-assistant-e2e`، ومزوّد السر الصحيح، وغيّر `confirm_provider_call` إلى `yes` لتشغيل طلب واحد فعلي فقط.
+- النجاح يتطلب استجابة نموذج وسجلات تنفيذ فعلية لفتح وقراءة `example.com` في المحادثة نفسها؛ لا يوجد نجاح حي مثبت منذ HTTP 429 السابق.
+- تفاصيل نقطة الاستئناف: [تقرير العمل العربي](.github/RESUME_REPORT_2026-10-19_AR.md).
 ## آخر نتائج الاختبارات المؤكدة — 2026-10-19
 
 - **Windows / Python 3.11:** نجحت 350 من 350 اختبارًا؛ 0 فشل، 0 أخطاء، 0 متخطاة.
