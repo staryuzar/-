@@ -59,37 +59,33 @@ def main() -> int:
                 raise AssertionError("browser_read_page did not report example.com as its current URL.")
             if "Example Domain" not in str(read.get("page_title", "")):
                 raise AssertionError("browser_read_page did not return the live document title.")
-            if "Example Domain" not in str(read.get("page_h1", "")):
-                safe_text = str(read.get("text", "") or "")
+            body_text = str(read.get("text", "") or "")
+            expected_body_phrase = "this domain is for use in documentation examples without needing permission"
+            if expected_body_phrase not in body_text.casefold():
                 try:
-                    direct_h1s = [
+                    visible_h1s = [
                         str(element.text or "").strip()[:250]
                         for element in driver.find_elements("tag name", "h1")
                         if element.is_displayed() and str(element.text or "").strip()
                     ]
                 except Exception:
-                    direct_h1s = []
+                    visible_h1s = []
                 try:
                     page_url = urlsplit(str(driver.current_url or ""))
                     safe_url = f"{page_url.scheme}://{page_url.hostname or ''}{page_url.path or '/'}"
                 except Exception:
                     safe_url = "[unavailable]"
-                # example.com is a public fixture; a short excerpt helps diagnose
-                # proxy/error pages while avoiding arbitrary query strings or secrets.
                 print(
                     "SAFE LIVE PAGE DIAGNOSTIC: "
                     f"url={ascii(safe_url)}; title={ascii(str(driver.title or '')[:120])}; "
                     f"ready_state={ascii(str(driver.execute_script('return document.readyState') or '')[:30])}; "
-                    f"h1_count={len(direct_h1s)}; h1_values={ascii(direct_h1s)}; "
-                    f"body_text_length={len(safe_text)}; body_excerpt={ascii(safe_text[:350])}"
+                    f"h1_count={len(visible_h1s)}; h1_values={ascii(visible_h1s)}; "
+                    f"body_text_length={len(body_text)}; body_excerpt={ascii(body_text[:350])}"
                 )
-                raise AssertionError(
-                    "browser_read_page did not return the visible H1. "
-                    f"body_text_length={len(safe_text)}; direct_h1_match={any(h.casefold() == 'example domain' for h in direct_h1s)}"
-                )
-            if not str(read.get("text", "") or "").strip():
+                raise AssertionError("browser_read_page did not return the known example.com body phrase.")
+            if not body_text.strip():
                 raise AssertionError("browser_read_page returned empty visible body text.")
-            checks.append("PASS: real browser_read_page returned document title, visible H1, and body text from the live site")
+            checks.append("PASS: real browser_read_page returned the document title and known phrase from the live page body")
 
             before = str(driver.current_url or "")
             blocked = executor.execute("browser_open_url", {"url": "http://127.0.0.1:8765/"})

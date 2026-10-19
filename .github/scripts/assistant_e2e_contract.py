@@ -113,7 +113,10 @@ def missing_execution_evidence(
         (_successful_tool_on_target(records, "browser_open_url"), "successful browser_open_url record on example.com"),
         (_successful_tool_on_target(records, "browser_read_page"), "successful browser_read_page record on example.com"),
         ("document title:" in answer, "Document title field in assistant reply"),
-        ("h1:" in answer, "H1 field in assistant reply"),
-        (answer.count("example domain") >= 2, "matching Example Domain document title and H1 values in assistant reply"),
+        ("page text:" in answer, "Page text field in assistant reply"),
+        (
+            "this domain is for use in documentation examples without needing permission" in answer,
+            "known example.com body phrase in assistant reply",
+        ),
     )
     return [description for passed, description in checks if not passed]

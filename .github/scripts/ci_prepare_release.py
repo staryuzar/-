@@ -402,12 +402,21 @@ def apply_browser_page_title(root: Path) -> None:
     """Return the browser document title to the model while redacting it from persisted logs."""
     tool_source = root / "tool_executor.py"
     tool_text = tool_source.read_text(encoding="utf-8")
-    marker = "# AURORA_BROWSER_PAGE_TITLE_RESULT:"
-    if marker not in tool_text:
+    if "page_h1=page_h1" not in tool_text:
         old = '''        if name == "browser_read_page":
             driver, current_url = self._browser_for_context(args)
             text = get_visible_page_text(driver, limit=20000)
             return new_tool_result(True, True, "تمت قراءة النص الظاهر في الصفحة.", url=current_url, text=text, private_account_warning=page_read_warning(current_url))
+'''
+        legacy = '''        if name == "browser_read_page":
+            driver, current_url = self._browser_for_context(args)
+            text = get_visible_page_text(driver, limit=20000)
+            try:
+                page_title = str(getattr(driver, "title", "") or "")[:250]
+            except Exception:
+                page_title = ""
+            # AURORA_BROWSER_PAGE_TITLE_RESULT: return transient title to model; redact it at rest.
+            return new_tool_result(True, True, "تمت قراءة عنوان الصفحة والنص الظاهر فيها.", url=current_url, page_title=page_title, text=text, private_account_warning=page_read_warning(current_url))
 '''
         new = '''        if name == "browser_read_page":
             driver, current_url = self._browser_for_context(args)
@@ -424,10 +433,13 @@ def apply_browser_page_title(root: Path) -> None:
             # AURORA_BROWSER_PAGE_TITLE_RESULT: return transient title/H1 to model; redact at rest.
             return new_tool_result(True, True, "تمت قراءة عنوان الصفحة والعنوان الرئيسي والنص الظاهر فيها.", url=current_url, page_title=page_title, page_h1=page_h1, text=text, private_account_warning=page_read_warning(current_url))
 '''
-        if old not in tool_text:
-            raise SystemExit("Could not safely locate browser_read_page implementation; refusing a fuzzy patch.")
-        tool_text = tool_text.replace(old, new, 1)
-        tool_source.write_text(tool_text, encoding="utf-8", newline="\n")
+        if legacy in tool_text:
+            tool_text = tool_text.replace(legacy, new, 1)
+        elif old in tool_text:
+            tool_text = tool_text.replace(old, new, 1)
+        else:
+            raise SystemExit("Could not safely locate current or legacy browser_read_page implementation; refusing a fuzzy patch.")
+        tool_source.write_text(tool_text, encoding="utf-8", newline="\\n")
 
     core = root / "assistant_core.py"
     core_text = core.read_text(encoding="utf-8")
@@ -448,7 +460,7 @@ def apply_browser_page_title(root: Path) -> None:
     app = root / "app.py"
     app_text = app.read_text(encoding="utf-8")
     old_description = "قراءة النص الظاهر حاليًا في الصفحة مباشرة في الوضع التلقائي."
-    new_description = "قراءة عنوان الصفحة في الحقل page_title والعنوان الرئيسي الظاهر في page_h1 والنص الظاهر حاليًا في الصفحة مباشرة في الوضع التلقائي."
+    new_description = "قراءة عنوان الصفحة في page_title وعنوان H1 المرئي في page_h1 إن وجد ونص الصفحة الظاهر مباشرة في الوضع التلقائي."
     if new_description not in app_text:
         if old_description not in app_text:
             raise SystemExit("Could not safely locate browser_read_page tool description.")

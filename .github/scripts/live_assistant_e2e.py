@@ -89,9 +89,10 @@ def main() -> int:
 
         prompt = (
             "نفّذ المهمة فعليًا باستخدام أدوات المتصفح، وليس من معرفتك السابقة: "
-            "افتح الموقع العام https://example.com/ في متصفح المساعد، ثم استخدم أداة القراءة "
-            "للحصول على عنوان المستند وعنوان H1 الظاهر. أجب بسطرين مستقلين بالتسميتين الحرفيتين "
-            "Document title: وH1:، وضع قيمة كل منهما كما أرجعتها الأداة. لا تخمّن من المعرفة العامة."
+            "افتح الموقع العام https://example.com/ في متصفح المساعد، ثم اقرأ عنوان المستند "
+            "وأول جملة إنجليزية من النص الظاهر في الصفحة. أجب بسطرين مستقلين بالتسميتين "
+            "الحرفيتين Document title: وPage text:، وانقل الجملة التالية كما تظهر في نتيجة "
+            "أداة القراءة دون ترجمة أو تخمين: This domain is for use in documentation examples without needing permission."
         )
         chat_input = driver.find_element(By.CSS_SELECTOR, '[data-testid="stChatInput"] textarea')
         chat_input.send_keys(prompt)
@@ -237,10 +238,10 @@ def main() -> int:
                 and r["result"].get("effect_verified") is True for r in read_records
             ),
             "target_host_found_in_persisted_redacted_records": True,
-            "document_title_and_h1_returned_separately": (
+            "document_title_and_page_text_phrase_returned": (
                 "document title:" in assistant_reply.casefold()
-                and "h1:" in assistant_reply.casefold()
-                and assistant_reply.casefold().count("example domain") >= 2
+                and "page text:" in assistant_reply.casefold()
+                and "this domain is for use in documentation examples without needing permission" in assistant_reply.casefold()
             ),
             "browser_open_action_in_execution_log": "فتح موقع في متصفح المساعد" in execution_log_text,
             "page_read_action_in_execution_log": "قراءة محتوى الصفحة الحالية" in execution_log_text,

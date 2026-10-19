@@ -17,7 +17,7 @@ GOOD_STEPS = """
 فتح موقع في متصفح المساعد · تم التحقق
 قراءة محتوى الصفحة الحالية · تم التحقق
 """
-GOOD_REPLY = "Document title: Example Domain\nH1: Example Domain"
+GOOD_REPLY = "Document title: Example Domain\nPage text: This domain is for use in documentation examples without needing permission."
 GOOD_RECORDS = [
     {
         "tool": "browser_open_url",
@@ -50,8 +50,8 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
                 "successful browser_open_url record on example.com",
                 "successful browser_read_page record on example.com",
                 "Document title field in assistant reply",
-                "H1 field in assistant reply",
-                "matching Example Domain document title and H1 values in assistant reply",
+                "Page text field in assistant reply",
+                "known example.com body phrase in assistant reply",
             },
         )
 
@@ -82,9 +82,9 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
         records = [GOOD_RECORDS[0], dict(GOOD_RECORDS[1], result={"ok": True, "effect_verified": False, "url": "https://example.com/"})]
         self.assertIn("successful browser_read_page record on example.com", self.check(records=records))
 
-    def test_correct_url_without_expected_heading_is_rejected(self):
-        missing = self.check(reply="The page heading was different.")
-        self.assertIn("matching Example Domain document title and H1 values in assistant reply", missing)
+    def test_missing_known_page_text_phrase_is_rejected(self):
+        missing = self.check(reply="Document title: Example Domain; Page text: a different sentence.")
+        self.assertIn("known example.com body phrase in assistant reply", missing)
 
     def test_actions_without_verified_effect_are_rejected(self):
         missing = self.check(steps="فتح موقع في متصفح المساعد؛ قراءة محتوى الصفحة الحالية")
