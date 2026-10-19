@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 # Running a script from .github/scripts does not reliably put the repository root on sys.path.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+REPO_ROOT = Path(__file__).resolve().parents[2]\nSOURCE_ROOT = REPO_ROOT / "ci_browser_source"\nsys.path.insert(0, str(SOURCE_ROOT if (SOURCE_ROOT / "browser_control.py").is_file() else REPO_ROOT))
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
