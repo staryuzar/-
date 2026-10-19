@@ -99,6 +99,16 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+      - name: Prepare release source and apply reviewed fixes
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "release_source" -Force | Out-Null
+          Get-ChildItem -LiteralPath "ci_source" -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination "release_source" -Recurse -Force
+          }
+          python .github/scripts/ci_prepare_release.py ci_source
+          python .github/scripts/ci_prepare_release.py release_source
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -148,6 +158,19 @@ jobs:
             }
             Write-Host "$file BOM check passed"
           }
+
+      - name: Build patched release package
+        if: matrix.python-version == '3.11'
+        shell: pwsh
+        run: python .github/scripts/ci_prepare_release.py release_source --build-zip Aurora_Control_Room_v2_4_0_PATCHED_AR.zip
+
+      - name: Upload patched release package
+        if: matrix.python-version == '3.11' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aurora-Control-Room-v2.4.0-patched
+          path: Aurora_Control_Room_v2_4_0_PATCHED_AR.zip
+          if-no-files-found: error
 
       - name: Upload test report
         if: always()
