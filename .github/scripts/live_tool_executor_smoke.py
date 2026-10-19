@@ -93,6 +93,11 @@ def main() -> int:
                 raise AssertionError("The tool executor failed to reject loopback navigation without changing the page.")
             checks.append("PASS: actual tool executor blocked loopback navigation without changing the public page")
 
+            blocked_file = executor.execute("browser_open_url", {"url": "file:///C:/Windows/win.ini"})
+            if blocked_file.get("ok") or str(driver.current_url or "") != before:
+                raise AssertionError("The tool executor failed to reject file:// navigation without changing the public page.")
+            checks.append("PASS: actual tool executor blocked file:// navigation without changing the public page")
+
         print("\n".join(checks))
         print(f"RESULT: {len(checks)}/{len(checks)} actual tool-executor checks passed")
         return 0
