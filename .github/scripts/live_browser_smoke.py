@@ -47,7 +47,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(HTML)))
         self.end_headers()
-        self.wfile.write(HTML)
+        try:
+            self.wfile.write(HTML)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            # The delayed-response timeout test intentionally closes Chrome's request early.
+            if not self.path.startswith("/slow"):
+                raise
 
     def log_message(self, *_args):
         pass
