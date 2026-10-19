@@ -3,12 +3,14 @@ name: Aurora Windows validation
 on:
   push:
     branches:
-      - "**"
+      - main
     paths-ignore:
       - "README.md"
       - ".github/PROJECT_STATE_AR.md"
       - ".github/RESUME_REPORT_2026-10-19_AR.md"
   pull_request:
+    branches:
+      - main
     paths-ignore:
       - "README.md"
       - ".github/PROJECT_STATE_AR.md"
@@ -20,7 +22,7 @@ permissions:
 
 concurrency:
   group: aurora-windows-validation-${{ github.ref }}
-  # Do not cancel a long MT5 login check when a report-only commit is pushed.
+  # Report-only changes are filtered above; keep an active MT5 login check alive.
   cancel-in-progress: false
 
 jobs:
