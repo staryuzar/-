@@ -374,3 +374,24 @@
 2. اختبار تنقل غير مسموح إضافي والتحقق من بقاء الصفحة كما هي عند الرفض.
 3. ثم تجهيز EA المستخدم للترجمة، والتحقق من أخطاء/تحذيرات MetaEditor، وبعدها تشغيل Strategy Tester ببيانات تاريخية. هذه الخطوات لم تنفذ بعد ولا يجوز ادعاء نجاحها.
 4. لا تكرر E2E الخاص بـGemini الآن؛ تغييراتنا الأخيرة في اختبارات Chrome فقط ولا تحتاج إلى استهلاك الحصة الحية.
+
+
+## أحدث جولة مؤكدة — 12/12 Chrome ونجاح Windows كامل — 2026-10-19 12:41 UTC
+
+### التغييرات التي جرى اختبارها
+- الالتزام: [31ad92c425d15d12e9109b83f479e4522533eea9](https://github.com/staryuzar/-/commit/31ad92c425d15d12e9109b83f479e4522533eea9).
+- في `.github/scripts/live_browser_smoke.py` أصبح الاختبار يضم: URL غير صالح، عنصر غير موجود، مهلة تحميل فعلية بوقت محدد، التعافي بعد المهلة إلى الصفحة المعروفة، ومهلة انتظار عنصر مفقود. يستخدم الموقع البطيء خادمًا محليًا مؤقتًا فقط، ولا يتصل بحسابات شخصية.
+
+### الأدلة
+- [Windows validation #151 / 39253418287](https://github.com/staryuzar/-/actions/runs/39253418287) — **PASS** لكل الوظائف: Windows/Python 3.11، Windows/Python 3.13، Chrome، MT5 demo.
+- سجل Chrome الفعلي: **12/12 PASS**، بما فيها `delayed page navigation triggers a bounded page-load timeout` و`Chrome recovers to a known-good page after a navigation timeout`.
+- LocalToolExecutor الفعلي: **3/3 PASS**.
+- Python 3.11: `231 passed, 122 subtests passed`؛ Python 3.13: `231 passed, 122 subtests passed`.
+- MT5 demo smoke: PASS؛ المنصة شُغّلت وتم التحقق من المصادقة التجريبية، دون فتح صفقات.
+- Artifact Chrome: [12186314299](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12186314299), SHA-256 `23abbb82d681919fa92023d5bb82e76e7b822e9e815fcff42797fd4f761093a1`.
+- Artifact MT5: [12186299727](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12186299727), SHA-256 `69ba3d5d2b0891f9eada1025ac147263f660f42701a40121f6aeef43cb7039a4`.
+- نتائج Python 3.11: [12186676693](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12186676693). نتائج Python 3.13: [12187240668](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12187240668).
+
+### ملاحظة MT5 وخطوة الاستئناف
+- فحص شجرة المستودع لم يجد ملفات `.mq5`, `.mqh`, `.ex5`, `.set` أو بيانات `.csv`. اختبار MT5 الحالي هو تثبيت/تشغيل/مصادقة تجريبية فقط. **EA المستخدم وStrategy Tester لم يُختبرا بعد**، ولا توجد صفقات حقيقية.
+- التالي: الحفاظ على اختبارات Chrome الـ12، ثم إدخال EA والبيانات التاريخية إلى مسار مستقل، التحقق من ترجمة MetaEditor، وتشغيل Strategy Tester، وحفظ تقريره. لا تختلق ملفات EA أو نتائج تداول بدلًا من البيانات الحقيقية.
