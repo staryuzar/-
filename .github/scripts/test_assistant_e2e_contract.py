@@ -108,6 +108,7 @@ class PersistedToolLogTests(unittest.TestCase):
             connection.execute(
                 "CREATE TABLE conversations (id TEXT, updated_at TEXT, messages_json TEXT, log_json TEXT)"
             )
+            connection.commit()
 
     def tearDown(self):
         self.temp.cleanup()
@@ -119,6 +120,7 @@ class PersistedToolLogTests(unittest.TestCase):
                 "INSERT INTO conversations VALUES (?, ?, ?, ?)",
                 (conversation_id, updated, json.dumps(messages), json.dumps(records)),
             )
+            connection.commit()
 
     def test_reads_records_for_exact_prompt(self):
         self.add_conversation("target", PROMPT, GOOD_RECORDS)
