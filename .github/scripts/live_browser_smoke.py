@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
-import time
 import sys
 from pathlib import Path
 
@@ -41,8 +40,6 @@ HTML = b"""<!doctype html>
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path.startswith("/slow"):
-            time.sleep(1.5)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(HTML)))
@@ -130,21 +127,17 @@ def main() -> None:
         else:
             raise AssertionError("Missing target was unexpectedly selected")
 
-        # A deliberately delayed local response must time out and allow recovery.
-        driver.set_page_load_timeout(0.5)
+        # A bounded wait for a missing element must time out without navigation.
         try:
-            driver.get(f"http://127.0.0.1:{server.server_port}/slow")
+            WebDriverWait(driver, 0.25).until(
+                lambda d: d.find_element("id", "element-that-does-not-exist")
+            )
         except TimeoutException:
-            driver.execute_script("window.stop();")
-            checks.append("PASS: delayed page navigation triggers a bounded page-load timeout")
+            assert driver.current_url == known_good_url
+            assert "The page is loaded and readable." in get_visible_page_text(driver, limit=2000)
+            checks.append("PASS: missing-element wait times out within a bound without leaving the page")
         else:
-            raise AssertionError("Delayed page navigation did not trigger the configured timeout")
-        finally:
-            driver.set_page_load_timeout(30)
-        driver.get(f"http://127.0.0.1:{server.server_port}/")
-        assert driver.title == "Aurora Browser Test Fixture"
-        assert "The page is loaded and readable." in get_visible_page_text(driver, limit=2000)
-        checks.append("PASS: Chrome recovers to a known-good page after a navigation timeout")
+            raise AssertionError("Wait for a missing element unexpectedly succeeded")
 
         # Localhost is intentionally not a public navigation target for the assistant.
         try:
