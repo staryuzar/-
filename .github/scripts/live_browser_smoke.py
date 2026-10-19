@@ -16,6 +16,7 @@ sys.path.insert(0, str(SOURCE_ROOT if (SOURCE_ROOT / "browser_control.py").is_fi
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import InvalidArgumentException
 
 from browser_control import (
     find_text_target,
@@ -105,6 +106,17 @@ def main() -> None:
             checks.append("PASS: remote Chrome debugging endpoint rejected")
         else:
             raise AssertionError("Remote debugging endpoint was incorrectly accepted")
+
+        # An invalid URL must fail before Chrome leaves the known-good fixture.
+        known_good_url = driver.current_url
+        try:
+            driver.get("not a valid URL with spaces")
+        except InvalidArgumentException:
+            assert driver.current_url == known_good_url
+            assert "The page is loaded and readable." in get_visible_page_text(driver, limit=2000)
+            checks.append("PASS: malformed navigation URL rejected without leaving the current page")
+        else:
+            raise AssertionError("Malformed navigation URL was unexpectedly accepted")
 
         # Localhost is intentionally not a public navigation target for the assistant.
         try:
