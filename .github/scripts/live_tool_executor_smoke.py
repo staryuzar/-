@@ -98,6 +98,16 @@ def main() -> int:
                 raise AssertionError("The tool executor failed to reject file:// navigation without changing the public page.")
             checks.append("PASS: actual tool executor blocked file:// navigation without changing the public page")
 
+            for unsafe_url, label in (
+                ("http://localhost:8765/", "localhost hostname"),
+                ("http://[::1]:8765/", "IPv6 loopback"),
+            ):
+                before_unsafe = str(driver.current_url or "")
+                blocked_unsafe = executor.execute("browser_open_url", {"url": unsafe_url})
+                if blocked_unsafe.get("ok") or str(driver.current_url or "") != before_unsafe:
+                    raise AssertionError(f"The tool executor failed to reject {label} navigation without changing the public page.")
+                checks.append(f"PASS: actual tool executor blocked {label} navigation without changing the public page")
+
         print("\n".join(checks))
         print(f"RESULT: {len(checks)}/{len(checks)} actual tool-executor checks passed")
         return 0
