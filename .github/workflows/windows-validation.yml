@@ -147,3 +147,11 @@ jobs:
           name: windows-test-results-py${{ matrix.python-version }}
           path: ci_source/windows-test-results.xml
           if-no-files-found: warn
+
+      - name: Upload original package audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-package-audit-py${{ matrix.python-version }}
+          path: ci_archive_audit.md
+          if-no-files-found: ignore
