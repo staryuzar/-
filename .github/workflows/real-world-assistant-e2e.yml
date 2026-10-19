@@ -21,7 +21,6 @@ jobs:
     env:
       AI_PROVIDER: gemini
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      AURORA_DATA_DIR: ${{ runner.temp }}/aurora-real-e2e-data
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     steps:
       - name: Checkout repository
@@ -55,6 +54,8 @@ jobs:
       - name: Start the actual Streamlit application
         shell: pwsh
         run: |
+          $env:AURORA_DATA_DIR = Join-Path $env:RUNNER_TEMP "aurora-real-e2e-data"
+          Add-Content -Path $env:GITHUB_ENV -Value "AURORA_DATA_DIR=$env:AURORA_DATA_DIR"
           New-Item -ItemType Directory -Force -Path $env:AURORA_DATA_DIR | Out-Null
           $env:PYTHONPATH = (Resolve-Path "aurora_app").Path
           $stdout = Join-Path $env:RUNNER_TEMP "aurora-live.stdout.log"
