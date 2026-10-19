@@ -155,7 +155,7 @@ ProfileLast=Default
 MaxBars=10000
 "@
     [System.IO.File]::WriteAllText($loginConfig, $configText, [System.Text.UTF8Encoding]::new($false))
-    $accountLogin = $null
+    $loginForRedaction = [string]$accountLogin
     $accountPassword = $null
     $credentialRaw = $null
     $credentialObject = $null
@@ -163,33 +163,57 @@ MaxBars=10000
     $credentialLines = $null
 
     $loginStartTime = Get-Date
-    $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", "/config:$loginConfig") -WorkingDirectory $installDir -PassThru
+    # /login forces the requested account; the password is passed only via the private config file.
+    $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", "/config:$loginConfig", "/login:$loginForRedaction") -WorkingDirectory $installDir -PassThru
     "Launched isolated MT5 process for demo authorization check; account details omitted." | Add-Content -LiteralPath $report -Encoding utf8
     $authorizationConfirmed = $false
     $authorizationRejected = $false
     $loginDeadline = (Get-Date).AddSeconds(120)
     $logRoots = @((Join-Path $installDir "Logs"), (Join-Path $installDir "MQL5\Logs"))
+    $appTerminalRoot = Join-Path $env:APPDATA "MetaQuotes\Terminal"
+    if (Test-Path $appTerminalRoot) {
+        foreach ($dataFolder in (Get-ChildItem -LiteralPath $appTerminalRoot -Directory -ErrorAction SilentlyContinue)) {
+            $logRoots += (Join-Path $dataFolder.FullName "Logs")
+            $logRoots += (Join-Path $dataFolder.FullName "MQL5\Logs")
+        }
+    }
+    $logRoots = @($logRoots | Select-Object -Unique)
+    $candidateLogFiles = 0
+    $freshLogFiles = 0
+    $diagnosticLines = New-Object System.Collections.Generic.List[string]
     while ((Get-Date) -lt $loginDeadline) {
         $logFiles = @()
         foreach ($logRoot in $logRoots) {
             if (Test-Path $logRoot) {
                 $logFiles += @(Get-ChildItem -LiteralPath $logRoot -Filter "*.log" -File -ErrorAction SilentlyContinue |
-                    Where-Object { $_.LastWriteTime -ge $loginStartTime.AddSeconds(-3) } |
                     Sort-Object LastWriteTime -Descending | Select-Object -First 8)
             }
         }
-        foreach ($logFile in ($logFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 20)) {
+        $logFiles = @($logFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 24)
+        $candidateLogFiles = [Math]::Max($candidateLogFiles, $logFiles.Count)
+        foreach ($logFile in $logFiles) {
+            $isFreshLog = $logFile.LastWriteTime -ge $loginStartTime.AddSeconds(-3)
+            if ($isFreshLog) { $freshLogFiles++ }
             $logText = ""
             try { $logText = Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction Stop } catch { continue }
             foreach ($logLine in ($logText -split "\r?\n")) {
                 $isServer = $logLine -match '(?i)(Headway-Demo|mt5\.demo\.trade-hw\.online)'
-                if ($isServer -and $logLine -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
+                if ($isFreshLog -and $isServer -and $logLine -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
                     $logLine -notmatch '(?i)(failed|invalid|not authorized|authorization error)') {
                     $authorizationConfirmed = $true
                     break
                 }
-                if ($isServer -and $logLine -match '(?i)(authorization failed|failed to authorize|invalid account|invalid password|authorization rejected)') {
+                if ($isFreshLog -and $isServer -and $logLine -match '(?i)(authorization failed|failed to authorize|invalid account|invalid password|authorization rejected)') {
                     $authorizationRejected = $true
+                }
+                if ($isFreshLog -and $diagnosticLines.Count -lt 10 -and
+                    $logLine -match '(?i)(Headway|mt5\.demo|authoriz|login|connect|network|server|failed|error|timeout|socket|resolve|proxy)') {
+                    $safeLine = [string]$logLine
+                    if (-not [string]::IsNullOrEmpty($loginForRedaction)) { $safeLine = $safeLine.Replace($loginForRedaction, "[LOGIN REDACTED]") }
+                    $safeLine = $safeLine -replace '(?i)(password|passwd)\s*[:=]\s*\S+', '$1=[REDACTED]'
+                    $safeLine = $safeLine -replace '\b\d{4,20}\b', '[NUMBER REDACTED]'
+                    if ($safeLine.Length -gt 260) { $safeLine = $safeLine.Substring(0, 260) }
+                    if (-not $diagnosticLines.Contains($safeLine)) { [void]$diagnosticLines.Add($safeLine) }
                 }
             }
             if ($authorizationConfirmed) { break }
@@ -198,12 +222,16 @@ MaxBars=10000
         if ($authorizationRejected) { break }
         Start-Sleep -Seconds 3
     }
+    if (-not $authorizationConfirmed) {
+        "Login diagnostics: candidate log files=$candidateLogFiles; fresh log files seen=$freshLogFiles; searched roots=$($logRoots.Count)." | Add-Content -LiteralPath $report -Encoding utf8
+        foreach ($safeLine in $diagnosticLines) { "Sanitized MT5 log: $safeLine" | Add-Content -LiteralPath $report -Encoding utf8 }
+    }
     if ($authorizationConfirmed) {
         "RESULT: PASS — MT5 logs confirmed authorization to the Headway demo server. No orders were placed." | Add-Content -LiteralPath $report -Encoding utf8
     } elseif ($authorizationRejected) {
         throw "MT5 server rejected or could not validate the demo-account authorization. Credential values and raw terminal logs were not written to the report."
     } else {
-        throw "MT5 demo authorization was not confirmed within 120 seconds. Check the demo secret format and server connectivity; credential values and raw terminal logs were not written to the report."
+        throw "MT5 demo authorization was not confirmed within 120 seconds. Sanitized connection diagnostics were added; credentials and raw terminal logs were not uploaded."
     }
     Get-Content -LiteralPath $report
 }
