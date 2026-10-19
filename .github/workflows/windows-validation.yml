@@ -45,6 +45,51 @@ jobs:
           }
           if (!(Test-Path "ci_source\requirements.txt")) { throw "requirements.txt not found in prepared source" }
 
+      - name: Audit original package before any compatibility edits
+        if: hashFiles('Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip') != ''
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = Join-Path $PWD "Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip"
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+          try {
+            $entries = @($zip.Entries | Where-Object { $_.Name -ne "" })
+            $lines = @(
+              "# Original package audit",
+              "",
+              "- Archive: `Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip`",
+              "- SHA-256: `$hash`",
+              "- File entries: $($entries.Count)",
+              "- Total uncompressed bytes: $(($entries | Measure-Object -Property Length -Sum).Sum)",
+              "",
+              "## Required files",
+              ""
+            )
+            foreach ($required in @("requirements.txt", "START_WINDOWS.bat", "RUN_TESTS_WINDOWS.bat", "DIAGNOSE_WINDOWS.bat")) {
+              $entry = $entries | Where-Object { $_.FullName -eq $required -or $_.FullName.EndsWith("/$required") } | Select-Object -First 1
+              if ($null -eq $entry) {
+                $lines += "- FAIL — `$required` not found"
+                continue
+              }
+              $stream = $entry.Open()
+              try {
+                $bytes = New-Object byte[] 3
+                $read = $stream.Read($bytes, 0, 3)
+              } finally { $stream.Dispose() }
+              $hasBom = $read -eq 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+              if ($required.EndsWith(".bat") -and $hasBom) {
+                $lines += "- WARN — `$required`: UTF-8 BOM present in ORIGINAL archive (the later test compatibility step may remove it)"
+              } else {
+                $lines += "- PASS — `$required` exists; BOM=$hasBom"
+              }
+            }
+            $lines += @("", "## Archive entries", "")
+            $lines += $entries | ForEach-Object { "- `$($_.FullName)` ($($_.Length) bytes)" }
+            $lines | Set-Content -LiteralPath (Join-Path $PWD "ci_archive_audit.md") -Encoding utf8
+            Write-Host ($lines -join "`n")
+          } finally { $zip.Dispose() }
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
