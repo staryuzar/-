@@ -59,3 +59,14 @@
 - Artifact MT5: [12185948297](https://github.com/staryuzar/-/actions/runs/39252479806/artifacts/12185948297), SHA-256 `0dc5ef332d640541da881bd3760f83eb337142f40973b36788a760eb76c6e7db`.
 - نتائج Python 3.11: [12185254502](https://github.com/staryuzar/-/actions/runs/39252479806/artifacts/12185254502). نتائج Python 3.13: [12185749065](https://github.com/staryuzar/-/actions/runs/39252479806/artifacts/12185749065).
 - التالي: حالات فشل إضافية للانتظار/العناصر، ثم EA الفعلي وStrategy Tester؛ لم يُترجم EA الخاص بالمستخدم ولم يُشغّل Strategy Tester بعد.
+
+
+## أحدث تحقق — اختبار مهلة التنقل والتعافي — 2026-10-19 12:41 UTC
+- [Windows validation #151 / 39253418287](https://github.com/staryuzar/-/actions/runs/39253418287) — **PASS بالكامل**، commit الكود `31ad92c425d15d12e9109b83f479e4522533eea9`.
+- Chrome الحقيقي: **12/12 PASS**. يشمل: فتح وقراءة الصفحة، اختيار زر فريد والتحقق من أثره، رفض حقل كلمة المرور، رفض الأزرار المكررة، رفض عنوان تصحيح Chrome البعيد، رفض URL غير صالح دون مغادرة الصفحة، رفض عنصر غير موجود دون تخمين، مهلة تنقل محددة زمنيًا مع التعافي إلى الصفحة السليمة، مهلة انتظار عنصر مفقود دون مغادرة الصفحة، ورفض loopback.
+- LocalToolExecutor: **3/3 PASS**؛ Python 3.11 و3.13: **231 passed, 122 subtests passed** لكل إصدار؛ MT5 demo smoke PASS دون أوامر.
+- Artifact Chrome: [12186314299](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12186314299), SHA-256 `23abbb82d681919fa92023d5bb82e76e7b822e9e815fcff42797fd4f761093a1`.
+- Artifact MT5: [12186299727](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12186299727), SHA-256 `69ba3d5d2b0891f9eada1025ac147263f660f42701a40121f6aeef43cb7039a4`.
+- نتائج Python 3.11: [12186676693](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12186676693). نتائج Python 3.13: [12187240668](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12187240668).
+- لا توجد ملفات `.mq5` أو `.mqh` أو `.ex5` أو `.set` أو بيانات `.csv` ضمن شجرة GitHub الحالية. لذلك لا يمكن ادعاء اختبار EA المستخدم أو Strategy Tester؛ يلزم إدخال ملف المستشار والبيانات كمرحلة منفصلة. لم تُفتح صفقات.
+- التالي: مراجعة أخيرة لسكربت الاختبار والتقرير، ثم توسيع حالات الروابط غير المسموحة/الانتظار إن لزم، وبعدها تجهيز EA الفعلي لاختبار الترجمة وStrategy Tester.
