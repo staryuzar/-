@@ -97,7 +97,8 @@ def main() -> int:
         report["checks"].append("PASS: actual Streamlit chat UI rendered in real Chrome")
 
         # One bounded rerun is allowed after the previous real-provider HTTP 503; this is not a mocked retry.
-        prompt = (\n            "نفّذ المهمة فعليًا باستخدام أدوات المتصفح، وليس من معرفتك السابقة. الخطوة الأولى إلزامية: "
+        prompt = (
+            "نفّذ المهمة فعليًا باستخدام أدوات المتصفح، وليس من معرفتك السابقة. الخطوة الأولى إلزامية: "
             "استخدم أداة البحث browser_search_web للبحث عن site:example.com Example Domain، ولا تتجاوز البحث. "
             "بعد ذلك افتح الموقع العام https://example.com/ في متصفح المساعد، ثم اقرأ عنوان المستند "
             "وأول جملة من النص الظاهر في الصفحة. أجب بحقلين مستقلين: Document title: أو عنوان المستند:؛ "
