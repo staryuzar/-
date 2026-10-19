@@ -67,7 +67,20 @@ def main() -> int:
         "background-process cleanup race",
     )
     target.write_text(source, encoding="utf-8", newline="\n")
-    print("Applied/verified Windows test portability fixes; production code was not changed.")
+
+    # cmd.exe may misread the first command in a UTF-8-BOM batch file.
+    # Strip only the BOM marker; preserve the remaining bytes exactly.
+    for batch_name in ("START_WINDOWS.bat", "RUN_TESTS_WINDOWS.bat", "DIAGNOSE_WINDOWS.bat"):
+        batch_path = root / batch_name
+        if not batch_path.is_file():
+            raise SystemExit(f"Expected batch file not found: {batch_path}")
+        raw = batch_path.read_bytes()
+        if raw.startswith(bytes((0xEF, 0xBB, 0xBF))):
+            batch_path.write_bytes(raw[3:])
+            print(f"Removed UTF-8 BOM from {batch_name}")
+        else:
+            print(f"Verified no UTF-8 BOM in {batch_name}")
+    print("Applied/verified Windows portability fixes to the extracted legacy package.")
     return 0
 
 
