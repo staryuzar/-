@@ -26,7 +26,80 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  scope-check:
+    name: Decide whether full Windows validation is needed
+    runs-on: ubuntu-latest
+    outputs:
+      run_validation: ${{ steps.scope.outputs.run_validation }}
+      scope_reason: ${{ steps.scope.outputs.scope_reason }}
+    steps:
+      - name: Checkout the exact commit under review
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Check files changed in the latest commit
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "run_validation=true" >> "$GITHUB_OUTPUT"
+            echo "scope_reason=manual_full_validation" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch: full validation is required."
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            if [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]]; then
+              echo "run_validation=true" >> "$GITHUB_OUTPUT"
+              echo "scope_reason=initial_push" >> "$GITHUB_OUTPUT"
+              echo "No usable before-SHA; fail open to full validation."
+              exit 0
+            fi
+            changed="$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")"
+          else
+            if ! git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+              echo "run_validation=true" >> "$GITHUB_OUTPUT"
+              echo "scope_reason=no_parent_commit" >> "$GITHUB_OUTPUT"
+              echo "No parent commit found; fail open to full validation."
+              exit 0
+            fi
+            changed="$(git diff --name-only HEAD^ HEAD)"
+          fi
+
+          printf 'Files changed in validation scope:\n%s\n' "$changed"
+          run_full=false
+          reason=documentation_only
+          if [[ -z "$changed" ]]; then
+            run_full=true
+            reason=empty_change_list_fail_open
+          else
+            while IFS= read -r path; do
+              [[ -z "$path" ]] && continue
+              case "$path" in
+                README.md|.github/PROJECT_STATE_AR.md|.github/RESUME_REPORT_2026-10-19_AR.md)
+                  ;;
+                *)
+                  run_full=true
+                  reason=code_or_workflow_changed
+                  break
+                  ;;
+              esac
+            done <<< "$changed"
+          fi
+          echo "run_validation=$run_full" >> "$GITHUB_OUTPUT"
+          echo "scope_reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "Scope decision: $run_full ($reason)."
+
   windows-tests:
+    needs: scope-check
+    if: needs.scope-check.outputs.run_validation == 'true'
     name: Windows / Python ${{ matrix.python-version }}
     runs-on: windows-2022
     timeout-minutes: 25
@@ -245,6 +318,8 @@ jobs:
           if-no-files-found: ignore
 
   live-browser-smoke:
+    needs: scope-check
+    if: needs.scope-check.outputs.run_validation == 'true'
     name: Live Chrome / local test website
     runs-on: windows-2022
     timeout-minutes: 15
@@ -287,6 +362,8 @@ jobs:
           if-no-files-found: warn
 
   mt5-install-smoke:
+    needs: scope-check
+    if: needs.scope-check.outputs.run_validation == 'true'
     name: MetaTrader 5 install / assistant launch integration
     runs-on: windows-2022
     timeout-minutes: 25
