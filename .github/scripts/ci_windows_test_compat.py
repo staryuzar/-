@@ -47,20 +47,23 @@ def main() -> int:
         # On Windows, wait for the child process to close its inherited log handle
         # before TemporaryDirectory cleanup tries to unlink that file.
         if os.name == "nt":
-            deadline = time.monotonic() + 8
-            while time.monotonic() < deadline:
-                try:
-                    listing = subprocess.run(
-                        ["tasklist", "/FI", f"PID eq {result['pid']}", "/FO", "CSV", "/NH"],
-                        capture_output=True, text=True, timeout=2, check=False,
-                    ).stdout
-                except Exception:
-                    break
-                if str(result["pid"]) not in listing:
-                    break
-                time.sleep(0.1)
-            else:
-                self.fail("Background child process did not exit before temporary workspace cleanup")
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            kernel32.WaitForSingleObject.restype = wintypes.DWORD
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            handle = kernel32.OpenProcess(0x00100000, False, result["pid"])  # SYNCHRONIZE
+            self.assertTrue(handle, "could not open background process handle")
+            try:
+                wait_result = kernel32.WaitForSingleObject(handle, 8000)
+                self.assertEqual(wait_result, 0, "background process did not exit before temporary cleanup")
+            finally:
+                kernel32.CloseHandle(handle)
         else:
             time.sleep(0.2)
 ''',
