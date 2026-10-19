@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: aurora-windows-validation-${{ github.ref }}
-  cancel-in-progress: true
+  # Do not cancel a long MT5 login check when a report-only commit is pushed.
+  cancel-in-progress: false
 
 jobs:
   windows-tests:
