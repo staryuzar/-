@@ -137,7 +137,7 @@ def assistant_reply_has_page_identity(value: Any) -> bool:
 def assistant_reply_has_known_page_text(value: Any) -> bool:
     text = _normalized_reply(value)
     known_english = "this domain is for use in documentation examples without needing permission"
-    known_arabic = "هذا النطاق مخصص للاستخدام في امثلة التوثيق دون الحاجة الى اذن"
+    known_arabic = "هذا النطاق مخصص للاستخدام في امثلة التوثيق دون الحاجة الي اذن"
     return known_english in text or known_arabic in text
 
 
