@@ -174,7 +174,7 @@ def main() -> int:
     report = root / "docs" / "PACKAGE_ARCHITECTURE_REPORT_AR.md"
     existing = report.read_text(encoding="utf-8")
     def describe_file(rel: str) -> str:
-        path = rel.replace("\\", "/")
+        path = rel.replace("\\", "/").casefold()
         name = Path(path).name.casefold()
         path_descriptions = {
             "docs/mt5_field_guide_ar.md": "دليل تشغيلي عربي لواجهات MT5: Market Watch، الرسوم، المؤشرات، Toolbox، MetaEditor، الأوامر، الحساب، Strategy Tester والتحسين.",
