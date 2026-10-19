@@ -105,6 +105,19 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
         self.assertTrue(assistant_reply_has_known_page_text(translated))
         self.assertEqual(self.check(reply=translated), [])
 
+    def test_google_translated_title_and_body_are_accepted(self):
+        # Actual live UI output translated "Example Domain" to "مجال مثال" and
+        # the public page sentence to Arabic. Preserve strict content validation.
+        translated = (
+            "عنوان المستند: مجال مثال\\n"
+            "نص الصفحة: هذا النطاق مُخصص للاستخدام في أمثلة التوثيق دون الحاجة إلى إذن."
+        )
+        self.assertTrue(assistant_reply_has_page_title(translated))
+        self.assertTrue(assistant_reply_has_page_identity(translated))
+        self.assertTrue(assistant_reply_has_page_text_field(translated))
+        self.assertTrue(assistant_reply_has_known_page_text(translated))
+        self.assertEqual(self.check(reply=translated), [])
+
     def test_arabic_body_without_known_phrase_is_rejected(self):
         self.assertFalse(
             assistant_reply_has_known_page_text(

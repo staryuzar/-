@@ -128,7 +128,8 @@ def assistant_reply_has_page_identity(value: Any) -> bool:
     text = _normalized_reply(value)
     has_title_field = assistant_reply_has_page_title(text)
     has_known_title = any(label in text for label in (
-        "example domain", "مثال النطاق", "نطاق المثال", "domain example"
+        "example domain", "مثال النطاق", "نطاق المثال", "domain example",
+        "مجال مثال", "مثال المجال"
     ))
     return has_title_field and has_known_title
 
