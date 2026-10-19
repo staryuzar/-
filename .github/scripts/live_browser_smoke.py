@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
+import time
 import sys
 from pathlib import Path
 
@@ -40,6 +41,8 @@ HTML = b"""<!doctype html>
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path.startswith("/slow"):
+            time.sleep(1.5)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(HTML)))
@@ -126,6 +129,22 @@ def main() -> None:
             checks.append("PASS: missing target rejected without guessing or navigating away")
         else:
             raise AssertionError("Missing target was unexpectedly selected")
+
+        # A delayed local response must trigger the configured page-load timeout and allow recovery.
+        driver.set_page_load_timeout(0.5)
+        try:
+            driver.get(f"http://127.0.0.1:{server.server_port}/slow")
+        except TimeoutException:
+            driver.execute_script("window.stop();")
+            checks.append("PASS: delayed page navigation triggers a bounded page-load timeout")
+        else:
+            raise AssertionError("Delayed page navigation did not trigger the configured timeout")
+        finally:
+            driver.set_page_load_timeout(30)
+        driver.get(f"http://127.0.0.1:{server.server_port}/")
+        assert driver.title == "Aurora Browser Test Fixture"
+        assert "The page is loaded and readable." in get_visible_page_text(driver, limit=2000)
+        checks.append("PASS: Chrome recovers to a known-good page after a navigation timeout")
 
         # A bounded wait for a missing element must time out without navigation.
         try:
