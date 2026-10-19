@@ -131,3 +131,17 @@
 - Python 3.11 و3.13: **231 passed + 122 subtests** لكل إصدار. MT5 demo smoke ناجح؛ عينة EA مؤقتة فقط تُرجمت بصفر أخطاء، ولا توجد صفقات.
 - [تقرير Chrome والأدوات](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12187568822)؛ [حزمة v2.4.0 المعدلة](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12188130607)؛ [تقرير MT5](https://github.com/staryuzar/-/actions/runs/39256415719/artifacts/12187239644).
 - EA المستخدم وStrategy Tester وGmail لم تُختبر بعد. راجع [تقرير الاستئناف](.github/RESUME_REPORT_2026-10-19_AR.md).
+
+
+## تطوير متوازٍ: مهارات MT5 وChrome والمراسلة — قيد التحقق
+
+أُضيفت في فرع التطوير حزمة مهارات عربية تُضمَّن داخل إصدار ZIP الناتج، وليست مجرد ملفات في المستودع:
+
+- دليل MT5: Market Watch ومواصفات الرموز، الرسوم والفريمات والمؤشرات، الكائنات، المراكز والتاريخ، MetaEditor/F7، Strategy Tester، التحسين، البيانات التاريخية والسجلات.
+- دليل Chrome: البحث، قراءة الصفحات والتحقق من العنوان والنص، النماذج، Gmail، WhatsApp وTelegram، ومعالجة الأخطاء ومنع الإرسال المكرر.
+- طبقة مهارات تشغيلية: وصفات جديدة تزرع في SQLite بوصفها candidate، وتسترجع حسب عبارات المستخدم، مع تعليمات نظام إضافية وتوسيع كلمات الاسترجاع.
+- تقرير بنية الحزمة وفهرس الملفات والبصمات، واختبار انحدار للتحقق من وجود الأدلة وإمكانية استرجاع الوصفات.
+
+الملفات المصدرية: [MT5 guide](.github/training/MT5_FIELD_GUIDE_AR.md)، [Chrome/messaging guide](.github/training/CHROME_MESSAGING_GUIDE_AR.md)، [package architecture](.github/training/PACKAGE_ARCHITECTURE_REPORT_AR.md)، و[CI packager](.github/scripts/ci_enrich_knowledge.py).
+
+**الحالة:** التعديل على فرع parallel-mt5-chrome-learning ويحتاج نجاح Windows validation على PR قبل اعتماد الحزمة. هذا لا يثبت بعد ترجمة EA المستخدم أو تشغيل Strategy Tester أو إرسال بريد حقيقي.
