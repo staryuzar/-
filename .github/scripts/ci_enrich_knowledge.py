@@ -106,8 +106,56 @@ def main() -> int:
     new_terms = '    "compile", "ترجمة الكود", "التقرير", "نتائج الاختبار", "صفقات", "تشغيل الخبير",\n    "market watch", "مراقبة السوق", "مواصفات الرمز", "specification", "سبريد", "tick size", "contract size",\n    "الرسم البياني", "فريم", "إطار زمني", "مؤشرات", "rsi", "ema", "macd", "atr", "fibonacci", "خط اتجاه",\n    "المراكز المفتوحة", "الأوامر المعلقة", "equity", "margin", "experts", "journal", "optimization", "تحسين",\n    "البيانات التاريخية", "تصدير csv", "forward test", "قارن المصادر", "بحث ويب", "املأ نموذج", "submit form",\n)'
     replace_once(memory_context, old_terms, new_terms, "expand skill retrieval terms")
 
+    # Add optional, unique CSS targeting for safe text entry. The default active-element path remains compatible.
+    executor_source = root / "tool_executor.py"
+    executor_text = executor_source.read_text(encoding="utf-8")
+    old_text_entry = '''        if name == "browser_type_text":
+            text = str(args.get("text", ""))
+            if len(text) > 10000:
+                raise ValueError("النص يتجاوز الحد: 10,000 حرف.")
+            driver, current_url = self._browser_for_context(args)
+            element = driver.switch_to.active_element
+            kind = validate_text_entry(element)
+            element.send_keys(text)
+            return new_tool_result(True, True, f"كُتب النص في {kind}; راجع الصفحة قبل الإرسال.", url=current_url, characters=len(text))
+'''
+    new_text_entry = '''        if name == "browser_type_text":
+            text = str(args.get("text", ""))
+            if len(text) > 10000:
+                raise ValueError("النص يتجاوز الحد: 10,000 حرف.")
+            driver, current_url = self._browser_for_context(args)
+            selector = str(args.get("selector", "") or "").strip()
+            if selector:
+                if len(selector) > 500:
+                    raise ValueError("محدد الحقل يتجاوز الحد المسموح.")
+                try:
+                    matches = driver.find_elements("css selector", selector)
+                except Exception:
+                    raise ValueError("محدد CSS غير صالح؛ لم أكتب أي نص.") from None
+                if len(matches) != 1:
+                    raise ValueError(f"يجب أن يطابق محدد الحقل عنصرًا واحدًا فقط؛ عدد المطابقات: {len(matches)}.")
+                element = matches[0]
+            else:
+                element = driver.switch_to.active_element
+            kind = validate_text_entry(element)
+            element.send_keys(text)
+            return new_tool_result(True, True, f"كُتب النص في {kind}; راجع الصفحة قبل الإرسال.", url=current_url, characters=len(text), targeted_field=bool(selector))
+'''
+    if "AURORA_BROWSER_TARGETED_TEXT_ENTRY_V1" not in executor_text:
+        if old_text_entry not in executor_text:
+            raise SystemExit("Could not safely locate browser_type_text implementation.")
+        executor_text = executor_text.replace(old_text_entry, "# AURORA_BROWSER_TARGETED_TEXT_ENTRY_V1\n" + new_text_entry, 1)
+        executor_source.write_text(executor_text, encoding="utf-8", newline="\\n")
+
     app = root / "app.py"
     app_content = app.read_text(encoding="utf-8")
+    old_tool_schema = '_tool("browser_type_text", "كتابة النص في حقل الصفحة النشط مباشرة، بما في ذلك محررات الرسائل؛ تُنفذ الخطوات التالية بطلب المستخدم دون موافقة إضافية. لا تقرأ أو تستخرج كلمات المرور.", {"text": {"type": "string"}}, ["text"]),'
+    new_tool_schema = '_tool("browser_type_text", "كتابة النص في الحقل النشط أو حقل ظاهر محدد بمحدد CSS فريد. تحقق من القيمة بعد الكتابة؛ لا تضغط إرسال هنا. لا تكتب في كلمات المرور أو الحقول المخفية.", {"text": {"type": "string"}, "selector": {"type": "string", "maxLength": 500}}, ["text"]),'
+    if new_tool_schema not in app_content:
+        if old_tool_schema not in app_content:
+            raise SystemExit("Could not safely locate browser_type_text tool schema.")
+        app_content = app_content.replace(old_tool_schema, new_tool_schema, 1)
+        app.write_text(app_content, encoding="utf-8", newline="\\n")
     prompt_marker = "AURORA_PARALLEL_SKILL_PACK_V1"
     if prompt_marker not in app_content:
         old_prompt_end = 'لا تخترع أدوات أو نتائج أو مسارات. إذا فشلت خطوة، اذكر الخطأ واقترح خطوة تشخيص محددة.\n""".strip()'
