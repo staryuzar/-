@@ -1,6 +1,8 @@
 name: Aurora real-world assistant E2E
 
 # This workflow makes one real provider call only after an explicit opt-in.
+# 2026-10-19: re-run the real path after the user rotated the provider credential;
+# the live job remains gated by the explicit [run-live-e2e] commit marker.
 # Manual dispatch is default-safe (confirm_provider_call=no). On the dev branch, a push
 # starts the live job only when its commit message contains [run-live-e2e].
 on:
