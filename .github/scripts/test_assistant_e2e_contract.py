@@ -53,7 +53,7 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
 
     def test_url_on_wrong_host_is_rejected(self):
         records = [
-            dict(GOOD_RECORDS[0], args={"url": "https://notexample.com/"}),
+            dict(GOOD_RECORDS[0], args={"url": "https://notexample.com/"}, result={"ok": True, "effect_verified": True, "url": "https://notexample.com/"}),
             dict(GOOD_RECORDS[1], result={"ok": True, "effect_verified": True, "url": "https://notexample.com/"}),
         ]
         missing = self.check(records=records)
@@ -63,6 +63,13 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
     def test_failed_tool_result_is_rejected_even_with_target_url(self):
         records = [
             dict(GOOD_RECORDS[0], result={"ok": False, "effect_verified": False, "url": "https://example.com/"}),
+            GOOD_RECORDS[1],
+        ]
+        self.assertIn("successful browser_open_url record on example.com", self.check(records=records))
+
+    def test_open_redirected_away_from_target_is_rejected(self):
+        records = [
+            dict(GOOD_RECORDS[0], result={"ok": True, "effect_verified": True, "url": "https://other.example/"}),
             GOOD_RECORDS[1],
         ]
         self.assertIn("successful browser_open_url record on example.com", self.check(records=records))
@@ -81,7 +88,7 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
 
     def test_subdomains_and_similar_domain_names_are_rejected(self):
         records = [
-            dict(GOOD_RECORDS[0], args={"url": "https://example.com.evil.invalid/"}),
+            dict(GOOD_RECORDS[0], args={"url": "https://example.com.evil.invalid/"}, result={"ok": True, "effect_verified": True, "url": "https://example.com.evil.invalid/"}),
             dict(GOOD_RECORDS[1], result={"ok": True, "effect_verified": True, "url": "https://fakeexample.com/"}),
         ]
         missing = self.check(records=records)

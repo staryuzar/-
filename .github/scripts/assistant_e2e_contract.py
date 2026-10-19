@@ -79,10 +79,20 @@ def _successful_tool_on_target(records: list[dict], name: str) -> bool:
         result = record.get("result") if isinstance(record.get("result"), dict) else {}
         if result.get("ok") is not True or result.get("effect_verified") is not True:
             continue
-        urls = [args.get(key) for key in ("url", "current_url", "final_url")]
-        urls.extend(result.get(key) for key in ("url", "current_url", "final_url"))
-        if any(_has_target_host(url) for url in urls):
-            return True
+        arg_urls = [args.get(key) for key in ("url", "current_url", "final_url") if args.get(key)]
+        result_urls = [result.get(key) for key in ("url", "current_url", "final_url") if result.get(key)]
+        if name == "browser_open_url":
+            # Verify the requested URL and the observed final URL independently.
+            if arg_urls and any(_has_target_host(url) for url in arg_urls) and any(
+                _has_target_host(url) for url in result_urls
+            ):
+                return True
+        elif name == "browser_read_page":
+            # Page-read normally takes no URL argument; its reported current URL is authoritative.
+            if (not arg_urls or all(_has_target_host(url) for url in arg_urls)) and any(
+                _has_target_host(url) for url in result_urls
+            ):
+                return True
     return False
 
 
