@@ -103,3 +103,11 @@
 - لا يوجد EA أو بيانات تاريخية ضمن شجرة المستودع الحالية، لذلك لم يُترجم EA المستخدم ولم يُشغّل Strategy Tester. راجع [تقرير الاستئناف](.github/RESUME_REPORT_2026-10-19_AR.md).
 
 - توضيح MT5: MetaEditor ترجم عينة EA مؤقتة بصفر أخطاء؛ لم يُترجم EA المستخدم ولم يُشغّل Strategy Tester لغياب ملفات EA والبيانات من المستودع.
+
+
+### آخر تشغيل Windows موثق — #163
+- [Windows validation #163](https://github.com/staryuzar/-/actions/runs/39255692194) — كل الوظائف الخمس نجحت.
+- LocalToolExecutor: **6/6**، بما في ذلك رفض `file://` و`127.0.0.1` و`localhost` وIPv6 `::1` دون تغيير الصفحة العامة؛ Chrome timeout/recovery: **12/12** في تشغيل #156.
+- Python 3.11 و3.13: **231 passed + 122 subtests** لكل إصدار؛ MT5 demo smoke ناجح، وعينة EA مؤقتة فقط تُرجمت بصفر أخطاء.
+- [حزمة التطبيق المعدلة v2.4.0](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12188100049)؛ [تقرير Chrome](https://github.com/staryuzar/-/actions/runs/39255692194/artifacts/12187408176).
+- EA المستخدم وStrategy Tester وGmail لم تُختبر بعد. انظر [تقرير الاستئناف](.github/RESUME_REPORT_2026-10-19_AR.md).
