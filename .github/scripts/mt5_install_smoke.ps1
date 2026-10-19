@@ -8,7 +8,6 @@ New-Item -ItemType Directory -Path $installDir, $logDir -Force | Out-Null
 $report = Join-Path $logDir "mt5-smoke-report.txt"
 $installer = Join-Path $root "mt5setup.exe"
 $terminal = $null
-$process = $null
 
 try {
     "Aurora MT5 integration smoke test" | Set-Content -LiteralPath $report -Encoding utf8
@@ -39,16 +38,13 @@ try {
     "Product version: $($version.ProductVersion)" | Add-Content -LiteralPath $report -Encoding utf8
     "File version: $($version.FileVersion)" | Add-Content -LiteralPath $report -Encoding utf8
 
-    # Use a disposable installation and no login/account parameters. No trading account is connected.
-    $process = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable") -WorkingDirectory $installDir -PassThru
-    Start-Sleep -Seconds 15
-    $stillRunning = $null -ne (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)
-    "Launch PID: $($process.Id)" | Add-Content -LiteralPath $report -Encoding utf8
-    "Terminal process alive after 15s: $stillRunning" | Add-Content -LiteralPath $report -Encoding utf8
-    if (!$stillRunning) { throw "MetaTrader terminal process exited during startup smoke test." }
-
-    "RESULT: PASS — official installer installed a terminal executable and it remained running for 15 seconds." | Add-Content -LiteralPath $report -Encoding utf8
-    "LIMIT: this is an installation/process smoke test, not a GUI interaction, broker login, demo-account, Expert Advisor compilation, or Strategy Tester result." | Add-Content -LiteralPath $report -Encoding utf8
+    # Exercise the same launch/window-enumeration helpers used by the assistant. No account credentials are supplied.
+    $sourceDir = Join-Path $PWD "ci_mt5_source"
+    if (!(Test-Path (Join-Path $sourceDir "windows_tools.py"))) { throw "Assistant source was not extracted for the MT5 integration test." }
+    $env:PYTHONPATH = $sourceDir
+    python .github/scripts/mt5_assistant_launch_probe.py --source-dir "$sourceDir" --terminal-path "$($terminal.FullName)" --install-dir "$installDir" --report "$report"
+    if ($LASTEXITCODE -ne 0) { throw "Aurora's launch_program integration probe failed." }
+    "LIMIT: no broker login, demo account, EA compilation, Strategy Tester run, or trade was performed." | Add-Content -LiteralPath $report -Encoding utf8
     Get-Content -LiteralPath $report
 }
 catch {
@@ -56,8 +52,4 @@ catch {
     Get-Content -LiteralPath $report
     throw
 }
-finally {
-    if ($null -ne $process) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-    }
-}
+finally { }
