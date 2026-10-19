@@ -1,0 +1,125 @@
+name: Aurora real-world assistant E2E
+
+on:
+  push:
+    branches:
+      - real-world-assistant-e2e
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "AI provider whose real API will be used"
+        required: true
+        type: choice
+        options:
+          - gemini
+          - openrouter
+        default: gemini
+      model:
+        description: "Optional model override; leave blank to use the app default"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aurora-real-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-assistant-task:
+    name: Real Windows + live website + real model/tool call
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      AI_PROVIDER: ${{ inputs.provider || 'gemini' }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      GEMINI_MODEL: ${{ inputs.model }}
+      OPENROUTER_MODEL: ${{ inputs.model }}
+      AURORA_DATA_DIR: ${{ runner.temp }}\aurora-real-e2e-data
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Require a real provider credential (no mocks)
+        shell: pwsh
+        run: |
+          $provider = $env:AI_PROVIDER
+          $key = if ($provider -eq "gemini") { $env:GEMINI_API_KEY } else { $env:OPENROUTER_API_KEY }
+          if ([string]::IsNullOrWhiteSpace($key)) {
+            throw "BLOCKED: Add the real $provider API key as repository Actions secret $(if ($provider -eq 'gemini') {'GEMINI_API_KEY'} else {'OPENROUTER_API_KEY'}). This workflow intentionally does not use a mock model."
+          }
+          Write-Host "A real $provider credential is configured; secret value is not displayed."
+
+      - name: Extract actual application package
+        shell: pwsh
+        run: |
+          $archive = "Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip"
+          if (!(Test-Path $archive)) { throw "The actual Aurora application ZIP is missing from this commit." }
+          Expand-Archive -LiteralPath $archive -DestinationPath "aurora_app" -Force
+          if (!(Test-Path "aurora_app\app.py") -or !(Test-Path "aurora_app\tool_executor.py")) {
+            throw "The extracted package does not contain the actual app and tool executor."
+          }
+
+      - name: Install actual app dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r aurora_app\requirements.txt
+          python -m pip install selenium
+
+      - name: Start the actual Streamlit application
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:AURORA_DATA_DIR | Out-Null
+          $env:PYTHONPATH = (Resolve-Path "aurora_app").Path
+          $stdout = Join-Path $env:RUNNER_TEMP "aurora-live.stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "aurora-live.stderr.log"
+          $server = Start-Process -FilePath python -ArgumentList @("-m","streamlit","run",(Join-Path (Resolve-Path "aurora_app").Path "app.py"),"--server.port","8765","--server.headless","true","--browser.gatherUsageStats","false") -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP "aurora-live-server.pid") -Value $server.Id
+          $healthy = $false
+          for ($i=0; $i -lt 45; $i++) {
+            $server.Refresh()
+            if ($server.HasExited) { break }
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:8765/_stcore/health" -TimeoutSec 2 -UseBasicParsing
+              if ($r.StatusCode -eq 200) { $healthy = $true; break }
+            } catch {}
+            Start-Sleep -Seconds 1
+          }
+          if (!$healthy) {
+            if (Test-Path $stdout) { Get-Content $stdout }
+            if (Test-Path $stderr) { Get-Content $stderr }
+            throw "Actual Aurora app did not become healthy."
+          }
+          Write-Host "Actual Aurora Streamlit app is running on the hosted Windows VM."
+
+      - name: Ask the real assistant to browse a live public website
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = (Resolve-Path "aurora_app").Path
+          python .github/scripts/live_assistant_e2e.py --url "http://127.0.0.1:8765" --report "$env:RUNNER_TEMP\aurora-live-e2e-report.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload actual run report and application logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-real-world-e2e-report
+          path: |
+            ${{ runner.temp }}\aurora-live-e2e-report.json
+            ${{ runner.temp }}\aurora-live.stdout.log
+            ${{ runner.temp }}\aurora-live.stderr.log
+          if-no-files-found: warn
+
+      - name: Stop actual application process
+        if: always()
+        shell: pwsh
+        run: |
+          $pidFile = Join-Path $env:RUNNER_TEMP "aurora-live-server.pid"
+          if (Test-Path $pidFile) {
+            $serverPid = [int](Get-Content $pidFile -Raw)
+            Stop-Process -Id $serverPid -Force -ErrorAction SilentlyContinue
+          }
