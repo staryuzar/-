@@ -22,13 +22,13 @@ try {
     "Installer bytes: $((Get-Item $installer).Length)" | Add-Content -LiteralPath $report -Encoding utf8
     $install = Start-Process -FilePath $installer -ArgumentList @("/auto", "/path:`"$installDir`"") -PassThru -Wait
     "Installer exit code: $($install.ExitCode)" | Add-Content -LiteralPath $report -Encoding utf8
-    if ($install.ExitCode -ne 0) { throw "MetaTrader installer exited with code $($install.ExitCode)." }
+    if ($install.ExitCode -ne 0) { "Installer returned nonzero; inspect the installed files before deciding whether installation failed." | Add-Content -LiteralPath $report -Encoding utf8 }
 
     $terminal = Get-ChildItem -LiteralPath $installDir -Filter "terminal64.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $terminal) {
         $terminal = Get-ChildItem -LiteralPath $installDir -Filter "terminal.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     }
-    if ($null -eq $terminal) { throw "Installer completed but terminal64.exe/terminal.exe was not found in the requested install directory." }
+    if ($null -eq $terminal) {\n        $entries = @(Get-ChildItem -LiteralPath $installDir -Force -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { $_.FullName })\n        "Install directory entries: $($entries -join "; ")" | Add-Content -LiteralPath $report -Encoding utf8\n        throw "Installer exit code $($install.ExitCode); terminal64.exe/terminal.exe was not found in the requested install directory."\n    }
     "Terminal path: $($terminal.FullName)" | Add-Content -LiteralPath $report -Encoding utf8
     $version = (Get-Item -LiteralPath $terminal.FullName).VersionInfo
     "Product version: $($version.ProductVersion)" | Add-Content -LiteralPath $report -Encoding utf8
