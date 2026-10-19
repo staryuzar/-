@@ -62,6 +62,19 @@ jobs:
           }
           Write-Host "A real $provider credential is configured; secret value is not displayed."
 
+      - name: Preflight selected provider credential and model without generating tokens
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP "provider-preflight.json"
+          if ($env:AI_PROVIDER -eq "gemini") {
+            python .github/scripts/provider_api_preflight.py --provider gemini --model "gemini-3.8-flash" --report "$report"
+          } elseif ($env:AI_PROVIDER -eq "openrouter") {
+            python .github/scripts/provider_api_preflight.py --provider openrouter --report "$report"
+          } else {
+            throw "Unsupported model provider selection."
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Extract actual application package
         shell: pwsh
         run: |
@@ -130,6 +143,7 @@ jobs:
             ${{ runner.temp }}/aurora-live-e2e-report.json
             ${{ runner.temp }}/aurora-live.stdout.log
             ${{ runner.temp }}/aurora-live.stderr.log
+            ${{ runner.temp }}/provider-preflight.json
           if-no-files-found: warn
 
       - name: Stop actual application process
