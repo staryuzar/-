@@ -292,7 +292,7 @@ jobs:
 
       - name: Test release archive hygiene
         shell: pwsh
-        run: python -m unittest .github/scripts/test_ci_prepare_release.py -v
+        run: python .github/scripts/test_ci_prepare_release.py -v
 
       - name: Build patched release package
         if: matrix.python-version == '3.11'
