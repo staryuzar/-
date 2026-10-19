@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import tempfile
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote_plus, urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "ci_browser_source"
@@ -93,7 +93,7 @@ def main() -> int:
             search_host = (urlsplit(search_url).hostname or "").casefold().rstrip(".")
             if not searched.get("ok") or not searched.get("effect_verified") or not search_host.endswith("duckduckgo.com"):
                 raise AssertionError("The actual browser_search_web tool did not verify navigation to DuckDuckGo.")
-            decoded_search_url = unquote(search_url).casefold()
+            decoded_search_url = unquote_plus(search_url).casefold()
             if "example.com" not in decoded_search_url or "example domain" not in decoded_search_url:
                 raise AssertionError("The live search URL did not retain the requested search terms.")
             search_read = executor.execute("browser_read_page", {})
