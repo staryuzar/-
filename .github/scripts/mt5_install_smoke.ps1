@@ -162,16 +162,19 @@ MaxBars=10000
     $namedFields = $null
     $credentialLines = $null
 
+    $loginStartTime = Get-Date
     $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", "/config:$loginConfig") -WorkingDirectory $installDir -PassThru
     "Launched isolated MT5 process for demo authorization check; account details omitted." | Add-Content -LiteralPath $report -Encoding utf8
     $authorizationConfirmed = $false
     $authorizationRejected = $false
     $loginDeadline = (Get-Date).AddSeconds(120)
+    $logRoots = @((Join-Path $installDir "Logs"), (Join-Path $installDir "MQL5\Logs"))
     while ((Get-Date) -lt $loginDeadline) {
         $logFiles = @()
-        foreach ($logRoot in @((Join-Path $installDir "Logs"), (Join-Path $installDir "MQL5\Logs"), $installDir)) {
+        foreach ($logRoot in $logRoots) {
             if (Test-Path $logRoot) {
-                $logFiles += @(Get-ChildItem -LiteralPath $logRoot -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue |
+                $logFiles += @(Get-ChildItem -LiteralPath $logRoot -Filter "*.log" -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LastWriteTime -ge $loginStartTime.AddSeconds(-3) } |
                     Sort-Object LastWriteTime -Descending | Select-Object -First 8)
             }
         }
