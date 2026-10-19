@@ -118,6 +118,16 @@ def main() -> None:
         else:
             raise AssertionError("Malformed navigation URL was unexpectedly accepted")
 
+        # Missing targets must be reported, not guessed or clicked by fuzzy fallback.
+        try:
+            find_text_target(driver, "Aurora button that does not exist")
+        except ValueError:
+            assert driver.current_url == known_good_url
+            assert "The page is loaded and readable." in get_visible_page_text(driver, limit=2000)
+            checks.append("PASS: missing target rejected without guessing or navigating away")
+        else:
+            raise AssertionError("Missing target was unexpectedly selected")
+
         # Localhost is intentionally not a public navigation target for the assistant.
         try:
             validate_current_page(driver)
