@@ -1,14 +1,18 @@
 name: Aurora real-world assistant E2E
 
+# This workflow calls the real paid/quota-limited model API. Manual-only
+# dispatch prevents every documentation or code push from consuming Gemini quota.
 on:
-  push:
-    branches:
-      - main
-      - real-world-assistant-e2e
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      confirm_provider_call:
+        description: "Run one real Gemini/UI/browser task (consumes provider quota)"
+        required: true
+        type: choice
+        options:
+          - "yes"
+          - "no"
+        default: "yes"
 
 permissions:
   contents: read
@@ -19,6 +23,7 @@ concurrency:
 
 jobs:
   real-assistant-task:
+    if: inputs.confirm_provider_call == 'yes'
     name: Real Windows + live website + real model/tool call
     runs-on: windows-2022
     timeout-minutes: 15
