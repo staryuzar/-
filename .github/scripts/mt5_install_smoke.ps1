@@ -20,7 +20,7 @@ try {
         throw "Official installer download is missing or unexpectedly small."
     }
     "Installer bytes: $((Get-Item $installer).Length)" | Add-Content -LiteralPath $report -Encoding utf8
-    $install = Start-Process -FilePath $installer -ArgumentList @("/auto", "/path:$installDir") -PassThru -Wait
+    $install = Start-Process -FilePath $installer -ArgumentList @("/auto", "/path:`"$installDir`"") -PassThru -Wait
     "Installer exit code: $($install.ExitCode)" | Add-Content -LiteralPath $report -Encoding utf8
     if ($install.ExitCode -ne 0) { throw "MetaTrader installer exited with code $($install.ExitCode)." }
 
