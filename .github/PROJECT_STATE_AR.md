@@ -47,5 +47,5 @@
 - تعديل Chrome الجديد في الالتزام `a60a4ec019bcdb083d16b2591b8e6047ab94c216` يختبر رفض URL غير صالح مع بقاء الصفحة الحالية قابلة للقراءة. سجل Chrome الفعلي `8/8 browser checks passed`، منها الاختبار الجديد؛ واختبارات LocalToolExecutor الفعلية `3/3`.
 - Windows Python 3.11: `231 passed, 122 subtests passed`؛ Python 3.13: `231 passed, 122 subtests passed`. ترجمة ملفات Python وتدقيق الأدلة نجحا.
 - تكامل MT5 في التشغيل نفسه انتهى PASS. لا تزال النتيجة تخص تثبيت/تشغيل المنصة ومصادقة Headway التجريبي دون أوامر؛ لم يُترجم EA المستخدم ولم يُشغّل Strategy Tester بعد.
-- Artifact تقرير Chrome: [12185623145](https://github.com/staryuzar/-/actions/runs/39251604674/artifacts/12185623145) (يُتحقق من رقم الـArtifact في قائمة artifacts قبل الاعتماد عليه). التقرير الأوثق هو سجل التشغيل نفسه إن اختلف رقم الـArtifact.
+- Artifact تقرير Chrome: [12184889189](https://github.com/staryuzar/-/actions/runs/39251604674/artifacts/12185623145) (يُتحقق من رقم الـArtifact في قائمة artifacts قبل الاعتماد عليه). التقرير الأوثق هو سجل التشغيل نفسه إن اختلف رقم الـArtifact.
 - الخطوة التالية: تحديث تقرير الاستئناف التفصيلي وREADME بهذه النتيجة، ثم توسيع اختبارات فشل المتصفح، ثم إعداد مسار ترجمة EA وStrategy Tester. لا ترسل طلب Gemini حيًا إلا عند الحاجة لأن الاختبار يستهلك الحصة.
