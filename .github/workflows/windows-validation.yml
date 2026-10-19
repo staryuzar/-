@@ -158,6 +158,10 @@ jobs:
         working-directory: ci_source
         run: python -m pytest -q --junitxml=windows-test-results.xml
 
+      - name: Test independent real-assistant E2E evidence contract
+        shell: pwsh
+        run: python .github/scripts/test_assistant_e2e_contract.py
+
       - name: Smoke-test Streamlit chat room startup
         if: matrix.python-version == '3.11'
         shell: pwsh

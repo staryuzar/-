@@ -19,6 +19,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from urllib.request import urlopen
+from assistant_e2e_contract import missing_execution_evidence
 
 
 def main() -> int:
@@ -153,26 +154,46 @@ def main() -> int:
 
         # Inspect the real execution log. A correct-sounding answer without browser tool evidence is not a pass.
         expanders = driver.find_elements(By.CSS_SELECTOR, '[data-testid="stExpander"]')
-        clicked_log = False
+        execution_log_expander = None
         for expander in expanders:
             if "خطوات التنفيذ الأخيرة" in expander.text:
                 button = expander.find_element(By.CSS_SELECTOR, "summary")
                 if button.get_attribute("aria-expanded") != "true":
                     button.click()
-                clicked_log = True
+                execution_log_expander = expander
                 break
-        if not clicked_log:
+        if execution_log_expander is None:
             raise AssertionError("Assistant execution log expander was not found; tool execution cannot be independently verified.")
-        WebDriverWait(driver, 15).until(
-            lambda d: "فتح موقع في متصفح المساعد" in d.find_element(By.TAG_NAME, "body").text
-            and "قراءة محتوى الصفحة الحالية" in d.find_element(By.TAG_NAME, "body").text
-        )
-        body_text = driver.find_element(By.TAG_NAME, "body").text
-        if "تم التحقق" not in body_text:
-            raise AssertionError("No verified effect status was shown for the real browser task.")
-        report["checks"].append("PASS: UI execution log confirms browser open + page read + verified effect")
+
+        # Validate only text inside the expanded execution log. The chat response,
+        # prompt, page chrome, or a different log entry must not satisfy this gate.
+        def verified_execution_log(_driver):
+            log_text = execution_log_expander.text
+            return log_text if not missing_execution_evidence(log_text) else False
+
+        try:
+            execution_log_text = WebDriverWait(driver, 20, poll_frequency=1).until(verified_execution_log)
+        except TimeoutException:
+            execution_log_text = execution_log_expander.text
+            missing = missing_execution_evidence(execution_log_text)
+            report["execution_log_excerpt"] = redact_excerpt(execution_log_text)
+            report["missing_execution_evidence"] = missing
+            raise AssertionError(
+                "The expanded assistant execution log did not independently prove the real browser effect. "
+                "Missing evidence: " + ", ".join(missing)
+            )
+
+        report["execution_evidence"] = {
+            "target_domain_in_execution_log": "example.com" in execution_log_text.casefold(),
+            "expected_page_heading_in_execution_log": "example domain" in execution_log_text.casefold(),
+            "browser_open_action_in_execution_log": "فتح موقع في متصفح المساعد" in execution_log_text,
+            "page_read_action_in_execution_log": "قراءة محتوى الصفحة الحالية" in execution_log_text,
+            "verified_effect_in_execution_log": "تم التحقق" in execution_log_text,
+        }
+        report["checks"].append("PASS: execution log itself proves example.com open, Example Domain read, and verified effect")
         report["result"] = "PASS"
-        report["assistant_output_excerpt"] = body_text[-1800:]
+        final_body_text = driver.find_element(By.TAG_NAME, "body").text
+        report["assistant_output_excerpt"] = redact_excerpt(final_body_text[-1800:])
         return 0
     except Exception as exc:
         report["result"] = "FAIL"

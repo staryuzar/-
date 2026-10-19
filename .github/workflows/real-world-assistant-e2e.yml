@@ -12,7 +12,7 @@ on:
         options:
           - "yes"
           - "no"
-        default: "yes"
+        default: "no"
 
 permissions:
   contents: read
