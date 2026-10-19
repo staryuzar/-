@@ -2,11 +2,16 @@
 """Standard-library tests for strict live-assistant E2E evidence validation."""
 from __future__ import annotations
 
+import json
+import sqlite3
+import tempfile
 import unittest
+from pathlib import Path
 
-from assistant_e2e_contract import missing_execution_evidence
+from assistant_e2e_contract import load_persisted_tool_records, missing_execution_evidence
 
 
+PROMPT = "افتح https://example.com/ واقرأ عنوان الصفحة"
 GOOD_STEPS = """
 فتح موقع في متصفح المساعد · تم التحقق
 قراءة محتوى الصفحة الحالية · تم التحقق
@@ -82,6 +87,48 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
         missing = self.check(records=records)
         self.assertIn("successful browser_open_url record on example.com", missing)
         self.assertIn("successful browser_read_page record on example.com", missing)
+
+
+class PersistedToolLogTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.database = Path(self.temp.name) / "aurora.sqlite3"
+        with sqlite3.connect(self.database) as connection:
+            connection.execute(
+                "CREATE TABLE conversations (id TEXT, updated_at TEXT, messages_json TEXT, log_json TEXT)"
+            )
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def add_conversation(self, conversation_id, prompt, records, updated="2026-10-19T00:00:00Z"):
+        messages = [{"role": "user", "content": prompt}]
+        with sqlite3.connect(self.database) as connection:
+            connection.execute(
+                "INSERT INTO conversations VALUES (?, ?, ?, ?)",
+                (conversation_id, updated, json.dumps(messages), json.dumps(records)),
+            )
+
+    def test_reads_records_for_exact_prompt(self):
+        self.add_conversation("target", PROMPT, GOOD_RECORDS)
+        self.assertEqual(load_persisted_tool_records(self.database, PROMPT, timeout_seconds=0.01), GOOD_RECORDS)
+
+    def test_does_not_confuse_a_different_conversation(self):
+        self.add_conversation("other", "a completely different request", GOOD_RECORDS)
+        with self.assertRaisesRegex(AssertionError, "exact submitted prompt"):
+            load_persisted_tool_records(self.database, PROMPT, timeout_seconds=0.02, poll_interval=0.005)
+
+    def test_ignores_unrelated_rows_and_finds_matching_row(self):
+        self.add_conversation("older-target", PROMPT, GOOD_RECORDS, updated="2026-10-18T00:00:00Z")
+        self.add_conversation("latest-unrelated", "latest unrelated request", [], updated="2026-10-19T00:00:00Z")
+        self.assertEqual(load_persisted_tool_records(self.database, PROMPT, timeout_seconds=0.01), GOOD_RECORDS)
+
+    def test_uses_read_only_database_connection(self):
+        self.add_conversation("target", PROMPT, GOOD_RECORDS)
+        load_persisted_tool_records(self.database, PROMPT, timeout_seconds=0.01)
+        with sqlite3.connect(self.database) as connection:
+            count = connection.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+        self.assertEqual(count, 1)
 
 
 if __name__ == "__main__":

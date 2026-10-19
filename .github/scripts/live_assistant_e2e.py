@@ -8,7 +8,6 @@ import argparse
 import json
 import os
 import re
-import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -20,48 +19,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from urllib.request import urlopen
-from assistant_e2e_contract import missing_execution_evidence
+from assistant_e2e_contract import load_persisted_tool_records, missing_execution_evidence
 
-
-
-def persisted_tool_log(data_dir: str, prompt: str) -> list[dict]:
-    """Read safe tool records from the isolated app SQLite store for this exact prompt."""
-    root = Path(str(data_dir or "").strip())
-    if not str(data_dir or "").strip():
-        raise AssertionError("AURORA_DATA_DIR is not configured for the isolated E2E session.")
-    database = root / "aurora.sqlite3"
-    deadline = time.monotonic() + 15
-    last_reason = "conversation not found"
-    while time.monotonic() < deadline:
-        if database.is_file():
-            try:
-                # Read-only connection ensures the test does not mutate app state.
-                uri = database.resolve().as_uri() + "?mode=ro"
-                with sqlite3.connect(uri, uri=True, timeout=5) as connection:
-                    rows = connection.execute(
-                        "SELECT messages_json, log_json FROM conversations ORDER BY updated_at DESC LIMIT 30"
-                    ).fetchall()
-                for messages_json, log_json in rows:
-                    try:
-                        messages = json.loads(messages_json or "[]")
-                        logs = json.loads(log_json or "[]")
-                    except (TypeError, json.JSONDecodeError):
-                        continue
-                    matched = any(
-                        isinstance(message, dict)
-                        and message.get("role") == "user"
-                        and prompt in str(message.get("content") or "")
-                        for message in messages
-                    )
-                    if matched:
-                        if not isinstance(logs, list):
-                            raise AssertionError("Persisted tool log is not a JSON list.")
-                        return [entry for entry in logs if isinstance(entry, dict)]
-                last_reason = "exact submitted prompt was not present in recent conversation rows"
-            except sqlite3.Error as exc:
-                last_reason = f"SQLite read unavailable ({type(exc).__name__})"
-        time.sleep(1)
-    raise AssertionError("Could not retrieve the persisted tool log for this E2E prompt: " + last_reason)
 
 
 def visible_assistant_reply(driver, prompt: str) -> str:
@@ -249,7 +208,7 @@ def main() -> int:
         # Read the app's own persisted, already-redacted tool records for this exact prompt.
         assistant_reply = visible_assistant_reply(driver, prompt)
         data_dir = os.getenv("AURORA_DATA_DIR", "").strip()
-        tool_records = persisted_tool_log(data_dir, prompt)
+        tool_records = load_persisted_tool_records(Path(data_dir) / "aurora.sqlite3", prompt)
         missing = missing_execution_evidence(
             execution_log_text,
             tool_records,

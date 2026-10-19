@@ -6,8 +6,61 @@ the actual visible assistant reply. It never trusts the model answer alone.
 """
 from __future__ import annotations
 
-from urllib.parse import urlsplit
+import json
+import sqlite3
+import time
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+
+
+def load_persisted_tool_records(
+    database_path: str | Path,
+    prompt: str,
+    *,
+    timeout_seconds: float = 15.0,
+    poll_interval: float = 1.0,
+) -> list[dict]:
+    """Read the persisted sanitized tool log for the row containing this exact prompt.
+
+    The connection is read-only; the helper does not mutate the assistant database.
+    """
+    database = Path(database_path)
+    deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+    last_reason = "database file not found"
+    while True:
+        if database.is_file():
+            try:
+                uri = database.resolve().as_uri() + "?mode=ro"
+                with sqlite3.connect(uri, uri=True, timeout=5) as connection:
+                    rows = connection.execute(
+                        "SELECT messages_json, log_json FROM conversations ORDER BY updated_at DESC LIMIT 30"
+                    ).fetchall()
+                for messages_json, log_json in rows:
+                    try:
+                        messages = json.loads(messages_json or "[]")
+                        logs = json.loads(log_json or "[]")
+                    except (TypeError, json.JSONDecodeError):
+                        continue
+                    if not isinstance(messages, list):
+                        continue
+                    matched = any(
+                        isinstance(message, dict)
+                        and message.get("role") == "user"
+                        and str(prompt or "") in str(message.get("content") or "")
+                        for message in messages
+                    )
+                    if matched:
+                        if not isinstance(logs, list):
+                            raise AssertionError("Persisted tool log is not a JSON list.")
+                        return [entry for entry in logs if isinstance(entry, dict)]
+                last_reason = "exact submitted prompt was not present in recent conversation rows"
+            except sqlite3.Error as exc:
+                last_reason = f"SQLite read unavailable ({type(exc).__name__})"
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(max(0.01, min(float(poll_interval), deadline - time.monotonic())))
+    raise AssertionError("Could not retrieve the persisted tool log for this E2E prompt: " + last_reason)
 
 
 def _has_target_host(value: Any) -> bool:
