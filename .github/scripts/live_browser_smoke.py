@@ -5,6 +5,11 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
 import time
+import sys
+from pathlib import Path
+
+# Running a script from .github/scripts does not reliably put the repository root on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
