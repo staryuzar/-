@@ -136,7 +136,18 @@ def main() -> int:
         body_text = driver.find_element(By.TAG_NAME, "body").text
         if task_state != "success":
             report["result"] = "FAIL"
-            report["failure_stage"] = "provider_or_app_error_visible_in_ui"
+            lower_body = body_text.lower()
+            if "resource_exhausted" in lower_body or "quota exceeded" in lower_body or "http 429" in lower_body or "429" in lower_body:
+                report["failure_stage"] = "provider_quota_exhausted"
+                report["failure_class"] = "provider_quota_exhausted"
+                report["diagnosis"] = "The real UI reports provider quota exhaustion (HTTP 429). Do not retry automatically; this is not a local app/Chrome startup failure."
+            elif "http 503" in lower_body or "unavailable" in lower_body:
+                report["failure_stage"] = "provider_temporarily_unavailable"
+                report["failure_class"] = "provider_transient_unavailable"
+                report["diagnosis"] = "The provider returned a temporary unavailable error. The client may perform only its bounded HTTP 503 retry; do not treat this as browser-tool success."
+            else:
+                report["failure_stage"] = "provider_or_app_error_visible_in_ui"
+                report["failure_class"] = "provider_or_application_error"
             raise AssertionError("The real assistant UI displayed a provider/application error instead of the target website result.")
         report["checks"].append("PASS: actual assistant returned the live website heading/title text")
 
