@@ -16,6 +16,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import WebDriverException
+from urllib.request import urlopen
 
 
 def main() -> int:
@@ -42,9 +44,31 @@ def main() -> int:
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1440,1000")
         options.add_argument("--disable-dev-shm-usage")
+        # Hosted Windows runners may expose proxy settings that incorrectly route
+        # loopback traffic. The app under test is local, so bypass proxies explicitly.
+        options.add_argument("--no-proxy-server")
+        options.add_argument("--proxy-bypass-list=<-loopback>")
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(40)
-        driver.get(args.url)
+        # Do not mistake a transient local startup race for a broken assistant.
+        # Probe the actual HTTP endpoint and retry browser navigation with evidence.
+        navigation_errors = []
+        for attempt in range(1, 4):
+            try:
+                with urlopen(args.url + "/_stcore/health", timeout=5) as response:
+                    if response.status != 200:
+                        raise RuntimeError(f"Streamlit health returned HTTP {response.status}")
+                driver.get(args.url)
+                break
+            except Exception as exc:
+                navigation_errors.append(f"attempt {attempt}: {type(exc).__name__}: {str(exc)[:240]}")
+                if attempt == 3:
+                    raise RuntimeError(
+                        "Could not open local app in Chrome after 3 attempts; "
+                        + " | ".join(navigation_errors)
+                    ) from exc
+                time.sleep(2)
+        report["checks"].append("PASS: local app health endpoint reachable before Chrome navigation")
         WebDriverWait(driver, 30).until(
             lambda d: d.find_elements(By.CSS_SELECTOR, '[data-testid="stChatInput"] textarea')
         )
