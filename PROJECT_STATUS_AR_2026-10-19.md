@@ -66,3 +66,24 @@
 ## تنبيه الأسرار
 
 لا تُكتب مفاتيح API أو كلمات مرور الوسيط أو ملفات `.env` الفعلية في GitHub أو تقارير الاختبار. عند تحديث أسرار GitHub Actions، تُخزن في Secrets وتُختبر دون إظهار قيمتها في السجلات.
+
+
+## آخر تحديث مؤكد بعد الدمج — 2026-10-19 13:22 UTC
+
+تم دمج PR #2 في الفرع الرئيسي بالالتزام [ae11751](https://github.com/staryuzar/-/commit/ae11751bb932e68ed5c3bf1956267cfcd45f4df6)، ثم اجتاز الفرع الرئيسي التحقق بعد الدمج:
+
+- [Windows validation #175 / 39259104109](https://github.com/staryuzar/-/actions/runs/39259104109) — **SUCCESS لجميع الوظائف**.
+- Python 3.11: **353/353**، صفر فشل/أخطاء/متخطيات؛ [artifact 12189037434](https://github.com/staryuzar/-/actions/runs/39259104109/artifacts/12189037434).
+- Python 3.13: **353/353**، صفر فشل/أخطاء/متخطيات؛ [artifact 12188752992](https://github.com/staryuzar/-/actions/runs/39259104109/artifacts/12188752992).
+- Chrome: **12/12 PASS**، ومنفّذ الأدوات الفعلي: **9/9 PASS**؛ [artifact 12188208689](https://github.com/staryuzar/-/actions/runs/39259104109/artifacts/12188208689).
+- MT5: نجاح تشغيل المنصة والمصادقة التجريبية، وترجمة عينة EA مؤقتة؛ [artifact 12190470065](https://github.com/staryuzar/-/actions/runs/39259104109/artifacts/12190470065).
+- الحزمة المصححة بعد الدمج: [artifact 12189641867](https://github.com/staryuzar/-/actions/runs/39259104109/artifacts/12189641867)، SHA-256 للأرشيف الخارجي `9f7ace4ac16df0e314ffeeba31ce0d8061b472c8b57039765133a23bbe006a66`.
+- أحدث E2E حقيقي بلا mocks ما زال موثقًا في [run 39257610584](https://github.com/staryuzar/-/actions/runs/39257610584)، مع استجابة Gemini وفتح/قراءة example.com وسجلّي الأدوات المحفوظين.
+
+## نقطة الاستئناف بعد نجاح الدمج
+
+1. **المشروع الرئيسي مدمج ومتحقق منه**؛ لا حاجة لإعادة تنفيذ العمل المنجز.
+2. الملفات الخاصة بـEA المستخدم وبيانات Strategy Tester غير موجودة في شجرة المستودع، لذلك لا يمكن اختبار استراتيجية التداول نفسها دون هذه المدخلات. لا تخلط ذلك مع نجاح تكامل MT5.
+3. لم تُختبر جلسة Gmail الشخصية؛ اختبار E2E استخدم موقعًا عامًا. لا تدّعِ إرسال/قراءة بريد فعلي.
+4. التحقق على Windows Server 2022 لا يثبت التوافق الكامل مع Windows 10 Pro 1909. يبقى فحص التشغيل المحلي على جهاز المستخدم خطوة مستقلة.
+5. المرجع الأساسي للاستئناف من الآن هو [README.md](https://github.com/staryuzar/-/blob/main/README.md) و[تقرير الاستئناف الدائم](https://github.com/staryuzar/-/blob/main/.github/RESUME_REPORT_2026-10-19_AR.md). لا تبدأ من الصفر.
