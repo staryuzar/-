@@ -90,6 +90,15 @@ jobs:
             Write-Host ($lines -join "`n")
           } finally { $zip.Dispose() }
 
+      - name: Preserve pristine extracted source for review
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pristine-source-py3.11
+          path: ci_source/**
+          include-hidden-files: true
+          if-no-files-found: error
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
