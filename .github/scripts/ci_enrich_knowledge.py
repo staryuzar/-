@@ -145,7 +145,7 @@ def main() -> int:
         if old_text_entry not in executor_text:
             raise SystemExit("Could not safely locate browser_type_text implementation.")
         executor_text = executor_text.replace(old_text_entry, "# AURORA_BROWSER_TARGETED_TEXT_ENTRY_V1\n" + new_text_entry, 1)
-        executor_source.write_text(executor_text, encoding="utf-8", newline="\\n")
+        executor_source.write_text(executor_text, encoding="utf-8", newline="\n")
 
     app = root / "app.py"
     app_content = app.read_text(encoding="utf-8")
@@ -155,7 +155,7 @@ def main() -> int:
         if old_tool_schema not in app_content:
             raise SystemExit("Could not safely locate browser_type_text tool schema.")
         app_content = app_content.replace(old_tool_schema, new_tool_schema, 1)
-        app.write_text(app_content, encoding="utf-8", newline="\\n")
+        app.write_text(app_content, encoding="utf-8", newline="\n")
     prompt_marker = "AURORA_PARALLEL_SKILL_PACK_V1"
     if prompt_marker not in app_content:
         old_prompt_end = 'لا تخترع أدوات أو نتائج أو مسارات. إذا فشلت خطوة، اذكر الخطأ واقترح خطوة تشخيص محددة.\n""".strip()'
