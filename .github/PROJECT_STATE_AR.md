@@ -49,3 +49,13 @@
 - تكامل MT5 في التشغيل نفسه انتهى PASS. لا تزال النتيجة تخص تثبيت/تشغيل المنصة ومصادقة Headway التجريبي دون أوامر؛ لم يُترجم EA المستخدم ولم يُشغّل Strategy Tester بعد.
 - Artifact تقرير Chrome: [12184889189](https://github.com/staryuzar/-/actions/runs/39251604674/artifacts/12185623145) (يُتحقق من رقم الـArtifact في قائمة artifacts قبل الاعتماد عليه). التقرير الأوثق هو سجل التشغيل نفسه إن اختلف رقم الـArtifact.
 - الخطوة التالية: تحديث تقرير الاستئناف التفصيلي وREADME بهذه النتيجة، ثم توسيع اختبارات فشل المتصفح، ثم إعداد مسار ترجمة EA وStrategy Tester. لا ترسل طلب Gemini حيًا إلا عند الحاجة لأن الاختبار يستهلك الحصة.
+
+
+## أحدث جولة تحقق — 2026-10-19 12:32 UTC
+- [Windows validation #145 / 39252479806](https://github.com/staryuzar/-/actions/runs/39252479806) — **workflow PASS بالكامل**، commit `36a9375f780d3b019ede6264b3fb162cea179abc`.
+- Chrome الحقيقي: **9/9 PASS**. أضيف اختبار رفض عنصر غير موجود مع التأكد من عدم التخمين وعدم مغادرة الصفحة. بقي اختبار URL غير صالح ناجحًا أيضًا.
+- LocalToolExecutor: **3/3 PASS**. Python 3.11 و3.13: **231 passed, 122 subtests passed** لكل إصدار. تكامل MT5 demo: PASS، بلا صفقات.
+- Artifact Chrome: [12185064615](https://github.com/staryuzar/-/actions/runs/39252479806/artifacts/12185064615), SHA-256 `aea0970922c4562cd55771dc11a332e39c86d243970fe7645066aad0c136578e`.
+- Artifact MT5: [12185948297](https://github.com/staryuzar/-/actions/runs/39252479806/artifacts/12185948297), SHA-256 `0dc5ef332d640541da881bd3760f83eb337142f40973b36788a760eb76c6e7db`.
+- نتائج Python 3.11: [12185254502](https://github.com/staryuzar/-/actions/runs/39252479806/artifacts/12185254502). نتائج Python 3.13: [12185749065](https://github.com/staryuzar/-/actions/runs/39252479806/artifacts/12185749065).
+- التالي: حالات فشل إضافية للانتظار/العناصر، ثم EA الفعلي وStrategy Tester؛ لم يُترجم EA الخاص بالمستخدم ولم يُشغّل Strategy Tester بعد.
