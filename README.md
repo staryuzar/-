@@ -4,16 +4,17 @@
 
 > **للاستئناف في أي محادثة لاحقة:** اقرأ [تقرير الاستئناف الدائم بالعربية](.github/RESUME_REPORT_2026-10-19_AR.md) أولًا؛ يتضمن السجل الزمني الكامل والنتائج وروابط Actions ونقطة العمل التالية. لا تبدأ من الصفر. أبقِ ملفات المختبر وسكربتاته وتقاريره في GitHub.
 
-## أحدث نتائج التطوير — 2026-10-19 (التحقق #122)
+## أحدث نتائج التطوير — 2026-10-19 (بوابة التوثيق-only مثبتة)
 
-- [Windows validation #122 — SUCCESS](https://github.com/staryuzar/-/actions/runs/39235712400): بوابة نطاق التحقق، Python 3.11، Python 3.13، Chrome، وMT5 كلها نجحت.
-- Python 3.11: **353 حالة ناجحة، 0 فشل/أخطاء/تخطي** (24.44s). [JUnit artifact](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179200947).
-- Python 3.13: **353 حالة ناجحة، 0 فشل/أخطاء/تخطي** (23.55s). [JUnit artifact](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179066547).
-- Chrome: 7/7 اختبارات محلية + 3/3 اختبارات لأداة المتصفح الفعلية على `example.com`. [browser artifact](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179800672).
-- MT5 demo: ترجمة عينة EA بـ0 أخطاء/تحذيرات، طرفية ظلت حية 15 ثانية، ومصادقة Headway demo مؤكدة. لم تُفتح صفقات؛ المثبّت أعاد exit code 1 رغم نجاح التحقق اللاحق. [MT5 artifact](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179620749).
-- الحزمة المصححة [artifact 12179275913](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179275913): خارجي 214,232 بايت SHA-256 `da069092bc986ac12cecfe96996a1d4fd0259c3b9ebac8c55bf6a72549a2b1f7`; داخلي 217,875 بايت SHA-256 `b4387f06e7290490cd5121dd93a83a4069ca9de7c16fc1f0176aca4cd67c3b2d`. تطابقت 76 بصمة بلا اختلاف.
-- بوابة scope-check قررت تشغيل التحقق الكامل لأن commit #122 يغيّر workflow؛ التغيير التالي للتقرير فقط سيختبر أنها تتخطى الوظائف الثقيلة.
-- **الاختبار الحي للنموذج لا يزال مفتوحًا:** Gemini أعاد 429 سابقًا، ولم يثبت توفر OpenRouter. لا تشغّل اتصالًا يدويًا قبل توفر حصة/سر صالح. التفاصيل في [تقرير الاستئناف الدائم](.github/RESUME_REPORT_2026-10-19_AR.md).
+- [Windows validation #122 — SUCCESS](https://github.com/staryuzar/-/actions/runs/39235712400): بوابة تحديد النطاق + Python 3.11 + Python 3.13 + Chrome + MT5 نجحت.
+- Python 3.11: **353 حالة ناجحة، 0 failures/errors/skips** (24.44s). [JUnit](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179200947).
+- Python 3.13: **353 حالة ناجحة، 0 failures/errors/skips** (23.55s). [JUnit](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179066547).
+- Chrome: 7/7 فحوصات محلية + 3/3 فحوصات لأداة المتصفح الحقيقية على `example.com`. [artifact](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179800672).
+- MT5 demo: ترجمة عينة EA بـ0 أخطاء/تحذيرات، الطرفية عاشت 15 ثانية، والتفويض إلى Headway demo مؤكد. لم تُفتح صفقات؛ مثبت MetaQuotes أعاد exit code 1 رغم نجاح الفحوص اللاحقة. [artifact](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179620749).
+- **بوابة النطاق تم اختبارها في الاتجاهين:** [#122](https://github.com/staryuzar/-/actions/runs/39235712400) شغّل كل الوظائف بعد تغيير workflow وانتهى SUCCESS؛ [#123](https://github.com/staryuzar/-/actions/runs/39236235550) نجح في `documentation_only` وتخطّى وظائف Python/Chrome/MT5 الثقيلة.
+- الحزمة المصححة في #122: [artifact 12179275913](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179275913)، الخارجي SHA-256 `da069092bc986ac12cecfe96996a1d4fd0259c3b9ebac8c55bf6a72549a2b1f7`; الداخلي SHA-256 `b4387f06e7290490cd5121dd93a83a4069ca9de7c16fc1f0176aca4cd67c3b2d`. فُحصت 76 بصمة داخلية بدون فقد أو اختلاف.
+- **ما لم يُنجز:** E2E حقيقي من رد النموذج إلى فتح وقراءة الموقع ما زال متوقفًا عند 429 السابق؛ لم نتحقق من سر/حصة OpenRouter ولم نشغّل مزودًا بلا موافقة صريحة. التطبيق لم يُختبر بعد على جهاز Windows 10 1909 الفعلي، ولم يُختبر EA الإنتاجي أو Strategy Tester.
+- التفاصيل: [تقرير الاستئناف الدائم بالعربية](.github/RESUME_REPORT_2026-10-19_AR.md).
 ## آخر نتائج الاختبارات المؤكدة — 2026-10-19
 
 - **Windows / Python 3.11:** نجحت 350 من 350 اختبارًا؛ 0 فشل، 0 أخطاء، 0 متخطاة.
