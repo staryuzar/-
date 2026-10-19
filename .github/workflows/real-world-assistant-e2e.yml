@@ -55,7 +55,7 @@ jobs:
           python -m pip install -r aurora_app\requirements.txt
           python -m pip install selenium
 
-      - name: Start the actual Streamlit application
+      - name: Start actual app and test the real assistant in the same Windows step
         shell: pwsh
         run: |
           $env:AURORA_DATA_DIR = Join-Path $env:RUNNER_TEMP "aurora-real-e2e-data"
@@ -82,11 +82,9 @@ jobs:
             throw "Actual Aurora app did not become healthy."
           }
           Write-Host "Actual Aurora Streamlit app is running on the hosted Windows VM."
-
-      - name: Ask the real assistant to browse a live public website
-        shell: pwsh
-        run: |
-          $env:PYTHONPATH = (Resolve-Path "aurora_app").Path
+          # Keep the app and real Chrome E2E inside one runner step. Windows Actions
+          # may clean up background processes at step boundaries, making localhost refuse
+          # connections when the browser test runs in a later step.
           python .github/scripts/live_assistant_e2e.py --url "http://127.0.0.1:8765" --report "$env:RUNNER_TEMP/aurora-live-e2e-report.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
