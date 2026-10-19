@@ -76,7 +76,7 @@ void OnTick() {}
     $env:PYTHONPATH = $sourceDir
     python .github/scripts/mt5_assistant_launch_probe.py --source-dir "$sourceDir" --terminal-path "$($terminal.FullName)" --install-dir "$installDir" --report "$report"
     if ($LASTEXITCODE -ne 0) { throw "Aurora's launch_program integration probe failed." }
-    "LIMIT: no broker login, demo account, EA compilation, Strategy Tester run, or trade was performed." | Add-Content -LiteralPath $report -Encoding utf8
+    "LIMIT: no broker login, demo account, Strategy Tester run, or trade was performed; only a disposable sample EA was compiled, not the user’s EA." | Add-Content -LiteralPath $report -Encoding utf8
     Get-Content -LiteralPath $report
 }
 catch {
