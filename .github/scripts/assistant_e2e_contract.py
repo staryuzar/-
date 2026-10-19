@@ -7,9 +7,11 @@ the actual visible assistant reply. It never trusts the model answer alone.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from contextlib import closing
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -97,6 +99,44 @@ def _successful_tool_on_target(records: list[dict], name: str) -> bool:
     return False
 
 
+def _normalized_reply(value: Any) -> str:
+    """Normalize common Arabic diacritics/alef variants without erasing words."""
+    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    text = re.sub(r"[\\u064B-\\u065F\\u0670\\u0640]", "", text)
+    text = text.translate(str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي"}))
+    return " ".join(text.split())
+
+
+def assistant_reply_has_page_title(value: Any) -> bool:
+    text = _normalized_reply(value)
+    return any(label in text for label in (
+        "document title:", "عنوان المستند:", "عنوان الصفحة:", "العنوان:",
+        "العنوان/الافتتاحية:"
+    ))
+
+
+def assistant_reply_has_page_text_field(value: Any) -> bool:
+    text = _normalized_reply(value)
+    return any(label in text for label in (
+        "page text:", "نص الصفحة:", "محتوى الصفحة:", "النص الظاهر في الصفحة",
+        "النص والعنوان الرئيسي الظاهر"
+    ))
+
+
+def assistant_reply_has_page_identity(value: Any) -> bool:
+    text = _normalized_reply(value)
+    return any(label in text for label in (
+        "example domain", "مثال النطاق", "نطاق المثال", "domain example"
+    ))
+
+
+def assistant_reply_has_known_page_text(value: Any) -> bool:
+    text = _normalized_reply(value)
+    known_english = "this domain is for use in documentation examples without needing permission"
+    known_arabic = "هذا النطاق مخصص للاستخدام في امثلة التوثيق دون الحاجة الى اذن"
+    return known_english in text or known_arabic in text
+
+
 def missing_execution_evidence(
     execution_log_text: str,
     tool_records: list[dict],
@@ -112,11 +152,12 @@ def missing_execution_evidence(
         ("تم التحقق" in steps, "verified-effect marker in compact log"),
         (_successful_tool_on_target(records, "browser_open_url"), "successful browser_open_url record on example.com"),
         (_successful_tool_on_target(records, "browser_read_page"), "successful browser_read_page record on example.com"),
-        ("document title:" in answer, "Document title field in assistant reply"),
-        ("page text:" in answer, "Page text field in assistant reply"),
+        (assistant_reply_has_page_title(answer), "Document title field in assistant reply"),
+        (assistant_reply_has_page_identity(answer), "Example Domain title/identity in assistant reply"),
+        (assistant_reply_has_page_text_field(answer), "Page text field in assistant reply"),
         (
-            "this domain is for use in documentation examples without needing permission" in answer,
-            "known example.com body phrase in assistant reply",
+            assistant_reply_has_known_page_text(answer),
+            "known example.com body phrase in English or verified Arabic translation",
         ),
     )
     return [description for passed, description in checks if not passed]

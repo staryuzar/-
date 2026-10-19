@@ -1,8 +1,15 @@
 name: Aurora real-world assistant E2E
 
-# This workflow calls the real paid/quota-limited model API. Manual-only
-# dispatch prevents every documentation or code push from consuming Gemini quota.
+# This workflow makes one real provider call only after an explicit opt-in.
+# Manual dispatch is default-safe (confirm_provider_call=no). On the dev branch, a push
+# starts the live job only when its commit message contains [run-live-e2e].
 on:
+  push:
+    branches:
+      - real-world-assistant-e2e
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/real-world-assistant-e2e.yml"
   workflow_dispatch:
     inputs:
       provider:
@@ -31,12 +38,12 @@ concurrency:
 
 jobs:
   real-assistant-task:
-    if: inputs.confirm_provider_call == 'yes'
+    if: (github.event_name == 'workflow_dispatch' && inputs.confirm_provider_call == 'yes') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-live-e2e]'))
     name: Real Windows + live website + real model/tool call
     runs-on: windows-2022
     timeout-minutes: 15
     env:
-      AI_PROVIDER: ${{ inputs.provider }}
+      AI_PROVIDER: ${{ inputs.provider || 'gemini' }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
@@ -47,7 +54,7 @@ jobs:
       - name: Require the selected real provider credential (no mocks)
         shell: pwsh
         run: |
-          $provider = "${{ inputs.provider }}".Trim().ToLowerInvariant()
+          $provider = "$env:AI_PROVIDER".Trim().ToLowerInvariant()
           if ($provider -eq "gemini") {
             $credential = $env:GEMINI_API_KEY
             $secretName = "GEMINI_API_KEY"

@@ -9,7 +9,14 @@ from contextlib import closing
 import unittest
 from pathlib import Path
 
-from assistant_e2e_contract import load_persisted_tool_records, missing_execution_evidence
+from assistant_e2e_contract import (
+    assistant_reply_has_known_page_text,
+    assistant_reply_has_page_identity,
+    assistant_reply_has_page_text_field,
+    assistant_reply_has_page_title,
+    load_persisted_tool_records,
+    missing_execution_evidence,
+)
 
 
 PROMPT = "افتح https://example.com/ واقرأ عنوان الصفحة"
@@ -50,8 +57,9 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
                 "successful browser_open_url record on example.com",
                 "successful browser_read_page record on example.com",
                 "Document title field in assistant reply",
+                "Example Domain title/identity in assistant reply",
                 "Page text field in assistant reply",
-                "known example.com body phrase in assistant reply",
+                "known example.com body phrase in English or verified Arabic translation",
             },
         )
 
@@ -85,6 +93,28 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
     def test_missing_known_page_text_phrase_is_rejected(self):
         missing = self.check(reply="Document title: Example Domain; Page text: a different sentence.")
         self.assertIn("known example.com body phrase in assistant reply", missing)
+
+    def test_verified_arabic_translation_is_accepted(self):
+        translated = (
+            "عنوان المستند: Example Domain\\n"
+            "النص الظاهر في الصفحة: هذا النطاق مُخصص للاستخدام في أمثلة التوثيق دون الحاجة إلى إذن."
+        )
+        self.assertTrue(assistant_reply_has_page_title(translated))
+        self.assertTrue(assistant_reply_has_page_identity(translated))
+        self.assertTrue(assistant_reply_has_page_text_field(translated))
+        self.assertTrue(assistant_reply_has_known_page_text(translated))
+        self.assertEqual(self.check(reply=translated), [])
+
+    def test_arabic_body_without_known_phrase_is_rejected(self):
+        self.assertFalse(
+            assistant_reply_has_known_page_text(
+                "عنوان المستند: Example Domain\\nنص الصفحة: نص مختلف تمامًا"
+            )
+        )
+
+    def test_missing_page_title_identity_is_rejected(self):
+        missing = self.check(reply="Document title: Unknown page\\nPage text: This domain is for use in documentation examples without needing permission.")
+        self.assertIn("Example Domain title/identity in assistant reply", missing)
 
     def test_actions_without_verified_effect_are_rejected(self):
         missing = self.check(steps="فتح موقع في متصفح المساعد؛ قراءة محتوى الصفحة الحالية")

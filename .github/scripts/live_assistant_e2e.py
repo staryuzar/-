@@ -19,7 +19,14 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from urllib.request import urlopen
-from assistant_e2e_contract import load_persisted_tool_records, missing_execution_evidence
+from assistant_e2e_contract import (
+    assistant_reply_has_known_page_text,
+    assistant_reply_has_page_identity,
+    assistant_reply_has_page_text_field,
+    assistant_reply_has_page_title,
+    load_persisted_tool_records,
+    missing_execution_evidence,
+)
 
 
 
@@ -90,9 +97,10 @@ def main() -> int:
         prompt = (
             "نفّذ المهمة فعليًا باستخدام أدوات المتصفح، وليس من معرفتك السابقة: "
             "افتح الموقع العام https://example.com/ في متصفح المساعد، ثم اقرأ عنوان المستند "
-            "وأول جملة إنجليزية من النص الظاهر في الصفحة. أجب بسطرين مستقلين بالتسميتين "
-            "الحرفيتين Document title: وPage text:، وانقل الجملة التالية كما تظهر في نتيجة "
-            "أداة القراءة دون ترجمة أو تخمين: This domain is for use in documentation examples without needing permission."
+            "وأول جملة من النص الظاهر في الصفحة. أجب بحقلين مستقلين: Document title: أو عنوان المستند:؛ "
+            "وPage text: أو نص الصفحة:. انقل النص كما أعادته أداة القراءة دون تخمين؛ "
+            "إذا كان المتصفح قد ترجم الصفحة، انقل الترجمة الظاهرة بأمانة. النص الإنجليزي المتوقع إذا ظهر "
+            "بلغة المصدر هو: This domain is for use in documentation examples without needing permission."
         )
         chat_input = driver.find_element(By.CSS_SELECTOR, '[data-testid="stChatInput"] textarea')
         chat_input.send_keys(prompt)
@@ -131,7 +139,7 @@ def main() -> int:
         def task_completed(d):
             text = d.find_element(By.TAG_NAME, "body").text
             reply = visible_assistant_reply(d, prompt)
-            if "example domain" in reply.casefold():
+            if assistant_reply_has_page_identity(reply) or assistant_reply_has_known_page_text(reply):
                 return "success"
             lower = text.lower()
             if any(marker.lower() in lower for marker in failure_markers):
@@ -239,9 +247,10 @@ def main() -> int:
             ),
             "target_host_found_in_persisted_redacted_records": True,
             "document_title_and_page_text_phrase_returned": (
-                "document title:" in assistant_reply.casefold()
-                and "page text:" in assistant_reply.casefold()
-                and "this domain is for use in documentation examples without needing permission" in assistant_reply.casefold()
+                assistant_reply_has_page_title(assistant_reply)
+                and assistant_reply_has_page_identity(assistant_reply)
+                and assistant_reply_has_page_text_field(assistant_reply)
+                and assistant_reply_has_known_page_text(assistant_reply)
             ),
             "browser_open_action_in_execution_log": "فتح موقع في متصفح المساعد" in execution_log_text,
             "page_read_action_in_execution_log": "قراءة محتوى الصفحة الحالية" in execution_log_text,
