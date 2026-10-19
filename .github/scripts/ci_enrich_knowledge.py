@@ -125,13 +125,51 @@ def main() -> int:
     # Generate an inventory-based report from the actual release tree.
     report = root / "docs" / "PACKAGE_ARCHITECTURE_REPORT_AR.md"
     existing = report.read_text(encoding="utf-8")
+    def describe_file(rel: str) -> str:
+        name = Path(rel).name.casefold()
+        if rel.startswith("tests/"):
+            return "اختبار آلي لانحدار أو تكامل الجزء المحدد في اسم الملف؛ لا ينفذ تداولًا حيًا إلا إذا نص الاختبار على ذلك."
+        if rel.startswith("docs/"):
+            return "مرجع توثيقي داخل الحزمة؛ يشرح التشغيل أو مهارات MT5/Chrome أو آلية النظام."
+        descriptions = {
+            "app.py": "واجهة Streamlit، تعريف الأدوات، تعليمات النظام، اختيار مزود النموذج، حلقة استدعاء الأدوات وعرض النتيجة.",
+            "assistant_core.py": "تنسيق رسائل النموذج واستدعاءات الأدوات وتنقيح النتائج التي تُخزن.",
+            "tool_executor.py": "موزع تنفيذ الأدوات الفعلية: Chrome وWindows والملفات والذاكرة، وإرجاع نتيجة منظمة.",
+            "windows_tools.py": "فحص نوافذ Windows وإطلاق البرامج وقراءة عناصر الواجهة والنقر والكتابة واختصارات المفاتيح.",
+            "browser_control.py": "وظائف مساعدة للتحكم في Chrome والتنقل والعثور على العناصر وقراءة النصوص.",
+            "builtin_knowledge.py": "الوصفات العربية التي تُزرع في ذاكرة SQLite عند أول تشغيل دون استبدال وصفات المستخدم المخصصة.",
+            "memory_context.py": "تحديد متى يسترجع سياقًا محليًا محدودًا حسب عبارات الطلب.",
+            "long_term_memory.py": "حفظ واسترجاع الذكريات والوصفات ونتائجها من قاعدة SQLite.",
+            "conversation_store.py": "إنشاء المحادثات واستعادتها وحفظ سجل الرسائل.",
+            "gemini_native_client.py": "عميل اتصال Gemini ومعالجة الاستجابات والأخطاء.",
+            "setup_data.py": "تهيئة مجلدات البيانات وقاعدة SQLite والبيانات الأولية.",
+            "requirements.txt": "قائمة مكتبات Python المطلوبة للتشغيل والاختبار.",
+            ".env.example": "قالب أسماء إعدادات الاتصال دون أسرار فعلية؛ ينسخ إلى .env عند التهيئة.",
+            "start_windows.bat": "فحص بيئة Windows وتجهيز الاعتماديات ثم تشغيل واجهة المساعد.",
+            "run_tests_windows.bat": "تشغيل الاختبارات المحلية للحزمة.",
+            "diagnose_windows.bat": "جمع تشخيصات التشغيل للمساعدة في تحديد الأعطال.",
+            "move_data_to_e.bat": "مساعدة نقل البيانات إلى المسار المقصود على القرص E: وفق خطوات الحزمة.",
+            "package_sha256sums_ar.txt": "بصمات SHA-256 للتحقق من سلامة ملفات الإصدار؛ يُعاد توليده بعد التصحيحات.",
+        }
+        if name in descriptions:
+            return descriptions[name]
+        if name.endswith(".py"):
+            return "وحدة Python مساعدة؛ راجع اسم الوحدة والاستيرادات والاختبارات المرتبطة لمعرفة المسؤولية المحددة."
+        if name.endswith(".md") or name.endswith(".txt"):
+            return "مستند توثيق أو إعدادات نصية؛ اقرأ العنوان والأقسام لمعرفة خطوات التشغيل والقيود."
+        if name.endswith(".bat"):
+            return "ملف أوامر Windows؛ راجع الأوامر داخله قبل تشغيله، ولا تشغّل أوامر مجهولة."
+        if name.endswith(".png") or name.endswith(".jpg") or name.endswith(".svg"):
+            return "أصل مرئي تستخدمه واجهة المستخدم."
+        return "ملف دعم للحزمة؛ النوع والاسم يحددان استخدامه، ويجب الرجوع إلى المستهلك الذي يقرأه."
+
     files = []
     for path in sorted(root.rglob("*")):
-        if path.is_file() and path != report and "__pycache__" not in path.parts and path.suffix != ".pyc":
+        if path.is_file() and path != report and path.name != "PACKAGE_SHA256SUMS_AR.txt" and "__pycache__" not in path.parts and path.suffix != ".pyc":
             rel = path.relative_to(root).as_posix()
-            files.append({"path": rel, "bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
-    inventory = "\n\n## فهرس الملفات الفعلي عند البناء\n\n| المسار | الحجم بالبايت | SHA-256 |\n|---|---:|---|\n" + "\n".join(
-        f"| {item['path']} | {item['bytes']} | {item['sha256']} |" for item in files
+            files.append({"path": rel, "bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "purpose": describe_file(rel)})
+    inventory = "\n\n## فهرس الملفات الفعلي عند البناء\n\nيُستثنى هذا التقرير من بصمات الفهرس لتجنب الإحالة الذاتية، ويُستثنى ملف SHA-256 لأنه يُعاد توليده بعد هذا التقرير. ملف PACKAGE_SHA256SUMS_AR.txt هو المرجع النهائي لبصمات ملفات الحزمة.\n\n| المسار | الغرض | الحجم بالبايت | SHA-256 |\n|---|---|---:|---|\n" + "\n".join(
+        f"| {item['path']} | {item['purpose']} | {item['bytes']} | {item['sha256']} |" for item in files
     )
     report.write_text(existing.split("\n\n## فهرس الملفات الفعلي عند البناء")[0] + inventory + "\n", encoding="utf-8", newline="\n")
     print(json.dumps({
