@@ -181,32 +181,38 @@
 4. CI يعمل على Windows Server 2022، وليس إثباتًا نهائيًا للتوافق الكامل مع Windows 10 Pro 1909 على جهاز المستخدم.
 
 
-## أحدث نتيجة تحقق — 2026-10-19 10:10 UTC
+## أحدث نتيجة تحقق — 2026-10-19 10:20 UTC — Windows validation #122
 
-### أحدث تشغيل كامل نجح
-- تشغيل Windows: [39234805049 — validation #121 — SUCCESS](https://github.com/staryuzar/-/actions/runs/39234805049)، على الالتزام `d6efd2f3f663cc4654a570632a2270f4d745abbc`. الوظائف الأربع كلها ناجحة: Python 3.11، Python 3.13، Chrome، وMT5.
-- Python 3.11: **353 اختبارًا، 0 failures، 0 errors، 0 skipped**؛ زمن JUnit **30.224s**. [artifact 12178289920](https://github.com/staryuzar/-/actions/runs/39234805049/artifacts/12178289920).
-- Python 3.13: **353 اختبارًا، 0 failures، 0 errors، 0 skipped**؛ زمن JUnit **35.647s**. [artifact 12178711098](https://github.com/staryuzar/-/actions/runs/39234805049/artifacts/12178711098).
-- Chrome على صفحة محلية: **7/7**. أداة `LocalToolExecutor` الفعلية في Chrome على `https://example.com/`: **3/3** — فتح الموقع، قراءة العنوان وجملة معروفة من جسم الصفحة، ومنع الانتقال إلى `127.0.0.1` دون تغيير الصفحة.
-- MT5 التجريبي: [artifact 12179610735](https://github.com/staryuzar/-/actions/runs/39234805049/artifacts/12179610735). ترجمة عينة EA مؤقتة بـ0 أخطاء و0 تحذيرات؛ `terminal64.exe` ظل حيًا 15 ثانية، وسجل المنصة أكد التفويض إلى خادم Headway التجريبي. **لم تُفتح أي صفقة.** يظل التحذير كما هو: مثبت MetaQuotes أعاد exit code **1** رغم نجاح التحقق اللاحق.
+### النتيجة النهائية على الالتزام 254786d
+- التشغيل: [39235712400 — validation #122 — SUCCESS](https://github.com/staryuzar/-/actions/runs/39235712400). التشغيل اختبر الالتزام `254786d322ed897dd0f13cdeb595f680cd581cc2`، الذي أضاف بوابة تحديد نطاق التحقق.
+- الوظائف الخمس اكتملت بنجاح: بوابة `scope-check`، Python 3.11، Python 3.13، Chrome، وMT5.
+- **تم التحقق من عمل scope-check في حالة تعديل الكود/سير العمل:** رأى في هذا الالتزام `.github/workflows/windows-validation.yml` و`README.md`، وقرر `true (code_or_workflow_changed)`. لذلك شغّل Windows وChrome وMT5 كاملًا، ولم يتجاوز الفحوص بسبب وجود تحديث تقرير بين الملفات.
+- Python 3.11: سجل pytest `231 passed, 122 subtests passed` = **353 اختبارًا/حالة، 0 failures، 0 errors، 0 skipped**، خلال **24.44 ثانية**. [artifact JUnit 12179200947](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179200947).
+- Python 3.13: سجل pytest `231 passed, 122 subtests passed` = **353 اختبارًا/حالة، 0 failures، 0 errors، 0 skipped**، خلال **23.55 ثانية**. [artifact JUnit 12179066547](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179066547).
+- عقد إثبات E2E المستقل نجح على كلا إصدارَي Python. هذا يختبر صرامة التحقق ولا يثبت وحده نجاح استدعاء النموذج الحي.
 
-### حزمة الإصدار من run #121
-- [artifact 12179415047 — Aurora-Control-Room-v2.4.0-patched](https://github.com/staryuzar/-/actions/runs/39234805049/artifacts/12179415047): الأرشيف الخارجي **214,232 بايت**، SHA-256 `456c00a30f4f4922a3fb34fc81f0b7b929c01f626dfbd777da19a7f6895c2b5f`.
-- الحزمة الداخلية `Aurora_Control_Room_v2_4_0_PATCHED_AR.zip`: **217,875 بايت**، SHA-256 `cd85c29d121dc085e50221d10a6a09be0f0899babc7f93c4c47020f194083ca3`.
-- فُحصت قائمة بصمات الحزمة داخليًا: **76 ملفًا طابقت بصماتها، 0 مفقود، 0 اختلاف**.
-- الحزمة الأصلية `Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip` ما زالت محفوظة دون استبدال.
+### Chrome / أداة المتصفح الفعلية
+- [artifact 12179800672 — live-browser-smoke-report](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179800672): **7/7** فحوصات Chrome ضد صفحة محلية مستقلة.
+- في Chrome الحقيقي، اختبار `LocalToolExecutor` مقابل `https://example.com/` نجح **3/3**: فتح الموقع والتحقق من الوجهة، قراءة عنوان المستند وجملة معروفة من جسم الصفحة الفعلي، وحظر loopback `127.0.0.1` دون تغيير الصفحة.
+- لم يُجرَ اتصال حقيقي بـGemini أو OpenRouter في هذا التشغيل.
 
-### تحسين سير E2E الحقيقي
-- في [commit d6efd2f](https://github.com/staryuzar/-/commit/d6efd2f3f663cc4654a570632a2270f4d745abbc) أصبح اختبار E2E اليدوي يدعم اختيار `Gemini` أو `OpenRouter`، ويتحقق من وجود سر المزود المختار دون طباعة قيمته. يظل `confirm_provider_call=no` هو الافتراضي؛ لم يُجرِ هذا التعديل أي استدعاء حقيقي للمزود.
-- اختبار Gemini الحقيقي لم ينجح حتى الآن بسبب HTTP 429 / RESOURCE_EXHAUSTED السابق. لم نشغّل الطلب مجددًا ولم نثبت وجود مفتاح OpenRouter أو حصته؛ لا تدّعِ اكتمال E2E حتى يثبت التقرير رد النموذج وسجلات الأدوات الناجحة على المهمة نفسها.
+### MT5 التجريبي
+- [artifact 12179620749 — metatrader5-install-smoke-report](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179620749).
+- المثبّت نزل ملفات المنصة وأظهر الإصدار `5.0.0.6272`. عاد رمز خروج المثبّت **1**؛ ومع ذلك وجدت الخطوات التالية الملفات وشغلت الطرفية، ورصدتها UI Automation، وبقيت العملية حية 15 ثانية.
+- MetaEditor ترجم عينة EA مؤقتة بـ **0 أخطاء و0 تحذيرات**. سجل المنصة أكد التفويض إلى Headway demo. **لم تُرسل صفقات.**
+- عودة المثبّت برمز 1 ما زالت تحذيرًا لا يمكن تجاهله؛ نتيجة الاختبار المركبة ناجحة لأن التحقق اللاحق أثبت تشغيل المنصة والمصادقة، وليس لأن رمز التثبيت صفر.
 
-### تقليل إعادة تشغيل المختبر للتوثيق فقط
-- لوحظ أن تحديث README/تقرير الاستئناف على Pull Request يطلق Windows + MT5 مرة أخرى لأن المسار الكلي لطلب السحب يحوي كودًا متغيرًا من الالتزامات السابقة.
-- أُضيف في هذا الالتزام `scope-check` كوظيفة سريعة بلا أسرار: تقيّم آخر التزام؛ التحديثات المحددة للتوثيق فقط تتخطى وظائف Windows/Python/Chrome/MT5 الثقيلة، بينما تغييرات الكود/الـworkflow والتشغيل اليدوي تُبقي التحقق الكامل.
-- **تغيير بوابة scope-check لم يُتحقق منه بعد**؛ التشغيل التالي يجب أن يمر عبر البوابة ويشغّل الاختبارات الكاملة لأن هذا الالتزام نفسه يغير سير Windows. بعد ذلك، راقب تحديث تقرير فقط وتأكد أن scope-check يعمل وينتهي مع تخطي الوظائف الثقيلة.
+### حزمة #122 المصححة — جرى فحصها محليًا بعد تنزيل Artifact
+- [artifact 12179275913 — Aurora-Control-Room-v2.4.0-patched](https://github.com/staryuzar/-/actions/runs/39235712400/artifacts/12179275913).
+- حجم ZIP الخارجي: **214,232 بايت**؛ SHA-256: `da069092bc986ac12cecfe96996a1d4fd0259c3b9ebac8c55bf6a72549a2b1f7`.
+- الحزمة الداخلية `Aurora_Control_Room_v2_4_0_PATCHED_AR.zip`: **217,875 بايت**؛ SHA-256: `b4387f06e7290490cd5121dd93a83a4069ca9de7c16fc1f0176aca4cd67c3b2d`.
+- تمت مطابقة قائمة `PACKAGE_SHA256SUMS_AR.txt` من الأرشيف الداخلي: **76 ملفًا متحققًا، 0 مفقود، 0 بصمة مختلفة**.
+- بقيت الحزمة الأصلية `Aurora_Control_Room_v2_4_0_FIRST_RUN_READY_AR.zip` محفوظة كما هي.
 
-### النواقص التي تمنع إغلاق المشروع
-1. لا يوجد إثبات بأن Gemini/OpenRouter اختار أداة المتصفح ثم فتح وقرأ الصفحة في محادثة حية واحدة. يحتاج ذلك تشغيلًا يدويًا مع سر صالح وحصة متاحة؛ لا تشغّله تلقائيًا.
-2. لم يُشغّل مستشار المستخدم الإنتاجي في MT5 ولم يُستخدم Strategy Tester؛ لم تُفتح صفقات.
-3. بيئة CI هي Windows Server 2022؛ لا تعتبر ذلك إثبات توافق كامل مع جهاز المستخدم Windows 10 Pro 1909.
-4. طلب السحب [PR #2](https://github.com/staryuzar/-/pull/2) ما زال مفتوحًا، ولم يُدمج. لا تدمجه حتى تتضح نتائج scope-check وE2E الحقيقي.
+### E2E الحقيقي والخطوة التالية
+- سير `.github/workflows/real-world-assistant-e2e.yml` يدوي فقط، مع اختيار `Gemini` أو `OpenRouter`؛ والخيار `confirm_provider_call=no` لا يزال الافتراضي. لم يثبت وجود سر OpenRouter/حصة صالحة؛ لا يُنفذ استدعاء نموذج قبل التأكد من ذلك.
+- المحاولات الحقيقية السابقة مع Gemini انتهت بـHTTP 429 / RESOURCE_EXHAUSTED. لا يوجد إلى الآن دليل مكتمل أن النموذج في محادثة حقيقية استدعى `browser_open_url` ثم `browser_read_page` وتحقق من النتيجة نفسها. لا تدّعِ نجاح E2E حتى يُحفظ دليل هذه المراحل.
+- **الاختبار التالي المقصود #123:** التغيير الذي سأحفظه الآن في GitHub سيقتصر على README وتقرير الاستئناف. يجب أن يكتشف scope-check `documentation_only` ويترك Python/Chrome/MT5 متخطية؛ هذا اختبار عملي لسبب إضافة البوابة. إذا لم يحدث ذلك، راجع trigger conditions والبوابة ثم أصلحها قبل الدمج.
+- لم يُختبر مستشار المستخدم الإنتاجي أو Strategy Tester، ولم تُفتح صفقات. بيئة CI Windows Server 2022 ولا تثبت التوافق الكامل مع جهاز Windows 10 Pro 1909.
+- PR #2 لا يزال مفتوحًا؛ لا تدمجه حتى تنجح تجربة التوثيق-only وتُحسم فجوة E2E الحقيقي.
+
