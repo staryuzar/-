@@ -16,7 +16,7 @@ GOOD_STEPS = """
 فتح موقع في متصفح المساعد · تم التحقق
 قراءة محتوى الصفحة الحالية · تم التحقق
 """
-GOOD_REPLY = "تم فتح Example Domain وقراءة العنوان الرئيسي."
+GOOD_REPLY = "Document title: Example Domain\nH1: Example Domain"
 GOOD_RECORDS = [
     {
         "tool": "browser_open_url",
@@ -48,6 +48,9 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
                 "verified-effect marker in compact log",
                 "successful browser_open_url record on example.com",
                 "successful browser_read_page record on example.com",
+                "Document title field in assistant reply",
+                "H1 field in assistant reply",
+                "matching Example Domain document title and H1 values in assistant reply",
             },
         )
 

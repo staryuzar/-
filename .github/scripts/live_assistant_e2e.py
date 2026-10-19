@@ -89,8 +89,9 @@ def main() -> int:
 
         prompt = (
             "نفّذ المهمة فعليًا باستخدام أدوات المتصفح، وليس من معرفتك السابقة: "
-            "افتح الموقع العام https://example.com/ في متصفح المساعد، واقرأ عنوان الصفحة "
-            "والعنوان الرئيسي الظاهر، ثم أخبرني بالنتيجة. لا تكتفِ بوصف ما ستفعله."
+            "افتح الموقع العام https://example.com/ في متصفح المساعد، ثم استخدم أداة القراءة "
+            "للحصول على عنوان المستند وعنوان H1 الظاهر. أجب بسطرين مستقلين بالتسميتين الحرفيتين "
+            "Document title: وH1:، وضع قيمة كل منهما كما أرجعتها الأداة. لا تخمّن من المعرفة العامة."
         )
         chat_input = driver.find_element(By.CSS_SELECTOR, '[data-testid="stChatInput"] textarea')
         chat_input.send_keys(prompt)
@@ -236,7 +237,11 @@ def main() -> int:
                 and r["result"].get("effect_verified") is True for r in read_records
             ),
             "target_host_found_in_persisted_redacted_records": True,
-            "expected_page_heading_in_assistant_reply": "example domain" in assistant_reply.casefold(),
+            "document_title_and_h1_returned_separately": (
+                "document title:" in assistant_reply.casefold()
+                and "h1:" in assistant_reply.casefold()
+                and assistant_reply.casefold().count("example domain") >= 2
+            ),
             "browser_open_action_in_execution_log": "فتح موقع في متصفح المساعد" in execution_log_text,
             "page_read_action_in_execution_log": "قراءة محتوى الصفحة الحالية" in execution_log_text,
             "verified_effect_in_execution_log": "تم التحقق" in execution_log_text,

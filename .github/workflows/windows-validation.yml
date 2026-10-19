@@ -260,6 +260,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Apply reviewed fixes before testing the actual tool executor
+        shell: pwsh
+        run: python .github/scripts/ci_prepare_release.py ci_browser_source
       - name: Install Selenium
         shell: pwsh
         run: python -m pip install --upgrade pip selenium
@@ -268,12 +271,19 @@ jobs:
         run: |
           python .github/scripts/live_browser_smoke.py 2>&1 | Tee-Object -FilePath browser-smoke-report.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Exercise actual LocalToolExecutor on the live public site
+        shell: pwsh
+        run: |
+          python .github/scripts/live_tool_executor_smoke.py 2>&1 | Tee-Object -FilePath tool-executor-smoke-report.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload browser smoke report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: live-browser-smoke-report
-          path: browser-smoke-report.txt
+          path: |
+            browser-smoke-report.txt
+            tool-executor-smoke-report.txt
           if-no-files-found: warn
 
   mt5-install-smoke:

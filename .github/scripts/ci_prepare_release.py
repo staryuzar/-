@@ -281,8 +281,172 @@ def apply_gemini_503_retry(root: Path) -> None:
 
 
 
+BROWSER_PAGE_TITLE_TEST = r'''
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from tool_executor import LocalToolExecutor
+
+
+class FakeDriver:
+    current_url = "https://example.com/"
+    title = "Example Domain"
+
+
+class BrowserPageTitleTests(unittest.TestCase):
+    def test_read_page_returns_document_title_and_visible_text(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            driver = FakeDriver()
+            executor = LocalToolExecutor(
+                root / "Workspace",
+                root / "Drafts",
+                lambda: driver,
+                resolve_dns=False,
+                memory_path=root / "aurora.sqlite3",
+            )
+            with patch("tool_executor.get_visible_page_text", return_value="Example Domain visible heading"):
+                result = executor.execute("browser_read_page", {})
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["effect_verified"])
+        self.assertEqual(result["page_title"], "Example Domain")
+        self.assertIn("Example Domain visible heading", result["text"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+PAGE_TITLE_PRIVACY_TEST = r'''
+import json
+import unittest
+
+from assistant_core import redact_messages_for_storage, redact_tool_log
+
+
+PRIVATE_TITLE = "SENSITIVE_PRIVATE_PAGE_TITLE_9182"
+PRIVATE_BODY = "SENSITIVE_PAGE_BODY_6621"
+PRIVATE_QUERY = "token=TOP_SECRET_QUERY_771"
+
+
+class PageTitlePrivacyTests(unittest.TestCase):
+    def test_tool_log_redacts_page_title_body_and_url_query(self):
+        _args, safe_output = redact_tool_log(
+            "browser_read_page",
+            {},
+            {
+                "ok": True,
+                "effect_verified": True,
+                "page_title": PRIVATE_TITLE,
+                "text": PRIVATE_BODY,
+                "url": "https://example.com/private?" + PRIVATE_QUERY,
+            },
+        )
+        serialized = json.dumps(safe_output, ensure_ascii=False)
+        self.assertNotIn(PRIVATE_TITLE, serialized)
+        self.assertNotIn(PRIVATE_BODY, serialized)
+        self.assertNotIn(PRIVATE_QUERY, serialized)
+        self.assertIn("example.com/private", serialized)
+
+    def test_conversation_storage_redacts_page_title_and_page_body(self):
+        messages = [
+            {
+                "role": "assistant",
+                "tool_calls": [{
+                    "id": "call-page-read",
+                    "function": {"name": "browser_read_page", "arguments": "{}"},
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-page-read",
+                "content": json.dumps({
+                    "ok": True,
+                    "effect_verified": True,
+                    "page_title": PRIVATE_TITLE,
+                    "text": PRIVATE_BODY,
+                    "url": "https://example.com/private?" + PRIVATE_QUERY,
+                }),
+            },
+        ]
+        stored = json.dumps(redact_messages_for_storage(messages), ensure_ascii=False)
+        self.assertNotIn(PRIVATE_TITLE, stored)
+        self.assertNotIn(PRIVATE_BODY, stored)
+        self.assertNotIn(PRIVATE_QUERY, stored)
+        self.assertIn("example.com/private", stored)
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+
+
+def apply_browser_page_title(root: Path) -> None:
+    """Return the browser document title to the model while redacting it from persisted logs."""
+    tool_source = root / "tool_executor.py"
+    tool_text = tool_source.read_text(encoding="utf-8")
+    marker = "# AURORA_BROWSER_PAGE_TITLE_RESULT: return transient title to model; redact it at rest."
+    if marker not in tool_text:
+        old = '''        if name == "browser_read_page":
+            driver, current_url = self._browser_for_context(args)
+            text = get_visible_page_text(driver, limit=20000)
+            return new_tool_result(True, True, "تمت قراءة النص الظاهر في الصفحة.", url=current_url, text=text, private_account_warning=page_read_warning(current_url))
+'''
+        new = '''        if name == "browser_read_page":
+            driver, current_url = self._browser_for_context(args)
+            text = get_visible_page_text(driver, limit=20000)
+            try:
+                page_title = str(getattr(driver, "title", "") or "")[:250]
+            except Exception:
+                page_title = ""
+            # AURORA_BROWSER_PAGE_TITLE_RESULT: return transient title to model; redact it at rest.
+            return new_tool_result(True, True, "تمت قراءة عنوان الصفحة والنص الظاهر فيها.", url=current_url, page_title=page_title, text=text, private_account_warning=page_read_warning(current_url))
+'''
+        if old not in tool_text:
+            raise SystemExit("Could not safely locate browser_read_page implementation; refusing a fuzzy patch.")
+        tool_text = tool_text.replace(old, new, 1)
+        tool_source.write_text(tool_text, encoding="utf-8", newline="\n")
+
+    core = root / "assistant_core.py"
+    core_text = core.read_text(encoding="utf-8")
+    old_redact = 'for field in ("content", "text", "stdout", "stderr", "page_text", "controls", "windows", "results", "procedures"):'
+    new_redact = 'for field in ("content", "text", "stdout", "stderr", "page_text", "controls", "windows", "results", "procedures", "page_title"):'
+    if new_redact not in core_text:
+        if old_redact not in core_text:
+            raise SystemExit("Could not safely locate tool-output redaction fields.")
+        core_text = core_text.replace(old_redact, new_redact, 1)
+    old_storage = '"browser_read_page": ("text",),'
+    new_storage = '"browser_read_page": ("text", "page_title"),'
+    if new_storage not in core_text:
+        if old_storage not in core_text:
+            raise SystemExit("Could not safely locate persisted-message redaction rules.")
+        core_text = core_text.replace(old_storage, new_storage, 1)
+    core.write_text(core_text, encoding="utf-8", newline="\n")
+
+    app = root / "app.py"
+    app_text = app.read_text(encoding="utf-8")
+    old_description = "قراءة النص الظاهر حاليًا في الصفحة مباشرة في الوضع التلقائي."
+    new_description = "قراءة عنوان الصفحة في الحقل page_title والنص الظاهر حاليًا في الصفحة مباشرة في الوضع التلقائي."
+    if new_description not in app_text:
+        if old_description not in app_text:
+            raise SystemExit("Could not safely locate browser_read_page tool description.")
+        app_text = app_text.replace(old_description, new_description, 1)
+        app.write_text(app_text, encoding="utf-8", newline="\n")
+
+    tests_dir = root / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    page_test = tests_dir / "test_browser_page_title.py"
+    if not page_test.exists():
+        page_test.write_text(BROWSER_PAGE_TITLE_TEST, encoding="utf-8", newline="\n")
+    privacy_test = tests_dir / "test_page_title_privacy.py"
+    if not privacy_test.exists():
+        privacy_test.write_text(PAGE_TITLE_PRIVACY_TEST, encoding="utf-8", newline="\n")
+
+
 def apply_fixes(root: Path) -> None:
     apply_gemini_503_retry(root)
+    apply_browser_page_title(root)
     source = root / "windows_tools.py"
     text = source.read_text(encoding="utf-8")
     switch_signature = 'def switch_existing_chrome_tab(tab_query: str = "Gmail") -> dict[str, Any]:'

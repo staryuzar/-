@@ -111,6 +111,8 @@ def missing_execution_evidence(
         ("تم التحقق" in steps, "verified-effect marker in compact log"),
         (_successful_tool_on_target(records, "browser_open_url"), "successful browser_open_url record on example.com"),
         (_successful_tool_on_target(records, "browser_read_page"), "successful browser_read_page record on example.com"),
-        ("example domain" in answer, "expected page heading Example Domain in assistant reply"),
+        ("document title:" in answer, "Document title field in assistant reply"),
+        ("h1:" in answer, "H1 field in assistant reply"),
+        (answer.count("example domain") >= 2, "matching Example Domain document title and H1 values in assistant reply"),
     )
     return [description for passed, description in checks if not passed]
