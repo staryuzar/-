@@ -62,12 +62,30 @@ def main() -> int:
             if "Example Domain" not in str(read.get("page_h1", "")):
                 safe_text = str(read.get("text", "") or "")
                 try:
-                    direct_h1 = str(driver.find_element("tag name", "h1").text or "").strip()
+                    direct_h1s = [
+                        str(element.text or "").strip()[:250]
+                        for element in driver.find_elements("tag name", "h1")
+                        if element.is_displayed() and str(element.text or "").strip()
+                    ]
                 except Exception:
-                    direct_h1 = ""
+                    direct_h1s = []
+                try:
+                    page_url = urlsplit(str(driver.current_url or ""))
+                    safe_url = f"{page_url.scheme}://{page_url.hostname or ''}{page_url.path or '/'}"
+                except Exception:
+                    safe_url = "[unavailable]"
+                # example.com is a public fixture; a short excerpt helps diagnose
+                # proxy/error pages while avoiding arbitrary query strings or secrets.
+                print(
+                    "SAFE LIVE PAGE DIAGNOSTIC: "
+                    f"url={safe_url}; title={str(driver.title or '')[:120]!r}; "
+                    f"ready_state={str(driver.execute_script('return document.readyState') or '')[:30]!r}; "
+                    f"h1_count={len(direct_h1s)}; h1_values={direct_h1s!r}; "
+                    f"body_text_length={len(safe_text)}; body_excerpt={safe_text[:350]!r}"
+                )
                 raise AssertionError(
                     "browser_read_page did not return the visible H1. "
-                    f"body_text_length={len(safe_text)}; direct_dom_h1_match={direct_h1 == 'Example Domain'}"
+                    f"body_text_length={len(safe_text)}; direct_h1_match={any(h.casefold() == 'example domain' for h in direct_h1s)}"
                 )
             if not str(read.get("text", "") or "").strip():
                 raise AssertionError("browser_read_page returned empty visible body text.")
