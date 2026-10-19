@@ -79,7 +79,7 @@ jobs:
               } finally { $stream.Dispose() }
               $hasBom = $read -eq 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
               if ($required.EndsWith(".bat") -and $hasBom) {
-                $lines += "- WARN — $required: UTF-8 BOM present in ORIGINAL archive (the later test compatibility step may remove it)"
+                $lines += "- WARN — ${required}: UTF-8 BOM present in ORIGINAL archive (the later test compatibility step may remove it)"
               } else {
                 $lines += "- PASS — $required exists; BOM=$hasBom"
               }
