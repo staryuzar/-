@@ -345,9 +345,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Apply reviewed fixes before testing the actual tool executor
+      - name: Apply reviewed fixes and skill-pack integration before testing the actual tool executor
         shell: pwsh
-        run: python .github/scripts/ci_prepare_release.py ci_browser_source
+        run: |
+          python .github/scripts/ci_prepare_release.py ci_browser_source
+          python .github/scripts/ci_enrich_knowledge.py ci_browser_source
       - name: Install Selenium
         shell: pwsh
         run: python -m pip install --upgrade pip selenium
