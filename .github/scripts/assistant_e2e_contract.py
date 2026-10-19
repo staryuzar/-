@@ -102,7 +102,7 @@ def _successful_tool_on_target(records: list[dict], name: str) -> bool:
 def _normalized_reply(value: Any) -> str:
     """Normalize common Arabic diacritics/alef variants without erasing words."""
     text = unicodedata.normalize("NFKC", str(value or "")).casefold()
-    text = re.sub(r"[\\u064B-\\u065F\\u0670\\u0640]", "", text)
+    text = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", text)
     text = text.translate(str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي"}))
     return " ".join(text.split())
 
