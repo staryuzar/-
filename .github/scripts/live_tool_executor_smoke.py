@@ -59,9 +59,19 @@ def main() -> int:
                 raise AssertionError("browser_read_page did not report example.com as its current URL.")
             if "Example Domain" not in str(read.get("page_title", "")):
                 raise AssertionError("browser_read_page did not return the live document title.")
-            if "Example Domain" not in str(read.get("text", "")):
-                raise AssertionError("browser_read_page did not return the visible page heading.")
-            checks.append("PASS: real browser_read_page returned document title and visible heading from the live site")
+            if "Example Domain" not in str(read.get("page_h1", "")):
+                safe_text = str(read.get("text", "") or "")
+                try:
+                    direct_h1 = str(driver.find_element("tag name", "h1").text or "").strip()
+                except Exception:
+                    direct_h1 = ""
+                raise AssertionError(
+                    "browser_read_page did not return the visible H1. "
+                    f"body_text_length={len(safe_text)}; direct_dom_h1_match={direct_h1 == 'Example Domain'}"
+                )
+            if not str(read.get("text", "") or "").strip():
+                raise AssertionError("browser_read_page returned empty visible body text.")
+            checks.append("PASS: real browser_read_page returned document title, visible H1, and body text from the live site")
 
             before = str(driver.current_url or "")
             blocked = executor.execute("browser_open_url", {"url": "http://127.0.0.1:8765/"})

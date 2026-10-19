@@ -290,9 +290,19 @@ from unittest.mock import patch
 from tool_executor import LocalToolExecutor
 
 
+class FakeHeading:
+    text = "Example Domain"
+    def is_displayed(self):
+        return True
+
+
 class FakeDriver:
     current_url = "https://example.com/"
     title = "Example Domain"
+    def find_element(self, by, selector):
+        if (by, selector) == ("tag name", "h1"):
+            return FakeHeading()
+        raise LookupError("unexpected element")
 
 
 class BrowserPageTitleTests(unittest.TestCase):
@@ -312,6 +322,7 @@ class BrowserPageTitleTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(result["effect_verified"])
         self.assertEqual(result["page_title"], "Example Domain")
+        self.assertEqual(result["page_h1"], "Example Domain")
         self.assertIn("Example Domain visible heading", result["text"])
 
 
@@ -326,6 +337,7 @@ from assistant_core import redact_messages_for_storage, redact_tool_log
 
 
 PRIVATE_TITLE = "SENSITIVE_PRIVATE_PAGE_TITLE_9182"
+PRIVATE_H1 = "SENSITIVE_PRIVATE_H1_8821"
 PRIVATE_BODY = "SENSITIVE_PAGE_BODY_6621"
 PRIVATE_QUERY = "token=TOP_SECRET_QUERY_771"
 
@@ -339,12 +351,14 @@ class PageTitlePrivacyTests(unittest.TestCase):
                 "ok": True,
                 "effect_verified": True,
                 "page_title": PRIVATE_TITLE,
+                "page_h1": PRIVATE_H1,
                 "text": PRIVATE_BODY,
                 "url": "https://example.com/private?" + PRIVATE_QUERY,
             },
         )
         serialized = json.dumps(safe_output, ensure_ascii=False)
         self.assertNotIn(PRIVATE_TITLE, serialized)
+        self.assertNotIn(PRIVATE_H1, serialized)
         self.assertNotIn(PRIVATE_BODY, serialized)
         self.assertNotIn(PRIVATE_QUERY, serialized)
         self.assertIn("example.com/private", serialized)
@@ -365,6 +379,7 @@ class PageTitlePrivacyTests(unittest.TestCase):
                     "ok": True,
                     "effect_verified": True,
                     "page_title": PRIVATE_TITLE,
+                    "page_h1": PRIVATE_H1,
                     "text": PRIVATE_BODY,
                     "url": "https://example.com/private?" + PRIVATE_QUERY,
                 }),
@@ -372,6 +387,7 @@ class PageTitlePrivacyTests(unittest.TestCase):
         ]
         stored = json.dumps(redact_messages_for_storage(messages), ensure_ascii=False)
         self.assertNotIn(PRIVATE_TITLE, stored)
+        self.assertNotIn(PRIVATE_H1, stored)
         self.assertNotIn(PRIVATE_BODY, stored)
         self.assertNotIn(PRIVATE_QUERY, stored)
         self.assertIn("example.com/private", stored)
@@ -400,8 +416,13 @@ def apply_browser_page_title(root: Path) -> None:
                 page_title = str(getattr(driver, "title", "") or "")[:250]
             except Exception:
                 page_title = ""
-            # AURORA_BROWSER_PAGE_TITLE_RESULT: return transient title to model; redact it at rest.
-            return new_tool_result(True, True, "تمت قراءة عنوان الصفحة والنص الظاهر فيها.", url=current_url, page_title=page_title, text=text, private_account_warning=page_read_warning(current_url))
+            try:
+                heading = driver.find_element("tag name", "h1")
+                page_h1 = str(getattr(heading, "text", "") or "")[:500] if heading.is_displayed() else ""
+            except Exception:
+                page_h1 = ""
+            # AURORA_BROWSER_PAGE_TITLE_RESULT: return transient title/H1 to model; redact at rest.
+            return new_tool_result(True, True, "تمت قراءة عنوان الصفحة والعنوان الرئيسي والنص الظاهر فيها.", url=current_url, page_title=page_title, page_h1=page_h1, text=text, private_account_warning=page_read_warning(current_url))
 '''
         if old not in tool_text:
             raise SystemExit("Could not safely locate browser_read_page implementation; refusing a fuzzy patch.")
@@ -411,13 +432,13 @@ def apply_browser_page_title(root: Path) -> None:
     core = root / "assistant_core.py"
     core_text = core.read_text(encoding="utf-8")
     old_redact = 'for field in ("content", "text", "stdout", "stderr", "page_text", "controls", "windows", "results", "procedures"):'
-    new_redact = 'for field in ("content", "text", "stdout", "stderr", "page_text", "controls", "windows", "results", "procedures", "page_title"):'
+    new_redact = 'for field in ("content", "text", "stdout", "stderr", "page_text", "controls", "windows", "results", "procedures", "page_title", "page_h1"):'
     if new_redact not in core_text:
         if old_redact not in core_text:
             raise SystemExit("Could not safely locate tool-output redaction fields.")
         core_text = core_text.replace(old_redact, new_redact, 1)
     old_storage = '"browser_read_page": ("text",),'
-    new_storage = '"browser_read_page": ("text", "page_title"),'
+    new_storage = '"browser_read_page": ("text", "page_title", "page_h1"),'
     if new_storage not in core_text:
         if old_storage not in core_text:
             raise SystemExit("Could not safely locate persisted-message redaction rules.")
