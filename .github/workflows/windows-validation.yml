@@ -4,7 +4,15 @@ on:
   push:
     branches:
       - "**"
+    paths-ignore:
+      - "README.md"
+      - ".github/PROJECT_STATE_AR.md"
+      - ".github/RESUME_REPORT_2026-10-19_AR.md"
   pull_request:
+    paths-ignore:
+      - "README.md"
+      - ".github/PROJECT_STATE_AR.md"
+      - ".github/RESUME_REPORT_2026-10-19_AR.md"
   workflow_dispatch:
 
 permissions:
