@@ -127,7 +127,7 @@ def main() -> int:
     existing = report.read_text(encoding="utf-8")
     files = []
     for path in sorted(root.rglob("*")):
-        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
+        if path.is_file() and path != report and "__pycache__" not in path.parts and path.suffix != ".pyc":
             rel = path.relative_to(root).as_posix()
             files.append({"path": rel, "bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     inventory = "\n\n## فهرس الملفات الفعلي عند البناء\n\n| المسار | الحجم بالبايت | SHA-256 |\n|---|---:|---|\n" + "\n".join(
