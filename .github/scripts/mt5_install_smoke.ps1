@@ -62,6 +62,10 @@ try {
     if ($accountLogin -match '[\r\n=]' -or $accountPassword -match '[\r\n]' -or $accountServer -match '[\r\n]') {
         throw "Account credential fields contain unsupported line breaks or delimiters."
     }
+    # Mask individual components as well as the complete multi-line secret.
+    Write-Output "::add-mask::$accountLogin"
+    Write-Output "::add-mask::$accountPassword"
+    Write-Output "::add-mask::$accountServer"
     "Demo account secret detected; credential values suppressed." | Add-Content -LiteralPath $report -Encoding utf8
 
     $uri = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
