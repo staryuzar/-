@@ -395,3 +395,26 @@
 ### ملاحظة MT5 وخطوة الاستئناف
 - فحص شجرة المستودع لم يجد ملفات `.mq5`, `.mqh`, `.ex5`, `.set` أو بيانات `.csv`. اختبار MT5 الحالي هو تثبيت/تشغيل/مصادقة تجريبية فقط. **EA المستخدم وStrategy Tester لم يُختبرا بعد**، ولا توجد صفقات حقيقية.
 - التالي: الحفاظ على اختبارات Chrome الـ12، ثم إدخال EA والبيانات التاريخية إلى مسار مستقل، التحقق من ترجمة MetaEditor، وتشغيل Strategy Tester، وحفظ تقريره. لا تختلق ملفات EA أو نتائج تداول بدلًا من البيانات الحقيقية.
+
+
+## أحدث جولة — حارس file:// وتنظيف سجل timeout — 2026-10-19 12:51 UTC
+
+### تغييرات الكود
+- [الالتزام 63545737](https://github.com/staryuzar/-/commit/63545737c622dec74752d9dc3e2e7f2e5ebe44ea): إضافة حالة إلى `.github/scripts/live_tool_executor_smoke.py` تؤكد رفض `file://` من منفّذ الأدوات الحقيقي دون تغيير الصفحة العامة.
+- [الالتزام 45c2177](https://github.com/staryuzar/-/commit/45c21774f6c49b7db6c97f8ffdeaf7a28ebc5037): معالجة انقطاع اتصال متوقع في fixture الصفحة البطيئة أثناء اختبار timeout، كي لا تظهر stack trace غير لازمة. لا يتم ابتلاع أخطاء الكتابة في المسارات الأخرى.
+
+### التحقق الفعلي
+- [Windows validation #156 / 39254455005](https://github.com/staryuzar/-/actions/runs/39254455005) — **PASS لكل الوظائف** على Windows Server 2022.
+- Chrome: **12/12 PASS**، وتشمل رفض URL غير صالح، عنصر مفقود، مهلة تحميل محدودة، التعافي إلى الصفحة المعروفة، مهلة انتظار عنصر، ورفض loopback.
+- LocalToolExecutor: **4/4 PASS**: فتح وقراءة `https://example.com/` فعليًا، رفض loopback، ورفض `file://` مع إثبات بقاء الصفحة العامة دون تغيير.
+- التحقق من السجل أكد أن تشغيل #156 لا يحتوي `ConnectionAbortedError` بعد إصلاح fixture.
+- Python 3.11: `231 passed, 122 subtests passed`؛ Python 3.13: `231 passed, 122 subtests passed`.
+- MT5 demo smoke: PASS؛ لا صفقات.
+- Artifact Chrome/ToolExecutor: [12187032556](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187032556), SHA-256 `95cda3c2302217e4161b6e124f21aa3c2017c8180761ade4fb516989837390cf`.
+- Artifact MT5: [12187986149](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187986149), SHA-256 `68024b23d86b151075673be0bdad6e8747dde7007d4fdde0418b05f0489afb81`.
+- نتائج Python 3.11: [12187087482](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187087482). نتائج Python 3.13: [12187052600](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187052600).
+
+### نقطة الاستئناف التالية
+1. لا تعدّل اختبارات Chrome التي اجتازت 12/12 وLocalToolExecutor الذي اجتاز 4/4 دون سبب واضح.
+2. انتقل إلى فحص ملفات EA الفعلية: بحث شجرة المستودع لا يُظهر ملفات `.mq5`, `.mqh`, `.ex5`, `.set` أو بيانات `.csv`. لا يمكن ترجمة EA المستخدم أو تشغيل Strategy Tester دون مصدر المستشار والبيانات.
+3. عند توفير ملفات فعلية ضمن المشروع: انسخها إلى مساحة اختبار منفصلة، احسب بصمات SHA-256، ترجم EA في MetaEditor، احفظ الأخطاء/التحذيرات، ثم شغّل Strategy Tester على بيانات تاريخية واحفظ تقريره. لا تستخدم حسابًا حقيقيًا ولا تفتح صفقات حقيقية.
