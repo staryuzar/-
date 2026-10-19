@@ -101,6 +101,9 @@ def main() -> int:
             for unsafe_url, label in (
                 ("http://localhost:8765/", "localhost hostname"),
                 ("http://[::1]:8765/", "IPv6 loopback"),
+                ("http://127.1:8765/", "short IPv4 loopback notation"),
+                ("http://2130706433:8765/", "integer IPv4 loopback notation"),
+                ("http://0177.0.0.1:8765/", "octal-style IPv4 loopback notation"),
             ):
                 before_unsafe = str(driver.current_url or "")
                 blocked_unsafe = executor.execute("browser_open_url", {"url": unsafe_url})
