@@ -94,3 +94,10 @@
 - Chrome: **12/12**، بما فيها اختبار مهلة تحميل الصفحة والتعافي إلى الصفحة السليمة؛ LocalToolExecutor: **3/3**؛ Python 3.11/3.13: **231 passed + 122 subtests** لكل إصدار؛ MT5 demo smoke: PASS دون أوامر تداول.
 - [تقرير Chrome](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12186314299)؛ [تقرير MT5](https://github.com/staryuzar/-/actions/runs/39253418287/artifacts/12186299727).
 - لم يُترجم EA المستخدم ولم يُشغّل Strategy Tester بعد، ولا توجد ملفات EA/بيانات تاريخية ضمن شجرة المستودع الحالية. راجع [تقرير الاستئناف](.github/RESUME_REPORT_2026-10-19_AR.md).
+
+
+### أحدث جولة تحقق — تشغيل #156
+- [Windows validation #156](https://github.com/staryuzar/-/actions/runs/39254455005) — PASS بالكامل.
+- Chrome **12/12**؛ LocalToolExecutor **4/4** (منها رفض `file://` وloopback)؛ Python 3.11/3.13 **231 اختبارًا + 122 اختبارًا فرعيًا** لكل إصدار؛ MT5 demo smoke PASS دون صفقات.
+- [Artifact Chrome/ToolExecutor](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187032556)؛ [Artifact MT5](https://github.com/staryuzar/-/actions/runs/39254455005/artifacts/12187986149).
+- لا يوجد EA أو بيانات تاريخية ضمن شجرة المستودع الحالية، لذلك لم يُترجم EA المستخدم ولم يُشغّل Strategy Tester. راجع [تقرير الاستئناف](.github/RESUME_REPORT_2026-10-19_AR.md).
