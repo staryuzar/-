@@ -45,7 +45,7 @@ $accountPasswordForConfig = $accountPassword
 $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $null
 
 "GoldLab MT5 Strategy Tester run" | Set-Content -LiteralPath $summary -Encoding utf8
-"Test date: 2026-10-19 (recent-history diagnostic)" | Add-Content -LiteralPath $summary -Encoding utf8
+"Test period: 2026-09-01 through 2026-10-19 (history-availability diagnostic)" | Add-Content -LiteralPath $summary -Encoding utf8
 "EA: GoldLabEA; Symbol XAUUSD; timeframe M5; model 1 (1-minute OHLC diagnostic; not real-tick validation)" | Add-Content -LiteralPath $summary -Encoding utf8
 "Deposit: 500 USD; leverage 1:1000; trade mode is tester only; no live orders are authorized." | Add-Content -LiteralPath $summary -Encoding utf8
 "UTC start: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
@@ -80,7 +80,7 @@ try {
   "Compile result: PASS (0 errors; warnings reported in compile-log.txt)" | Add-Content -LiteralPath $summary -Encoding utf8
 
   $config = Join-Path $root "goldlab-tester.ini"
-  $reportRelative = "goldlab-results\GoldLab_diagnostic_2026-10-19"
+  $reportRelative = "goldlab-results\GoldLab_diagnostic_2026-09-01_to_2026-10-19"
   New-Item -ItemType Directory -Path (Join-Path $install "goldlab-results") -Force | Out-Null
   $ini = @"
 [Common]
@@ -101,10 +101,10 @@ AllowDllImport=0
 Expert=GoldLab\GoldLabEA.ex5
 Symbol=XAUUSD
 Period=M5
-Model=4
+Model=1
 ExecutionMode=0
 Optimization=0
-FromDate=2026.10.19
+FromDate=2026.09.01
 ToDate=2026.10.19
 ForwardMode=0
 Deposit=500
