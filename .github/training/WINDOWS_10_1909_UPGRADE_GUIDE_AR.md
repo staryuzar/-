@@ -15,7 +15,7 @@
 3. انسخ مجلد البيانات النشط E:\AuroraData\LocalAssistant كاملًا إلى مجلد احتياطي منفصل. إذا كان مسار AURORA_DATA_DIR في .env مختلفًا، انسخ المسار الفعلي بدل هذا المسار الافتراضي.
 4. افحص سلامة قاعدة البيانات بعد إغلاق التطبيق بالأمر التالي من Command Prompt:
 
-الأمر: py -3 -c "import sqlite3; p=r'E:\AuroraData\LocalAssistant\aurora.sqlite3'; c=sqlite3.connect(p); print(c.execute('PRAGMA integrity_check').fetchone()[0]); c.close()"
+الأمر: py -3 -c "import os,sqlite3; p=r'E:\AuroraData\LocalAssistant\aurora.sqlite3'; assert os.path.isfile(p), 'database file not found'; c=sqlite3.connect(p); print(c.execute('PRAGMA integrity_check').fetchone()[0]); c.close()"
 
 يجب أن تكون النتيجة ok. إذا فشل الأمر أو كانت النتيجة مختلفة، توقف ولا تبدأ التحديث.
 
