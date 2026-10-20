@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 from pathlib import Path
+import re
 import zipfile
 
 
@@ -575,8 +576,35 @@ def is_release_excluded(path: Path) -> bool:
     return False
 
 
+def update_package_manifest_count(root: Path) -> None:
+    package_manifest = root / "PACKAGE_MANIFEST_AR.md"
+    if not package_manifest.is_file():
+        return
+    checksum_manifest = root / "PACKAGE_SHA256SUMS_AR.txt"
+    if not checksum_manifest.exists():
+        checksum_manifest.write_text("", encoding="utf-8", newline="\n")
+    count = sum(
+        1 for path in root.rglob("*")
+        if path.is_file() and not is_release_excluded(path)
+    )
+    content = package_manifest.read_text(encoding="utf-8")
+    updated, replacements = re.subn(
+        r"عدد الملفات المضمنة في ZIP: \*\*\d+\*\*",
+        f"عدد الملفات المضمنة في ZIP: **{count}**",
+        content,
+        count=1,
+    )
+    if replacements != 1:
+        raise SystemExit("Could not update package manifest file count; refusing to ship a stale count.")
+    if updated != content:
+        package_manifest.write_text(updated, encoding="utf-8", newline="\n")
+
+
 def rebuild_manifest(root: Path) -> None:
     manifest = root / "PACKAGE_SHA256SUMS_AR.txt"
+    if not manifest.exists():
+        manifest.write_text("", encoding="utf-8", newline="\n")
+    update_package_manifest_count(root)
     header = [
         "SHA-256 checksums for Aurora Control Room — patched CI release package",
         "Generated from the patched release tree; this list excludes itself and non-release artifacts.",

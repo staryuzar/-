@@ -38,8 +38,14 @@ class AuroraSkillPackTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         self.assertTrue((root / "docs" / "MT5_FIELD_GUIDE_AR.md").is_file())
         self.assertTrue((root / "docs" / "CHROME_MESSAGING_GUIDE_AR.md").is_file())
+        self.assertTrue((root / "docs" / "WINDOWS_10_1909_UPGRADE_GUIDE_AR.md").is_file())
         report = (root / "docs" / "PACKAGE_ARCHITECTURE_REPORT_AR.md").read_text(encoding="utf-8")
         self.assertIn("دورة تنفيذ الطلب", report)
+        self.assertIn("WINDOWS_10_1909_UPGRADE_GUIDE_AR.md", report)
+        readme = (root / "README_AR.md").read_text(encoding="utf-8")
+        self.assertIn("WINDOWS_10_1909_UPGRADE_GUIDE_AR.md", readme)
+        self.assertIn("GitHub Actions", readme)
+        self.assertIn("لم يُختبر محليًا على Windows 10 Pro 1909", readme)
     def test_additional_procedures_are_seeded_and_retrievable(self):
         with tempfile.TemporaryDirectory() as tmp:
             memory = LongTermMemory(Path(tmp) / "skill.sqlite3")
@@ -81,6 +87,7 @@ def main() -> int:
     expected_guides = [
         ("MT5_FIELD_GUIDE_AR.md", "docs/MT5_FIELD_GUIDE_AR.md"),
         ("CHROME_MESSAGING_GUIDE_AR.md", "docs/CHROME_MESSAGING_GUIDE_AR.md"),
+        ("WINDOWS_10_1909_UPGRADE_GUIDE_AR.md", "docs/WINDOWS_10_1909_UPGRADE_GUIDE_AR.md"),
         ("PACKAGE_ARCHITECTURE_REPORT_AR.md", "docs/PACKAGE_ARCHITECTURE_REPORT_AR.md"),
     ]
     for source_name, dest_name in expected_guides:
@@ -90,6 +97,36 @@ def main() -> int:
         destination = root / dest_name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, destination)
+
+    readme = root / "README_AR.md"
+    intro_old = "## ابدأ هنا — تثبيت جديد بلا سكربت منفصل"
+    intro_new = "\n".join([
+        "## قبل التثبيت: هل لديك نسخة سابقة؟",
+        "",
+        "إذا كان لديك تثبيت Aurora سابق أو قاعدة بيانات على E:، لا تفك الحزمة فوق مجلدك الحالي مباشرة. اختبرها في مجلد منفصل واتبع [دليل التحديث الآمن لـ Windows 10 Pro 1909](docs/WINDOWS_10_1909_UPGRADE_GUIDE_AR.md) مع نسخة احتياطية للتطبيق والبيانات أولًا.",
+        "",
+        intro_old,
+    ])
+    replace_once(readme, intro_old, intro_new, "link safe upgrade guide")
+    old_scope = "- لم يُشغّل هذا الإصدار على Windows الحقيقي في بيئة البناء، ولم تُستخدم حسابات المستخدم أو مفاتيحه."
+    new_scope = "- اجتاز الإصدار اختبارات CI على Windows Server 2022 في GitHub Actions واختبارًا حيًا واحدًا لمسار Gemini→Chrome→الإجابة على example.com. لم يُختبر محليًا على Windows 10 Pro 1909 أو على جهاز المستخدم؛ ولم تُختبر حسابات Gmail/WhatsApp/Telegram أو تنفيذ تداول. لا تُدرج الأسرار في التقارير."
+    replace_once(readme, old_scope, new_scope, "correct validation scope")
+
+    first_run = root / "FIRST_RUN_DATA_SETUP_AR.md"
+    first_heading = "## هل يجب إنشاء مجلد البيانات يدويًا؟"
+    first_note = "\n".join([
+        "## إذا كانت لديك نسخة سابقة",
+        "",
+        "هذا الملف للتثبيت الأول فقط. إذا كان Aurora موجودًا بالفعل أو لديك قاعدة بيانات سابقة، استخدم docs/WINDOWS_10_1909_UPGRADE_GUIDE_AR.md قبل أي تحديث، ولا تفك الحزمة فوق مجلد التطبيق القديم قبل النسخ الاحتياطي.",
+        "",
+        first_heading,
+    ])
+    replace_once(first_run, first_heading, first_note, "link safe upgrade guide from first-run doc")
+
+    package_manifest = root / "PACKAGE_MANIFEST_AR.md"
+    manifest_anchor = "| `FIRST_RUN_DATA_SETUP_AR.md` | شرح أول تشغيل ومحتويات مجلد E. |"
+    manifest_row = manifest_anchor + "\n| `docs/WINDOWS_10_1909_UPGRADE_GUIDE_AR.md` | خطوات تحديث آمن مع نسخة احتياطية واختبار منفصل للبيانات على Windows 10 Pro 1909. |"
+    replace_once(package_manifest, manifest_anchor, manifest_row, "add safe upgrade guide to package manifest")
 
     knowledge = root / "builtin_knowledge.py"
     content = knowledge.read_text(encoding="utf-8")
@@ -178,6 +215,7 @@ def main() -> int:
         name = Path(path).name.casefold()
         path_descriptions = {
             "docs/mt5_field_guide_ar.md": "دليل تشغيلي عربي لواجهات MT5: Market Watch، الرسوم، المؤشرات، Toolbox، MetaEditor، الأوامر، الحساب، Strategy Tester والتحسين.",
+            "docs/windows_10_1909_upgrade_guide_ar.md": "دليل تحديث آمن على Windows 10 Pro 1909، مع نسخ احتياطية واختبار منفصل للبيانات قبل تبديل الحزمة.",
             "docs/chrome_messaging_guide_ar.md": "دليل البحث وتدقيق المصادر وقراءة الصفحة والتعامل مع النماذج وGmail وWhatsApp وTelegram والتحقق من الإرسال.",
             "docs/package_architecture_report_ar.md": "شرح دورة الطلب ومسؤوليات الملفات وآلية الذاكرة والوصفات، مع فهرس فعلي للحزمة وأحجام الملفات وبصماتها.",
             "tests/test_app_paths.py": "اختبارات مسارات بيانات التطبيق واختيار مجلد التخزين على Windows.",

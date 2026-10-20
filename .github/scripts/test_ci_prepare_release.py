@@ -62,6 +62,24 @@ class ReleaseArchiveHygieneTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertFalse(MODULE.is_release_excluded(Path(value)))
 
+    def test_package_manifest_count_matches_actual_zip_members(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "source"
+            root.mkdir()
+            (root / "app.py").write_text("pass\\n", encoding="utf-8")
+            (root / ".env.example").write_text("AI_PROVIDER=gemini\\n", encoding="utf-8")
+            (root / ".env").write_text("GEMINI_API_KEY=placeholder\\n", encoding="utf-8")
+            (root / "PACKAGE_MANIFEST_AR.md").write_text(
+                "# فهرس الحزمة\\n\\nعدد الملفات المضمنة في ZIP: **0**\\n", encoding="utf-8"
+            )
+            MODULE.rebuild_manifest(root)
+            output = Path(temporary) / "release.zip"
+            MODULE.build_zip(root, output)
+            with zipfile.ZipFile(output) as archive:
+                archive_count = len(archive.namelist())
+            package_manifest = (root / "PACKAGE_MANIFEST_AR.md").read_text(encoding="utf-8")
+            self.assertIn(f"عدد الملفات المضمنة في ZIP: **{archive_count}**", package_manifest)
+
     def test_manifest_and_zip_omit_excluded_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "source"
