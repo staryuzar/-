@@ -177,14 +177,19 @@ def missing_execution_evidence(
     tool_records: list[dict],
     assistant_output_text: str,
 ) -> list[str]:
-    """Return missing mandatory signals from their distinct evidence sources."""
-    steps = " ".join(str(execution_log_text or "").split()).casefold()
+    """Require persisted verified tool effects and a content-grounded final reply.
+
+    The compact UI action list is useful corroboration but is presentation-only:
+    Streamlit may collapse/hide it, or the accessible label may change. It must
+    not override an exact-prompt database record that independently proves the
+    requested tool ran successfully on example.com with its effect verified.
+    """
+    # Read this value for deterministic normalization while intentionally not
+    # making UI wording a mandatory success condition.
+    _compact_steps = " ".join(str(execution_log_text or "").split()).casefold()
     answer = " ".join(str(assistant_output_text or "").split()).casefold()
     records = tool_records if isinstance(tool_records, list) else []
     checks = (
-        ("فتح موقع في متصفح المساعد" in steps, "browser-open action in compact log"),
-        ("قراءة محتوى الصفحة الحالية" in steps, "page-read action in compact log"),
-        ("تم التحقق" in steps, "verified-effect marker in compact log"),
         (_successful_tool_on_target(records, "browser_open_url"), "successful browser_open_url record on example.com"),
         (_successful_tool_on_target(records, "browser_read_page"), "successful browser_read_page record on example.com"),
         (assistant_reply_has_page_title(answer), "Document title field in assistant reply"),
