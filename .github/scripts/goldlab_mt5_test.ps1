@@ -135,7 +135,7 @@ Visual=0
   "Tester terminal exit code: $($terminalProc.ExitCode)" | Add-Content -LiteralPath $summary -Encoding utf8
   $foundReport = $possibleReports | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (!$foundReport) {
-    $foundReport = Get-ChildItem -LiteralPath $install -Filter "GoldLab_diagnostic_2026-10-19.htm" -File -Recurse -ErrorAction SilentlyContinue |
+    $foundReport = Get-ChildItem -LiteralPath $install -Filter "GoldLab_diagnostic_2026-09-01_to_2026-10-19.htm" -File -Recurse -ErrorAction SilentlyContinue |
       Select-Object -ExpandProperty FullName -First 1
   }
   if (!$foundReport) {
@@ -171,7 +171,7 @@ Visual=0
   $html = Get-Content -LiteralPath $foundReport -Raw
   $html = $html -replace [regex]::Escape($accountLogin), "[ACCOUNT REDACTED]"
   $html = $html -replace [regex]::Escape($accountServer), "[SERVER REDACTED]"
-  $safeReport = Join-Path $reports "GoldLab_diagnostic_2026-10-19.htm"
+  $safeReport = Join-Path $reports "GoldLab_diagnostic_2026-09-01_to_2026-10-19.htm"
   [System.IO.File]::WriteAllText($safeReport,$html,[System.Text.UTF8Encoding]::new($false))
   "Tester report: produced at $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
   "Report size: $((Get-Item $safeReport).Length) bytes" | Add-Content -LiteralPath $summary -Encoding utf8
