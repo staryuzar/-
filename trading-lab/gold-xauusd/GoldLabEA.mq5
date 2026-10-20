@@ -79,7 +79,6 @@ bool IsNewBar()
 {
    datetime t=iTime(_Symbol,InpEntryTF,0);
    if(t<=0 || t==lastBar) return false;
-   lastBar=t;
    return true;
 }
 
@@ -220,10 +219,24 @@ void OnTick()
       return;
    }
 
+   // Commit the bar timestamp only after all indicator data is readable; retry the same bar if history is late.
+   lastBar=iTime(_Symbol,InpEntryTF,0);
    bool longSignal=(biasFast>biasSlow && fast1>slow1 && rsi2<=InpRSIMidline &&
                     rsi1>InpRSIMidline && adx>=InpMinADX);
    bool shortSignal=(biasFast<biasSlow && fast1<slow1 && rsi2>=InpRSIMidline &&
                      rsi1<InpRSIMidline && adx>=InpMinADX);
+
+   double spreadPoints=(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/_Point;
+   LogEvent("SIGNAL_AUDIT",
+      "bar="+TimeToString(iTime(_Symbol,InpEntryTF,1),TIME_DATE|TIME_MINUTES)+
+      ";H1EMA"+IntegerToString(InpBiasFastEMA)+"="+DoubleToString(biasFast,_Digits)+
+      ";H1EMA"+IntegerToString(InpBiasSlowEMA)+"="+DoubleToString(biasSlow,_Digits)+
+      ";M5EMA"+IntegerToString(InpFastEMA)+"="+DoubleToString(fast1,_Digits)+
+      ";M5EMA"+IntegerToString(InpSlowEMA)+"="+DoubleToString(slow1,_Digits)+
+      ";RSIprev="+DoubleToString(rsi2,2)+";RSI="+DoubleToString(rsi1,2)+
+      ";ADX="+DoubleToString(adx,2)+";ATR="+DoubleToString(atr,_Digits)+
+      ";spread_points="+DoubleToString(spreadPoints,1)+
+      ";long="+(longSignal ? "1":"0")+";short="+(shortSignal ? "1":"0"));
 
    ManagePositions(atr,longSignal,shortSignal);
    if(!longSignal && !shortSignal) return;
