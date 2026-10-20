@@ -532,12 +532,32 @@ def is_release_excluded(path: Path) -> bool:
         ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache",
         "__pycache__", ".venv", "venv", "htmlcov", "node_modules",
     }
-    if any(part in excluded_dirs for part in path.parts):
+    if any(part.casefold() in excluded_dirs for part in path.parts):
         return True
-    if path.name == ".env":
+
+    # Keep only the explicitly named, non-secret template. Other dotenv variants
+    # (for example .env.local and .env.production) may contain real credentials.
+    name = path.name.casefold()
+    if name == ".env" or (name.startswith(".env.") and name != ".env.example"):
         return True
-    if path.suffix.lower() in {
-        ".pyc", ".pyo", ".log", ".sqlite", ".sqlite3", ".db", ".coverage",
+
+    # Private keys and exported credential bundles must never ship in an app ZIP.
+    if path.suffix.casefold() in {".pem", ".key", ".p12", ".pfx", ".keystore"}:
+        return True
+    if name in {
+        "credentials.json", "service-account.json", "secrets.json",
+        "id_rsa", "id_ed25519", "known_hosts",
+    }:
+        return True
+
+    # Exclude rotated logs, coverage artifacts, and SQLite sidecar/WAL files too.
+    if name.endswith((".log", ".log.1", ".log.2", ".sqlite-wal", ".sqlite-shm",
+                      ".sqlite3-wal", ".sqlite3-shm", ".db-wal", ".db-shm")):
+        return True
+    if name.startswith(".coverage"):
+        return True
+    if path.suffix.casefold() in {
+        ".pyc", ".pyo", ".sqlite", ".sqlite3", ".db",
     }:
         return True
     return False
