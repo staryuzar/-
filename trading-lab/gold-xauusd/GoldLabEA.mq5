@@ -275,10 +275,13 @@ void OnTick()
 
    // Commit the bar timestamp only after all indicator data is readable; retry the same bar if history is late.
    lastBar=iTime(_Symbol,InpEntryTF,0);
-   bool longSignal=(biasFast>biasSlow && fast1>slow1 && rsi2<=InpRSIMidline &&
-                    rsi1>InpRSIMidline && adx>=InpMinADX);
-   bool shortSignal=(biasFast<biasSlow && fast1<slow1 && rsi2>=InpRSIMidline &&
-                     rsi1<InpRSIMidline && adx>=InpMinADX);
+   // Momentum-confirmed trend continuation: unlike a one-bar RSI midline cross,
+   // this allows valid entries while RSI remains on the trend side of 50 and continues moving.
+   // Signals still use only completed bars (shift 1 and shift 2).
+   bool longSignal=(biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
+                    rsi1>rsi2 && adx>=InpMinADX);
+   bool shortSignal=(biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
+                     rsi1<rsi2 && adx>=InpMinADX);
 
    double spreadPoints=(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/_Point;
    LogEvent("SIGNAL_AUDIT",
