@@ -152,6 +152,19 @@ Visual=0
   $logCandidates += Get-ChildItem -LiteralPath (Join-Path $env:APPDATA "MetaQuotes\Terminal") -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue
   $logsOut = Join-Path $reports "logs"
   New-Item -ItemType Directory -Path $logsOut -Force | Out-Null
+  $auditFiles = @(Get-ChildItem -LiteralPath $install -Filter "GoldLab_trade_audit.csv" -File -Recurse -ErrorAction SilentlyContinue)
+  if ($auditFiles.Count -gt 0) {
+    $auditOut = Join-Path $reports "trade-audit"
+    New-Item -ItemType Directory -Path $auditOut -Force | Out-Null
+    $n=0
+    foreach ($af in $auditFiles) {
+      $n++
+      Copy-Item -LiteralPath $af.FullName -Destination (Join-Path $auditOut ("GoldLab_trade_audit-{0:D2}.csv" -f $n)) -Force
+    }
+    "Trade audit CSV files found: $($auditFiles.Count)" | Add-Content -LiteralPath $summary -Encoding utf8
+  } else {
+    "Trade audit CSV: not produced (possible zero trades, tester files path variation, or EA execution issue; inspect report/logs)." | Add-Content -LiteralPath $summary -Encoding utf8
+  }
   $idx=0
   foreach ($lf in ($logCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 20)) {
     try {
