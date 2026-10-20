@@ -253,6 +253,12 @@ void ManagePositions(const double atr,const bool longSignal,const bool shortSign
 
 void OnTick()
 {
+   // Manage an existing position on every incoming tick; signal evaluation remains once per completed M5 bar.
+   // This avoids updating the ATR trail only once every five minutes.
+   double managementATR=0.0;
+   if(hATR!=INVALID_HANDLE && ReadValue(hATR,0,1,managementATR) && managementATR>0.0)
+      ManagePositions(managementATR,false,false);
+
    if(!IsNewBar()) return;
    if(Bars(_Symbol,InpEntryTF)<MathMax(InpSlowEMA,InpATRPeriod)+5 ||
       Bars(_Symbol,InpBiasTF)<InpBiasSlowEMA+5) return;
