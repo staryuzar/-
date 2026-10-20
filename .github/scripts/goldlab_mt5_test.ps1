@@ -81,6 +81,7 @@ try {
 
   $config = Join-Path $root "goldlab-tester.ini"
   $reportRelative = "goldlab-results\GoldLab_baseline_2026-09-01"
+  New-Item -ItemType Directory -Path (Join-Path $install "goldlab-results") -Force | Out-Null
   $ini = @"
 [Common]
 Login=$accountLogin
