@@ -324,3 +324,7 @@ def main() -> int:
                     server.wait(timeout=8)
                 except subprocess.TimeoutExpired:
                     server.kill()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
