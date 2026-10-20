@@ -398,6 +398,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python .github/scripts/live_assistant_browser_e2e.py 2>&1 | Tee-Object -FilePath live-assistant-browser-e2e-console.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path "live-assistant-browser-e2e-report.txt")) { throw "Live E2E returned without creating its required evidence report." }
+          if (!(Test-Path "live-assistant-browser-e2e-console.txt")) { throw "Live E2E console evidence was not created." }
 
       - name: Upload sanitized live E2E evidence
         if: always()
