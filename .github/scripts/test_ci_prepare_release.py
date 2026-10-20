@@ -21,9 +21,18 @@ class ReleaseArchiveHygieneTests(unittest.TestCase):
             ".pytest_cache/README.md",
             "__pycache__/module.pyc",
             ".env",
+            ".env.local",
+            ".ENV.PRODUCTION",
             "data/aurora.sqlite3",
+            "data/aurora.sqlite3-wal",
             "logs/app.log",
+            "logs/app.log.1",
+            "private/signing-key.pem",
+            "private/client.p12",
+            "credentials.json",
+            "Secrets.JSON",
             ".venv/pyvenv.cfg",
+            ".GIT/config",
         ):
             with self.subTest(value=value):
                 self.assertTrue(MODULE.is_release_excluded(Path(value)))
@@ -31,6 +40,7 @@ class ReleaseArchiveHygieneTests(unittest.TestCase):
     def test_keeps_template_docs_and_application_source(self):
         for value in (
             ".env.example",
+            "docs/.env.example",
             "README_AR.md",
             "docs/MT5_FIELD_GUIDE_AR.md",
             "app.py",
