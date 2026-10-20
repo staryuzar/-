@@ -1,5 +1,5 @@
 #property strict
-#property version   "0.10"
+#property version   "1.000"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 #include <Trade/Trade.mqh>
