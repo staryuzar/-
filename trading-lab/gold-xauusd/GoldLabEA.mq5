@@ -2,7 +2,7 @@
 #property version   "1.000"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
-#include <Trade/Trade.mqh>
+
 
 input ulong            InpMagic              = 2026102101;
 input ENUM_TIMEFRAMES  InpEntryTF             = PERIOD_M5;
@@ -23,12 +23,63 @@ input double           InpTrailATR             = 1.4;
 input bool             InpCloseOnOpposite     = true;
 input bool             InpWriteTradeCSV       = true;
 
-CTrade trade;
+uint lastTradeRetcode=0;
 int hFast=INVALID_HANDLE, hSlow=INVALID_HANDLE;
 int hBiasFast=INVALID_HANDLE, hBiasSlow=INVALID_HANDLE;
 int hRSI=INVALID_HANDLE, hADX=INVALID_HANDLE, hATR=INVALID_HANDLE;
 datetime lastBar=0;
 string tradeLogName="GoldLab_trade_audit.csv";
+
+
+bool TradeRetcodeAccepted(const uint code)
+{
+   return (code==TRADE_RETCODE_DONE || code==TRADE_RETCODE_DONE_PARTIAL || code==TRADE_RETCODE_PLACED);
+}
+ENUM_ORDER_TYPE_FILLING SymbolFillingMode()
+{
+   long flags=SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE);
+   if((flags & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK) return ORDER_FILLING_FOK;
+   if((flags & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC) return ORDER_FILLING_IOC;
+   return ORDER_FILLING_RETURN;
+}
+bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double sl,const double tp,const string comment)
+{
+   MqlTradeRequest request; MqlTradeResult result;
+   ZeroMemory(request); ZeroMemory(result);
+   request.action=TRADE_ACTION_DEAL; request.symbol=_Symbol; request.magic=InpMagic;
+   request.volume=lots; request.type=type;
+   request.price=(type==ORDER_TYPE_BUY ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID));
+   request.sl=sl; request.tp=tp; request.deviation=20; request.type_filling=SymbolFillingMode();
+   request.type_time=ORDER_TIME_GTC; request.comment=comment;
+   bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
+   return (sent && TradeRetcodeAccepted(result.retcode));
+}
+bool ClosePositionByTicket(const ulong ticket)
+{
+   if(!PositionSelectByTicket(ticket)) return false;
+   ENUM_POSITION_TYPE side=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   double volume=PositionGetDouble(POSITION_VOLUME);
+   MqlTradeRequest request; MqlTradeResult result;
+   ZeroMemory(request); ZeroMemory(result);
+   request.action=TRADE_ACTION_DEAL; request.position=ticket;
+   request.symbol=PositionGetString(POSITION_SYMBOL); request.magic=InpMagic; request.volume=volume;
+   request.type=(side==POSITION_TYPE_BUY ? ORDER_TYPE_SELL : ORDER_TYPE_BUY);
+   request.price=(side==POSITION_TYPE_BUY ? SymbolInfoDouble(_Symbol,SYMBOL_BID) : SymbolInfoDouble(_Symbol,SYMBOL_ASK));
+   request.deviation=20; request.type_filling=SymbolFillingMode(); request.type_time=ORDER_TIME_GTC;
+   request.comment="GoldLab opposite-signal close";
+   bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
+   return (sent && TradeRetcodeAccepted(result.retcode));
+}
+bool ModifyPositionSLTP(const ulong ticket,const double sl,const double tp)
+{
+   if(!PositionSelectByTicket(ticket)) return false;
+   MqlTradeRequest request; MqlTradeResult result;
+   ZeroMemory(request); ZeroMemory(result);
+   request.action=TRADE_ACTION_SLTP; request.position=ticket;
+   request.symbol=PositionGetString(POSITION_SYMBOL); request.magic=InpMagic; request.sl=sl; request.tp=tp;
+   bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
+   return (sent && result.retcode==TRADE_RETCODE_DONE);
+}
 
 bool ReadValue(const int handle,const int buffer,const int shift,double &value)
 {
@@ -138,10 +189,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   trade.SetExpertMagicNumber(InpMagic);
-   trade.SetTypeFillingBySymbol(_Symbol);
-   trade.SetDeviationInPoints(20);
-   LogEvent("INIT","Research candidate v0.10; no daily trade/loss lock.");
+   LogEvent("INIT","Research candidate v1.000; no daily trade/loss lock.");
    return INIT_SUCCEEDED;
 }
 
@@ -176,8 +224,8 @@ void ManagePositions(const double atr,const bool longSignal,const bool shortSign
       if(InpCloseOnOpposite && ((side==POSITION_TYPE_BUY && shortSignal) ||
                                 (side==POSITION_TYPE_SELL && longSignal)))
       {
-         if(!trade.PositionClose(ticket))
-            LogEvent("CLOSE_FAIL",trade.ResultRetcodeDescription());
+         if(!ClosePositionByTicket(ticket))
+            LogEvent("CLOSE_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
          continue;
       }
 
@@ -188,8 +236,8 @@ void ManagePositions(const double atr,const bool longSignal,const bool shortSign
          if(gain<atr) continue;
          double newSL=RoundToTick(bid-InpTrailATR*atr);
          if(newSL>oldSL && newSL<bid-stopLevel)
-            if(!trade.PositionModify(ticket,newSL,tp))
-               LogEvent("TRAIL_FAIL",trade.ResultRetcodeDescription());
+            if(!ModifyPositionSLTP(ticket,newSL,tp))
+               LogEvent("TRAIL_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
       }
       else if(side==POSITION_TYPE_SELL)
       {
@@ -197,8 +245,8 @@ void ManagePositions(const double atr,const bool longSignal,const bool shortSign
          if(gain<atr) continue;
          double newSL=RoundToTick(ask+InpTrailATR*atr);
          if((oldSL==0.0 || newSL<oldSL) && newSL>ask+stopLevel)
-            if(!trade.PositionModify(ticket,newSL,tp))
-               LogEvent("TRAIL_FAIL",trade.ResultRetcodeDescription());
+            if(!ModifyPositionSLTP(ticket,newSL,tp))
+               LogEvent("TRAIL_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
       }
    }
 }
@@ -267,8 +315,8 @@ void OnTick()
       double tp=RoundToTick(ask+targetDistance);
       double lots=LotsForRisk(ORDER_TYPE_BUY,ask,sl);
       if(lots<=0.0) { LogEvent("ENTRY_REJECT","risk sizing below broker minimum or invalid tick-value"); return; }
-      if(!trade.Buy(lots,_Symbol,0.0,sl,tp,"GoldLab v0.10 long"))
-         LogEvent("BUY_FAIL",trade.ResultRetcodeDescription());
+      if(!SendMarketOrder(ORDER_TYPE_BUY,lots,sl,tp,"GoldLab long"))
+         LogEvent("BUY_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
       else LogEvent("BUY_SENT","lots="+DoubleToString(lots,2)+"; ADX="+DoubleToString(adx,1));
    }
    else if(shortSignal)
@@ -277,8 +325,8 @@ void OnTick()
       double tp=RoundToTick(bid-targetDistance);
       double lots=LotsForRisk(ORDER_TYPE_SELL,bid,sl);
       if(lots<=0.0) { LogEvent("ENTRY_REJECT","risk sizing below broker minimum or invalid tick-value"); return; }
-      if(!trade.Sell(lots,_Symbol,0.0,sl,tp,"GoldLab v0.10 short"))
-         LogEvent("SELL_FAIL",trade.ResultRetcodeDescription());
+      if(!SendMarketOrder(ORDER_TYPE_SELL,lots,sl,tp,"GoldLab short"))
+         LogEvent("SELL_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
       else LogEvent("SELL_SENT","lots="+DoubleToString(lots,2)+"; ADX="+DoubleToString(adx,1));
    }
 }
