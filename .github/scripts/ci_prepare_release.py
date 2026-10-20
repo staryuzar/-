@@ -551,8 +551,12 @@ def is_release_excluded(path: Path) -> bool:
         return True
 
     # Exclude rotated logs, coverage artifacts, and SQLite sidecar/WAL files too.
-    if name.endswith((".log", ".log.1", ".log.2", ".sqlite-wal", ".sqlite-shm",
-                      ".sqlite3-wal", ".sqlite3-shm", ".db-wal", ".db-shm")):
+    if name.endswith(".log") or ".log." in name:
+        return True
+    if name.endswith((
+        ".sqlite-wal", ".sqlite-shm", ".sqlite3-wal", ".sqlite3-shm",
+        ".db-wal", ".db-shm",
+    )):
         return True
     if name.startswith(".coverage"):
         return True
