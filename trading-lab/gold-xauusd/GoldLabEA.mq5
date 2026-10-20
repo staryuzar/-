@@ -209,8 +209,8 @@ void OnTick()
    if(Bars(_Symbol,InpEntryTF)<MathMax(InpSlowEMA,InpATRPeriod)+5 ||
       Bars(_Symbol,InpBiasTF)<InpBiasSlowEMA+5) return;
 
-   double fast1,fast2,slow1,biasFast,biasSlow,rsi1,rsi2,adx,atr;
-   if(!ReadValue(hFast,0,1,fast1) || !ReadValue(hFast,0,2,fast2) ||
+   double fast1,slow1,biasFast,biasSlow,rsi1,rsi2,adx,atr;
+   if(!ReadValue(hFast,0,1,fast1) ||
       !ReadValue(hSlow,0,1,slow1) || !ReadValue(hBiasFast,0,1,biasFast) ||
       !ReadValue(hBiasSlow,0,1,biasSlow) || !ReadValue(hRSI,0,1,rsi1) ||
       !ReadValue(hRSI,0,2,rsi2) || !ReadValue(hADX,0,1,adx) || !ReadValue(hATR,0,1,atr))
