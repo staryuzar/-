@@ -45,8 +45,8 @@ $accountPasswordForConfig = $accountPassword
 $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $null
 
 "GoldLab MT5 Strategy Tester run" | Set-Content -LiteralPath $summary -Encoding utf8
-"Test date: 2026-09-01" | Add-Content -LiteralPath $summary -Encoding utf8
-"EA: GoldLabEA v0.10; Symbol XAUUSD; timeframe M5; model 4 (real ticks when broker data is available)" | Add-Content -LiteralPath $summary -Encoding utf8
+"Test date: 2026-10-19 (recent-history diagnostic)" | Add-Content -LiteralPath $summary -Encoding utf8
+"EA: GoldLabEA; Symbol XAUUSD; timeframe M5; model 1 (1-minute OHLC diagnostic; not real-tick validation)" | Add-Content -LiteralPath $summary -Encoding utf8
 "Deposit: 500 USD; leverage 1:1000; trade mode is tester only; no live orders are authorized." | Add-Content -LiteralPath $summary -Encoding utf8
 "UTC start: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
 
@@ -80,7 +80,7 @@ try {
   "Compile result: PASS (0 errors; warnings reported in compile-log.txt)" | Add-Content -LiteralPath $summary -Encoding utf8
 
   $config = Join-Path $root "goldlab-tester.ini"
-  $reportRelative = "goldlab-results\GoldLab_baseline_2026-09-01"
+  $reportRelative = "goldlab-results\GoldLab_diagnostic_2026-10-19"
   New-Item -ItemType Directory -Path (Join-Path $install "goldlab-results") -Force | Out-Null
   $ini = @"
 [Common]
@@ -104,8 +104,8 @@ Period=M5
 Model=4
 ExecutionMode=0
 Optimization=0
-FromDate=2026.09.01
-ToDate=2026.09.01
+FromDate=2026.10.19
+ToDate=2026.10.19
 ForwardMode=0
 Deposit=500
 Currency=USD
@@ -135,7 +135,7 @@ Visual=0
   "Tester terminal exit code: $($terminalProc.ExitCode)" | Add-Content -LiteralPath $summary -Encoding utf8
   $foundReport = $possibleReports | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (!$foundReport) {
-    $foundReport = Get-ChildItem -LiteralPath $install -Filter "GoldLab_baseline_2026-09-01.htm" -File -Recurse -ErrorAction SilentlyContinue |
+    $foundReport = Get-ChildItem -LiteralPath $install -Filter "GoldLab_diagnostic_2026-10-19.htm" -File -Recurse -ErrorAction SilentlyContinue |
       Select-Object -ExpandProperty FullName -First 1
   }
   if (!$foundReport) {
@@ -171,7 +171,7 @@ Visual=0
   $html = Get-Content -LiteralPath $foundReport -Raw
   $html = $html -replace [regex]::Escape($accountLogin), "[ACCOUNT REDACTED]"
   $html = $html -replace [regex]::Escape($accountServer), "[SERVER REDACTED]"
-  $safeReport = Join-Path $reports "GoldLab_baseline_2026-09-01.htm"
+  $safeReport = Join-Path $reports "GoldLab_diagnostic_2026-10-19.htm"
   [System.IO.File]::WriteAllText($safeReport,$html,[System.Text.UTF8Encoding]::new($false))
   "Tester report: produced at $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
   "Report size: $((Get-Item $safeReport).Length) bytes" | Add-Content -LiteralPath $summary -Encoding utf8
