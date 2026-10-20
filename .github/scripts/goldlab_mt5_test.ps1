@@ -132,9 +132,14 @@ Visual=0
     (Join-Path $PWD ($reportRelative + ".htm")),
     (Join-Path $PWD ($reportRelative + ".html"))
   )
+  "Tester terminal exit code: $($terminalProc.ExitCode)" | Add-Content -LiteralPath $summary -Encoding utf8
   $foundReport = $possibleReports | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (!$foundReport) {
-    "Tester report: NOT FOUND" | Add-Content -LiteralPath $summary -Encoding utf8
+    $foundReport = Get-ChildItem -LiteralPath $install -Filter "GoldLab_baseline_2026-09-01.htm" -File -Recurse -ErrorAction SilentlyContinue |
+      Select-Object -ExpandProperty FullName -First 1
+  }
+  if (!$foundReport) {
+    "Tester report: NOT FOUND in expected or recursive install paths" | Add-Content -LiteralPath $summary -Encoding utf8
     "This is a failed/incomplete test, not a zero-trade result." | Add-Content -LiteralPath $summary -Encoding utf8
     throw "MT5 did not produce the expected Strategy Tester report."
   }
