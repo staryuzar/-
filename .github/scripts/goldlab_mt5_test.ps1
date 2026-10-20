@@ -141,7 +141,32 @@ Visual=0
   if (!$foundReport) {
     "Tester report: NOT FOUND in expected or recursive install paths" | Add-Content -LiteralPath $summary -Encoding utf8
     "This is a failed/incomplete test, not a zero-trade result." | Add-Content -LiteralPath $summary -Encoding utf8
-    throw "MT5 did not produce the expected Strategy Tester report."
+
+    # Preserve diagnostics before failing so a missing report can be explained.
+    $diagDir = Join-Path $reports "diagnostics"
+    New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
+    $candidateRoots = @($install, (Join-Path $env:APPDATA "MetaQuotes\Terminal"))
+    $idx = 0
+    foreach ($candidateRoot in $candidateRoots) {
+      if (!(Test-Path $candidateRoot)) { continue }
+      Get-ChildItem -LiteralPath $candidateRoot -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 12 | ForEach-Object {
+          try {
+            $raw = Get-Content -LiteralPath $_.FullName -Raw -ErrorAction Stop
+            $raw = $raw -replace [regex]::Escape($accountLogin), "[ACCOUNT REDACTED]"
+            $raw = $raw -replace [regex]::Escape($accountServer), "[SERVER REDACTED]"
+            $raw = $raw -replace '(?i)(password|passwd)\s*[:=]\s*\S+', '$1=[REDACTED]'
+            $idx++
+            $raw | Set-Content -LiteralPath (Join-Path $diagDir ("diagnostic-log-{0:D2}.txt" -f $idx)) -Encoding utf8
+          } catch { }
+        }
+    }
+    $reportCandidates = Get-ChildItem -LiteralPath $install -File -Recurse -ErrorAction SilentlyContinue |
+      Where-Object { $_.Extension -in @(".htm", ".html", ".xml", ".ini") -and $_.Name -match "(?i)(report|tester|goldlab|config)" } |
+      Select-Object -First 100 FullName,Length,LastWriteTime
+    $reportCandidates | Format-Table -AutoSize | Out-String | Set-Content -LiteralPath (Join-Path $diagDir "candidate-files.txt") -Encoding utf8
+    "Diagnostic logs preserved: $idx" | Add-Content -LiteralPath $summary -Encoding utf8
+    throw "MT5 did not produce the expected Strategy Tester report. Diagnostic logs were preserved."
   }
   $html = Get-Content -LiteralPath $foundReport -Raw
   $html = $html -replace [regex]::Escape($accountLogin), "[ACCOUNT REDACTED]"
