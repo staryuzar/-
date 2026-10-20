@@ -529,25 +529,33 @@ def apply_fixes(root: Path) -> None:
 def is_release_excluded(path: Path) -> bool:
     """Keep caches, local secrets, databases, and runtime artifacts out of the ZIP."""
     excluded_dirs = {
-        ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-        "__pycache__", ".venv", "venv", "htmlcov", "node_modules",
+        ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".cache",
+        "__pycache__", ".venv", "venv", "env", ".tox", ".nox", ".pip",
+        "htmlcov", "node_modules", ".aws", ".ssh", ".docker", ".kube",
+        ".azure", ".gnupg",
     }
-    if any(part.casefold() in excluded_dirs for part in path.parts):
+    parts = tuple(part.casefold() for part in path.parts)
+    if any(part in excluded_dirs for part in parts):
+        return True
+    # Cloud/CLI auth folders commonly hold refresh tokens or local credentials.
+    if any(parts[index:index + 2] in {(".config", "gcloud"), (".config", "gh")} for index in range(max(0, len(parts) - 1))):
         return True
 
     # Keep only the explicitly named, non-secret template. Other dotenv variants
-    # (for example .env.local and .env.production) may contain real credentials.
+    # (for example .env.local, .envrc, and .env.production) may contain credentials.
     name = path.name.casefold()
-    if name == ".env" or (name.startswith(".env.") and name != ".env.example"):
+    if name == ".envrc" or name == ".env" or (name.startswith(".env.") and name != ".env.example"):
         return True
 
     # Private keys and exported credential bundles must never ship in an app ZIP.
     if path.suffix.casefold() in {".pem", ".key", ".p12", ".pfx", ".keystore"}:
         return True
     if name in {
-        "credentials.json", "service-account.json", "secrets.json",
-        "id_rsa", "id_ed25519", "known_hosts",
-    }:
+        "credentials.json", "service-account.json", "service_account.json",
+        "secrets.json", "application_default_credentials.json",
+        "id_rsa", "id_ed25519", "known_hosts", ".netrc", ".npmrc",
+        ".pypirc", "git-credentials", "credentials", "auth.json",
+    } or name.endswith(("_credentials.json", "_service_account.json")):
         return True
 
     # Exclude rotated logs, coverage artifacts, and SQLite sidecar/WAL files too.
