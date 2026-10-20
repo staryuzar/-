@@ -53,9 +53,6 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
         self.assertEqual(
             missing,
             {
-                "browser-open action in compact log",
-                "page-read action in compact log",
-                "verified-effect marker in compact log",
                 "successful browser_open_url record on example.com",
                 "successful browser_read_page record on example.com",
                 "Document title field in assistant reply",
@@ -165,9 +162,27 @@ class ExecutionEvidenceContractTests(unittest.TestCase):
         missing = self.check(reply="Document title: Unknown page\\nPage text: This domain is for use in documentation examples without needing permission.")
         self.assertIn("Example Domain title/identity in assistant reply", missing)
 
+    def test_missing_ui_expander_labels_do_not_override_persisted_proof(self):
+        # A collapsed Streamlit expander may hide its action labels. Persisted
+        # records still prove both calls, their verified effects, and final content.
+        self.assertEqual(self.check(steps=""), [])
+
+    def test_ui_labels_alone_never_replace_persisted_effect_evidence(self):
+        unverified = [
+            dict(GOOD_RECORDS[0], result={"ok": True, "effect_verified": False, "url": "https://example.com/"}),
+            dict(GOOD_RECORDS[1], result={"ok": True, "effect_verified": False, "url": "https://example.com/"}),
+        ]
+        missing = self.check(steps=GOOD_STEPS, records=unverified)
+        self.assertIn("successful browser_open_url record on example.com", missing)
+        self.assertIn("successful browser_read_page record on example.com", missing)
+
     def test_actions_without_verified_effect_are_rejected(self):
-        missing = self.check(steps="فتح موقع في متصفح المساعد؛ قراءة محتوى الصفحة الحالية")
-        self.assertIn("verified-effect marker in compact log", missing)
+        unverified = [
+            dict(GOOD_RECORDS[0], result={"ok": True, "effect_verified": False, "url": "https://example.com/"}),
+            dict(GOOD_RECORDS[1], result={"ok": True, "effect_verified": False, "url": "https://example.com/"}),
+        ]
+        missing = self.check(steps="فتح موقع في متصفح المساعد؛ قراءة محتوى الصفحة الحالية", records=unverified)
+        self.assertIn("successful browser_open_url record on example.com", missing)
 
     def test_subdomains_and_similar_domain_names_are_rejected(self):
         records = [

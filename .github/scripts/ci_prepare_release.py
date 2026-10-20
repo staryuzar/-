@@ -526,17 +526,64 @@ def apply_fixes(root: Path) -> None:
             report.write_text(report_text, encoding="utf-8", newline="\n")
 
 
+def is_release_excluded(path: Path) -> bool:
+    """Keep caches, local secrets, databases, and runtime artifacts out of the ZIP."""
+    excluded_dirs = {
+        ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".cache",
+        "__pycache__", ".venv", "venv", "env", ".tox", ".nox", ".pip",
+        "htmlcov", "node_modules", ".aws", ".ssh", ".docker", ".kube",
+        ".azure", ".gnupg",
+    }
+    parts = tuple(part.casefold() for part in path.parts)
+    if any(part in excluded_dirs for part in parts):
+        return True
+    # Cloud/CLI auth folders commonly hold refresh tokens or local credentials.
+    if any(parts[index:index + 2] in {(".config", "gcloud"), (".config", "gh")} for index in range(max(0, len(parts) - 1))):
+        return True
+
+    # Keep only the explicitly named, non-secret template. Other dotenv variants
+    # (for example .env.local, .envrc, and .env.production) may contain credentials.
+    name = path.name.casefold()
+    if name == ".envrc" or name == ".env" or (name.startswith(".env.") and name != ".env.example"):
+        return True
+
+    # Private keys and exported credential bundles must never ship in an app ZIP.
+    if path.suffix.casefold() in {".pem", ".key", ".p12", ".pfx", ".keystore"}:
+        return True
+    if name in {
+        "credentials.json", "service-account.json", "service_account.json",
+        "secrets.json", "application_default_credentials.json",
+        "id_rsa", "id_ed25519", "known_hosts", ".netrc", ".npmrc",
+        ".pypirc", "git-credentials", "credentials", "auth.json",
+    } or name.endswith(("_credentials.json", "_service_account.json")):
+        return True
+
+    # Exclude rotated logs, coverage artifacts, and SQLite sidecar/WAL files too.
+    if name.endswith(".log") or ".log." in name:
+        return True
+    if name.endswith((
+        ".sqlite-wal", ".sqlite-shm", ".sqlite3-wal", ".sqlite3-shm",
+        ".db-wal", ".db-shm",
+    )):
+        return True
+    if name.startswith(".coverage"):
+        return True
+    if path.suffix.casefold() in {
+        ".pyc", ".pyo", ".sqlite", ".sqlite3", ".db",
+    }:
+        return True
+    return False
+
+
 def rebuild_manifest(root: Path) -> None:
     manifest = root / "PACKAGE_SHA256SUMS_AR.txt"
     header = [
         "SHA-256 checksums for Aurora Control Room — patched CI release package",
-        "Generated from the patched release tree; this list excludes itself.",
+        "Generated from the patched release tree; this list excludes itself and non-release artifacts.",
     ]
     lines = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or path == manifest:
-            continue
-        if "__pycache__" in path.parts or path.suffix == ".pyc":
+        if not path.is_file() or path == manifest or is_release_excluded(path):
             continue
         relative = path.relative_to(root).as_posix()
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -548,9 +595,7 @@ def build_zip(root: Path, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in sorted(root.rglob("*")):
-            if not path.is_file() or path == output:
-                continue
-            if "__pycache__" in path.parts or path.suffix == ".pyc":
+            if not path.is_file() or path == output or is_release_excluded(path):
                 continue
             archive.write(path, arcname=path.relative_to(root).as_posix())
 
