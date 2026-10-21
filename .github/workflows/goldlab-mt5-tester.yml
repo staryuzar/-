@@ -4,16 +4,17 @@ on:
   push:
     branches: [gold-xauusd-expert-lab]
     paths:
-      - "trading-lab/gold-xauusd/**"
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_mt5_test.ps1"
       - ".github/scripts/goldlab_3day_wrapper.ps1"
       - ".github/scripts/goldlab_10day_wrapper.ps1"
       - ".github/scripts/goldlab_forward_adx27_wrapper.ps1"
+      - ".github/scripts/goldlab_final_adx27_wrapper.ps1"
       - ".github/workflows/goldlab-mt5-tester.yml"
   pull_request:
     branches: [main]
     paths:
-      - "trading-lab/gold-xauusd/**"
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_mt5_test.ps1"
       - ".github/scripts/goldlab_3day_wrapper.ps1"
       - ".github/scripts/goldlab_10day_wrapper.ps1"
@@ -37,16 +38,16 @@ jobs:
       - name: Checkout research branch
         uses: actions/checkout@v4
 
-      - name: Run MetaEditor compile and independent ten-day ADX27 forward Strategy Tester
+      - name: Run MetaEditor compile and final-holdout ADX27 Strategy Tester
         shell: pwsh
         run: |
-          .github/scripts/goldlab_forward_adx27_wrapper.ps1
+          .github/scripts/goldlab_final_adx27_wrapper.ps1
 
       - name: Upload test evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: goldlab-mt5-adx27-forward-${{ github.run_id }}
+          name: goldlab-mt5-adx27-final-holdout-${{ github.run_id }}
           path: goldlab-results/
           if-no-files-found: warn
           retention-days: 90
