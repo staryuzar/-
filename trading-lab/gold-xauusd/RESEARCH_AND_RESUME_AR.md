@@ -727,3 +727,11 @@
 - تم التحقق في Artifact [12328604894](https://github.com/staryuzar/-/actions/runs/39565253467/artifacts/12328604894) أن سجل MT5 الفعلي يظهر `Research candidate v1.007; active-order entry guard`؛ لم تعد الرسالة تسمي v1.006.
 - [تشغيل التحقق 39565253467](https://github.com/staryuzar/-/actions/runs/39565253467) نجح مع ترجمة 0/0، مدخلات صحيحة، صافي +$26.64، PF=1.59، DD=3.59%، 35 صفقة، وCSV/HTML parity $0.00.
 - هذه مراجعة تشخيصية فقط؛ لا يوجد تغير في النتيجة أو دليل جديد على الربحية. تقرير الاستمرارية: [GOLDLAB_CONTINUITY_REPORT_AR.md](https://github.com/staryuzar/-/blob/gold-xauusd-expert-lab/GOLDLAB_CONTINUITY_REPORT_AR.md).
+
+
+## نقطة استئناف العمل — 2026-10-21 11:08 عدن
+
+- **قرار التجربة الحالية:** حاجز إعادة الدخول لا يُعتمد الآن. اختبار MT5 Model=4 [39565148509](https://github.com/staryuzar/-/actions/runs/39565148509) حقق +$9.36، PF=1.21، DD=3.65%، 33 صفقة؛ خط الأساس [39562718703](https://github.com/staryuzar/-/actions/runs/39562718703) حقق +$26.64، PF=1.59، DD=3.59%، 35 صفقة على الفترة التطويرية. النتيجتان ليستا تحققًا مستقلًا ولا تثبتان ربحية مستقبلية.
+- **مراجعة عدّ الأحداث:** السجل الأصلي للاختبار الأول يُظهر 33 REENTRY_BLOCK و33 REENTRY_UNLOCK ومحاولتي ENTRY_SKIP_REENTRY؛ التقرير القديم ضاعف الأعداد بسبب سجل Core المعكوس. أُصلح الغلاف على [commit e7c6f3bd4ef9](https://github.com/staryuzar/-/commit/e7c6f3bd4ef948f795c9d7b48f0f2521386596ea).
+- **آخر تشغيل عند كتابة هذه النقطة:** [39565788353](https://github.com/staryuzar/-/actions/runs/39565788353) ما زال قيد التنفيذ. الخطوة التالية: فحص نتيجته وأثره بعد انتهاء التشغيل، ثم الانتقال من تشخيص عداد التقرير إلى تحليل صفقات CSV والخروج والوقف لتحديد مصدر الخسائر. لا تغيّر المرشح المجمد ولا تدمج إلى main.
+- **الاستمرارية:** المرجع الأشمل هو [GOLDLAB_CONTINUITY_REPORT_AR.md](https://github.com/staryuzar/-/blob/gold-xauusd-expert-lab/GOLDLAB_CONTINUITY_REPORT_AR.md). لا يُفترض أن كل تشغيل يدوي يحدّث التقرير تلقائيًا؛ يلزم تثبيت النتيجة هنا وفي التقرير الدائم بعد كل جولة مكتملة.
