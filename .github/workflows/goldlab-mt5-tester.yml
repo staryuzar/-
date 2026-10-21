@@ -14,7 +14,7 @@ on:
       - ".github/scripts/goldlab_adx27_control_diagnostic.ps1"
       - ".github/scripts/goldlab_adx27_fast_ema_rejection_diagnostic.ps1"
       - ".github/scripts/goldlab_adx25_fast_ema_rejection_diagnostic.ps1"
-      - ".github/scripts/goldlab_adx25_real_ticks_probe.ps1"
+      - ".github/scripts/goldlab_adx25_latest_holdout.ps1"
       - ".github/scripts/goldlab_adx25_real_ticks_probe.ps1"
       - ".github/scripts/goldlab_adx27_fast_ema_candle_diagnostic.ps1"
       - ".github/workflows/goldlab-mt5-tester.yml"
@@ -48,7 +48,7 @@ jobs:
       - name: Run ADX25 Model=4 real-tick availability probe
         shell: pwsh
         run: |
-          .github/scripts/goldlab_adx25_latest_holdout.ps1
+          .github/scripts/goldlab_adx25_real_ticks_probe.ps1
 
       - name: Upload test evidence even on failure
         if: always()
