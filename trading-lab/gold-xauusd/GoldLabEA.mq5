@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.005"
+#property version   "1.006"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -212,7 +212,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.005; optional completed-candle direction and fast-EMA rejection filters; ADX ceiling; max-spread guard.");
+   LogEvent("INIT","Research candidate v1.006; separates bullish exit setup from long-entry permission; optional candle/EMA filters; ADX ceiling; max-spread guard.");
    return INIT_SUCCEEDED;
 }
 
@@ -316,8 +316,11 @@ void OnTick()
    bool shortFastEMARejection=(candleHigh1>=fast1 && candleClose1<fast1);
    bool longFastEMAAllowed=(!InpRequireFastEMARejection || longFastEMARejection);
    bool shortFastEMAAllowed=(!InpRequireFastEMARejection || shortFastEMARejection);
-   bool longSignal=(InpAllowLong && candleLongAllowed && longFastEMAAllowed && biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
-                    rsi1>rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
+   // Compute the bullish setup independently of whether new BUY entries are allowed.
+   // Opposite-signal management must still see bullish setups when InpAllowLong=false.
+   bool longSetup=(candleLongAllowed && longFastEMAAllowed && biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
+                   rsi1>rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
+   bool longSignal=(InpAllowLong && longSetup);
    bool shortSignal=(candleShortAllowed && shortFastEMAAllowed && biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
                      rsi1<rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
 
@@ -340,13 +343,15 @@ void OnTick()
       ";spread_points="+DoubleToString(spreadPoints,1)+
       ";adx_min="+DoubleToString(InpMinADX,1)+";adx_max="+DoubleToString(InpMaxADX,1)+
       ";allow_long="+(InpAllowLong ? "1":"0")+
+      ";long_setup="+(longSetup ? "1":"0")+
       ";max_spread_points="+DoubleToString(InpMaxSpreadPoints,1)+
       ";spread_allowed="+(spreadPoints<=InpMaxSpreadPoints ? "1":"0")+
-      ";long="+(longSignal ? "1":"0")+";short="+(shortSignal ? "1":"0"));
+      ";long_entry="+(longSignal ? "1":"0")+";short_entry="+(shortSignal ? "1":"0"));
 
    bool spreadAllowed=(spreadPoints<=InpMaxSpreadPoints);
    // Do not reverse or open a new trade at extreme spread. The tick-level trailing call above still protects open positions.
-   ManagePositions(atr,(spreadAllowed ? longSignal : false),(spreadAllowed ? shortSignal : false));
+   // A bullish setup may close an existing SELL even when opening BUYs is disabled.
+   ManagePositions(atr,(spreadAllowed ? longSetup : false),(spreadAllowed ? shortSignal : false));
    if(!longSignal && !shortSignal) return;
    if(!spreadAllowed)
    {
