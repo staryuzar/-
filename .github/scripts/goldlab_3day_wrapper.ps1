@@ -13,7 +13,7 @@ $content = Get-Content -LiteralPath $scriptPath -Raw
 $changes = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-01 through 2026-09-03 (3-day short-side-only diagnostic)"),
   @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-09-03"),
-  @("ToDate=2026.10.19", "ToDate=2026.09.03"),
+  @("ToDate=2026.10.19", "ToDate=2026.09.04"),
   @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-09-03")
 )
 foreach ($change in $changes) {
@@ -24,7 +24,7 @@ foreach ($change in $changes) {
 Set-Content -LiteralPath $scriptPath -Value $content -Encoding utf8
 $verified = Get-Content -LiteralPath $scriptPath -Raw
 $checks = @(
-  ($verified -match 'FromDate=2026\.09\.01\s*\r?\nToDate=2026\.09\.03'),
+  ($verified -match 'FromDate=2026\.09\.01\s*\r?\nToDate=2026\.09\.04'),
   ($verified -match '2026-09-01 through 2026-09-03'),
   ($verified -match 'InpAllowLong=false'),
   ($verified -match 'InpRiskPercent=0\.5'),
@@ -57,6 +57,22 @@ $reportPath = Join-Path $resultsDir "GoldLab_shortonly_adx40_stop045_2026-09-01_
 if (!(Test-Path -LiteralPath $reportPath) -or (Get-Item -LiteralPath $reportPath).Length -le 0) {
   throw "Three-day Strategy Tester HTML report is missing/empty. This is an incomplete run, not a zero-trade result."
 }
+$reportHtml = Get-Content -LiteralPath $reportPath -Raw
+if ($reportHtml -notmatch '2026\.09\.01\s*-\s*2026\.09\.04') {
+  throw "Tester report end boundary is wrong; inclusive three-day test must use ToDate=2026.09.04."
+}
+$barMatch = [regex]::Match($reportHtml,'(?is)<td[^>]*>\s*Bars:\s*</td>\s*<td[^>]*>\s*<b>(\d+)</b>')
+$barCount = if ($barMatch.Success) { [int]$barMatch.Groups[1].Value } else { 0 }
+$logsDir = Join-Path $resultsDir "logs"
+$logText = ""
+if (Test-Path -LiteralPath $logsDir) {
+  foreach ($logFile in @(Get-ChildItem -LiteralPath $logsDir -Filter "*.txt" -File -ErrorAction SilentlyContinue)) {
+    $logText += (Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue) + [Environment]::NewLine
+  }
+}
+if ($barCount -lt 800 -or $logText -notmatch '2026\.09\.03\s+\d{2}:\d{2}:\d{2}') {
+  throw "Three-day coverage gate failed: Bars=$barCount; preserved tester logs must reach 2026-09-03. Report saved but test is incomplete."
+}
 $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $reportBytes = (Get-Item -LiteralPath $reportPath).Length
 @(
@@ -64,6 +80,6 @@ $reportBytes = (Get-Item -LiteralPath $reportPath).Length
   "Tester report SHA-256: $reportHash",
   "Tester report bytes: $reportBytes",
   "UTC report verified: $([DateTime]::UtcNow.ToString('o'))",
-  "Evidence note: report existence proves a report was generated; trade count/performance must be read from report and journal, not inferred from exit code."
+  "Evidence note: report existence alone is insufficient; the inclusive 2026-09-03 date and minimum 800 M5 bars must be present in tester evidence."
 ) | Add-Content -LiteralPath (Join-Path $resultsDir "three-day-preflight.txt") -Encoding utf8
 Write-Output "PASS: expected non-empty three-day HTML report exists; SHA-256=$reportHash; bytes=$reportBytes"
