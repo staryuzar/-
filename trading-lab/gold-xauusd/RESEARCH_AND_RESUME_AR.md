@@ -721,3 +721,9 @@
 - لم يظهر حدث `active order already exists` في سجلات هذه النافذة؛ لذلك نتيجة التجربة تؤكد عدم تغير المسار المعتاد، ولا تثبت تفعيل حالة الأمر المؤجل. يجب إبقاء هذا التحفظ بدل ادعاء اختبار حالة لم تقع.
 - ظهرت رسالة بدء قديمة تشير نصيًا إلى `v1.006` رغم نسخة `#property version=1.007`؛ تُصحح على الفرع التجريبي وحده قبل جولة اتساق تشخيصي قصيرة.
 - التقرير الدائم: [GOLDLAB_CONTINUITY_REPORT_AR.md](https://github.com/staryuzar/-/blob/gold-xauusd-expert-lab/GOLDLAB_CONTINUITY_REPORT_AR.md).
+
+
+## تأكيد اتساق رسالة INIT في v1.007 — PASS (2026-10-21)
+- تم التحقق في Artifact [12328604894](https://github.com/staryuzar/-/actions/runs/39565253467/artifacts/12328604894) أن سجل MT5 الفعلي يظهر `Research candidate v1.007; active-order entry guard`؛ لم تعد الرسالة تسمي v1.006.
+- [تشغيل التحقق 39565253467](https://github.com/staryuzar/-/actions/runs/39565253467) نجح مع ترجمة 0/0، مدخلات صحيحة، صافي +$26.64، PF=1.59، DD=3.59%، 35 صفقة، وCSV/HTML parity $0.00.
+- هذه مراجعة تشخيصية فقط؛ لا يوجد تغير في النتيجة أو دليل جديد على الربحية. تقرير الاستمرارية: [GOLDLAB_CONTINUITY_REPORT_AR.md](https://github.com/staryuzar/-/blob/gold-xauusd-expert-lab/GOLDLAB_CONTINUITY_REPORT_AR.md).
