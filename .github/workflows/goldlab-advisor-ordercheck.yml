@@ -1,0 +1,44 @@
+name: GoldLab Advisor — OrderCheck Execution Safety
+
+on:
+  push:
+    branches: [goldlab-ordercheck-candidate]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_advisor_ordercheck_diagnostic.ps1"
+      - ".github/workflows/goldlab-advisor-ordercheck.yml"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-ordercheck-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ordercheck-diagnostic:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated OrderCheck candidate
+        uses: actions/checkout@v4
+
+      - name: Run MT5 Model=4 OrderCheck diagnostic
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_advisor_ordercheck_diagnostic.ps1
+
+      - name: Upload MT5 reports and OrderCheck telemetry even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-ordercheck-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
