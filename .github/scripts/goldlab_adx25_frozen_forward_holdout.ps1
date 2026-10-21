@@ -96,6 +96,25 @@ if ($checks -contains $false) { throw "Historical Model=4 preflight failed: date
 New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+# Freeze the exact EA candidate whose matched-window tester report was reviewed.
+# If strategy code changes before the forward holdout, fail closed instead of
+# silently evaluating a different candidate on the reserved dates.
+$expectedSourceHash = "40cfe1ab45116edfdacd838c9cfe1a40b7553ec92534e80cf9070930b930bdc5"
+if ($sourceHash -ne $expectedSourceHash) {
+  $driftReport = @(
+    "# Frozen forward-holdout blocked — EA source changed",
+    "",
+    "- Status: BLOCKED — source hash does not match the frozen candidate.",
+    "- Expected EA SHA-256: $expectedSourceHash",
+    "- Actual EA SHA-256: $sourceHash",
+    "- No Strategy Tester run was started.",
+    "- Create and review a new candidate explicitly before changing the frozen hash."
+  )
+  $driftReport | Set-Content -LiteralPath (Join-Path $resultsDir "adx25-frozen-forward-report-audit.md") -Encoding utf8
+  if ($env:GITHUB_STEP_SUMMARY) { $driftReport | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 }
+  throw "Frozen candidate source hash mismatch; refusing to consume the reserved forward-holdout period."
+}
 @(
   "GoldLab frozen candidate three-day Model=4 forward holdout (2026-10-21 to 2026-10-23)",
   "Period: 2026-10-21 through 2026-10-23",
