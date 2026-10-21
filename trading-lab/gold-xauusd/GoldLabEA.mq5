@@ -1,6 +1,6 @@
 #property strict
-#property version   "1.006"
-#property description "GoldLab XAUUSD research candidate; demo/backtest only"
+#property version   "1.007"
+#property description "GoldLab XAUUSD research candidate; optional fresh-signal re-entry guard; demo/backtest only"
 
 
 
@@ -27,12 +27,15 @@ input bool             InpCloseOnOpposite     = true;
 input bool             InpWriteTradeCSV       = true;
 input bool             InpRequireSignalCandleDirection = false;
 input bool             InpRequireFastEMARejection = false;
+input bool             InpRequireFreshSignalAfterExit = false;
 
 uint lastTradeRetcode=0;
 int hFast=INVALID_HANDLE, hSlow=INVALID_HANDLE;
 int hBiasFast=INVALID_HANDLE, hBiasSlow=INVALID_HANDLE;
 int hRSI=INVALID_HANDLE, hADX=INVALID_HANDLE, hATR=INVALID_HANDLE;
 datetime lastBar=0;
+bool blockLongUntilReset=false;
+bool blockShortUntilReset=false;
 string tradeLogName="GoldLab_trade_audit.csv";
 
 
@@ -219,7 +222,9 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.006; separates bullish exit setup from long-entry permission; optional candle/EMA filters; ADX ceiling; max-spread guard.");
+   blockLongUntilReset=false;
+   blockShortUntilReset=false;
+   LogEvent("INIT","Research candidate v1.007; optional same-direction fresh-signal guard after exits; bullish exit setup remains independent from long-entry permission.");
    return INIT_SUCCEEDED;
 }
 
@@ -327,9 +332,28 @@ void OnTick()
    // Opposite-signal management must still see bullish setups when InpAllowLong=false.
    bool longSetup=(candleLongAllowed && longFastEMAAllowed && biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
                    rsi1>rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
-   bool longSignal=(InpAllowLong && longSetup);
-   bool shortSignal=(candleShortAllowed && shortFastEMAAllowed && biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
-                     rsi1<rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
+   bool shortSetup=(candleShortAllowed && shortFastEMAAllowed && biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
+                    rsi1<rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
+
+   // A closed position blocks a fresh entry in that same direction until the complete
+   // directional setup has reset to false. Opposite-signal exits remain independent.
+   if(InpRequireFreshSignalAfterExit)
+   {
+      if(blockLongUntilReset && !longSetup)
+      {
+         blockLongUntilReset=false;
+         LogEvent("REENTRY_UNLOCK","direction=LONG;reason=long_setup_reset");
+      }
+      if(blockShortUntilReset && !shortSetup)
+      {
+         blockShortUntilReset=false;
+         LogEvent("REENTRY_UNLOCK","direction=SHORT;reason=short_setup_reset");
+      }
+   }
+   bool longSignal=(InpAllowLong && longSetup &&
+                    (!InpRequireFreshSignalAfterExit || !blockLongUntilReset));
+   bool shortSignal=(shortSetup &&
+                     (!InpRequireFreshSignalAfterExit || !blockShortUntilReset));
 
    double spreadPoints=(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/_Point;
    LogEvent("SIGNAL_AUDIT",
@@ -350,7 +374,11 @@ void OnTick()
       ";spread_points="+DoubleToString(spreadPoints,1)+
       ";adx_min="+DoubleToString(InpMinADX,1)+";adx_max="+DoubleToString(InpMaxADX,1)+
       ";allow_long="+(InpAllowLong ? "1":"0")+
+      ";require_fresh_signal_after_exit="+(InpRequireFreshSignalAfterExit ? "1":"0")+
+      ";reentry_block_long="+(blockLongUntilReset ? "1":"0")+
+      ";reentry_block_short="+(blockShortUntilReset ? "1":"0")+
       ";long_setup="+(longSetup ? "1":"0")+
+      ";short_setup="+(shortSetup ? "1":"0")+
       ";max_spread_points="+DoubleToString(InpMaxSpreadPoints,1)+
       ";spread_allowed="+(spreadPoints<=InpMaxSpreadPoints ? "1":"0")+
       ";long_entry="+(longSignal ? "1":"0")+";short_entry="+(shortSignal ? "1":"0"));
@@ -358,7 +386,16 @@ void OnTick()
    bool spreadAllowed=(spreadPoints<=InpMaxSpreadPoints);
    // Do not reverse or open a new trade at extreme spread. The tick-level trailing call above still protects open positions.
    // A bullish setup may close an existing SELL even when opening BUYs is disabled.
-   ManagePositions(atr,(spreadAllowed ? longSetup : false),(spreadAllowed ? shortSignal : false));
+   ManagePositions(atr,(spreadAllowed ? longSetup : false),(spreadAllowed ? shortSetup : false));
+   if(InpRequireFreshSignalAfterExit &&
+      ((InpAllowLong && longSetup && blockLongUntilReset) || (shortSetup && blockShortUntilReset)))
+   {
+      string blockedDirection="";
+      if(InpAllowLong && longSetup && blockLongUntilReset) blockedDirection="LONG";
+      if(shortSetup && blockShortUntilReset)
+         blockedDirection=(blockedDirection=="" ? "SHORT" : blockedDirection+"+SHORT");
+      LogEvent("ENTRY_SKIP_REENTRY","direction="+blockedDirection+";reason=wait_for_setup_reset");
+   }
    if(!longSignal && !shortSignal) return;
    if(!spreadAllowed)
    {
@@ -414,7 +451,28 @@ void OnTick()
 void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result)
 {
    if(trans.type!=TRADE_TRANSACTION_DEAL_ADD || trans.deal==0) return;
-   if(HistoryDealSelect(trans.deal) && HistoryDealGetString(trans.deal,DEAL_SYMBOL)==_Symbol &&
-      (ulong)HistoryDealGetInteger(trans.deal,DEAL_MAGIC)==InpMagic)
-      AppendDealRow(trans.deal);
+   if(!HistoryDealSelect(trans.deal)) return;
+   if(HistoryDealGetString(trans.deal,DEAL_SYMBOL)!=_Symbol ||
+      (ulong)HistoryDealGetInteger(trans.deal,DEAL_MAGIC)!=InpMagic) return;
+
+   long dealEntry=HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
+   long dealType=HistoryDealGetInteger(trans.deal,DEAL_TYPE);
+   if(InpRequireFreshSignalAfterExit &&
+      (dealEntry==DEAL_ENTRY_OUT || dealEntry==DEAL_ENTRY_OUT_BY || dealEntry==DEAL_ENTRY_INOUT))
+   {
+      ulong positionId=(ulong)HistoryDealGetInteger(trans.deal,DEAL_POSITION_ID);
+      // A SELL deal closes a BUY/long position; a BUY deal closes a SELL/short position.
+      // The lock only affects future entries in the exited direction, not opposite-signal exits.
+      if(dealType==DEAL_TYPE_SELL && !blockLongUntilReset)
+      {
+         blockLongUntilReset=true;
+         LogEvent("REENTRY_BLOCK","direction=LONG;position_id="+(string)positionId+";reason=exit_deal");
+      }
+      else if(dealType==DEAL_TYPE_BUY && !blockShortUntilReset)
+      {
+         blockShortUntilReset=true;
+         LogEvent("REENTRY_BLOCK","direction=SHORT;position_id="+(string)positionId+";reason=exit_deal");
+      }
+   }
+   AppendDealRow(trans.deal);
 }
