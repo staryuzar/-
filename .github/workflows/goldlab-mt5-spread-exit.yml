@@ -1,0 +1,48 @@
+name: GoldLab MT5 High-Spread Opposite-Signal Exit Diagnostic
+
+on:
+  push:
+    branches: [goldlab-spread-exit-candidate]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/scripts/goldlab_adx25_min23_shortonly_spread_exit.ps1"
+      - ".github/workflows/goldlab-mt5-spread-exit.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/scripts/goldlab_adx25_min23_shortonly_spread_exit.ps1"
+      - ".github/workflows/goldlab-mt5-spread-exit.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-mt5-spread-exit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  spread-exit-diagnostic:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated high-spread exit candidate
+        uses: actions/checkout@v4
+
+      - name: Run matched-period XAUUSD Model=4 spread-exit diagnostic
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_adx25_min23_shortonly_spread_exit.ps1
+
+      - name: Upload MT5 evidence even when a gate fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-mt5-spread-exit-${{ github.run_id }}
+          path: goldlab-results/
+          if-no-files-found: warn
+          retention-days: 90
