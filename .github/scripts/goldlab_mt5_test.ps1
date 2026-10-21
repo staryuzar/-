@@ -73,12 +73,16 @@ try {
   Start-Sleep -Seconds 2
   if (!(Test-Path $compileLog)) { throw "MetaEditor compile log not produced." }
   $compileText = Get-Content -LiteralPath $compileLog -Raw
+  $compileTotals = [regex]::Match($compileText, '(?im)^\s*Result:\s*(\d+)\s+errors,\s*(\d+)\s+warnings')
+  if (!$compileTotals.Success) { throw "MetaEditor result counts could not be parsed; see compile-log.txt." }
+  $compileErrorCount = [int]$compileTotals.Groups[1].Value
+  $compileWarningCount = [int]$compileTotals.Groups[2].Value
   $safeCompile = $compileText -replace [regex]::Escape($accountLogin), "[ACCOUNT REDACTED]" -replace [regex]::Escape($accountServer), "[SERVER REDACTED]"
   $safeCompile | Set-Content -LiteralPath (Join-Path $reports "compile-log.txt") -Encoding utf8
   if (!(Test-Path (Join-Path $expertDir "GoldLabEA.ex5")) -or $compileText -notmatch '(?i)0 errors' -or $compileText -match '(?i)[1-9][0-9]* errors') {
     throw "EA compilation did not confirm zero errors. See sanitized compile-log.txt."
   }
-  "Compile result: PASS (0 errors; warnings reported in compile-log.txt)" | Add-Content -LiteralPath $summary -Encoding utf8
+  "Compile result: PASS ($compileErrorCount errors, $compileWarningCount warnings)" | Add-Content -LiteralPath $summary -Encoding utf8
 
   $config = Join-Path $root "goldlab-tester.ini"
   $reportRelative = "goldlab-results\GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19"

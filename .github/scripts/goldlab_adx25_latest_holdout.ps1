@@ -136,11 +136,20 @@ foreach ($token in $dateTokens) {
     if ($null -eq $lastMarketTime -or $parsed -gt $lastMarketTime) { $lastMarketTime = $parsed }
   } catch {}
 }
-$dateCoverage = ($null -ne $lastMarketTime -and $lastMarketTime.Date -ge [datetime]'2026-10-21')
-$coverageState = if ($barCount -ge 250 -and $dateCoverage) { "PASS: at least 250 bars and SIGNAL_AUDIT reaches 2026-10-21" } else { "INCOMPLETE: insufficient bars or SIGNAL_AUDIT does not reach 2026-10-21; do not treat this as performance validation" }
-$lines += @("", "## Data coverage gate", "", "- $coverageState", "- Minimum screening floor: 250 M5 bars; availability smoke test only, not full-session validation.", "- Latest market signal timestamp (SIGNAL_AUDIT): " + $(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }), "- Requested inclusive dates: 2026-10-20 through 2026-10-21; configured ToDate boundary: 2026-10-22.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
+$historyRangeMatches = [regex]::Matches($logText, '(?i)history synchronized from (\d{4}\.\d{2}\.\d{2}) to (\d{4}\.\d{2}\.\d{2})')
+$historySyncEnd = $null
+foreach ($historyMatch in $historyRangeMatches) {
+  try {
+    $historyEndCandidate = [datetime]::ParseExact($historyMatch.Groups[2].Value, 'yyyy.MM.dd', [Globalization.CultureInfo]::InvariantCulture)
+    if ($null -eq $historySyncEnd -or $historyEndCandidate -gt $historySyncEnd) { $historySyncEnd = $historyEndCandidate }
+  } catch {}
+}
+$historySyncedThroughTarget = ($null -ne $historySyncEnd -and $historySyncEnd.Date -ge [datetime]'2026-10-21')
+$dateCoverage = ($null -ne $lastMarketTime -and $lastMarketTime.Date -ge [datetime]'2026-10-21' -and $historySyncedThroughTarget)
+$coverageState = if ($barCount -ge 250 -and $dateCoverage) { "PASS: at least 250 bars and SIGNAL_AUDIT reaches 2026-10-21" } else { "INCOMPLETE: insufficient bars, synchronized broker history, or SIGNAL_AUDIT does not reach 2026-10-21; do not treat this as performance validation" }
+$lines += @("", "## Data coverage gate", "", "- $coverageState", "- Minimum screening floor: 250 M5 bars; availability smoke test only, not full-session validation.", "- Broker history synchronized through: " + $(if ($null -ne $historySyncEnd) { $historySyncEnd.ToString("yyyy-MM-dd") } else { "NOT_FOUND" }), "- Latest market signal timestamp (SIGNAL_AUDIT): " + $(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }), "- Requested inclusive dates: 2026-10-20 through 2026-10-21; configured ToDate boundary: 2026-10-22.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
 $lines | Set-Content -LiteralPath (Join-Path $resultsDir "adx25-fastema-rejection-report-audit.md") -Encoding utf8
 $lines | ForEach-Object { Write-Output $_ }
 $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Add-Content -LiteralPath (Join-Path $resultsDir "adx25-fastema-rejection-preflight.txt") -Value @("", "Report SHA-256: $reportHash", "Report bytes: $((Get-Item -LiteralPath $reportPath).Length)", "Coverage gate: $coverageState", "UTC verified: $([DateTime]::UtcNow.ToString('o'))") -Encoding utf8
-if ($barCount -lt 250 -or -not $dateCoverage) { throw "Data-coverage gate failed: bars=$barCount; latest tester time=$(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" })." }
+if ($barCount -lt 250 -or -not $dateCoverage) { throw "Data-coverage gate failed: bars=$barCount; broker history through=$(if ($null -ne $historySyncEnd) { $historySyncEnd.ToString("yyyy-MM-dd") } else { "NOT_FOUND" }); latest market signal=$(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" })." }
