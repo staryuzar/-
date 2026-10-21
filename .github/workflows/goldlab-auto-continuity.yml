@@ -1,0 +1,37 @@
+name: GoldLab Automatic Continuity Journal
+
+on:
+  push:
+    branches: [gold-xauusd-expert-lab]
+    paths:
+      - "trading-lab/gold-xauusd/**"
+      - ".github/scripts/goldlab_*.ps1"
+      - ".github/workflows/goldlab-mt5-*.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+# Only one writer updates the shared report at a time. The writer reads the
+# latest blob SHA and retries safe updates, so test jobs can run in parallel.
+concurrency:
+  group: goldlab-automatic-continuity-journal
+  cancel-in-progress: false
+
+jobs:
+  journal:
+    runs-on: windows-2022
+    timeout-minutes: 36
+    steps:
+      - name: Checkout GoldLab branch
+        uses: actions/checkout@v4
+        with:
+          ref: gold-xauusd-expert-lab
+
+      - name: Wait for related test workflows and record their results
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/goldlab_persist_continuity.ps1
