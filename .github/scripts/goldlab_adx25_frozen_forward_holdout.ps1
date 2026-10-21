@@ -49,9 +49,12 @@ $content = $content.Replace($setCsvMarker, $setCsvMarker + [Environment]::NewLin
 $confirmationCheck = '($html -match ''(?is)InpAllowLong=false</b>''))'
 if (!$content.Contains($confirmationCheck)) { throw "Tester input verification marker missing." }
 $content = $content.Replace($confirmationCheck, '($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>''))')
-$legacyPass = "Input verification: PASS (risk=0.5, stop=0.45 ATR, target=2.4 ATR, trail=1.4 ATR, max spread=100, max ADX=25, long entries disabled)"
-if (!$content.Contains($legacyPass)) { throw "Bidirectional input summary marker missing; refusing a misleading run log." }
-$content = $content.Replace($legacyPass, "Input verification: PASS (risk=0.5, stop=0.45 ATR, target=2.4 ATR, trail=1.4 ATR, max spread=100, max ADX=25, long entries disabled, candle-direction confirmation=true, fast EMA rejection=true)")
+$legacyPass40 = "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)"
+$legacyPass25 = "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long entries disabled)"
+$targetPass = "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long entries disabled, candle-direction confirmation=true, fast EMA rejection=true)"
+if (!$content.Contains($legacyPass40) -and !$content.Contains($legacyPass25)) { throw "Tester summary marker missing; refusing a misleading run log." }
+$content = $content.Replace($legacyPass40, $targetPass)
+$content = $content.Replace($legacyPass25, $targetPass)
 $content = $content.Replace("max ADX=40", "max ADX=25")
 $content = $content.Replace("ADX 18-40", "ADX 18-25")
 foreach ($change in $changes) {
@@ -65,6 +68,7 @@ $legacyMinLabel = "max ADX=25, long entries disabled for short-only diagnostic."
 if (!$content.Contains($legacyMinLabel)) { throw "Minimum-ADX sensitivity label marker missing." }
 $content = $content.Replace($legacyMinLabel, "min ADX=23, max ADX=25, long entries disabled for short-only diagnostic.")
 $content = $content.Replace("ADX 18-25", "ADX 23-25")
+$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, min ADX=23, max ADX=25, long entries disabled, candle-direction confirmation=true, fast EMA rejection=true)", "Input verification: PASS (risk=0.5, stop=0.45 ATR, target=2.4 ATR, trail=1.4 ATR, max spread=100, min ADX=23, max ADX=25, long entries disabled, candle-direction confirmation=true, fast EMA rejection=true)")
 $content = $content.Replace("max ADX=25, long entries disabled, candle-direction confirmation=true", "min ADX=23, max ADX=25, long entries disabled, candle-direction confirmation=true")
 
 # Short-only mode keeps the original disabled-long summary.
