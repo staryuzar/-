@@ -235,3 +235,14 @@
 - **السجلات:** [فتح التشغيل](https://github.com/staryuzar/-/actions/runs/39560791598) · [ملفات الأدلة/التقرير](https://github.com/staryuzar/-/actions/runs/39560791598/artifacts)
 - **قاعدة القراءة:** نتيجة سير العمل لا تكفي وحدها للحكم على ربحية الاستراتيجية؛ راجع تقرير HTML/CSV وسجلات MT5 في ملفات الأدلة. قد يكون التشغيل ناجحًا لأنه حفظ حالة NOT RUN المقصودة.
 
+---
+
+<!-- goldlab-auto-run-id:39561345619 -->
+### سجل آلي — GitHub Actions run 39561345619
+- **اسم التشغيل:** GoldLab MT5 Frozen Three-Day Forward Holdout
+- **نتيجة سير العمل:** success (الحدث: push، الحالة: completed)
+- **الفرع/الالتزام:** gold-xauusd-expert-lab / [6a93a4633f8d](https://github.com/staryuzar/-/commit/6a93a4633f8d2aa3e039e75429f1b2fbbc6c15f6)
+- **وقت الإنشاء (UTC):** 10/21/2026 07:20:58
+- **السجلات:** [فتح التشغيل](https://github.com/staryuzar/-/actions/runs/39561345619) · [ملفات الأدلة/التقرير](https://github.com/staryuzar/-/actions/runs/39561345619/artifacts)
+- **قاعدة القراءة:** نتيجة سير العمل لا تكفي وحدها للحكم على ربحية الاستراتيجية؛ راجع تقرير HTML/CSV وسجلات MT5 في ملفات الأدلة. قد يكون التشغيل ناجحًا لأنه حفظ حالة NOT RUN المقصودة.
+
