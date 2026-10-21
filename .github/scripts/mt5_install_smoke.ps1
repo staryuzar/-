@@ -125,6 +125,36 @@ void OnTick() {}
     if ($compileText -notmatch '(?i)0 errors' -or $compileText -match '(?i)[1-9][0-9]* errors') { throw "MetaEditor compile log does not confirm zero errors." }
     "RESULT: PASS — MetaEditor compiled a disposable sample EA with zero errors." | Add-Content -LiteralPath $report -Encoding utf8
 
+    # Compile the exact research EA committed to this repository, not only a disposable smoke sample.
+    $candidateSource = Join-Path $PWD ".github\\experts\\XAUUSD_TrendPullback_EA.mq5"
+    if (!(Test-Path $candidateSource)) { throw "Repository XAUUSD research EA source is missing." }
+    $candidateName = "XAUUSD_TrendPullback_EA"
+    $candidateEA = Join-Path $expertsDir ($candidateName + ".mq5")
+    $candidateEX5 = Join-Path $expertsDir ($candidateName + ".ex5")
+    $candidateLog = Join-Path $expertsDir ($candidateName + ".log")
+    Copy-Item -LiteralPath $candidateSource -Destination $candidateEA -Force
+    Remove-Item -LiteralPath $candidateEX5, $candidateLog -Force -ErrorAction SilentlyContinue
+    $candidateCompileArgs = '/compile:"' + $candidateEA + '" /log'
+    $candidateCompiler = Start-Process -FilePath $metaEditor.FullName -ArgumentList $candidateCompileArgs -WorkingDirectory $installDir -PassThru
+    if (!$candidateCompiler.WaitForExit(60000)) {
+        Stop-Process -Id $candidateCompiler.Id -Force -ErrorAction SilentlyContinue
+        throw "MetaEditor compilation of the repository XAUUSD EA timed out after 60 seconds."
+    }
+    Start-Sleep -Seconds 1
+    if (!(Test-Path $candidateLog)) { throw "MetaEditor did not produce a compile log for the repository XAUUSD EA." }
+    $candidateCompileText = Get-Content -LiteralPath $candidateLog -Raw
+    "Repository EA compile log: $($candidateCompileText.Trim())" | Add-Content -LiteralPath $report -Encoding utf8
+    if (!(Test-Path $candidateEX5) -or (Get-Item -LiteralPath $candidateEX5).Length -le 0) {
+        throw "MetaEditor did not produce a non-empty EX5 for the repository XAUUSD EA."
+    }
+    if ($candidateCompileText -notmatch '(?i)0 errors' -or $candidateCompileText -match '(?i)[1-9][0-9]* errors') {
+        throw "Repository XAUUSD EA compilation did not confirm zero errors."
+    }
+    if ($candidateCompileText -match '(?i)[1-9][0-9]* warnings') {
+        throw "Repository XAUUSD EA compilation produced warnings; fix them before passing CI."
+    }
+    "RESULT: PASS — exact repository XAUUSD_TrendPullback_EA.mq5 compiled with zero errors and zero warnings." | Add-Content -LiteralPath $report -Encoding utf8
+
     # Exercise the same launch/window-enumeration helpers used by the assistant. No account credentials are supplied.
     $sourceDir = Join-Path $PWD "ci_mt5_source"
     if (!(Test-Path (Join-Path $sourceDir "windows_tools.py"))) { throw "Assistant source was not extracted for the MT5 integration test." }
