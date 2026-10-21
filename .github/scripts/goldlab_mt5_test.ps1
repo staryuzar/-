@@ -45,8 +45,9 @@ $accountPasswordForConfig = $accountPassword
 $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $null
 
 "GoldLab MT5 Strategy Tester run" | Set-Content -LiteralPath $summary -Encoding utf8
-"Test period: 2026-09-01 through 2026-10-19 (history-availability diagnostic)" | Add-Content -LiteralPath $summary -Encoding utf8
+"Test period: 2026-09-01 through 2026-10-19 (risk-feasibility diagnostic)" | Add-Content -LiteralPath $summary -Encoding utf8
 "EA: GoldLabEA; Symbol XAUUSD; timeframe M5; model 1 (1-minute OHLC diagnostic; not real-tick validation)" | Add-Content -LiteralPath $summary -Encoding utf8
+"Parameter experiment: InpRiskPercent=2.0 via explicit tester set file; SOURCE DEFAULT remains 0.50%; diagnostic only, not a live-trading recommendation." | Add-Content -LiteralPath $summary -Encoding utf8
 "Deposit: 500 USD; leverage 1:1000; trade mode is tester only; no live orders are authorized." | Add-Content -LiteralPath $summary -Encoding utf8
 "UTC start: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
 
@@ -80,8 +81,37 @@ try {
   "Compile result: PASS (0 errors; warnings reported in compile-log.txt)" | Add-Content -LiteralPath $summary -Encoding utf8
 
   $config = Join-Path $root "goldlab-tester.ini"
-  $reportRelative = "goldlab-results\GoldLab_diagnostic_2026-09-01_to_2026-10-19"
+  $reportRelative = "goldlab-results\GoldLab_risk2_diagnostic_2026-09-01_to_2026-10-19"
   New-Item -ItemType Directory -Path (Join-Path $install "goldlab-results") -Force | Out-Null
+
+  # Isolated risk-feasibility experiment; do not change the source default of 0.50%.
+  $setDir = Join-Path $install "MQL5\Profiles\Tester"
+  New-Item -ItemType Directory -Path $setDir -Force | Out-Null
+  $setName = "GoldLabRisk2Diagnostic.set"
+  $setPath = Join-Path $setDir $setName
+  $setContent = @"
+InpMagic=2026102101||2026102101||1||2026102101||N
+InpEntryTF=5||5||1||5||N
+InpBiasTF=16385||16385||1||16385||N
+InpRiskPercent=2.0||0.5||0.1||2.0||N
+InpFastEMA=20||20||1||20||N
+InpSlowEMA=50||50||1||50||N
+InpBiasFastEMA=50||50||1||50||N
+InpBiasSlowEMA=200||200||1||200||N
+InpRSIPeriod=14||14||1||14||N
+InpRSIMidline=50.0||50.0||1.0||50.0||N
+InpADXPeriod=14||14||1||14||N
+InpMinADX=18.0||18.0||1.0||18.0||N
+InpATRPeriod=14||14||1||14||N
+InpStopATR=1.8||1.8||0.1||1.8||N
+InpTargetATR=2.4||2.4||0.1||2.4||N
+InpTrailATR=1.4||1.4||0.1||1.4||N
+InpCloseOnOpposite=true||false||0||true||N
+InpWriteTradeCSV=true||false||0||true||N
+"@
+  [System.IO.File]::WriteAllText($setPath,$setContent,[System.Text.UTF8Encoding]::new($false))
+  $setContent | Set-Content -LiteralPath (Join-Path $reports $setName) -Encoding utf8
+  "Tester parameter file: $setName (InpRiskPercent=2.0 diagnostic override only)" | Add-Content -LiteralPath $summary -Encoding utf8
   $ini = @"
 [Common]
 Login=$accountLogin
@@ -99,6 +129,7 @@ AllowDllImport=0
 
 [Tester]
 Expert=GoldLab\GoldLabEA.ex5
+ExpertParameters=$setName
 Symbol=XAUUSD
 Period=M5
 Model=1
@@ -135,7 +166,7 @@ Visual=0
   "Tester terminal exit code: $($terminalProc.ExitCode)" | Add-Content -LiteralPath $summary -Encoding utf8
   $foundReport = $possibleReports | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (!$foundReport) {
-    $foundReport = Get-ChildItem -LiteralPath $install -Filter "GoldLab_diagnostic_2026-09-01_to_2026-10-19.htm" -File -Recurse -ErrorAction SilentlyContinue |
+    $foundReport = Get-ChildItem -LiteralPath $install -Filter "GoldLab_risk2_diagnostic_2026-09-01_to_2026-10-19.htm" -File -Recurse -ErrorAction SilentlyContinue |
       Select-Object -ExpandProperty FullName -First 1
   }
   if (!$foundReport) {
@@ -171,7 +202,7 @@ Visual=0
   $html = Get-Content -LiteralPath $foundReport -Raw
   $html = $html -replace [regex]::Escape($accountLogin), "[ACCOUNT REDACTED]"
   $html = $html -replace [regex]::Escape($accountServer), "[SERVER REDACTED]"
-  $safeReport = Join-Path $reports "GoldLab_diagnostic_2026-09-01_to_2026-10-19.htm"
+  $safeReport = Join-Path $reports "GoldLab_risk2_diagnostic_2026-09-01_to_2026-10-19.htm"
   [System.IO.File]::WriteAllText($safeReport,$html,[System.Text.UTF8Encoding]::new($false))
   "Tester report: produced at $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
   "Report size: $((Get-Item $safeReport).Length) bytes" | Add-Content -LiteralPath $summary -Encoding utf8
