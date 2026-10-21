@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 # After this guarded workflow completes, GoldLab Automatic Continuity Journal records its run and evidence links.
+# This repeated guarded run also checks that previously journalled run IDs are not re-counted as new updates.
 
 # Matched control: same combined Model=4 window and candle filter; disable only new long entries.
 # This wrapper rewrites only the disposable CI workspace, never the committed runner.
