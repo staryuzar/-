@@ -9,7 +9,7 @@ on:
       - ".github/scripts/goldlab_3day_wrapper.ps1"
       - ".github/scripts/goldlab_10day_wrapper.ps1"
       - ".github/scripts/goldlab_forward_adx27_wrapper.ps1"
-      - ".github/scripts/goldlab_candle_confirm_diagnostic.ps1"
+      - ".github/scripts/goldlab_final_adx27_wrapper.ps1"
       - ".github/scripts/goldlab_candle_confirm_diagnostic.ps1"
       - ".github/workflows/goldlab-mt5-tester.yml"
   pull_request:
@@ -42,7 +42,7 @@ jobs:
       - name: Run MetaEditor compile and candle-confirmation diagnostic (ADX27)
         shell: pwsh
         run: |
-          .github/scripts/goldlab_final_adx27_wrapper.ps1
+          .github/scripts/goldlab_candle_confirm_diagnostic.ps1
 
       - name: Upload test evidence even on failure
         if: always()

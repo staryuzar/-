@@ -23,7 +23,7 @@ $changes = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-01 through 2026-10-19 (candle-confirmation diagnostic; ADX 27 fixed)"),
   @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_candleconfirm_adx27_stop045_2026-09-01_to_2026-10-19"),
   @("ToDate=2026.10.19", "ToDate=2026.10.20"),
-  @("GoldLab_candleconfirm_adx27_stop045_2026-09-01_to_2026-10-19", "GoldLab_candleconfirm_adx27_stop045_2026-09-01_to_2026-10-19")
+  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19", "GoldLab_candleconfirm_adx27_stop045_2026-09-01_to_2026-10-19")
 )
 foreach ($change in $parameterChanges) {
   if (!$content.Contains($change[0])) { throw "Expected ADX27 parameter marker missing: $($change[0])" }
@@ -32,9 +32,9 @@ foreach ($change in $parameterChanges) {
 $setCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
 if (!$content.Contains($setCsvMarker)) { throw "CSV SET marker missing; cannot add candle-direction input safely." }
 $content = $content.Replace($setCsvMarker, $setCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||false||0||false||N")
-$confirmationCheck = "($html -match '(?is)InpAllowLong=false</b>'))"
+$confirmationCheck = '($html -match ''(?is)InpAllowLong=false</b>''))'
 if (!$content.Contains($confirmationCheck)) { throw "Tester input verification marker missing." }
-$content = $content.Replace($confirmationCheck, "($html -match '(?is)InpAllowLong=false</b>') -and ($html -match '(?is)InpRequireSignalCandleDirection=true</b>'))")
+$content = $content.Replace($confirmationCheck, '($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>''))')
 $content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=27, long disabled, candle-direction confirmation=true)")
 $content = $content.Replace("max ADX=40", "max ADX=27")
 $content = $content.Replace("ADX 18-40", "ADX 18-27")
