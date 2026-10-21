@@ -19,10 +19,10 @@ $parameterChanges = @(
   @("GoldLabShortOnlyADX40Stop045.set", "GoldLabShortOnlyADX27Stop045.set")
 )
 $changes = @(
-  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-11 through 2026-09-20 (10-day forward validation; ADX 27 fixed)"),
-  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx27_stop045_2026-09-11_to_2026-09-20"),
-  @("ToDate=2026.10.19", "ToDate=2026.09.21"),
-  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx27_stop045_2026-09-11_to_2026-09-20")
+  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-11 through 2026-09-21 (forward validation; ADX 27 fixed)"),
+  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx27_stop045_2026-09-11_to_2026-09-21"),
+  @("ToDate=2026.10.19", "ToDate=2026.09.22"),
+  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx27_stop045_2026-09-11_to_2026-09-21")
 )
 foreach ($change in $parameterChanges) {
   if (!$content.Contains($change[0])) { throw "Expected ADX27 parameter marker missing: $($change[0])" }
@@ -35,8 +35,8 @@ foreach ($change in $changes) {
 Set-Content -LiteralPath $scriptPath -Value $content -Encoding utf8
 $verified = Get-Content -LiteralPath $scriptPath -Raw
 $checks = @(
-  ($verified -match 'FromDate=2026\.09\.11\s*\r?\nToDate=2026\.09\.21'),
-  ($verified -match '2026-09-11 through 2026-09-20'),
+  ($verified -match 'FromDate=2026\.09\.11\s*\r?\nToDate=2026\.09\.22'),
+  ($verified -match '2026-09-11 through 2026-09-21'),
   ($verified -match 'InpAllowLong=false'),
   ($verified -match 'InpRiskPercent=0\.5'),
   ($verified -match 'InpStopATR=0\.45'),
@@ -50,25 +50,25 @@ New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
 @(
-  "GoldLab ten-day ADX27 forward validation",
-  "Period: 2026-09-11 through 2026-09-20",
+  "GoldLab ADX27 forward validation (2026-09-11 to 2026-09-21)",
+  "Period: 2026-09-11 through 2026-09-21",
   "Symbol: XAUUSD; timeframe: M5; model: 1-minute OHLC, not real ticks",
   "Risk: 0.50%; stop: 0.45 ATR; target: 2.4 ATR; trail: 1.4 ATR",
   "Max spread: 100 points; ADX 18-27; long entries disabled",
   "EA source SHA-256: $sourceHash",
   "Runner-local tester script SHA-256: $testerHash",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
-) | Set-Content -LiteralPath (Join-Path $resultsDir "ten-day-preflight.txt") -Encoding utf8
+) | Set-Content -LiteralPath (Join-Path $resultsDir "forward-preflight.txt") -Encoding utf8
 
 & $scriptPath
 if (-not $?) { throw "GoldLab Strategy Tester invocation failed." }
 
-$reportPath = Join-Path $resultsDir "GoldLab_shortonly_adx27_stop045_2026-09-11_to_2026-09-20.htm"
+$reportPath = Join-Path $resultsDir "GoldLab_shortonly_adx27_stop045_2026-09-11_to_2026-09-21.htm"
 if (!(Test-Path -LiteralPath $reportPath) -or (Get-Item -LiteralPath $reportPath).Length -le 0) {
   throw "Expected ten-day HTML report is missing/empty; this is an incomplete run, not a zero-trade result."
 }
 $html = Get-Content -LiteralPath $reportPath -Raw
-if ($html -notmatch '2026\.09\.11\s*-\s*2026\.09\.21') { throw "Tester report does not prove the requested ten-day period." }
+if ($html -notmatch '2026\.09\.11\s*-\s*2026\.09\.22') { throw "Tester report does not prove the requested forward period." }
 
 function Read-TesterMetric([string]$label,[string]$source) {
   $escaped = [regex]::Escape($label)
@@ -90,9 +90,9 @@ $metrics = [ordered]@{
   "Maximal consecutive loss" = Read-TesterMetric "Maximal consecutive loss (count)" $html
 }
 $lines = @(
-  "# GoldLab ten-day report audit",
+  "# GoldLab ADX27 forward report audit",
   "",
-  "- Period: 2026-09-11 through 2026-09-20",
+  "- Period: 2026-09-11 through 2026-09-21",
   "- Model: 1-minute OHLC; not real ticks",
   "- EA SHA-256: $sourceHash",
   "- Tester report SHA-256: $((Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant())",
@@ -120,11 +120,11 @@ foreach ($token in $dateTokens) {
     if ($null -eq $lastMarketTime -or $parsed -gt $lastMarketTime) { $lastMarketTime = $parsed }
   } catch {}
 }
-$dateCoverage = ($null -ne $lastMarketTime -and $lastMarketTime.Date -ge [datetime]'2026-09-20')
-$coverageState = if ($barCount -ge 1500 -and $dateCoverage) { "PASS: minimum bar count met and logs reach 2026-09-20" } else { "INCOMPLETE: insufficient bars or preserved tester logs do not reach 2026-09-20; do not treat performance as validated" }
-$lines += @("", "## Data coverage gate", "", "- $coverageState", "- Minimum screening floor: 1,500 M5 bars; not proof that every session is present.", "- Latest preserved tester timestamp: " + $(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }), "- Requested inclusive last date: 2026-09-20; configured ToDate boundary: 2026-09-11.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
-$lines | Set-Content -LiteralPath (Join-Path $resultsDir "ten-day-report-audit.md") -Encoding utf8
+$dateCoverage = ($null -ne $lastMarketTime -and $lastMarketTime.Date -ge [datetime]'2026-09-21')
+$coverageState = if ($barCount -ge 1800 -and $dateCoverage) { "PASS: minimum bar count met and logs reach 2026-09-21" } else { "INCOMPLETE: insufficient bars or preserved tester logs do not reach 2026-09-21; do not treat performance as validated" }
+$lines += @("", "## Data coverage gate", "", "- $coverageState", "- Minimum screening floor: 1,800 M5 bars; not proof that every session is present.", "- Latest preserved tester timestamp: " + $(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }), "- Requested inclusive last date: 2026-09-21; configured ToDate boundary: 2026-09-22.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
+$lines | Set-Content -LiteralPath (Join-Path $resultsDir "forward-report-audit.md") -Encoding utf8
 $lines | ForEach-Object { Write-Output $_ }
 $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
-Add-Content -LiteralPath (Join-Path $resultsDir "ten-day-preflight.txt") -Value @("", "Report SHA-256: $reportHash", "Report bytes: $((Get-Item -LiteralPath $reportPath).Length)", "Coverage gate: $coverageState", "UTC verified: $([DateTime]::UtcNow.ToString('o'))") -Encoding utf8
-if ($barCount -lt 1500 -or -not $dateCoverage) { throw "Data-coverage gate failed: bars=$barCount; latest tester time=$(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" })." }
+Add-Content -LiteralPath (Join-Path $resultsDir "forward-preflight.txt") -Value @("", "Report SHA-256: $reportHash", "Report bytes: $((Get-Item -LiteralPath $reportPath).Length)", "Coverage gate: $coverageState", "UTC verified: $([DateTime]::UtcNow.ToString('o'))") -Encoding utf8
+if ($barCount -lt 1800 -or -not $dateCoverage) { throw "Data-coverage gate failed: bars=$barCount; latest tester time=$(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" })." }
