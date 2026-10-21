@@ -1,0 +1,48 @@
+name: GoldLab Advisor v2 — Stop Width Hypothesis
+
+on:
+  push:
+    branches: [goldlab-advisor-v2-candidate]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/scripts/goldlab_advisor_stop070_diagnostic.ps1"
+      - ".github/workflows/goldlab-advisor-stop070.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/scripts/goldlab_advisor_stop070_diagnostic.ps1"
+      - ".github/workflows/goldlab-advisor-stop070.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-advisor-stop070-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  stop-width-diagnostic:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated Advisor v2 branch
+        uses: actions/checkout@v4
+
+      - name: Run matched-period MT5 Model=4 stop-width diagnostic
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_advisor_stop070_diagnostic.ps1
+
+      - name: Upload all MT5 evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-advisor-stop070-${{ github.run_id }}
+          path: goldlab-results/
+          if-no-files-found: warn
+          retention-days: 90
