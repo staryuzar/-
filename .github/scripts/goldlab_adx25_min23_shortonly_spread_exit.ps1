@@ -279,14 +279,13 @@ if ($sideSummary.Count -eq 0) {
 
 $highSpreadOppositeExitEvents = @(
   $logText -split '\r?\n' |
-    Where-Object {
-      $_ -match 'GoldLabEA \([^)]*,M5\).*GoldLab\|CLOSE_OPPOSITE_REQUEST_ACCEPTED\|' -and
-      $_ -match 'spread_allowed=0'
-    } |
+    Where-Object { $_.Contains("CLOSE_OPPOSITE_REQUEST_ACCEPTED") -and $_.Contains("spread_allowed=0") } |
+    Where-Object { $_ -match 'GoldLabEA \([^)]*,M5\).*GoldLab\|CLOSE_OPPOSITE_REQUEST_ACCEPTED\|' } |
     Sort-Object -Unique
 )
 $allOppositeExitEvents = @(
   $logText -split '\r?\n' |
+    Where-Object { $_.Contains("CLOSE_OPPOSITE_REQUEST_ACCEPTED") } |
     Where-Object { $_ -match 'GoldLabEA \([^)]*,M5\).*GoldLab\|CLOSE_OPPOSITE_REQUEST_ACCEPTED\|' } |
     Sort-Object -Unique
 )
