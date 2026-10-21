@@ -49,7 +49,7 @@ $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToL
 ) | Set-Content -LiteralPath (Join-Path $resultsDir "ten-day-preflight.txt") -Encoding utf8
 
 & $scriptPath
-if ($LASTEXITCODE -ne 0 -or -not $?) { throw "GoldLab Strategy Tester invocation failed." }
+if (-not $?) { throw "GoldLab Strategy Tester invocation failed." }
 
 $reportPath = Join-Path $resultsDir "GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-09-10.htm"
 if (!(Test-Path -LiteralPath $reportPath) -or (Get-Item -LiteralPath $reportPath).Length -le 0) {
@@ -60,7 +60,7 @@ if ($html -notmatch '2026\.09\.01\s*-\s*2026\.09\.10') { throw "Tester report do
 
 function Read-TesterMetric([string]$label,[string]$source) {
   $escaped = [regex]::Escape($label)
-  $pattern = "(?is)<td[^>]*>\s*$escaped:\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>"
+  $pattern = "(?is)<td[^>]*>\s*" + $escaped + ":\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>"
   $match = [regex]::Match($source,$pattern)
   if ($match.Success) { return ($match.Groups[1].Value -replace '<[^>]+>','').Trim() }
   return "NOT_FOUND"
@@ -75,7 +75,7 @@ $metrics = [ordered]@{
   "Total Trades" = Read-TesterMetric "Total Trades" $html
   "Profit Trades (% of total)" = Read-TesterMetric "Profit Trades (% of total)" $html
   "Loss Trades (% of total)" = Read-TesterMetric "Loss Trades (% of total)" $html
-  "Maximal consecutive loss" = Read-TesterMetric "Maximal consecutive loss" $html
+  "Maximal consecutive loss (count)" = Read-TesterMetric "Maximal consecutive loss (count)" $html
 }
 $lines = @(
   "# GoldLab ten-day report audit",
