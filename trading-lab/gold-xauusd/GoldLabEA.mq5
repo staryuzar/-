@@ -29,6 +29,7 @@ input bool             InpRequireSignalCandleDirection = false;
 input bool             InpRequireFastEMARejection = false;
 
 uint lastTradeRetcode=0;
+string lastTradeMessage="";
 int hFast=INVALID_HANDLE, hSlow=INVALID_HANDLE;
 int hBiasFast=INVALID_HANDLE, hBiasSlow=INVALID_HANDLE;
 int hRSI=INVALID_HANDLE, hADX=INVALID_HANDLE, hATR=INVALID_HANDLE;
@@ -40,50 +41,118 @@ bool TradeRetcodeAccepted(const uint code)
 {
    return (code==TRADE_RETCODE_DONE || code==TRADE_RETCODE_DONE_PARTIAL || code==TRADE_RETCODE_PLACED);
 }
-ENUM_ORDER_TYPE_FILLING SymbolFillingMode()
+string TradeRetcodeLabel(const uint code)
+{
+   if(code==TRADE_RETCODE_DONE) return "FILLED";
+   if(code==TRADE_RETCODE_DONE_PARTIAL) return "PARTIAL_FILL";
+   if(code==TRADE_RETCODE_PLACED) return "ACCEPTED_PENDING";
+   return "REJECTED_OR_UNKNOWN";
+}
+bool GetSupportedFillingMode(ENUM_ORDER_TYPE_FILLING &mode)
 {
    long flags=SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE);
-   if((flags & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK) return ORDER_FILLING_FOK;
-   if((flags & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC) return ORDER_FILLING_IOC;
-   return ORDER_FILLING_RETURN;
+   ENUM_SYMBOL_TRADE_EXECUTION execution=(ENUM_SYMBOL_TRADE_EXECUTION)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_EXEMODE);
+   // RETURN is not permitted by MT5 for Market Execution. Only select a mode the symbol advertises.
+   if(execution==SYMBOL_TRADE_EXECUTION_MARKET)
+   {
+      if((flags & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK) { mode=ORDER_FILLING_FOK; return true; }
+      if((flags & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC) { mode=ORDER_FILLING_IOC; return true; }
+      lastTradeRetcode=0;
+      lastTradeMessage="UNSUPPORTED_FILLING_MODE; execution=MARKET; flags="+IntegerToString((int)flags);
+      return false;
+   }
+   mode=ORDER_FILLING_RETURN;
+   return true;
+}
+bool SendCheckedRequest(MqlTradeRequest &request)
+{
+   MqlTradeCheckResult check;
+   MqlTradeResult result;
+   ZeroMemory(check); ZeroMemory(result);
+   ResetLastError();
+   if(!OrderCheck(request,check))
+   {
+      int err=GetLastError();
+      lastTradeRetcode=check.retcode;
+      lastTradeMessage="ORDERCHECK_API_FAILED; retcode="+IntegerToString((int)check.retcode)+
+                       "; error="+IntegerToString(err)+"; "+check.comment;
+      return false;
+   }
+   // Successful OrderCheck commonly reports retcode=0; tolerate DONE for terminal/build variants.
+   if(check.retcode!=0 && check.retcode!=TRADE_RETCODE_DONE)
+   {
+      lastTradeRetcode=check.retcode;
+      lastTradeMessage="ORDERCHECK_REJECTED; retcode="+IntegerToString((int)check.retcode)+
+                       "; "+check.comment;
+      return false;
+   }
+
+   ResetLastError();
+   bool sent=OrderSend(request,result);
+   lastTradeRetcode=result.retcode;
+   lastTradeMessage="state="+TradeRetcodeLabel(result.retcode)+
+                    "; retcode="+IntegerToString((int)result.retcode)+
+                    "; comment="+result.comment;
+   if(!sent)
+      lastTradeMessage="ORDERSEND_API_FAILED; error="+IntegerToString(GetLastError())+
+                       "; "+lastTradeMessage;
+   return (sent && TradeRetcodeAccepted(result.retcode));
+}
+bool HasActiveOrderForSymbolMagic()
+{
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      ulong orderTicket=OrderGetTicket(i);
+      if(orderTicket==0) continue;
+      if(OrderGetString(ORDER_SYMBOL)==_Symbol &&
+         (ulong)OrderGetInteger(ORDER_MAGIC)==InpMagic)
+         return true;
+   }
+   return false;
 }
 bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double sl,const double tp,const string comment)
 {
-   MqlTradeRequest request; MqlTradeResult result;
-   ZeroMemory(request); ZeroMemory(result);
+   MqlTradeRequest request;
+   ZeroMemory(request);
+   ENUM_ORDER_TYPE_FILLING filling;
+   if(!GetSupportedFillingMode(filling)) return false;
    request.action=TRADE_ACTION_DEAL; request.symbol=_Symbol; request.magic=InpMagic;
    request.volume=lots; request.type=type;
    request.price=(type==ORDER_TYPE_BUY ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID));
-   request.sl=sl; request.tp=tp; request.deviation=20; request.type_filling=SymbolFillingMode();
+   request.sl=sl; request.tp=tp; request.deviation=20; request.type_filling=filling;
    request.type_time=ORDER_TIME_GTC; request.comment=comment;
-   bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
-   return (sent && TradeRetcodeAccepted(result.retcode));
+   return SendCheckedRequest(request);
 }
 bool ClosePositionByTicket(const ulong ticket)
 {
-   if(!PositionSelectByTicket(ticket)) return false;
+   if(!PositionSelectByTicket(ticket)) { lastTradeMessage="POSITION_NOT_FOUND"; return false; }
+   if(HasActiveOrderForSymbolMagic())
+   {
+      lastTradeRetcode=TRADE_RETCODE_PLACED;
+      lastTradeMessage="CLOSE_DEFERRED; active order already exists for this symbol/magic";
+      return true;
+   }
    ENUM_POSITION_TYPE side=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
    double volume=PositionGetDouble(POSITION_VOLUME);
-   MqlTradeRequest request; MqlTradeResult result;
-   ZeroMemory(request); ZeroMemory(result);
+   MqlTradeRequest request; ZeroMemory(request);
    request.action=TRADE_ACTION_DEAL; request.position=ticket;
    request.symbol=PositionGetString(POSITION_SYMBOL); request.magic=InpMagic; request.volume=volume;
    request.type=(side==POSITION_TYPE_BUY ? ORDER_TYPE_SELL : ORDER_TYPE_BUY);
    request.price=(side==POSITION_TYPE_BUY ? SymbolInfoDouble(_Symbol,SYMBOL_BID) : SymbolInfoDouble(_Symbol,SYMBOL_ASK));
-   request.deviation=20; request.type_filling=SymbolFillingMode(); request.type_time=ORDER_TIME_GTC;
+   request.deviation=20;
+   ENUM_ORDER_TYPE_FILLING filling;
+   if(!GetSupportedFillingMode(filling)) return false;
+   request.type_filling=filling; request.type_time=ORDER_TIME_GTC;
    request.comment="GoldLab opposite-signal close";
-   bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
-   return (sent && TradeRetcodeAccepted(result.retcode));
+   return SendCheckedRequest(request);
 }
 bool ModifyPositionSLTP(const ulong ticket,const double sl,const double tp)
 {
-   if(!PositionSelectByTicket(ticket)) return false;
-   MqlTradeRequest request; MqlTradeResult result;
-   ZeroMemory(request); ZeroMemory(result);
+   if(!PositionSelectByTicket(ticket)) { lastTradeMessage="POSITION_NOT_FOUND"; return false; }
+   MqlTradeRequest request; ZeroMemory(request);
    request.action=TRADE_ACTION_SLTP; request.position=ticket;
    request.symbol=PositionGetString(POSITION_SYMBOL); request.magic=InpMagic; request.sl=sl; request.tp=tp;
-   bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
-   return (sent && result.retcode==TRADE_RETCODE_DONE);
+   return SendCheckedRequest(request) && lastTradeRetcode==TRADE_RETCODE_DONE;
 }
 
 bool ReadValue(const int handle,const int buffer,const int shift,double &value)
@@ -229,7 +298,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.009; blocks live execution on real accounts while permitting Strategy Tester; active-order entry guard; optional candle/EMA filters; ADX ceiling; max-spread guard.");
+   LogEvent("INIT","Execution-safety candidate v1.010; real-account live execution disabled; OrderCheck enabled; fill-mode validation enabled; filled/partial/pending retcodes separated; opposite exits are not blocked by spread.");
    return INIT_SUCCEEDED;
 }
 
@@ -265,7 +334,13 @@ void ManagePositions(const double atr,const bool longSignal,const bool shortSign
                                 (side==POSITION_TYPE_SELL && longSignal)))
       {
          if(!ClosePositionByTicket(ticket))
-            LogEvent("CLOSE_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
+            LogEvent("CLOSE_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)+"; "+lastTradeMessage));
+         else if(lastTradeRetcode==TRADE_RETCODE_PLACED)
+            LogEvent("CLOSE_PENDING",lastTradeMessage);
+         else if(lastTradeRetcode==TRADE_RETCODE_DONE_PARTIAL)
+            LogEvent("CLOSE_PARTIAL",lastTradeMessage);
+         else
+            LogEvent("CLOSE_FILLED",lastTradeMessage);
          continue;
       }
 
@@ -277,7 +352,7 @@ void ManagePositions(const double atr,const bool longSignal,const bool shortSign
          double newSL=RoundToTick(bid-InpTrailATR*atr);
          if(newSL>oldSL && newSL<bid-stopLevel)
             if(!ModifyPositionSLTP(ticket,newSL,tp))
-               LogEvent("TRAIL_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
+               LogEvent("TRAIL_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)+"; "+lastTradeMessage));
       }
       else if(side==POSITION_TYPE_SELL)
       {
@@ -338,8 +413,9 @@ void OnTick()
    bool longSetup=(candleLongAllowed && longFastEMAAllowed && biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
                    rsi1>rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
    bool longSignal=(InpAllowLong && longSetup);
-   bool shortSignal=(candleShortAllowed && shortFastEMAAllowed && biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
-                     rsi1<rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
+   bool shortSetup=(candleShortAllowed && shortFastEMAAllowed && biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
+                    rsi1<rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
+   bool shortSignal=shortSetup;
 
    double spreadPoints=(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/_Point;
    LogEvent("SIGNAL_AUDIT",
@@ -366,9 +442,9 @@ void OnTick()
       ";long_entry="+(longSignal ? "1":"0")+";short_entry="+(shortSignal ? "1":"0"));
 
    bool spreadAllowed=(spreadPoints<=InpMaxSpreadPoints);
-   // Do not reverse or open a new trade at extreme spread. The tick-level trailing call above still protects open positions.
-   // A bullish setup may close an existing SELL even when opening BUYs is disabled.
-   ManagePositions(atr,(spreadAllowed ? longSetup : false),(spreadAllowed ? shortSignal : false));
+   // Spread blocks new entries/reversals, but must not suppress a valid opposite-signal exit.
+   // The spread guard below still prevents opening a fresh position at an excessive spread.
+   ManagePositions(atr,longSetup,shortSetup);
    if(!longSignal && !shortSignal) return;
    if(!spreadAllowed)
    {
@@ -419,8 +495,13 @@ void OnTick()
       double lots=LotsForRisk(ORDER_TYPE_BUY,ask,sl);
       if(lots<=0.0) { LogEvent("ENTRY_REJECT",RiskRejectDetail(ORDER_TYPE_BUY,ask,sl)); return; }
       if(!SendMarketOrder(ORDER_TYPE_BUY,lots,sl,tp,"GoldLab long"))
-         LogEvent("BUY_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
-      else LogEvent("BUY_SENT","lots="+DoubleToString(lots,2)+"; ADX="+DoubleToString(adx,1));
+         LogEvent("BUY_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)+"; "+lastTradeMessage));
+      else if(lastTradeRetcode==TRADE_RETCODE_PLACED)
+         LogEvent("BUY_PENDING","lots="+DoubleToString(lots,2)+"; "+lastTradeMessage);
+      else if(lastTradeRetcode==TRADE_RETCODE_DONE_PARTIAL)
+         LogEvent("BUY_PARTIAL","lots="+DoubleToString(lots,2)+"; "+lastTradeMessage);
+      else
+         LogEvent("BUY_FILLED","lots="+DoubleToString(lots,2)+"; ADX="+DoubleToString(adx,1)+"; "+lastTradeMessage);
    }
    else if(shortSignal)
    {
@@ -430,8 +511,13 @@ void OnTick()
       double lots=LotsForRisk(ORDER_TYPE_SELL,bid,sl);
       if(lots<=0.0) { LogEvent("ENTRY_REJECT",RiskRejectDetail(ORDER_TYPE_SELL,bid,sl)); return; }
       if(!SendMarketOrder(ORDER_TYPE_SELL,lots,sl,tp,"GoldLab short"))
-         LogEvent("SELL_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
-      else LogEvent("SELL_SENT","lots="+DoubleToString(lots,2)+"; ADX="+DoubleToString(adx,1));
+         LogEvent("SELL_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)+"; "+lastTradeMessage));
+      else if(lastTradeRetcode==TRADE_RETCODE_PLACED)
+         LogEvent("SELL_PENDING","lots="+DoubleToString(lots,2)+"; "+lastTradeMessage);
+      else if(lastTradeRetcode==TRADE_RETCODE_DONE_PARTIAL)
+         LogEvent("SELL_PARTIAL","lots="+DoubleToString(lots,2)+"; "+lastTradeMessage);
+      else
+         LogEvent("SELL_FILLED","lots="+DoubleToString(lots,2)+"; ADX="+DoubleToString(adx,1)+"; "+lastTradeMessage);
    }
 }
 
