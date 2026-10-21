@@ -56,9 +56,9 @@ function Add-RunToReport([object]$run) {
   for ($attempt = 1; $attempt -le 10; $attempt++) {
     # Read from the newest remote branch head on every attempt. This avoids
     # depending on a Contents API read that may be unavailable to a fine-grained token.
-    & git fetch --no-tags origin "+refs/heads/$($branch):refs/remotes/origin/$($branch)"
+    & git fetch --no-tags origin "+refs/heads/$($branch):refs/remotes/origin/$($branch)" *> $null
     if ($LASTEXITCODE -ne 0) { throw "Could not fetch the latest GoldLab branch before recording run $runId." }
-    & git checkout --force -B $branch "refs/remotes/origin/$branch"
+    & git checkout --force -B $branch "refs/remotes/origin/$branch" *> $null
     if ($LASTEXITCODE -ne 0) { throw "Could not refresh the local report checkout for run $runId." }
 
     if (!(Test-Path -LiteralPath $fullPath)) { throw "Continuity report missing from branch: $reportPath" }
@@ -85,19 +85,19 @@ function Add-RunToReport([object]$run) {
     $newContent = $currentContent.TrimEnd() + [Environment]::NewLine + $section + [Environment]::NewLine
     [System.IO.File]::WriteAllText($fullPath, $newContent, $utf8NoBom)
 
-    & git config user.name "github-actions[bot]"
+    & git config user.name "github-actions[bot]" *> $null
     if ($LASTEXITCODE -ne 0) { throw "Could not configure Git author." }
-    & git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+    & git config user.email "41898282+github-actions[bot]@users.noreply.github.com" *> $null
     if ($LASTEXITCODE -ne 0) { throw "Could not configure Git email." }
-    & git add -- $reportPath
+    & git add -- $reportPath *> $null
     if ($LASTEXITCODE -ne 0) { throw "Could not stage continuity report." }
-    & git commit -m "docs: auto-record GoldLab Actions run $runId" -- $reportPath
+    & git commit -m "docs: auto-record GoldLab Actions run $runId" -- $reportPath *> $null
     if ($LASTEXITCODE -ne 0) {
       # A concurrent run may already have added this record. Refresh and check again.
       Start-Sleep -Seconds ([Math]::Min(5,$attempt))
       continue
     }
-    & git push origin "HEAD:refs/heads/$branch"
+    & git push origin "HEAD:refs/heads/$branch" *> $null
     if ($LASTEXITCODE -eq 0) { return $true }
     # Concurrent human/test commits can advance the branch during the push.
     # The next iteration fetches the new head and reapplies this run once.
