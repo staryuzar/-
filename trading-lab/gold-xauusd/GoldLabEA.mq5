@@ -126,6 +126,23 @@ double LotsForRisk(const ENUM_ORDER_TYPE type,const double entry,const double st
    return NormalizeVolumeDown(riskMoney/lossOneLot);
 }
 
+string RiskRejectDetail(const ENUM_ORDER_TYPE type,const double entry,const double stop)
+{
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskMoney=equity*InpRiskPercent/100.0;
+   double oneLotLoss=0.0, minLotLoss=0.0;
+   double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+   bool oneOk=OrderCalcProfit(type,_Symbol,1.0,entry,stop,oneLotLoss);
+   bool minOk=(minLot>0.0 && OrderCalcProfit(type,_Symbol,minLot,entry,stop,minLotLoss));
+   double rawLots=(oneOk && MathAbs(oneLotLoss)>0.0 ? riskMoney/MathAbs(oneLotLoss) : 0.0);
+   return "risk_budget="+DoubleToString(riskMoney,2)+
+          ";raw_lots="+DoubleToString(rawLots,4)+
+          ";min_lot="+DoubleToString(minLot,2)+
+          ";min_lot_risk="+(minOk ? DoubleToString(MathAbs(minLotLoss),2) : "calc_failed")+
+          ";equity="+DoubleToString(equity,2)+
+          ";risk_pct="+DoubleToString(InpRiskPercent,2);
+}
+
 bool IsNewBar()
 {
    datetime t=iTime(_Symbol,InpEntryTF,0);
@@ -323,7 +340,7 @@ void OnTick()
       double sl=RoundToTick(ask-stopDistance);
       double tp=RoundToTick(ask+targetDistance);
       double lots=LotsForRisk(ORDER_TYPE_BUY,ask,sl);
-      if(lots<=0.0) { LogEvent("ENTRY_REJECT","risk sizing below broker minimum or invalid tick-value"); return; }
+      if(lots<=0.0) { LogEvent("ENTRY_REJECT",RiskRejectDetail(ORDER_TYPE_BUY,ask,sl)); return; }
       if(!SendMarketOrder(ORDER_TYPE_BUY,lots,sl,tp,"GoldLab long"))
          LogEvent("BUY_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
       else LogEvent("BUY_SENT","lots="+DoubleToString(lots,2)+"; ADX="+DoubleToString(adx,1));
@@ -333,7 +350,7 @@ void OnTick()
       double sl=RoundToTick(bid+stopDistance);
       double tp=RoundToTick(bid-targetDistance);
       double lots=LotsForRisk(ORDER_TYPE_SELL,bid,sl);
-      if(lots<=0.0) { LogEvent("ENTRY_REJECT","risk sizing below broker minimum or invalid tick-value"); return; }
+      if(lots<=0.0) { LogEvent("ENTRY_REJECT",RiskRejectDetail(ORDER_TYPE_SELL,bid,sl)); return; }
       if(!SendMarketOrder(ORDER_TYPE_SELL,lots,sl,tp,"GoldLab short"))
          LogEvent("SELL_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
       else LogEvent("SELL_SENT","lots="+DoubleToString(lots,2)+"; ADX="+DoubleToString(adx,1));
