@@ -238,7 +238,14 @@ Visual=0
   }
   "UTC finish: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
   "IMPORTANT: only the generated tester report and journal can establish whether trades were actually simulated. Missing report or missing history means FAIL/incomplete, not success." | Add-Content -LiteralPath $summary -Encoding utf8
+  $riskInputConfirmed = ($html -match '(?is)InpRiskPercent=2(?:\.0+)?</b>')
+  if ($riskInputConfirmed) {
+    "Input verification: PASS (MT5 report confirms InpRiskPercent=2.0)" | Add-Content -LiteralPath $summary -Encoding utf8
+  } else {
+    "Input verification: FAIL (MT5 report does not confirm InpRiskPercent=2.0; reject this comparison)" | Add-Content -LiteralPath $summary -Encoding utf8
+  }
   Get-Content -LiteralPath $summary
+  if (-not $riskInputConfirmed) { throw "Tester did not apply requested 2.0% risk input; comparison result rejected." }
 }
 finally {
   $env:MT5_CREDENTIALS = $null
