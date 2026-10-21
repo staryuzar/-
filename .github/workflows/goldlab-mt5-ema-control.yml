@@ -1,0 +1,50 @@
+name: GoldLab MT5 Model 4 EMA20 Matched Control
+
+on:
+  push:
+    branches: [gold-xauusd-expert-lab]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/scripts/goldlab_adx25_model4_ema_control.ps1"
+      - ".github/workflows/goldlab-mt5-ema-control.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/scripts/goldlab_adx25_model4_ema_control.ps1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Reuse the tester concurrency group and prefer the targeted control run over
+# a stale duplicate full-period audit using the same demo account.
+concurrency:
+  group: goldlab-mt5-tester-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matched-ema-control:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout research branch for matched-period control
+        uses: actions/checkout@v4
+
+      - name: Run Model=4 matched-period EMA20 rejection-off control
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_adx25_model4_ema_control.ps1
+
+      - name: Upload matched-period control evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-mt5-adx25-model4-ema-control-${{ github.run_id }}
+          path: goldlab-results/
+          if-no-files-found: warn
+          retention-days: 90
