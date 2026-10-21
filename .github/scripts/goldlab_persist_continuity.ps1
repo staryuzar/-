@@ -65,8 +65,10 @@ function Add-RunToReport([object]$run) {
 
     if (!(Test-Path -LiteralPath $fullPath)) { throw "Continuity report missing from branch: $reportPath" }
     $currentContent = [System.IO.File]::ReadAllText($fullPath, [System.Text.Encoding]::UTF8)
-    # Links already listed by the human-maintained report also count as recorded.
-    if ($currentContent.Contains($marker) -or $currentContent -match [regex]::Escape("/actions/runs/$runId")) {
+    # Only a dedicated automatic-journal marker/heading makes this run recorded.
+    # A temporary manual mention (for example, "currently running") must not suppress
+    # the final outcome once the workflow completes.
+    if ($currentContent.Contains($marker) -or $currentContent.Contains("### سجل آلي — GitHub Actions run $runId")) {
       return $false
     }
 
