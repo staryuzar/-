@@ -104,6 +104,21 @@ $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToL
 & $scriptPath
 if (-not $?) { throw "GoldLab Strategy Tester invocation failed." }
 
+# Regression check: a fresh audit CSV must start with the documented field names.
+# This must happen before CSV parsing so the parser cannot hide a missing header
+# by imposing its own -Header column list.
+$tradeAuditDir = Join-Path $resultsDir "trade-audit"
+$tradeAuditFiles = @(Get-ChildItem -LiteralPath $tradeAuditDir -Filter "GoldLab_trade_audit-*.csv" -File -ErrorAction SilentlyContinue)
+if ($tradeAuditFiles.Count -eq 0) { throw "CSV header regression gate failed: no trade-audit CSV was produced." }
+$expectedCsvHeader = "deal,time,symbol,entry,type,volume,price,profit,commission,swap,reason,position_id"
+foreach ($auditFile in $tradeAuditFiles) {
+  $firstCsvLine = (Get-Content -LiteralPath $auditFile.FullName -TotalCount 1 -ErrorAction Stop).TrimStart([char]0xFEFF)
+  if ($firstCsvLine.Trim() -ne $expectedCsvHeader) {
+    throw "CSV header regression gate failed: $($auditFile.Name) does not start with the exact expected column header."
+  }
+}
+"Trade-audit CSV header verification: PASS ($($tradeAuditFiles.Count) file(s))." | Add-Content -LiteralPath (Join-Path $resultsDir "run-summary.txt") -Encoding utf8
+
 $reportPath = Join-Path $resultsDir "GoldLab_adx25_min23_shortonly_candle_true_2026-08-04_to-2026-10-20.htm"
 if (!(Test-Path -LiteralPath $reportPath) -or (Get-Item -LiteralPath $reportPath).Length -le 0) {
   throw "Expected historical Model=4 HTML report is missing/empty; this is an incomplete run, not a zero-trade result."

@@ -166,10 +166,17 @@ void AppendDealRow(const ulong deal)
    if(!HistoryDealSelect(deal)) return;
    int file=FileOpen(tradeLogName,FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_SHARE_READ,',');
    if(file==INVALID_HANDLE) {
-      file=FileOpen(tradeLogName,FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_SHARE_READ,',');
-      if(file==INVALID_HANDLE) { Print("GoldLab: cannot open audit CSV; error=",GetLastError()); return; }
+      // Do not fall back to FILE_WRITE: that mode truncates an existing audit CSV.
+      Print("GoldLab: cannot open audit CSV safely; error=",GetLastError());
+      return;
+   }
+   // FILE_READ|FILE_WRITE creates a missing file; therefore FileOpen may succeed
+   // on a new empty file and the header must be selected by size, not by open failure.
+   if(FileSize(file)==0) {
       FileWrite(file,"deal","time","symbol","entry","type","volume","price","profit","commission","swap","reason","position_id");
-   } else FileSeek(file,0,SEEK_END);
+   } else {
+      FileSeek(file,0,SEEK_END);
+   }
    FileWrite(file,
       (string)deal,
       TimeToString((datetime)HistoryDealGetInteger(deal,DEAL_TIME),TIME_DATE|TIME_SECONDS),
