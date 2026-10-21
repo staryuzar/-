@@ -1,6 +1,14 @@
 name: GoldLab MT5 Strategy Tester
 
 on:
+  push:
+    branches: [gold-xauusd-expert-lab]
+    paths:
+      - "trading-lab/gold-xauusd/**"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/scripts/goldlab_3day_wrapper.ps1"
+      - ".github/scripts/goldlab_10day_wrapper.ps1"
+      - ".github/workflows/goldlab-mt5-tester.yml"
   pull_request:
     branches: [main]
     paths:
