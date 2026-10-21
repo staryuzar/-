@@ -1,13 +1,25 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-# Isolated advisor hypothesis: initial stop changes from 0.45 to 0.70 ATR only; keep all other trading inputs matched.
-# This wrapper rewrites only the disposable CI workspace, never the committed runner.
+# Matched experiment: use the EXACT EA source from baseline run 39562718703 (commit fed7b047454ff11c2b266fc1d1af1c0c55ede680).
+# The only intended trading-parameter difference is InpStopATR=0.70 instead of 0.45; source is downloaded into this disposable CI workspace and hash-verified.
+# The historical baseline source is version v1.006; this explicitly excludes later active-order guard changes from the comparison.
+$baselineSourceCommit = "fed7b047454ff11c2b266fc1d1af1c0c55ede680"
+$baselineSourceSha256 = "34fab5a672b6301fce053d403677142bda1bd2e90a5f5b8e285d4a65f9b9cfd7"
 $scriptPath = ".github/scripts/goldlab_mt5_test.ps1"
 $eaPath = "trading-lab/gold-xauusd/GoldLabEA.mq5"
 $resultsDir = "goldlab-results"
 if (!(Test-Path -LiteralPath $scriptPath)) { throw "GoldLab tester script not found." }
 if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLab EA source not found." }
+
+$baselineSourceUrl = "https://raw.githubusercontent.com/staryuzar/-/$baselineSourceCommit/trading-lab/gold-xauusd/GoldLabEA.mq5"
+$baselineSourceTemp = Join-Path $env:RUNNER_TEMP "GoldLabEA-baseline-v1.006.mq5"
+Invoke-WebRequest -Uri $baselineSourceUrl -OutFile $baselineSourceTemp -TimeoutSec 60
+$downloadHash = (Get-FileHash -LiteralPath $baselineSourceTemp -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($downloadHash -ne $baselineSourceSha256) { throw "Immutable baseline EA source hash mismatch; refusing an unmatched stop-width comparison. Actual=$downloadHash" }
+Copy-Item -LiteralPath $baselineSourceTemp -Destination $eaPath -Force
+$workspaceSourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($workspaceSourceHash -ne $baselineSourceSha256) { throw "Baseline EA source copy hash mismatch; refusing to test." }
 
 $content = Get-Content -LiteralPath $scriptPath -Raw
 $longSetMarker = "InpAllowLong=false||true||0||true||N"
@@ -104,12 +116,12 @@ New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
 @(
-  "GoldLab ADX25 Model=4 short-only stop-width diagnostic; SL=0.70 ATR (2026-08-04 to 2026-10-20)",
+  "GoldLab matched stop-width diagnostic on baseline EA v1.006; SL=0.70 ATR (only input change; 2026-08-04 to 2026-10-20)",
   "Period: 2026-08-04 through 2026-10-20",
   "Symbol: XAUUSD; timeframe: M5; model: Model=4, Every tick based on real ticks (actual start date is in the journal)",
   "Risk: 0.50%; stop: 0.70 ATR; target: 2.4 ATR; trail: 1.4 ATR",
   "Max spread: 100 points; ADX 23-25; EMA20 rejection ON; candle-direction ON; stop-width diagnostic",
-  "EA source SHA-256: $sourceHash",
+  "EA source SHA-256: $sourceHash (immutable baseline v1.006; commit $baselineSourceCommit)",
   "Runner-local tester script SHA-256: $testerHash",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath (Join-Path $resultsDir "advisor-stop070-preflight.txt") -Encoding utf8
