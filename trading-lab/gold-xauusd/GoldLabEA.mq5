@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.002"
+#property version   "1.003"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -17,6 +17,7 @@ input double           InpRSIMidline          = 50.0;
 input int              InpADXPeriod           = 14;
 input double           InpMinADX              = 18.0;
 input double           InpMaxADX              = 40.0;
+input bool             InpAllowLong            = true;
 input double           InpMaxSpreadPoints      = 100.0;
 input int              InpATRPeriod           = 14;
 input double           InpStopATR             = 1.8;
@@ -209,7 +210,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.002; ADX upper-bound filter plus quote-side stops and max-spread guard.");
+   LogEvent("INIT","Research candidate v1.003; ADX upper bound, optional long side, quote-side stops and max-spread guard.");
    return INIT_SUCCEEDED;
 }
 
@@ -298,7 +299,7 @@ void OnTick()
    // Momentum-confirmed trend continuation: unlike a one-bar RSI midline cross,
    // this allows valid entries while RSI remains on the trend side of 50 and continues moving.
    // Signals still use only completed bars (shift 1 and shift 2).
-   bool longSignal=(biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
+   bool longSignal=(InpAllowLong && biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
                     rsi1>rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
    bool shortSignal=(biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
                      rsi1<rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
@@ -314,6 +315,7 @@ void OnTick()
       ";ADX="+DoubleToString(adx,2)+";ATR="+DoubleToString(atr,_Digits)+
       ";spread_points="+DoubleToString(spreadPoints,1)+
       ";adx_min="+DoubleToString(InpMinADX,1)+";adx_max="+DoubleToString(InpMaxADX,1)+
+      ";allow_long="+(InpAllowLong ? "1":"0")+
       ";max_spread_points="+DoubleToString(InpMaxSpreadPoints,1)+
       ";spread_allowed="+(spreadPoints<=InpMaxSpreadPoints ? "1":"0")+
       ";long="+(longSignal ? "1":"0")+";short="+(shortSignal ? "1":"0"));
