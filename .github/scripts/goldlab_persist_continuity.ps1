@@ -21,14 +21,14 @@ $headers = @{
 }
 $reportUrl = "$apiBase/contents/$reportPath?ref=$([uri]::EscapeDataString($branch))"
 
-# Push-triggered runs collect all related workflows that start near this code change.
+# Push-triggered runs collect related workflows from this code change; a 15-minute lookback survives runner queue delays.
 # A manual dispatch acts as a recovery sweep of recently completed GoldLab test runs.
 $startedAt = [DateTime]::UtcNow
 if ($eventName -eq "workflow_dispatch") {
   $cutoff = $startedAt.AddMinutes(-180)
   $waitMinutes = 3
 } else {
-  $cutoff = $startedAt.AddMinutes(-3)
+  $cutoff = $startedAt.AddMinutes(-15)
   $waitMinutes = 32
 }
 $deadline = $startedAt.AddMinutes($waitMinutes)
@@ -56,7 +56,7 @@ function Add-RunToReport([object]$run) {
   for ($attempt = 1; $attempt -le 10; $attempt++) {
     # Read from the newest remote branch head on every attempt. This avoids
     # depending on a Contents API read that may be unavailable to a fine-grained token.
-    & git fetch --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+    & git fetch --no-tags origin "+refs/heads/$($branch):refs/remotes/origin/$($branch)"
     if ($LASTEXITCODE -ne 0) { throw "Could not fetch the latest GoldLab branch before recording run $runId." }
     & git checkout --force -B $branch "refs/remotes/origin/$branch"
     if ($LASTEXITCODE -ne 0) { throw "Could not refresh the local report checkout for run $runId." }
