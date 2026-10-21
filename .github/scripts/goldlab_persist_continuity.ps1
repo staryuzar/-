@@ -38,16 +38,6 @@ $updates = 0
 $emptyPolls = 0
 $maxPolls = [int][Math]::Ceiling($waitMinutes * 60 / 20)
 
-function Get-ReportState {
-  $doc = Invoke-RestMethod -Method Get -Uri $reportUrl -Headers $headers -TimeoutSec 30
-  $encoded = ([string]$doc.content) -replace "\s", ""
-  $bytes = [Convert]::FromBase64String($encoded)
-  return @{
-    Sha = [string]$doc.sha
-    Content = [System.Text.Encoding]::UTF8.GetString($bytes)
-  }
-}
-
 function Add-RunToReport([object]$run) {
   $runId = [string]$run.id
   $runLink = [string]$run.html_url
@@ -59,14 +49,25 @@ function Add-RunToReport([object]$run) {
   $sha = [string]$run.head_sha
   $created = [string]$run.created_at
   $marker = "<!-- goldlab-auto-run-id:$runId -->"
+  $shortSha = $sha.Substring(0, [Math]::Min(12, $sha.Length))
+  $fullPath = Join-Path $PWD $reportPath
+  $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
   for ($attempt = 1; $attempt -le 10; $attempt++) {
-    $state = Get-ReportState
+    # Read from the newest remote branch head on every attempt. This avoids
+    # depending on a Contents API read that may be unavailable to a fine-grained token.
+    & git fetch --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+    if ($LASTEXITCODE -ne 0) { throw "Could not fetch the latest GoldLab branch before recording run $runId." }
+    & git checkout --force -B $branch "refs/remotes/origin/$branch"
+    if ($LASTEXITCODE -ne 0) { throw "Could not refresh the local report checkout for run $runId." }
+
+    if (!(Test-Path -LiteralPath $fullPath)) { throw "Continuity report missing from branch: $reportPath" }
+    $currentContent = [System.IO.File]::ReadAllText($fullPath, [System.Text.Encoding]::UTF8)
     # Links already listed by the human-maintained report also count as recorded.
-    if ($state.Content.Contains($marker) -or $state.Content -match [regex]::Escape("/actions/runs/$runId")) {
+    if ($currentContent.Contains($marker) -or $currentContent -match [regex]::Escape("/actions/runs/$runId")) {
       return $false
     }
-    $shortSha = $sha.Substring(0, [Math]::Min(12, $sha.Length))
+
     $section = @(
       "",
       "---",
@@ -81,26 +82,28 @@ function Add-RunToReport([object]$run) {
       "- **قاعدة القراءة:** نتيجة سير العمل لا تكفي وحدها للحكم على ربحية الاستراتيجية؛ راجع تقرير HTML/CSV وسجلات MT5 في ملفات الأدلة. قد يكون التشغيل ناجحًا لأنه حفظ حالة NOT RUN المقصودة.",
       ""
     ) -join [Environment]::NewLine
-    $newContent = $state.Content.TrimEnd() + [Environment]::NewLine + $section + [Environment]::NewLine
-    $body = @{
-      message = "docs: auto-record GoldLab Actions run $runId"
-      content = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($newContent))
-      sha = $state.Sha
-      branch = $branch
-    } | ConvertTo-Json -Depth 5
+    $newContent = $currentContent.TrimEnd() + [Environment]::NewLine + $section + [Environment]::NewLine
+    [System.IO.File]::WriteAllText($fullPath, $newContent, $utf8NoBom)
 
-    try {
-      $null = Invoke-RestMethod -Method Put -Uri "$apiBase/contents/$reportPath" -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 45
-      Write-Output "Persisted GoldLab run $runId ($conclusion) into $reportPath."
-      return $true
-    } catch {
-      if ($attempt -eq 10) { throw "Could not persist run $runId after 10 conflict-safe retries: $($_.Exception.Message)" }
-      # A parallel tester may have updated the same Markdown file. Re-read its
-      # current blob SHA and retry; duplicate markers make this operation idempotent.
+    & git config user.name "github-actions[bot]"
+    if ($LASTEXITCODE -ne 0) { throw "Could not configure Git author." }
+    & git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+    if ($LASTEXITCODE -ne 0) { throw "Could not configure Git email." }
+    & git add -- $reportPath
+    if ($LASTEXITCODE -ne 0) { throw "Could not stage continuity report." }
+    & git commit -m "docs: auto-record GoldLab Actions run $runId" -- $reportPath
+    if ($LASTEXITCODE -ne 0) {
+      # A concurrent run may already have added this record. Refresh and check again.
       Start-Sleep -Seconds ([Math]::Min(5,$attempt))
+      continue
     }
+    & git push origin "HEAD:refs/heads/$branch"
+    if ($LASTEXITCODE -eq 0) { return $true }
+    # Concurrent human/test commits can advance the branch during the push.
+    # The next iteration fetches the new head and reapplies this run once.
+    Start-Sleep -Seconds ([Math]::Min(5,$attempt))
   }
-  return $false
+  throw "Could not persist run $runId after 10 conflict-safe git retries."
 }
 
 for ($poll = 1; $poll -le $maxPolls; $poll++) {
@@ -120,7 +123,7 @@ for ($poll = 1; $poll -le $maxPolls; $poll++) {
     $knownSeen = $runs.Count
     foreach ($run in $runs) {
       if ([string]$run.status -eq "completed") {
-        if (Add-RunToReport -run $run) { $updates++ }
+        if (Add-RunToReport -run $run) { $updates++; Write-Output "Persisted GoldLab run $($run.id) ($($run.conclusion)) into $reportPath." }
       }
     }
     $pending = @($runs | Where-Object { [string]$_.status -ne "completed" })
