@@ -13,6 +13,10 @@ $content = Get-Content -LiteralPath $scriptPath -Raw
 $longSetMarker = "InpAllowLong=false||true||0||true||N"
 if (!$content.Contains($longSetMarker)) { throw "Long-entry SET marker missing; cannot enable long entries safely." }
 $content = $content.Replace($longSetMarker, "InpAllowLong=true||true||0||true||N")
+$longHtmlCheckMarker = "InpAllowLong=false</b>"
+if (!$content.Contains($longHtmlCheckMarker)) { throw "Long-entry HTML check marker missing; cannot validate long-enabled mode safely." }
+$content = $content.Replace($longHtmlCheckMarker, "InpAllowLong=true</b>")
+
 
 $parameterChanges = @(
   @("FromDate=2026.09.01", "FromDate=2026.09.01"),
@@ -46,7 +50,7 @@ $content = $content.Replace($setCsvMarker, $setCsvMarker + [Environment]::NewLin
 $confirmationCheck = '($html -match ''(?is)InpAllowLong=true</b>''))'
 if (!$content.Contains($confirmationCheck)) { throw "Tester input verification marker missing." }
 $content = $content.Replace($confirmationCheck, '($html -match ''(?is)InpAllowLong=true</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=false</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>''))')
-$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long entries enabled)", "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long enabled, candle-direction confirmation=false, fast EMA rejection=true)")
+$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries enabled)", "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long enabled, candle-direction confirmation=false, fast EMA rejection=true)")
 $content = $content.Replace("max ADX=40", "max ADX=25")
 $content = $content.Replace("ADX 18-40", "ADX 18-25")
 foreach ($change in $changes) {
