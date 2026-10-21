@@ -3,9 +3,9 @@ $ProgressPreference = "SilentlyContinue"
 
 # Matched experiment: use the EXACT EA source from baseline run 39562718703 (commit fed7b047454ff11c2b266fc1d1af1c0c55ede680).
 # The only intended trading-parameter difference is InpStopATR=0.70 instead of 0.45; source is downloaded into this disposable CI workspace and hash-verified.
-# The historical baseline source is version v1.006; this explicitly excludes later active-order guard changes from the comparison.
+# The historical baseline source is version v1.006; hash is for the raw GitHub bytes (LF newlines), not the Windows checkout's CRLF-normalized working copy; this explicitly excludes later active-order guard changes from the comparison.
 $baselineSourceCommit = "fed7b047454ff11c2b266fc1d1af1c0c55ede680"
-$baselineSourceSha256 = "34fab5a672b6301fce053d403677142bda1bd2e90a5f5b8e285d4a65f9b9cfd7"
+$baselineSourceSha256 = "009dbe1832be4df6f51134815900ca565994349432dad02e2d484356ced8195f"
 $scriptPath = ".github/scripts/goldlab_mt5_test.ps1"
 $eaPath = "trading-lab/gold-xauusd/GoldLabEA.mq5"
 $resultsDir = "goldlab-results"
@@ -16,7 +16,7 @@ $baselineSourceUrl = "https://raw.githubusercontent.com/staryuzar/-/$baselineSou
 $baselineSourceTemp = Join-Path $env:RUNNER_TEMP "GoldLabEA-baseline-v1.006.mq5"
 Invoke-WebRequest -Uri $baselineSourceUrl -OutFile $baselineSourceTemp -TimeoutSec 60
 $downloadHash = (Get-FileHash -LiteralPath $baselineSourceTemp -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($downloadHash -ne $baselineSourceSha256) { throw "Immutable baseline EA source hash mismatch; refusing an unmatched stop-width comparison. Actual=$downloadHash" }
+if ($downloadHash -ne $baselineSourceSha256) { throw "Immutable raw baseline EA source hash mismatch; refusing an unmatched stop-width comparison. Actual=$downloadHash" }
 Copy-Item -LiteralPath $baselineSourceTemp -Destination $eaPath -Force
 $workspaceSourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($workspaceSourceHash -ne $baselineSourceSha256) { throw "Baseline EA source copy hash mismatch; refusing to test." }
