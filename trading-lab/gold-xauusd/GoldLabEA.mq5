@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.007"
+#property version   "1.008"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -195,6 +195,14 @@ void AppendDealRow(const ulong deal)
 
 int OnInit()
 {
+   // Research builds are explicitly demo/tester only. Fail closed on real accounts.
+   ENUM_ACCOUNT_TRADE_MODE accountMode=(ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   if(accountMode==ACCOUNT_TRADE_MODE_REAL)
+   {
+      Print("GoldLab: real-account trading is disabled in this research build; initialization refused.");
+      return INIT_FAILED;
+   }
+
    if(InpRiskPercent<=0.0 || InpRiskPercent>2.0 || InpFastEMA<2 || InpSlowEMA<=InpFastEMA ||
       InpBiasFastEMA<2 || InpBiasSlowEMA<=InpBiasFastEMA || InpStopATR<=0.0 ||
       InpTargetATR<=0.0 || InpATRPeriod<2 || InpRSIPeriod<2 || InpADXPeriod<2 ||
@@ -219,7 +227,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.007; active-order entry guard; separates bullish exit setup from long-entry permission; optional candle/EMA filters; ADX ceiling; max-spread guard.");
+   LogEvent("INIT","Research candidate v1.008; real-account block + active-order entry guard; separates bullish exit setup from long-entry permission; optional candle/EMA filters; ADX ceiling; max-spread guard.");
    return INIT_SUCCEEDED;
 }
 
