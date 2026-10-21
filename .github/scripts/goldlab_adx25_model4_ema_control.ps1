@@ -11,7 +11,7 @@ if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLab EA source not found." }
 
 $content = Get-Content -LiteralPath $scriptPath -Raw
 $parameterChanges = @(
-  @("FromDate=2026.09.01", "FromDate=2026.09.22"),
+  @("FromDate=2026.09.01", "FromDate=2026.09.01"),
   @("Model=1", "Model=4"),
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=27.0||27.0||1.0||27.0||N"),
   @("InpMaxADX=27.0||27.0||1.0||27.0||N", "InpMaxADX=25.0||25.0||1.0||25.0||N"),
@@ -25,12 +25,12 @@ $parameterChanges = @(
   @("GoldLabADX27FastEMARejectStop045.set", "GoldLabADX25FastEMARejectStop045.set")
 )
 $changes = @(
-  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-22 through 2026-10-20 (matched Model=4 EMA20 rejection OFF control; ADX 25 fixed)"),
+  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-01 through 2026-10-20 (matched-period Model=4 EMA20 rejection OFF control; ADX 25 fixed)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; matched EMA20 rejection-off control only)"),
-  @("OHLC only, not production validation.", "matched EMA20 rejection-off control only; no live orders."),
-  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_adx25_model4_ema_control_2026-09-22_to_2026-10-20"),
+  @("OHLC only, not production validation.", "matched-period EMA20 rejection-off control only; no live orders."),
+  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_adx25_model4_ema_control_2026-09-01_to_2026-10-20"),
   @("ToDate=2026.10.19", "ToDate=2026.10.21"),
-  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19", "GoldLab_adx25_model4_ema_control_2026-09-22_to_2026-10-20")
+  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19", "GoldLab_adx25_model4_ema_control_2026-09-01_to_2026-10-20")
 )
 foreach ($change in $parameterChanges) {
   if (!$content.Contains($change[0])) { throw "Expected ADX27 parameter marker missing: $($change[0])" }
@@ -52,8 +52,8 @@ foreach ($change in $changes) {
 Set-Content -LiteralPath $scriptPath -Value $content -Encoding utf8
 $verified = Get-Content -LiteralPath $scriptPath -Raw
 $checks = @(
-  ($verified -match 'FromDate=2026\.09\.22\s*\r?\nToDate=2026\.10\.21'),
-  ($verified -match '2026-09-22 through 2026-10-20'),
+  ($verified -match 'FromDate=2026\.09\.01\s*\r?\nToDate=2026\.10\.21'),
+  ($verified -match '2026-09-01 through 2026-10-20'),
   ($verified -match 'InpAllowLong=false'),
   ($verified -match 'InpRiskPercent=0\.5'),
   ($verified -match 'InpStopATR=0\.45'),
@@ -69,9 +69,9 @@ New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
 @(
-  "GoldLab ADX25 Model=4 EMA20-rejection-off control (2026-09-22 to 2026-10-20)",
-  "Period: 2026-09-22 through 2026-10-20",
-  "Symbol: XAUUSD; timeframe: M5; model: Model=4, Every tick based on real ticks (matched control; actual coverage is in the journal)",
+  "GoldLab ADX25 Model=4 EMA20-rejection-off control (2026-09-01 to 2026-10-20)",
+  "Period: 2026-09-01 through 2026-10-20",
+  "Symbol: XAUUSD; timeframe: M5; model: Model=4, Every tick based on real ticks (matched-period control; actual coverage is in the journal)",
   "Risk: 0.50%; stop: 0.45 ATR; target: 2.4 ATR; trail: 1.4 ATR",
   "Max spread: 100 points; ADX 18-25; long entries disabled",
   "EA source SHA-256: $sourceHash",
@@ -82,12 +82,12 @@ $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToL
 & $scriptPath
 if (-not $?) { throw "GoldLab Strategy Tester invocation failed." }
 
-$reportPath = Join-Path $resultsDir "GoldLab_adx25_model4_ema_control_2026-09-22_to_2026-10-20.htm"
+$reportPath = Join-Path $resultsDir "GoldLab_adx25_model4_ema_control_2026-09-01_to_2026-10-20.htm"
 if (!(Test-Path -LiteralPath $reportPath) -or (Get-Item -LiteralPath $reportPath).Length -le 0) {
   throw "Expected historical Model=4 HTML report is missing/empty; this is an incomplete run, not a zero-trade result."
 }
 $html = Get-Content -LiteralPath $reportPath -Raw
-if ($html -notmatch '2026\.09\.22\s*-\s*2026\.10\.21') { throw "Tester report does not prove the requested final holdout period." }
+if ($html -notmatch '2026\.09\.01\s*-\s*2026\.10\.21') { throw "Tester report does not prove the requested final holdout period." }
 
 function Read-TesterMetric([string]$label,[string]$source) {
   $escaped = [regex]::Escape($label)
@@ -109,9 +109,9 @@ $metrics = [ordered]@{
   "Maximal consecutive loss" = Read-TesterMetric "Maximal consecutive loss (count)" $html
 }
 $lines = @(
-  "# GoldLab ADX25 Model=4 EMA20-rejection-off matched control report audit",
+  "# GoldLab ADX25 Model=4 EMA20-rejection-off matched-period control report audit",
   "",
-  "- Period: 2026-09-22 through 2026-10-20",
+  "- Period: 2026-09-01 through 2026-10-20",
   "- Model: Model=4 — Every tick based on real ticks; actual real-tick coverage must be verified in MT5 journal",
   "- EA SHA-256: $sourceHash",
   "- Tester report SHA-256: $((Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant())",
@@ -149,15 +149,15 @@ foreach ($historyMatch in $historyRangeMatches) {
 }
 $historySyncedThroughTarget = ($null -ne $historySyncEnd -and $historySyncEnd.Date -ge [datetime]'2026-10-20')
 $dateCoverage = ($null -ne $lastMarketTime -and $lastMarketTime.Date -ge [datetime]'2026-10-20' -and $historySyncedThroughTarget)
-$coverageState = if ($barCount -ge 4000 -and $dateCoverage) { "PASS: at least 4,000 M5 bars, broker history and SIGNAL_AUDIT reach 2026-10-20" } else { "INCOMPLETE: fewer than 4,000 M5 bars, broker history ends before 2026-10-20, or SIGNAL_AUDIT ends before 2026-10-20; do not treat as performance validation" }
+$coverageState = if ($barCount -ge 8000 -and $dateCoverage) { "PASS: at least 8,000 M5 bars, broker history and SIGNAL_AUDIT reach 2026-10-20" } else { "INCOMPLETE: fewer than 8,000 M5 bars, broker history ends before 2026-10-20, or SIGNAL_AUDIT ends before 2026-10-20; do not treat as performance validation" }
 $realTickLines = @($logText -split '\r?\n' | Where-Object { $_ -match '(?i)real tick|real ticks|every tick generation|ticks? (?:are )?absent|discarded.*tick|tick.*discarded' } | Select-Object -Unique -First 40)
 $lines += @("", "## Real-tick journal evidence", "", "- Model=4 was requested; this does not prove every tested minute used real ticks.", "- Matching real-tick journal lines: $($realTickLines.Count)")
 if ($realTickLines.Count -gt 0) { foreach ($tickLine in $realTickLines) { $lines += ("- " + $tickLine.Trim()) } } else { $lines += "- No matching real-tick status line was found in copied logs; inspect archived terminal/tester logs." }
 $historySyncEndText = if ($null -ne $historySyncEnd) { $historySyncEnd.ToString("yyyy-MM-dd") } else { "NOT_FOUND" }
 $lastMarketTimeText = if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }
-$lines += @("", "## Historical data coverage gate", "", "- $coverageState", "- Coverage floor: 4,000 M5 bars; matched-input control only, not profitability validation.", "- Broker history synchronized through: $historySyncEndText", "- Latest market signal timestamp (SIGNAL_AUDIT): $lastMarketTimeText", "- Requested inclusive dates: 2026-09-22 through 2026-10-20; configured ToDate boundary: 2026-10-21.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
+$lines += @("", "## Historical data coverage gate", "", "- $coverageState", "- Coverage floor: 8,000 M5 bars; matched-input control only, not profitability validation.", "- Broker history synchronized through: $historySyncEndText", "- Latest market signal timestamp (SIGNAL_AUDIT): $lastMarketTimeText", "- Requested inclusive dates: 2026-09-01 through 2026-10-20; configured ToDate boundary: 2026-10-21.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
 $lines | Set-Content -LiteralPath (Join-Path $resultsDir "adx25-model4-ema-control-report-audit.md") -Encoding utf8
 $lines | ForEach-Object { Write-Output $_ }
 $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Add-Content -LiteralPath (Join-Path $resultsDir "adx25-model4-ema-control-preflight.txt") -Value @("", "Report SHA-256: $reportHash", "Report bytes: $((Get-Item -LiteralPath $reportPath).Length)", "Coverage gate: $coverageState", "UTC verified: $([DateTime]::UtcNow.ToString('o'))") -Encoding utf8
-if ($barCount -lt 4000 -or -not $dateCoverage) { throw "Historical Model=4 coverage audit incomplete: bars=$barCount; broker history through=$(if ($null -ne $historySyncEnd) { $historySyncEnd.ToString("yyyy-MM-dd") } else { "NOT_FOUND" }); latest market signal=$(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" })." }
+if ($barCount -lt 8000 -or -not $dateCoverage) { throw "Historical Model=4 coverage audit incomplete: bars=$barCount; broker history through=$(if ($null -ne $historySyncEnd) { $historySyncEnd.ToString("yyyy-MM-dd") } else { "NOT_FOUND" }); latest market signal=$(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" })." }
