@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.009"
+#property version   "1.010"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -29,6 +29,7 @@ input bool             InpRequireSignalCandleDirection = false;
 input bool             InpRequireFastEMARejection = false;
 
 uint lastTradeRetcode=0;
+ulong orderCheckPassCount=0, orderCheckFailCount=0;
 int hFast=INVALID_HANDLE, hSlow=INVALID_HANDLE;
 int hBiasFast=INVALID_HANDLE, hBiasSlow=INVALID_HANDLE;
 int hRSI=INVALID_HANDLE, hADX=INVALID_HANDLE, hATR=INVALID_HANDLE;
@@ -47,6 +48,30 @@ ENUM_ORDER_TYPE_FILLING SymbolFillingMode()
    if((flags & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC) return ORDER_FILLING_IOC;
    return ORDER_FILLING_RETURN;
 }
+
+// Preflight each broker trade request. Passing a check is not a fill guarantee;
+// OrderSend's retcode still determines whether the request was executed.
+bool PreflightTradeRequest(MqlTradeRequest &request,const string context)
+{
+   MqlTradeCheckResult check;
+   ZeroMemory(check);
+   ResetLastError();
+   bool ok=OrderCheck(request,check);
+   int errorCode=GetLastError();
+   if(!ok)
+   {
+      orderCheckFailCount++;
+      lastTradeRetcode=check.retcode;
+      Print("GoldLab|ORDER_CHECK_FAIL|",_Symbol,
+            "|context=",context,
+            ";retcode=",IntegerToString((int)check.retcode),
+            ";comment=",check.comment,
+            ";last_error=",IntegerToString(errorCode));
+      return false;
+   }
+   orderCheckPassCount++;
+   return true;
+}
 bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double sl,const double tp,const string comment)
 {
    MqlTradeRequest request; MqlTradeResult result;
@@ -56,6 +81,7 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
    request.price=(type==ORDER_TYPE_BUY ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID));
    request.sl=sl; request.tp=tp; request.deviation=20; request.type_filling=SymbolFillingMode();
    request.type_time=ORDER_TIME_GTC; request.comment=comment;
+   if(!PreflightTradeRequest(request,"open")) return false;
    bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
    return (sent && TradeRetcodeAccepted(result.retcode));
 }
@@ -72,6 +98,7 @@ bool ClosePositionByTicket(const ulong ticket)
    request.price=(side==POSITION_TYPE_BUY ? SymbolInfoDouble(_Symbol,SYMBOL_BID) : SymbolInfoDouble(_Symbol,SYMBOL_ASK));
    request.deviation=20; request.type_filling=SymbolFillingMode(); request.type_time=ORDER_TIME_GTC;
    request.comment="GoldLab opposite-signal close";
+   if(!PreflightTradeRequest(request,"close")) return false;
    bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
    return (sent && TradeRetcodeAccepted(result.retcode));
 }
@@ -82,6 +109,7 @@ bool ModifyPositionSLTP(const ulong ticket,const double sl,const double tp)
    ZeroMemory(request); ZeroMemory(result);
    request.action=TRADE_ACTION_SLTP; request.position=ticket;
    request.symbol=PositionGetString(POSITION_SYMBOL); request.magic=InpMagic; request.sl=sl; request.tp=tp;
+   if(!PreflightTradeRequest(request,"modify-sltp")) return false;
    bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
    return (sent && result.retcode==TRADE_RETCODE_DONE);
 }
@@ -235,6 +263,10 @@ int OnInit()
 
 void OnDeinit(const int reason)
 {
+   Print("GoldLab|ORDER_CHECK_SUMMARY|",_Symbol,
+         "|passed=",IntegerToString((int)orderCheckPassCount),
+         ";failed=",IntegerToString((int)orderCheckFailCount),
+         ";deinit_reason=",IntegerToString(reason));
    if(hFast!=INVALID_HANDLE) IndicatorRelease(hFast);
    if(hSlow!=INVALID_HANDLE) IndicatorRelease(hSlow);
    if(hBiasFast!=INVALID_HANDLE) IndicatorRelease(hBiasFast);
