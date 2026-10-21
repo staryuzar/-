@@ -97,7 +97,7 @@ $logsDir = Join-Path $resultsDir "logs"
 if (Test-Path -LiteralPath $logsDir) {
   $logFiles = @(Get-ChildItem -LiteralPath $logsDir -Filter "*.txt" -File -ErrorAction SilentlyContinue)
   foreach ($logFile in $logFiles) {
-    $logText += (Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue) + "\`n"
+    $logText += (Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue) + [Environment]::NewLine
   }
 }
 $dateTokens = [regex]::Matches($logText,'2026\.09\.\d{2}\s+\d{2}:\d{2}:\d{2}')
