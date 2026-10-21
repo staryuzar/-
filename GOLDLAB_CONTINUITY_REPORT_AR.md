@@ -455,3 +455,7 @@
 - أصلحت على الفرع التجريبي فقط رسالة `INIT` لتعرض v1.007 بدلًا من v1.006؛ لن يتغير سلوك التداول بسبب هذا النص.
 - التزام التعديل: [709b2af137ae](https://github.com/staryuzar/-/commit/709b2af137ae82cb3c25a5d3539398888f3f846b).
 - جولة التحقق: [run 39565253467](https://github.com/staryuzar/-/actions/runs/39565253467) — queued عند آخر فحص. ننتظر ترجمة MT5 ونتيجة الانحدار وإعادة فحص CSV.
+
+
+### أساس تقني لوقاية الأمر النشط
+توثيق MQL5 الرسمي يوضح أن رجوع `OrderSend()` بقيمة true لا يعني أن الصفقة نُفذت بالفعل؛ وقد يرد الخادم `TRADE_RETCODE_PLACED` بمعنى أن الأمر وُضع بانتظار المزيد من المعالجة، بينما تُبلّغ أحداث `OnTradeTransaction` لاحقًا عن تغير حالة الأوامر والصفقات. لذلك كان فحص الأمر النشط قبل إرسال دخول آخر مبررًا وقائيًا، حتى وإن لم تقع الحالة في نافذة الاختبار الحالية. المراجع: [OrderSend](https://www.mql5.com/en/docs/trading/ordersend)، [Trade Server Return Codes](https://www.mql5.com/en/docs/constants/errorswarnings/enum_trade_return_codes)، [MqlTradeResult](https://www.mql5.com/en/docs/constants/structures/mqltraderesult).
