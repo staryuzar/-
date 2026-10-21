@@ -492,3 +492,54 @@ jobs:
           name: metatrader5-install-smoke-report
           path: ${{ runner.temp }}/aurora-mt5-smoke/logs/**
           if-no-files-found: warn
+
+  goldlab-mt5-three-day:
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.title, 'GoldLab')
+    name: GoldLab / real MT5 three-day Strategy Tester
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact GoldLab commit under review
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify required GoldLab files and credential presence
+        shell: pwsh
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+        run: |
+          $required = @(
+            "trading-lab/gold-xauusd/GoldLabEA.mq5",
+            ".github/scripts/goldlab_mt5_test.ps1",
+            ".github/scripts/goldlab_3day_wrapper.ps1"
+          )
+          foreach ($path in $required) {
+            if (!(Test-Path -LiteralPath $path)) { throw "Required GoldLab file missing: $path" }
+          }
+          if ([string]::IsNullOrWhiteSpace($env:MT5_CREDENTIALS)) {
+            throw "Missing repository Actions secret 'mt5'; no MT5 test attempted."
+          }
+          Write-Host "GoldLab sources exist and Actions credential is present; credential value is not printed."
+
+      - name: Run actual MetaEditor compilation and MT5 Strategy Tester
+        shell: pwsh
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+        run: |
+          & ".github/scripts/goldlab_3day_wrapper.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload three-day MT5 evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-three-day-mt5-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            goldlab-results/**
+            ${{ runner.temp }}/goldlab-mt5/**
+          if-no-files-found: warn
+          retention-days: 30
+
