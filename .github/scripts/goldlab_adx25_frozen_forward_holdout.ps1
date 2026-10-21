@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+# After this guarded workflow completes, GoldLab Automatic Continuity Journal records its run and evidence links.
+
 # Matched control: same combined Model=4 window and candle filter; disable only new long entries.
 # This wrapper rewrites only the disposable CI workspace, never the committed runner.
 $scriptPath = ".github/scripts/goldlab_mt5_test.ps1"
