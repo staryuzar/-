@@ -1,3 +1,13 @@
+## مرحلة مستقلة: تدقيق سلامة التنفيذ — 2026-10-21
+
+- أُنشئ الفرع المعزول [goldlab-execution-safety-candidate](https://github.com/staryuzar/-/tree/goldlab-execution-safety-candidate) من نقطة توثيق نتائج EMA-gap، لتجنب تلويث التجارب السابقة أو المرشح المجمد.
+- عُدّل المصدر [GoldLabEA.mq5](https://github.com/staryuzar/-/blob/goldlab-execution-safety-candidate/trading-lab/gold-xauusd/GoldLabEA.mq5) في commit [a2bdeab](https://github.com/staryuzar/-/commit/a2bdeaba9887b19309c73622aed0d64cd2575bee): إضافة OrderCheck قبل إرسال الدخول والخروج وتعديل الوقف المتحرك؛ رفض نمط تعبئة غير مناسب في Market Execution بدل الرجوع غير المشروط إلى RETURN؛ تمييز FILLED/PARTIAL/PENDING في سجل التنفيذ؛ ومنع إرسال طلب إغلاق مكرر إذا بقي أمر نشط. بقي حساب حجم اللوت عبر OrderCalcProfit مع التقريب للأسفل، وحظر التداول الحقيقي في نسخة البحث.
+- إصلاح منطقي مستقل: فصل `shortSetup` عن `shortSignal`، والسماح لـManagePositions بمعالجة إشارة معاكسة حتى لو تجاوز السبريد حد الدخول. بوابة السبريد تظل تمنع فتح صفقة جديدة، ولا تمنع إدارة/خروج المركز المفتوح.
+- أُنشئ مشغّل [goldlab_exec_safety_test.ps1](https://github.com/staryuzar/-/blob/goldlab-execution-safety-candidate/.github/scripts/goldlab_exec_safety_test.ps1) وسير التشغيل [goldlab-execution-safety.yml](https://github.com/staryuzar/-/blob/goldlab-execution-safety-candidate/.github/workflows/goldlab-execution-safety.yml). يهدف إلى ترجمة المصدر الحالي نفسه واختباره على XAUUSD M5، Model=4، 2026-08-04 إلى 2026-10-20، وإثبات القيم والتغطية ومطابقة CSV/HTML. commits المشغّل: [243712e](https://github.com/staryuzar/-/commit/243712e070478e37a40e87bad74515a26a7e7e3a)، إصلاح regex [f1896a6](https://github.com/staryuzar/-/commit/f1896a624e67dcd5e19e7e586426d300173536ec)، وسير التشغيل [a6f7eb8](https://github.com/staryuzar/-/commit/a6f7eb8f1eaf69edb7ad3374321fb0e3c98a754d).
+- **حالة التحقق عند كتابة هذه الفقرة:** التشغيل [39594998359](https://github.com/staryuzar/-/actions/runs/39594998359) بدأ على GitHub Windows runner؛ مرحلة checkout اكتملت/كانت جارية والاختبار/الترجمة ينتظران دورهما. لا توجد نتيجة ترجمة أو أداء مؤكدة بعد. سيُحدّث التقرير بنتيجة التشغيل وأي إصلاح إضافي قبل اعتبار هذه المرحلة ناجحة.
+- هذا اختبار لسلامة الكود وليس مقارنة أداء عادلة مع v1.006؛ المصدر v1.009 المعدّل يختلف عن المصدر المثبت الذي أنتج +$26.64. لا يجوز تفسير نتائج الأداء الناتجة عنه على أنها أثر إصلاح التنفيذ وحده.
+- لا دمج إلى `main`، ولا تغيير للمرشح المجمد أو نافذة الحجز 21–23 أكتوبر. لا تداول حي.
+
 ## تحليل متانة وصفي حسب شهر الدخول — 2026-10-21
 
 حُسب التقسيم من ملفات CSV الخام لتكرار التشغيل [39585989930](https://github.com/staryuzar/-/actions/runs/39585989930)، مع إسناد الصفقة إلى شهر وقت الدخول. لا تُعد هذه الأشهر تحققًا مستقلاً، لأنها أجزاء من نافذة التطوير التي اختير منها الفلتر.
