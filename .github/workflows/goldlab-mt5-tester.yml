@@ -7,6 +7,7 @@ on:
       - "trading-lab/gold-xauusd/**"
       - ".github/scripts/goldlab_mt5_test.ps1"
       - ".github/scripts/goldlab_3day_wrapper.ps1"
+      - ".github/scripts/goldlab_10day_wrapper.ps1"
       - ".github/workflows/goldlab-mt5-tester.yml"
   workflow_dispatch:
 
@@ -27,16 +28,16 @@ jobs:
       - name: Checkout research branch
         uses: actions/checkout@v4
 
-      - name: Run MetaEditor compile and verified three-day Strategy Tester
+      - name: Run MetaEditor compile and ten-day Strategy Tester with data-coverage gate
         shell: pwsh
         run: |
-          .github/scripts/goldlab_3day_wrapper.ps1
+          .github/scripts/goldlab_10day_wrapper.ps1
 
       - name: Upload test evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: goldlab-mt5-3day-diagnostic-${{ github.run_id }}
+          name: goldlab-mt5-10day-validation-${{ github.run_id }}
           path: goldlab-results/
           if-no-files-found: warn
           retention-days: 90
