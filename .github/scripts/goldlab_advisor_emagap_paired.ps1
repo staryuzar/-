@@ -28,7 +28,8 @@ if ($workspaceSourceHash -ne $baselineSourceSha256) { throw "Baseline EA source 
 $sourceText = Get-Content -LiteralPath $eaPath -Raw
 $inputMarker = "input bool             InpRequireFastEMARejection = false;"
 if (!$sourceText.Contains($inputMarker)) { throw "Pinned EA source input marker missing." }
-$sourceText = $sourceText.Replace($inputMarker, $inputMarker + [Environment]::NewLine + "input double           InpMinEMAGapATR = 0.0;")
+# The OFF control explicitly sets 0.0. Keep the compiled default at 0.1 so MT5 HTML must print 0.0 instead of omitting a default-valued parameter.
+$sourceText = $sourceText.Replace($inputMarker, $inputMarker + [Environment]::NewLine + "input double           InpMinEMAGapATR = 0.1;")
 $validationMarker = "InpMaxSpreadPoints<=0.0)"
 if (!$sourceText.Contains($validationMarker)) { throw "EA parameter-validation marker missing." }
 $sourceText = $sourceText.Replace($validationMarker, "InpMaxSpreadPoints<=0.0 || InpMinEMAGapATR<0.0)")
@@ -48,7 +49,7 @@ $auditMarker = '";ADX="+DoubleToString(adx,2)+";ATR="+DoubleToString(atr,_Digits
 if (!$sourceText.Contains($auditMarker)) { throw "EA SIGNAL_AUDIT marker missing." }
 $sourceText = $sourceText.Replace($auditMarker, '";ADX="+DoubleToString(adx,2)+";ATR="+DoubleToString(atr,_Digits)+' + [Environment]::NewLine + '      ";ema_gap_atr="+DoubleToString(emaGapATR,3)+";ema_gap_min="+DoubleToString(InpMinEMAGapATR,2)+";entry_gap_allowed="+(entryGapAllowed ? "1":"0")+";short_setup="+(shortSetup ? "1":"0")+')
 $sourceText = $sourceText.Replace('Research candidate v1.006', 'Research candidate v1.010 EMA-gap test')
-if (!$sourceText.Contains("InpMinEMAGapATR") -or !$sourceText.Contains("entryGapAllowed") -or !$sourceText.Contains("ema_gap_atr") -or !$sourceText.Contains("shortSetup") -or !$sourceText.Contains("v1.010 EMA-gap test")) { throw "EMA-gap source injection verification failed." }
+if (!$sourceText.Contains("InpMinEMAGapATR = 0.1;") -or !$sourceText.Contains("entryGapAllowed") -or !$sourceText.Contains("ema_gap_atr") -or !$sourceText.Contains("shortSetup") -or !$sourceText.Contains("v1.010 EMA-gap test")) { throw "EMA-gap source injection verification failed: default sentinel, gate, audit telemetry, or position-management isolation missing." }
 [System.IO.File]::WriteAllText($eaPath, $sourceText, [System.Text.UTF8Encoding]::new($false))
 
 $content = Get-Content -LiteralPath $scriptPath -Raw
