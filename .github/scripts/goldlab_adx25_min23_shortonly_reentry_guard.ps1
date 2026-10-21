@@ -282,6 +282,11 @@ if ($sideSummary.Count -eq 0) {
 # Count only the Strategy Tester journal stream (GoldLabEA ...), excluding its mirrored Core log.
 $testerGuardEvents = @(
   $logText -split '\r?\n' |
+    Where-Object {
+      $_.Contains("REENTRY_BLOCK") -or
+      $_.Contains("REENTRY_UNLOCK") -or
+      $_.Contains("ENTRY_SKIP_REENTRY")
+    } |
     Where-Object { $_ -match 'GoldLabEA \([^)]*,M5\).*GoldLab\|(REENTRY_BLOCK|REENTRY_UNLOCK|ENTRY_SKIP_REENTRY)\|' } |
     Sort-Object -Unique
 )
