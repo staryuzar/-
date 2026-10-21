@@ -107,6 +107,28 @@ $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToL
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath (Join-Path $resultsDir "adx25-frozen-forward-preflight.txt") -Encoding utf8
 
+# Never launch MT5 on future holdout dates. Preserve an explicit no-run result for the user.
+$holdoutReadyAfterUtc = [datetime]'2026-10-24T12:00:00Z'
+$nowUtc = [DateTime]::UtcNow
+if ($nowUtc -lt $holdoutReadyAfterUtc) {
+  $notReady = @(
+    "# Frozen forward-holdout status",
+    "",
+    "- Status: NOT RUN — requested holdout is not yet fully in the past.",
+    "- Requested inclusive period: 2026-10-21 through 2026-10-23.",
+    "- UTC check time: $($nowUtc.ToString('o'))",
+    "- Earliest allowed run time: $($holdoutReadyAfterUtc.ToString('o'))",
+    "- Reason: MT5 reported that the tester did not start when a future test period was supplied; no Strategy Tester HTML report or trade data exists.",
+    "- This is not a strategy loss, win, or zero-trade result.",
+    "- Re-run this workflow after the holdout period is complete. Strict coverage still requires broker history and SIGNAL_AUDIT through 2026-10-23 on all three dates, real ticks, and CSV/HTML net parity.",
+    "- Candidate parameters remain frozen; do not tune based on this unavailable period."
+  )
+  $notReady | Set-Content -LiteralPath (Join-Path $resultsDir "adx25-frozen-forward-report-audit.md") -Encoding utf8
+  Add-Content -LiteralPath (Join-Path $resultsDir "adx25-frozen-forward-preflight.txt") -Value @("", "Status: NOT RUN (future holdout gate)", "UTC check: $($nowUtc.ToString('o'))", "Earliest allowed run: $($holdoutReadyAfterUtc.ToString('o'))", "No performance metrics generated.") -Encoding utf8
+  $notReady | ForEach-Object { Write-Output $_ }
+  throw "Holdout NOT RUN: the locked 2026-10-21 to 2026-10-23 period is not complete. No Strategy Tester metrics were generated."
+}
+
 & $scriptPath
 if (-not $?) { throw "GoldLab Strategy Tester invocation failed." }
 
@@ -266,9 +288,11 @@ if ($sideSummary.Count -eq 0) {
   $reportNetFound = [double]::TryParse([string]$metrics["Total Net Profit"],[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$reportNet)
   if ($reportNetFound) {
     $parityDelta = [math]::Abs($csvNet-$reportNet)
-    $lines += ("- CSV net total: {0:N2} USD; Strategy Tester net total: {1:N2} USD; absolute difference: {2:N2} USD; parity={3}" -f $csvNet,$reportNet,$parityDelta,($(if ($parityDelta -le 0.10) { "PASS" } else { "REVIEW" })))
+    $csvParityPass = ($parityDelta -le 0.10)
+    $lines += ("- CSV net total: {0:N2} USD; Strategy Tester net total: {1:N2} USD; absolute difference: {2:N2} USD; parity={3}" -f $csvNet,$reportNet,$parityDelta,($(if ($csvParityPass) { "PASS" } else { "FAIL" })))
   } else {
-    $lines += "- CSV/HTML net parity: REVIEW (Strategy Tester net value not parseable)."
+    $csvParityPass = $false
+    $lines += "- CSV/HTML net parity: FAIL (Strategy Tester net value not parseable)."
   }
 }
 
@@ -276,4 +300,4 @@ $lines | Set-Content -LiteralPath (Join-Path $resultsDir "adx25-frozen-forward-r
 $lines | ForEach-Object { Write-Output $_ }
 $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Add-Content -LiteralPath (Join-Path $resultsDir "adx25-frozen-forward-preflight.txt") -Value @("", "Report SHA-256: $reportHash", "Report bytes: $((Get-Item -LiteralPath $reportPath).Length)", "Coverage gate: $coverageState", "UTC verified: $([DateTime]::UtcNow.ToString('o'))") -Encoding utf8
-if ($barCount -lt 600 -or -not $dateCoverage -or -not $strictRealTickCoverage) { throw "Frozen forward-holdout data gate failed: bars=$barCount; missing signal dates=$($missingSignalDays -join ', '); history quality=$($metrics['History Quality']); broker history through=$(if ($null -ne $historySyncEnd) { $historySyncEnd.ToString('yyyy-MM-dd') } else { 'NOT_FOUND' }); latest market signal=$(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString('yyyy-MM-dd HH:mm:ss') } else { 'NOT_FOUND' }); real ticks begin=$realTickStartText; bad journal lines=$($badTickLines.Count)." }
+if ($barCount -lt 600 -or -not $dateCoverage -or -not $strictRealTickCoverage -or -not $csvParityPass) { throw "Frozen forward-holdout acceptance gate failed: bars=$barCount; missing signal dates=$($missingSignalDays -join ', '); history quality=$($metrics['History Quality']); broker history through=$(if ($null -ne $historySyncEnd) { $historySyncEnd.ToString('yyyy-MM-dd') } else { 'NOT_FOUND' }); latest market signal=$(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString('yyyy-MM-dd HH:mm:ss') } else { 'NOT_FOUND' }); real ticks begin=$realTickStartText; bad journal lines=$($badTickLines.Count); CSV/HTML net parity=$csvParityPass." }
