@@ -35,7 +35,7 @@ $content = $content.Replace($setCsvMarker, $setCsvMarker + [Environment]::NewLin
 $confirmationCheck = '($html -match ''(?is)InpAllowLong=false</b>''))'
 if (!$content.Contains($confirmationCheck)) { throw "Tester input verification marker missing." }
 $content = $content.Replace($confirmationCheck, '($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>''))')
-$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=27, long disabled, candle-direction confirmation=true)")
+$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=27, long entries disabled)", "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=27, long disabled, candle-direction confirmation=true)")
 $content = $content.Replace("max ADX=40", "max ADX=27")
 $content = $content.Replace("ADX 18-40", "ADX 18-27")
 foreach ($change in $changes) {
