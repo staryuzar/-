@@ -73,6 +73,8 @@ try {
   $probeBlock = @"
 double actualSpreadPoints=(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/_Point;
 bool spreadExitProbe=false;
+// Test-only stimulus: if a GoldLab position exists, synthesize an opposite setup on this completed bar.
+// This is injected only into the disposable tester copy, never into the repository EA source.
 for(int probeIndex=PositionsTotal()-1;probeIndex>=0;probeIndex--)
 {
    ulong probeTicket=PositionGetTicket(probeIndex);
@@ -80,9 +82,21 @@ for(int probeIndex=PositionsTotal()-1;probeIndex>=0;probeIndex--)
    if(PositionGetString(POSITION_SYMBOL)!=_Symbol ||
       (ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
    ENUM_POSITION_TYPE probeSide=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-   if((probeSide==POSITION_TYPE_BUY && shortSetup) ||
-      (probeSide==POSITION_TYPE_SELL && longSetup))
+   if(probeSide==POSITION_TYPE_SELL)
    {
+      longSetup=true;
+      longSignal=true;
+      shortSetup=false;
+      shortSignal=false;
+      spreadExitProbe=true;
+      break;
+   }
+   if(probeSide==POSITION_TYPE_BUY)
+   {
+      shortSetup=true;
+      shortSignal=true;
+      longSetup=false;
+      longSignal=false;
       spreadExitProbe=true;
       break;
    }
@@ -90,7 +104,7 @@ for(int probeIndex=PositionsTotal()-1;probeIndex>=0;probeIndex--)
 double spreadPoints=(spreadExitProbe ? MathMax(InpMaxSpreadPoints+50.0,actualSpreadPoints) : actualSpreadPoints);
 if(spreadExitProbe)
    Print("GoldLab|SPREAD_EXIT_PROBE|",_Symbol,"|actual_spread=",DoubleToString(actualSpreadPoints,1),
-         ";forced_spread=",DoubleToString(spreadPoints,1),";opposite_setup=1");
+         ";forced_spread=",DoubleToString(spreadPoints,1),";synthetic_opposite_setup=1");
 "@
   if (-not $originalSource.Contains($spreadLine)) { throw "Synthetic spread probe insertion point missing; refuse to compile a mismatched source." }
   $instrumentedSource = $originalSource.Replace($spreadLine,$probeBlock.TrimEnd())
@@ -283,7 +297,7 @@ Visual=0
 
   $paramsConfirmed = (($html -match '(?is)InpRiskPercent=0\.5</b>') -and ($html -match '(?is)InpStopATR=0\.45</b>') -and ($html -match '(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>') -and ($html -match '(?is)InpMinADX=18(?:\.0+)?</b>') -and ($html -match '(?is)InpMaxADX=40(?:\.0+)?</b>') -and ($html -match '(?is)InpAllowLong=true</b>') -and ($html -match '(?is)InpRequireSignalCandleDirection=false</b>') -and ($html -match '(?is)InpRequireFastEMARejection=false</b>'))
   if ($paramsConfirmed) {
-    "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, ADX 23-25, long entries disabled, candle direction and EMA rejection enabled)" | Add-Content -LiteralPath $summary -Encoding utf8
+    "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, ADX 18-40, long entries enabled, candle direction and EMA rejection disabled)" | Add-Content -LiteralPath $summary -Encoding utf8
   } else {
     "Input verification: FAIL (MT5 report does not confirm execution-safety inputs; reject test)" | Add-Content -LiteralPath $summary -Encoding utf8
   }
