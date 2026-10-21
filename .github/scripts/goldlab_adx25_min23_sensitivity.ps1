@@ -53,7 +53,7 @@ if (!$content.Contains($confirmationCheck)) { throw "Tester input verification m
 $content = $content.Replace($confirmationCheck, '($html -match ''(?is)InpAllowLong=true</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=false</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>''))')
 $legacyPass = "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long entries disabled)"
 if (!$content.Contains($legacyPass)) { throw "Bidirectional input summary marker missing; refusing a misleading run log." }
-$content = $content.Replace($legacyPass, "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, min ADX=23, max ADX=25, long entries enabled, candle-direction confirmation=false, fast EMA rejection=true)")
+$content = $content.Replace($legacyPass, "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long entries enabled, candle-direction confirmation=false, fast EMA rejection=true)")
 $content = $content.Replace("max ADX=40", "max ADX=25")
 $content = $content.Replace("ADX 18-40", "ADX 18-25")
 foreach ($change in $changes) {
