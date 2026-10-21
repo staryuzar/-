@@ -1,0 +1,49 @@
+name: GoldLab MT5 Frozen Three-Day Forward Holdout
+
+on:
+  push:
+    branches: [gold-xauusd-expert-lab]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/scripts/goldlab_adx25_frozen_forward_holdout.ps1"
+      - ".github/workflows/goldlab-mt5-frozen-forward-holdout.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/scripts/goldlab_adx25_frozen_forward_holdout.ps1"
+      - ".github/workflows/goldlab-mt5-frozen-forward-holdout.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-mt5-frozen-forward-holdout-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frozen-forward-holdout:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout GoldLab research branch
+        uses: actions/checkout@v4
+
+      - name: Run frozen XAUUSD three-day Model=4 forward holdout
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_adx25_frozen_forward_holdout.ps1
+
+      - name: Upload holdout evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-mt5-frozen-forward-holdout-${{ github.run_id }}
+          path: goldlab-results/
+          if-no-files-found: warn
+          retention-days: 90
