@@ -219,7 +219,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.006; separates bullish exit setup from long-entry permission; optional candle/EMA filters; ADX ceiling; max-spread guard.");
+   LogEvent("INIT","Research candidate v1.007; active-order entry guard; separates bullish exit setup from long-entry permission; optional candle/EMA filters; ADX ceiling; max-spread guard.");
    return INIT_SUCCEEDED;
 }
 
