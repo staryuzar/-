@@ -1,6 +1,6 @@
 #property strict
-#property version   "1.009"
-#property description "GoldLab XAUUSD research candidate; demo/backtest only"
+#property version   "1.010"
+#property description "GoldLab XAUUSD execution-safety candidate; demo/backtest only"
 
 
 
