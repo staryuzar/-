@@ -87,6 +87,8 @@ bool SendCheckedRequest(MqlTradeRequest &request)
       return false;
    }
 
+   Print("GoldLab|ORDERCHECK_PASS|",_Symbol,"|action=",IntegerToString((int)request.action),
+         ";volume=",DoubleToString(request.volume,2),";comment=",request.comment);
    ResetLastError();
    bool sent=OrderSend(request,result);
    lastTradeRetcode=result.retcode;
