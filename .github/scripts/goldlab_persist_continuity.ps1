@@ -3,7 +3,8 @@ $ProgressPreference = "SilentlyContinue"
 
 # Persist completed GoldLab test runs into the continuity report without touching main.
 $repo = [string]$env:GITHUB_REPOSITORY
-$branch = [string]$env:GITHUB_REF_NAME
+$runBranch = [string]$env:GITHUB_REF_NAME
+$reportBranch = "gold-xauusd-expert-lab"
 $token = [string]$env:GITHUB_TOKEN
 $ownRunId = [string]$env:GITHUB_RUN_ID
 $eventName = [string]$env:GITHUB_EVENT_NAME
@@ -11,7 +12,8 @@ $apiBase = "https://api.github.com/repos/$repo"
 $reportPath = "GOLDLAB_CONTINUITY_REPORT_AR.md"
 
 if ($repo -ne "staryuzar/-") { throw "Refusing to write journal outside staryuzar/-." }
-if ($branch -ne "gold-xauusd-expert-lab") { throw "Refusing to write journal outside gold-xauusd-expert-lab (main is protected)." }
+if ($runBranch -notin @("gold-xauusd-expert-lab","goldlab-next-candidate")) { throw "Refusing to journal an unapproved branch: $runBranch." }
+if ($reportBranch -ne "gold-xauusd-expert-lab") { throw "Refusing to write journal outside the approved GoldLab report branch (main is protected)." }
 if ([string]::IsNullOrWhiteSpace($token)) { throw "GITHUB_TOKEN is unavailable; cannot persist report." }
 
 $headers = @{
@@ -19,7 +21,7 @@ $headers = @{
   Accept = "application/vnd.github+json"
   "X-GitHub-Api-Version" = "2022-11-28"
 }
-$reportUrl = "$apiBase/contents/$reportPath?ref=$([uri]::EscapeDataString($branch))"
+$reportUrl = "$apiBase/contents/$reportPath?ref=$([uri]::EscapeDataString($reportBranch))"
 
 # Push-triggered runs collect related workflows from this code change; a 15-minute lookback survives runner queue delays.
 # A manual dispatch acts as a recovery sweep of recently completed GoldLab test runs.
@@ -32,7 +34,7 @@ if ($eventName -eq "workflow_dispatch") {
   $waitMinutes = 32
 }
 $deadline = $startedAt.AddMinutes($waitMinutes)
-$runApiUrl = "$apiBase/actions/runs?branch=$([uri]::EscapeDataString($branch))&per_page=100"
+$runApiUrl = "$apiBase/actions/runs?branch=$([uri]::EscapeDataString($runBranch))&per_page=100"
 $knownSeen = 0
 $updates = 0
 $emptyPolls = 0
@@ -56,9 +58,9 @@ function Add-RunToReport([object]$run) {
   for ($attempt = 1; $attempt -le 10; $attempt++) {
     # Read from the newest remote branch head on every attempt. This avoids
     # depending on a Contents API read that may be unavailable to a fine-grained token.
-    & git fetch --no-tags origin "+refs/heads/$($branch):refs/remotes/origin/$($branch)" *> $null
+    & git fetch --no-tags origin "+refs/heads/$($reportBranch):refs/remotes/origin/$($reportBranch)" *> $null
     if ($LASTEXITCODE -ne 0) { throw "Could not fetch the latest GoldLab branch before recording run $runId." }
-    & git checkout --force -B $branch "refs/remotes/origin/$branch" *> $null
+    & git checkout --force -B $reportBranch "refs/remotes/origin/$reportBranch" *> $null
     if ($LASTEXITCODE -ne 0) { throw "Could not refresh the local report checkout for run $runId." }
 
     if (!(Test-Path -LiteralPath $fullPath)) { throw "Continuity report missing from branch: $reportPath" }
@@ -68,7 +70,7 @@ function Add-RunToReport([object]$run) {
       return $false
     }
 
-    $section = @(
+     $section = @(
       "",
       "---",
       "",
@@ -76,7 +78,8 @@ function Add-RunToReport([object]$run) {
       "### سجل آلي — GitHub Actions run $runId",
       "- **اسم التشغيل:** $runName",
       "- **نتيجة سير العمل:** $conclusion (الحدث: $event، الحالة: $($run.status))",
-      "- **الفرع/الالتزام:** $branch / [$shortSha](https://github.com/$repo/commit/$sha)",
+      "- **فرع التشغيل/الالتزام:** $runBranch / [$shortSha](https://github.com/$repo/commit/$sha)",
+      "- **فرع التقرير الدائم:** $reportBranch (لا يكتب هذا السكربت إلى main)",
       "- **وقت الإنشاء (UTC):** $created",
       "- **السجلات:** [فتح التشغيل]($runLink) · [ملفات الأدلة/التقرير](https://github.com/$repo/actions/runs/$runId/artifacts)",
       "- **قاعدة القراءة:** نتيجة سير العمل لا تكفي وحدها للحكم على ربحية الاستراتيجية؛ راجع تقرير HTML/CSV وسجلات MT5 في ملفات الأدلة. قد يكون التشغيل ناجحًا لأنه حفظ حالة NOT RUN المقصودة.",
@@ -97,7 +100,7 @@ function Add-RunToReport([object]$run) {
       Start-Sleep -Seconds ([Math]::Min(5,$attempt))
       continue
     }
-    & git push origin "HEAD:refs/heads/$branch" *> $null
+    & git push origin "HEAD:refs/heads/$reportBranch" *> $null
     if ($LASTEXITCODE -eq 0) { return $true }
     # Concurrent human/test commits can advance the branch during the push.
     # The next iteration fetches the new head and reapplies this run once.
@@ -111,7 +114,7 @@ for ($poll = 1; $poll -le $maxPolls; $poll++) {
   $runs = @($response.workflow_runs | Where-Object {
     [string]$_.id -ne $ownRunId -and
     [string]$_.name -like "GoldLab MT5*" -and
-    [string]$_.head_branch -eq $branch -and
+    [string]$_.head_branch -eq $runBranch -and
     ([DateTime]::Parse([string]$_.created_at).ToUniversalTime() -ge $cutoff)
   } | Sort-Object { [DateTime]::Parse([string]$_.created_at).ToUniversalTime() })
 

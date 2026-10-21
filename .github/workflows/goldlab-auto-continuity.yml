@@ -2,7 +2,7 @@ name: GoldLab Automatic Continuity Journal
 
 on:
   push:
-    branches: [gold-xauusd-expert-lab]
+    branches: [gold-xauusd-expert-lab, goldlab-next-candidate]
     paths:
       - "trading-lab/gold-xauusd/**"
       - ".github/scripts/goldlab_*.ps1"
@@ -27,7 +27,7 @@ jobs:
       - name: Checkout GoldLab branch
         uses: actions/checkout@v4
         with:
-          ref: gold-xauusd-expert-lab
+          ref: ${{ github.ref_name }}
 
       - name: Wait for related test workflows and record their results
         shell: pwsh
