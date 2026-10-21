@@ -1,6 +1,15 @@
 # تقرير الاستئناف الدائم — مستشار الذهب XAUUSD (GoldLabEA)
 
 
+## أحدث حالة تشغيل — اختبار EMA-gap متزاوج — 2026-10-21
+
+- اختيرت فرضية واحدة تالية بعد رفض الوقف 0.70 ATR: بوابة دخول `abs(EMA20−EMA50)/ATR >= 0.60`. الهدف اختبار اتساع فصل المتوسطات نسبةً إلى التذبذب، لا إضافة تصويت مؤشر جديد.
+- أُنشئ السكربت المعزول [goldlab_advisor_emagap_paired.ps1](https://github.com/staryuzar/-/blob/goldlab-advisor-v2-candidate/.github/scripts/goldlab_advisor_emagap_paired.ps1) (آخر إصلاح للمدخلات في commit [61480c9](https://github.com/staryuzar/-/commit/61480c937fd2ecad92a024bfee62dacf7c775136)) وسير التشغيل المتزاوج [goldlab-advisor-emagap.yml](https://github.com/staryuzar/-/blob/goldlab-advisor-v2-candidate/.github/workflows/goldlab-advisor-emagap.yml) (commit [ab47add](https://github.com/staryuzar/-/commit/ab47add9dce17d12bf99d079c28a4ac52ab30a6b)).
+- **تشغيل الآن:** [39584529114](https://github.com/staryuzar/-/actions/runs/39584529114)، والمرحلة الأولى `EMA gap OFF — reproduce baseline` كانت `in_progress` عند آخر تحقق. المرحلة الثانية ON لا تعمل إلا إذا طابقت OFF خط الأساس: +$26.64، PF=1.59، 35 صفقة، DD=$18.98 ضمن سماح ضيق. إذا لم يتكرر خط الأساس، يتوقف الزوج ولا نستنتج شيئًا عن الفلتر.
+- كلا الاختبارين يستخدمان مصدر v1.006 المثبت من الالتزام `fed7b047454ff11c2b266fc1d1af1c0c55ede680`، ثم يضيفان نفس بوابة الكود التجريبية؛ الاختلاف الوحيد بينهما قيمة `InpMinEMAGapATR` (0.0 OFF، 0.6 ON). لا تُحجب `shortSetup/longSetup` في إدارة المراكز المقابلة.
+- المرشح المجمد والفترة المستقبلية 21–23 أكتوبر لا يزالان دون تغيير. لا دمج إلى `main`، ولا تداول حي.
+
+
 ## أحدث نقطة استئناف — مقارنة الوقف المطابقة مكتملة — 2026-10-21
 
 - **التشغيل المطابق:** [39581637062](https://github.com/staryuzar/-/actions/runs/39581637062) اكتمل بنجاح فني. استخدم المصدر v1.006 نفسه من الالتزام `fed7b047454ff11c2b266fc1d1af1c0c55ede680`، بصمة المصدر الخام `009dbe1832be4df6f51134815900ca565994349432dad02e2d484356ced8195f`. بصمة سكربت الاختبار المعدّل `cc50803e32935818fc199ee31f58acc5640e2a28434780b3ae332777024e1c29`.
