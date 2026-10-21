@@ -10,12 +10,23 @@ if (!(Test-Path -LiteralPath $scriptPath)) { throw "GoldLab tester script not fo
 if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLab EA source not found." }
 
 $content = Get-Content -LiteralPath $scriptPath -Raw
+$parameterChanges = @(
+  @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=27.0||27.0||1.0||27.0||N"),
+  @("InpMaxADX=40(?:\.0+)?</b>", "InpMaxADX=27(?:\.0+)?</b>"),
+  @("max ADX=27", "max ADX=27"),
+  @("ADX 18-27", "ADX 18-27"),
+  @("GoldLabShortOnlyADX27Stop045.set", "GoldLabShortOnlyADX27Stop045.set")
+)
 $changes = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-01 through 2026-09-10 (10-day short-side-only validation)"),
-  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-09-10"),
+  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx27_stop045_2026-09-01_to_2026-09-10"),
   @("ToDate=2026.10.19", "ToDate=2026.09.11"),
-  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-09-10")
+  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx27_stop045_2026-09-01_to_2026-09-10")
 )
+foreach ($change in $parameterChanges) {
+  if (!$content.Contains($change[0])) { throw "Expected ADX27 parameter marker missing: $($change[0])" }
+  $content = $content.Replace($change[0], $change[1])
+}
 foreach ($change in $changes) {
   if (!$content.Contains($change[0])) { throw "Expected tester marker not found; refusing to run an unverified period: $($change[0])" }
   $content = $content.Replace($change[0], $change[1])
@@ -29,7 +40,7 @@ $checks = @(
   ($verified -match 'InpRiskPercent=0\.5'),
   ($verified -match 'InpStopATR=0\.45'),
   ($verified -match 'InpMaxSpreadPoints=100\.0'),
-  ($verified -match 'InpMaxADX=40\.0'),
+  ($verified -match 'InpMaxADX=27\.0'),
   ($verified -match 'Model=1')
 )
 if ($checks -contains $false) { throw "Ten-day preflight failed: period, risk, stop, spread, ADX, direction, or OHLC model mismatch." }
@@ -42,7 +53,7 @@ $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToL
   "Period: 2026-09-01 through 2026-09-10",
   "Symbol: XAUUSD; timeframe: M5; model: 1-minute OHLC, not real ticks",
   "Risk: 0.50%; stop: 0.45 ATR; target: 2.4 ATR; trail: 1.4 ATR",
-  "Max spread: 100 points; ADX 18-40; long entries disabled",
+  "Max spread: 100 points; ADX 18-27; long entries disabled",
   "EA source SHA-256: $sourceHash",
   "Runner-local tester script SHA-256: $testerHash",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
@@ -51,7 +62,7 @@ $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToL
 & $scriptPath
 if (-not $?) { throw "GoldLab Strategy Tester invocation failed." }
 
-$reportPath = Join-Path $resultsDir "GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-09-10.htm"
+$reportPath = Join-Path $resultsDir "GoldLab_shortonly_adx27_stop045_2026-09-01_to_2026-09-10.htm"
 if (!(Test-Path -LiteralPath $reportPath) -or (Get-Item -LiteralPath $reportPath).Length -le 0) {
   throw "Expected ten-day HTML report is missing/empty; this is an incomplete run, not a zero-trade result."
 }
@@ -75,7 +86,7 @@ $metrics = [ordered]@{
   "Total Trades" = Read-TesterMetric "Total Trades" $html
   "Profit Trades (% of total)" = Read-TesterMetric "Profit Trades (% of total)" $html
   "Loss Trades (% of total)" = Read-TesterMetric "Loss Trades (% of total)" $html
-  "Maximal consecutive loss (count)" = Read-TesterMetric "Maximal consecutive loss (count)" $html
+  "Maximal consecutive loss" = Read-TesterMetric "Maximal consecutive loss" $html
 }
 $lines = @(
   "# GoldLab ten-day report audit",
