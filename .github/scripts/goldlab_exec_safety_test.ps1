@@ -248,14 +248,14 @@ Visual=0
   "UTC finish: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
   "IMPORTANT: only the generated tester report and journal can establish whether trades were actually simulated. Missing report or missing history means FAIL/incomplete, not success." | Add-Content -LiteralPath $summary -Encoding utf8
 
-  $paramsConfirmed = (($html -match '(?is)InpRiskPercent=0\\.5</b>') -and ($html -match '(?is)InpStopATR=0\\.45</b>') -and ($html -match '(?is)InpMaxSpreadPoints=100(?:\\.0+)?</b>') -and ($html -match '(?is)InpMinADX=23(?:\\.0+)?</b>') -and ($html -match '(?is)InpMaxADX=25(?:\\.0+)?</b>') -and ($html -match '(?is)InpAllowLong=false</b>') -and ($html -match '(?is)InpRequireSignalCandleDirection=true</b>') -and ($html -match '(?is)InpRequireFastEMARejection=true</b>'))
+  $paramsConfirmed = (($html -match '(?is)InpRiskPercent=0\.5</b>') -and ($html -match '(?is)InpStopATR=0\.45</b>') -and ($html -match '(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>') -and ($html -match '(?is)InpMinADX=23(?:\.0+)?</b>') -and ($html -match '(?is)InpMaxADX=25(?:\.0+)?</b>') -and ($html -match '(?is)InpAllowLong=false</b>') -and ($html -match '(?is)InpRequireSignalCandleDirection=true</b>') -and ($html -match '(?is)InpRequireFastEMARejection=true</b>'))
   if ($paramsConfirmed) {
     "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, ADX 23-25, long entries disabled, candle direction and EMA rejection enabled)" | Add-Content -LiteralPath $summary -Encoding utf8
   } else {
     "Input verification: FAIL (MT5 report does not confirm execution-safety inputs; reject test)" | Add-Content -LiteralPath $summary -Encoding utf8
   }
   function Read-TesterMetric([string]$label,[string]$source) {
-    $pattern = "(?is)<td[^>]*>\\s*" + [regex]::Escape($label) + ":\\s*</td>\\s*<td[^>]*>\\s*<b>(.*?)</b>"
+    $pattern = "(?is)<td[^>]*>\s*" + [regex]::Escape($label) + ":\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>"
     $m=[regex]::Match($source,$pattern); if($m.Success){return ($m.Groups[1].Value -replace '<[^>]+>','').Trim()}; return "NOT_FOUND"
   }
   $metrics=[ordered]@{}
@@ -264,19 +264,19 @@ Visual=0
     if($metrics[$label] -eq "NOT_FOUND"){throw "Required MT5 report metric missing: $label"}
     "Tester metric $label = $($metrics[$label])" | Add-Content -LiteralPath $summary -Encoding utf8
   }
-  $bm=[regex]::Match([string]$metrics["Bars"],'^\\s*(\\d+)');$bars=if($bm.Success){[int]$bm.Groups[1].Value}else{0}
-  $hq=([string]$metrics["History Quality"] -match '^\\s*100%')
+  $bm=[regex]::Match([string]$metrics["Bars"],'^\s*(\d+)');$bars=if($bm.Success){[int]$bm.Groups[1].Value}else{0}
+  $hq=([string]$metrics["History Quality"] -match '^\s*100%')
   $logText="";$logsDir=Join-Path $reports "logs"
   if(Test-Path -LiteralPath $logsDir){foreach($lf in @(Get-ChildItem -LiteralPath $logsDir -Filter "*.txt" -File -ErrorAction SilentlyContinue)){$logText+=(Get-Content -LiteralPath $lf.FullName -Raw -ErrorAction SilentlyContinue)+[Environment]::NewLine}}
-  $sigMatches=[regex]::Matches($logText,'(?m)^.*?(2026\\.\\d{2}\\.\\d{2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+GoldLab\\|SIGNAL_AUDIT\\|')
+  $sigMatches=[regex]::Matches($logText,'(?m)^.*?(2026\.\d{2}\.\d{2}\s+\d{2}:\d{2}:\d{2})\s+GoldLab\|SIGNAL_AUDIT\|')
   $lastSignal=$null
   foreach($x in $sigMatches){try{$d=[datetime]::ParseExact($x.Groups[1].Value,'yyyy.MM.dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture);if($null -eq $lastSignal -or $d -gt $lastSignal){$lastSignal=$d}}catch{}}
-  $histMatches=[regex]::Matches($logText,'(?i)history synchronized from (\\d{4}\\.\\d{2}\\.\\d{2}) to (\\d{4}\\.\\d{2}\\.\\d{2})')
+  $histMatches=[regex]::Matches($logText,'(?i)history synchronized from (\d{4}\.\d{2}\.\d{2}) to (\d{4}\.\d{2}\.\d{2})')
   $histEnd=$null
   foreach($x in $histMatches){try{$d=[datetime]::ParseExact($x.Groups[2].Value,'yyyy.MM.dd',[Globalization.CultureInfo]::InvariantCulture);if($null -eq $histEnd -or $d -gt $histEnd){$histEnd=$d}}catch{}}
-  $tickMatches=[regex]::Matches($logText,'(?i)real ticks begin from (\\d{4}\\.\\d{2}\\.\\d{2})');$tickStart=$null
+  $tickMatches=[regex]::Matches($logText,'(?i)real ticks begin from (\d{4}\.\d{2}\.\d{2})');$tickStart=$null
   foreach($x in $tickMatches){try{$d=[datetime]::ParseExact($x.Groups[1].Value,'yyyy.MM.dd',[Globalization.CultureInfo]::InvariantCulture);if($null -eq $tickStart -or $d -lt $tickStart){$tickStart=$d}}catch{}}
-  $badTicks=@($logText -split '\\r?\\n'|Where-Object{$_ -match '(?i)(real ticks? (?:are )?(?:absent|missing)|real ticks? discarded|tick prices?.{0,100}(?:mismatch|not matched)|tick volumes?.{0,100}(?:mismatch|not matched)|every tick generation (?:was )?used)'}|Select-Object -Unique -First 50)
+  $badTicks=@($logText -split '\r?\n'|Where-Object{$_ -match '(?i)(real ticks? (?:are )?(?:absent|missing)|real ticks? discarded|tick prices?.{0,100}(?:mismatch|not matched)|tick volumes?.{0,100}(?:mismatch|not matched)|every tick generation (?:was )?used)'}|Select-Object -Unique -First 50)
   $coverage=($bars -ge 12000 -and $hq -and $null -ne $tickStart -and $tickStart.Date -le [datetime]'2026-08-04' -and $null -ne $histEnd -and $histEnd.Date -ge [datetime]'2026-10-20' -and $null -ne $lastSignal -and $lastSignal.Date -ge [datetime]'2026-10-20' -and $badTicks.Count -eq 0)
   "Strict coverage: bars=$bars; history quality=$($metrics['History Quality']); real ticks from=$(if($tickStart){$tickStart.ToString('yyyy-MM-dd')}else{'NOT_FOUND'}); history through=$(if($histEnd){$histEnd.ToString('yyyy-MM-dd')}else{'NOT_FOUND'}); last signal=$(if($lastSignal){$lastSignal.ToString('yyyy-MM-dd HH:mm:ss')}else{'NOT_FOUND'}); bad tick lines=$($badTicks.Count); PASS=$coverage" | Add-Content -LiteralPath $summary -Encoding utf8
   if(!$coverage){throw "Strict real-tick/date coverage gate failed; results are not accepted."}
