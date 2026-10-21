@@ -62,7 +62,7 @@ foreach ($change in $changes) {
 }
 $legacyExperiment = "long entries disabled for one-sided diagnostic. bidirectional performance diagnostic with strict tick coverage gate; no live orders."
 if (!$content.Contains($legacyExperiment)) { throw "Bidirectional parameter experiment label marker missing." }
-$content = $content.Replace($legacyExperiment, "long entries enabled for bidirectional diagnostic. EMA20 rejection=true, candle-direction=false; strict Model=4 data gate; no live orders.")
+$content = $content.Replace($legacyExperiment, "long entries enabled for bidirectional diagnostic. EMA20 rejection=true, candle-direction=true; strict Model=4 data gate; no live orders.")
 $legacyMinLabel = "max ADX=25, long entries enabled for bidirectional diagnostic."
 if (!$content.Contains($legacyMinLabel)) { throw "Minimum-ADX sensitivity label marker missing." }
 $content = $content.Replace($legacyMinLabel, "min ADX=23, max ADX=25, long entries enabled for minimum-ADX sensitivity diagnostic.")
