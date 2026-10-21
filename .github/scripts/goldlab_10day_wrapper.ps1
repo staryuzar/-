@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-# Ten-day out-of-sample robustness check for the short-side candidate.
+# Ten-day diagnostic replay to test one hypothesis: lower maximum ADX from 40 to 27.
 # This wrapper rewrites only the disposable CI workspace, never the committed runner.
 $scriptPath = ".github/scripts/goldlab_mt5_test.ps1"
 $eaPath = "trading-lab/gold-xauusd/GoldLabEA.mq5"
@@ -13,9 +13,9 @@ $content = Get-Content -LiteralPath $scriptPath -Raw
 $parameterChanges = @(
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=27.0||27.0||1.0||27.0||N"),
   @("InpMaxADX=40(?:\.0+)?</b>", "InpMaxADX=27(?:\.0+)?</b>"),
-  @("max ADX=27", "max ADX=27"),
-  @("ADX 18-27", "ADX 18-27"),
-  @("GoldLabShortOnlyADX27Stop045.set", "GoldLabShortOnlyADX27Stop045.set")
+  @("max ADX=40", "max ADX=27"),
+  @("ADX 18-40", "ADX 18-27"),
+  @("GoldLabShortOnlyADX40Stop045.set", "GoldLabShortOnlyADX27Stop045.set")
 )
 $changes = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-01 through 2026-09-10 (10-day short-side-only validation)"),
@@ -49,7 +49,7 @@ New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $testerHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
 @(
-  "GoldLab ten-day MT5 Strategy Tester validation",
+  "GoldLab ten-day ADX27 diagnostic replay",
   "Period: 2026-09-01 through 2026-09-10",
   "Symbol: XAUUSD; timeframe: M5; model: 1-minute OHLC, not real ticks",
   "Risk: 0.50%; stop: 0.45 ATR; target: 2.4 ATR; trail: 1.4 ATR",
