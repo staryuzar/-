@@ -302,7 +302,7 @@ Visual=0
   foreach($p in $pos.Values){$csvNet+=[double]$p.Net;if($p.Net -gt 0.000001){$wins++}elseif($p.Net -lt -0.000001){$losses++}}
   $testerNet=0.0
   if(![double]::TryParse([string]$metrics["Total Net Profit"],[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$testerNet)){throw "Tester net profit is not parseable."}
-  $orderCheckPassCount=[regex]::Matches($logText,'(?i)GoldLab\\|ORDERCHECK_PASS\\|').Count
+  $orderCheckPassCount=[regex]::Matches($logText,'(?i)GoldLab\|ORDERCHECK_PASS\|').Count
   $orderCheckFailCount=[regex]::Matches($logText,'(?i)ORDERCHECK_(?:API_FAILED|REJECTED)').Count
   "OrderCheck telemetry: pass events=$orderCheckPassCount; rejected/API-failed events=$orderCheckFailCount; closed position groups=$($pos.Count)" | Add-Content -LiteralPath $summary -Encoding utf8
   if($orderCheckPassCount -lt $pos.Count){throw "OrderCheck success telemetry is insufficient for executed trades: pass events=$orderCheckPassCount; positions=$($pos.Count)."}
