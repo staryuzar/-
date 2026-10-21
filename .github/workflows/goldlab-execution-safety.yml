@@ -1,0 +1,40 @@
+name: GoldLab execution-safety candidate — real-tick MT5 test
+
+on:
+  push:
+    branches: [goldlab-execution-safety-candidate]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_exec_safety_test.ps1"
+      - ".github/workflows/goldlab-execution-safety.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-execution-safety-candidate
+  cancel-in-progress: false
+
+jobs:
+  execution-safety-test:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated execution-safety branch
+        uses: actions/checkout@v4
+
+      - name: Compile source and run MT5 Model=4 diagnostics
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_exec_safety_test.ps1
+
+      - name: Preserve compile, tester, CSV and journal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-execution-safety-${{ github.run_id }}
+          path: goldlab-results/
+          if-no-files-found: warn
+          retention-days: 90
