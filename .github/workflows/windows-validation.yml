@@ -530,7 +530,7 @@ jobs:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
         run: |
           & ".github/scripts/goldlab_3day_wrapper.ps1"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not $?) { throw "GoldLab three-day wrapper reported failure." }
 
       - name: Upload three-day MT5 evidence even on failure
         if: always()
