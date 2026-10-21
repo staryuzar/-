@@ -120,7 +120,7 @@ InpRequireFastEMARejection=true||true||0||true||N
 "@
   [System.IO.File]::WriteAllText($setPath,$setContent,[System.Text.UTF8Encoding]::new($false))
   $setContent | Set-Content -LiteralPath (Join-Path $reports $setName) -Encoding utf8
-  "Tester parameter file: $setName (risk=0.50%, stop=0.45 ATR, max spread=100 points, ADX 18-40, long entries disabled)" | Add-Content -LiteralPath $summary -Encoding utf8
+  "Tester parameter file: $setName (risk=0.50%, stop=0.45 ATR, max spread=100 points, ADX 23-25, long entries disabled, candle direction and EMA rejection enabled)" | Add-Content -LiteralPath $summary -Encoding utf8
   $ini = @"
 [Common]
 Login=$accountLogin
