@@ -549,13 +549,17 @@ def is_release_excluded(path: Path) -> bool:
         return True
 
     # Private keys and exported credential bundles must never ship in an app ZIP.
-    if path.suffix.casefold() in {".pem", ".key", ".p12", ".pfx", ".keystore"}:
+    if path.suffix.casefold() in {".pem", ".key", ".p12", ".pfx", ".keystore", ".ppk", ".p8", ".jks", ".asc"}:
         return True
     if name in {
-        "credentials.json", "service-account.json", "service_account.json",
-        "secrets.json", "application_default_credentials.json",
-        "id_rsa", "id_ed25519", "known_hosts", ".netrc", ".npmrc",
-        ".pypirc", "git-credentials", "credentials", "auth.json",
+        "credentials.json", "credentials.yaml", "credentials.yml", "credentials.toml",
+        "credentials.ini", "credentials.conf", "service-account.json", "service_account.json",
+        "secrets.json", "secrets.yaml", "secrets.yml", "secrets.toml", "secrets.ini",
+        "application_default_credentials.json", "client_secret.json", "oauth_token.json",
+        "token.json", "tokens.json", "token.yaml", "token.yml", "token.toml", "token.ini",
+        "access_token", "refresh_token", "id_rsa", "id_ed25519", "known_hosts",
+        ".netrc", ".npmrc", ".pypirc", "git-credentials", "credentials", "auth.json",
+        "auth.yaml", "auth.yml", "auth.toml", "auth.ini",
     } or name.endswith(("_credentials.json", "_service_account.json")):
         return True
 
@@ -563,8 +567,9 @@ def is_release_excluded(path: Path) -> bool:
     if name.endswith(".log") or ".log." in name:
         return True
     if name.endswith((
-        ".sqlite-wal", ".sqlite-shm", ".sqlite3-wal", ".sqlite3-shm",
-        ".db-wal", ".db-shm",
+        ".sqlite-wal", ".sqlite-shm", ".sqlite-journal",
+        ".sqlite3-wal", ".sqlite3-shm", ".sqlite3-journal",
+        ".db-wal", ".db-shm", ".db-journal",
     )):
         return True
     if name.startswith(".coverage"):

@@ -23,15 +23,24 @@ class ReleaseArchiveHygieneTests(unittest.TestCase):
             ".env",
             ".env.local",
             ".ENV.PRODUCTION",
+            ".env.production.local",
             "data/aurora.sqlite3",
             "data/aurora.sqlite3-wal",
+            "data/aurora.sqlite3-journal",
+            "data/aurora.db-journal",
             "logs/app.log",
             "logs/app.log.1",
             "private/signing-key.pem",
             "private/client.p12",
+            "private/client-key.ppk",
+            "private/service-key.p8",
             "credentials.json",
+            "credentials.yml",
             "Secrets.JSON",
+            "secrets.toml",
             "service_account.json",
+            "client_secret.json",
+            "token.json",
             "config/backup_credentials.json",
             ".envrc",
             ".netrc",
@@ -88,6 +97,8 @@ class ReleaseArchiveHygieneTests(unittest.TestCase):
             (root / ".env.example").write_text("AI_PROVIDER=gemini\n", encoding="utf-8")
             (root / ".env").write_text("GEMINI_API_KEY=secret-placeholder\n", encoding="utf-8")
             (root / "aurora.sqlite3").write_bytes(b"local db placeholder")
+            (root / "aurora.sqlite3-journal").write_bytes(b"sqlite rollback journal placeholder")
+            (root / "token.json").write_text('{"access_token":"placeholder"}', encoding="utf-8")
             cache = root / ".pytest_cache"
             cache.mkdir()
             (cache / "README.md").write_text("cache", encoding="utf-8")
