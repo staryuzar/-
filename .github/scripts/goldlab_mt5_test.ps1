@@ -45,9 +45,9 @@ $accountPasswordForConfig = $accountPassword
 $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $null
 
 "GoldLab MT5 Strategy Tester run" | Set-Content -LiteralPath $summary -Encoding utf8
-"Test period: 2026-09-01 through 2026-10-19 (spread-safety and stop-distance diagnostic)" | Add-Content -LiteralPath $summary -Encoding utf8
+"Test period: 2026-09-01 through 2026-10-19 (short-side-only diagnostic)" | Add-Content -LiteralPath $summary -Encoding utf8
 "EA: GoldLabEA; Symbol XAUUSD; timeframe M5; model 1 (1-minute OHLC diagnostic; not real-tick validation)" | Add-Content -LiteralPath $summary -Encoding utf8
-"Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points; execution-safety patch plus one stop-distance diagnostic. OHLC only, not production validation." | Add-Content -LiteralPath $summary -Encoding utf8
+"Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation." | Add-Content -LiteralPath $summary -Encoding utf8
 "Deposit: 500 USD; leverage 1:1000; trade mode is tester only; no live orders are authorized." | Add-Content -LiteralPath $summary -Encoding utf8
 "UTC start: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
 
@@ -81,13 +81,13 @@ try {
   "Compile result: PASS (0 errors; warnings reported in compile-log.txt)" | Add-Content -LiteralPath $summary -Encoding utf8
 
   $config = Join-Path $root "goldlab-tester.ini"
-  $reportRelative = "goldlab-results\GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19"
+  $reportRelative = "goldlab-results\GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19"
   New-Item -ItemType Directory -Path (Join-Path $install "goldlab-results") -Force | Out-Null
 
   # Controlled execution-safety verification at 0.50% risk and 0.45 ATR stop. Spread guard/quote-side stops are code safety fixes; strategy performance still requires separate review.
   $setDir = Join-Path $install "MQL5\Profiles\Tester"
   New-Item -ItemType Directory -Path $setDir -Force | Out-Null
-  $setName = "GoldLabSpreadSafeStop045Diagnostic.set"
+  $setName = "GoldLabShortOnlyADX40Stop045.set"
   $setPath = Join-Path $setDir $setName
   $setContent = @"
 InpMagic=2026102101||2026102101||1||2026102101||N
@@ -102,6 +102,8 @@ InpRSIPeriod=14||14||1||14||N
 InpRSIMidline=50.0||50.0||1.0||50.0||N
 InpADXPeriod=14||14||1||14||N
 InpMinADX=18.0||18.0||1.0||18.0||N
+InpMaxADX=40.0||40.0||1.0||40.0||N
+InpAllowLong=false||true||0||true||N
 InpATRPeriod=14||14||1||14||N
 InpStopATR=0.45||0.45||0.05||0.45||N
 InpMaxSpreadPoints=100.0||100.0||10.0||100.0||N
@@ -112,7 +114,7 @@ InpWriteTradeCSV=true||false||0||true||N
 "@
   [System.IO.File]::WriteAllText($setPath,$setContent,[System.Text.UTF8Encoding]::new($false))
   $setContent | Set-Content -LiteralPath (Join-Path $reports $setName) -Encoding utf8
-  "Tester parameter file: $setName (risk=0.50%, stop=0.45 ATR, max spread=100 points)" | Add-Content -LiteralPath $summary -Encoding utf8
+  "Tester parameter file: $setName (risk=0.50%, stop=0.45 ATR, max spread=100 points, ADX 18-40, long entries disabled)" | Add-Content -LiteralPath $summary -Encoding utf8
   $ini = @"
 [Common]
 Login=$accountLogin
@@ -239,14 +241,14 @@ Visual=0
   }
   "UTC finish: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
   "IMPORTANT: only the generated tester report and journal can establish whether trades were actually simulated. Missing report or missing history means FAIL/incomplete, not success." | Add-Content -LiteralPath $summary -Encoding utf8
-  $paramsConfirmed = (($html -match '(?is)InpRiskPercent=0\.5</b>') -and ($html -match '(?is)InpStopATR=0\.45</b>') -and ($html -match '(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'))
+  $paramsConfirmed = (($html -match '(?is)InpRiskPercent=0\.5</b>') -and ($html -match '(?is)InpStopATR=0\.45</b>') -and ($html -match '(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>') -and ($html -match '(?is)InpMaxADX=40(?:\.0+)?</b>') -and ($html -match '(?is)InpAllowLong=false</b>'))
   if ($paramsConfirmed) {
-    "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100 points)" | Add-Content -LiteralPath $summary -Encoding utf8
+    "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)" | Add-Content -LiteralPath $summary -Encoding utf8
   } else {
-    "Input verification: FAIL (MT5 report does not confirm risk=0.5, stop=0.45 ATR and max spread=100 points; reject this comparison)" | Add-Content -LiteralPath $summary -Encoding utf8
+    "Input verification: FAIL (MT5 report does not confirm all requested short-only test inputs; reject comparison)" | Add-Content -LiteralPath $summary -Encoding utf8
   }
   Get-Content -LiteralPath $summary
-  if (-not $paramsConfirmed) { throw "Tester did not apply requested risk/stop/spread parameters; comparison result rejected." }
+  if (-not $paramsConfirmed) { throw "Tester did not apply requested short-only test parameters; comparison result rejected." }
 }
 finally {
   $env:MT5_CREDENTIALS = $null
