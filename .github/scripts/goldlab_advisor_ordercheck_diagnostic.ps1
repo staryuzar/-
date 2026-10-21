@@ -20,14 +20,14 @@ $writeCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
 $writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N"
 $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-04 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
-  @("Model=1 (1-minute OHLC diagnostic; not real-tick validation)", "Model=4 (Every tick based on real ticks; OrderCheck diagnostic)"),
+  @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; OrderCheck diagnostic)"),
   @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, ADX=23-25, long entries disabled, candle-direction and EMA rejection enabled. Real-tick demo/tester diagnostic only."),
   @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min23OrderCheckStop045.set"),
   @("InpMinADX=18.0||18.0||1.0||18.0||N", "InpMinADX=23.0||23.0||1.0||23.0||N"),
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=25.0||25.0||1.0||25.0||N"),
   @("InpWriteTradeCSV=true||false||0||true||N", $writeCsvReplacement),
   @("ADX 18-40, long entries disabled", "ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true"),
-  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop045_2026-08-04_to-2026-10-20"),
+  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop045_2026-08-04_to_2026-10-20"),
   @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx25_min23_stop045_2026-08-04_to-2026-10-20.htm")
 )
 foreach ($pair in $replacements) {
