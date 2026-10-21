@@ -17,6 +17,7 @@ on:
       - ".github/scripts/goldlab_adx25_latest_holdout.ps1"
       - ".github/scripts/goldlab_adx25_real_ticks_probe.ps1"
       - ".github/scripts/goldlab_adx25_model4_history_audit.ps1"
+      - ".github/scripts/goldlab_adx25_model4_ema_control.ps1"
       - ".github/scripts/goldlab_adx27_fast_ema_candle_diagnostic.ps1"
       - ".github/workflows/goldlab-mt5-tester.yml"
   pull_request:
@@ -25,6 +26,7 @@ on:
       - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_mt5_test.ps1"
       - ".github/scripts/goldlab_adx25_model4_history_audit.ps1"
+      - ".github/scripts/goldlab_adx25_model4_ema_control.ps1"
       - ".github/scripts/goldlab_3day_wrapper.ps1"
       - ".github/scripts/goldlab_10day_wrapper.ps1"
       - ".github/workflows/goldlab-mt5-tester.yml"
@@ -57,6 +59,29 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: goldlab-mt5-adx25-model4-history-audit-${{ github.run_id }}
+          path: goldlab-results/
+          if-no-files-found: warn
+          retention-days: 90
+
+  matched-ema-control:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout research branch for matched control
+        uses: actions/checkout@v4
+
+      - name: Run Model=4 matched EMA20 rejection-off control
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_adx25_model4_ema_control.ps1
+
+      - name: Upload matched-control evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-mt5-adx25-model4-ema-control-${{ github.run_id }}
           path: goldlab-results/
           if-no-files-found: warn
           retention-days: 90
