@@ -1,0 +1,66 @@
+name: GoldLab Advisor v2 — EMA Gap Paired Diagnostic
+
+on:
+  push:
+    branches: [goldlab-advisor-v2-candidate]
+    paths:
+      - ".github/scripts/goldlab_advisor_emagap_paired.ps1"
+      - ".github/workflows/goldlab-advisor-emagap.yml"
+
+permissions:
+  contents: read
+
+# Serialize the paired experiment with other Advisor v2 runs using the same tester credentials/data runner.
+concurrency:
+  group: goldlab-advisor-stop070-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gap-off:
+    name: EMA gap OFF — reproduce baseline
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated candidate branch
+        uses: actions/checkout@v4
+
+      - name: Run pinned-source MT5 Model=4 OFF control
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_advisor_emagap_paired.ps1 -GapThreshold '0.0'
+
+      - name: Upload OFF control evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-emagap-off-${{ github.run_id }}
+          path: goldlab-results/
+          if-no-files-found: warn
+          retention-days: 90
+
+  gap-on:
+    name: EMA gap 0.60 ATR — candidate
+    needs: gap-off
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated candidate branch
+        uses: actions/checkout@v4
+
+      - name: Run pinned-source MT5 Model=4 ON candidate
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_advisor_emagap_paired.ps1 -GapThreshold '0.6'
+
+      - name: Upload ON candidate evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-emagap-on-${{ github.run_id }}
+          path: goldlab-results/
+          if-no-files-found: warn
+          retention-days: 90
