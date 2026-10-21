@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.009"
+#property version   "1.010"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -229,7 +229,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.009; blocks live execution on real accounts while permitting Strategy Tester; active-order entry guard; optional candle/EMA filters; ADX ceiling; max-spread guard.");
+   LogEvent("INIT","Research candidate v1.010; blocks live execution on real accounts while permitting Strategy Tester; active-order entry guard; optional candle/EMA filters; ADX ceiling; max-spread guard.");
    return INIT_SUCCEEDED;
 }
 
@@ -265,7 +265,21 @@ void ManagePositions(const double atr,const bool longSignal,const bool shortSign
                                 (side==POSITION_TYPE_SELL && longSignal)))
       {
          if(!ClosePositionByTicket(ticket))
+         {
             LogEvent("CLOSE_FAIL",("retcode="+IntegerToString((int)lastTradeRetcode)));
+         }
+         else
+         {
+            double exitSpreadPoints=(ask-bid)/_Point;
+            string closingSide=(side==POSITION_TYPE_BUY ? "BUY" : "SELL");
+            string oppositeSignal=(side==POSITION_TYPE_BUY ? "SHORT" : "LONG");
+            LogEvent("CLOSE_OPPOSITE_REQUEST_ACCEPTED",
+                     "position_side="+closingSide+
+                     ";opposite_signal="+oppositeSignal+
+                     ";spread_points="+DoubleToString(exitSpreadPoints,1)+
+                     ";spread_allowed="+(exitSpreadPoints<=InpMaxSpreadPoints ? "1" : "0")+
+                     ";retcode="+IntegerToString((int)lastTradeRetcode));
+         }
          continue;
       }
 
@@ -368,7 +382,7 @@ void OnTick()
    bool spreadAllowed=(spreadPoints<=InpMaxSpreadPoints);
    // Do not reverse or open a new trade at extreme spread. The tick-level trailing call above still protects open positions.
    // A bullish setup may close an existing SELL even when opening BUYs is disabled.
-   ManagePositions(atr,(spreadAllowed ? longSetup : false),(spreadAllowed ? shortSignal : false));
+   ManagePositions(atr,longSetup,shortSignal);
    if(!longSignal && !shortSignal) return;
    if(!spreadAllowed)
    {
