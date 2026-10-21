@@ -504,3 +504,15 @@
 - **السجلات:** [فتح التشغيل](https://github.com/staryuzar/-/actions/runs/39565690597) · [ملفات الأدلة/التقرير](https://github.com/staryuzar/-/actions/runs/39565690597/artifacts)
 - **قاعدة القراءة:** نتيجة سير العمل لا تكفي وحدها للحكم على ربحية الاستراتيجية؛ راجع تقرير HTML/CSV وسجلات MT5 في ملفات الأدلة. قد يكون التشغيل ناجحًا لأنه حفظ حالة NOT RUN المقصودة.
 
+---
+
+<!-- goldlab-auto-run-id:39566191023 -->
+### سجل آلي — GitHub Actions run 39566191023
+- **اسم التشغيل:** GoldLab MT5 Model 4 ADX23 Short-Only Candle Control
+- **نتيجة سير العمل:** success (الحدث: push، الحالة: completed)
+- **فرع التشغيل/الالتزام:** goldlab-next-candidate / [c52703887bda](https://github.com/staryuzar/-/commit/c52703887bdade6d10810df46b7effd54ea2df8d)
+- **فرع التقرير الدائم:** gold-xauusd-expert-lab (لا يكتب هذا السكربت إلى main)
+- **وقت الإنشاء (UTC):** 10/21/2026 08:01:40
+- **السجلات:** [فتح التشغيل](https://github.com/staryuzar/-/actions/runs/39566191023) · [ملفات الأدلة/التقرير](https://github.com/staryuzar/-/actions/runs/39566191023/artifacts)
+- **قاعدة القراءة:** نتيجة سير العمل لا تكفي وحدها للحكم على ربحية الاستراتيجية؛ راجع تقرير HTML/CSV وسجلات MT5 في ملفات الأدلة. قد يكون التشغيل ناجحًا لأنه حفظ حالة NOT RUN المقصودة.
+
