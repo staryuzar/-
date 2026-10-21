@@ -279,9 +279,15 @@ if ($sideSummary.Count -eq 0) {
   }
 }
 
-$reentryBlockCount = [regex]::Matches($logText, 'GoldLab\|REENTRY_BLOCK\|').Count
-$reentryUnlockCount = [regex]::Matches($logText, 'GoldLab\|REENTRY_UNLOCK\|').Count
-$reentrySkipCount = [regex]::Matches($logText, 'GoldLab\|ENTRY_SKIP_REENTRY\|').Count
+# Count only the Strategy Tester journal stream (GoldLabEA ...), excluding its mirrored Core log.
+$testerGuardEvents = @(
+  $logText -split '\r?\n' |
+    Where-Object { $_ -match 'GoldLabEA \([^)]*,M5\).*GoldLab\|(REENTRY_BLOCK|REENTRY_UNLOCK|ENTRY_SKIP_REENTRY)\|' } |
+    Sort-Object -Unique
+)
+$reentryBlockCount = @($testerGuardEvents | Where-Object { $_ -match 'GoldLab\|REENTRY_BLOCK\|' }).Count
+$reentryUnlockCount = @($testerGuardEvents | Where-Object { $_ -match 'GoldLab\|REENTRY_UNLOCK\|' }).Count
+$reentrySkipCount = @($testerGuardEvents | Where-Object { $_ -match 'GoldLab\|ENTRY_SKIP_REENTRY\|' }).Count
 $lines += @(
   "",
   "## Fresh-signal re-entry guard telemetry",
