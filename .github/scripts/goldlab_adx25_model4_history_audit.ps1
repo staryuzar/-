@@ -53,7 +53,7 @@ Set-Content -LiteralPath $scriptPath -Value $content -Encoding utf8
 $verified = Get-Content -LiteralPath $scriptPath -Raw
 $checks = @(
   ($verified -match 'FromDate=2026\.09\.01\s*\r?\nToDate=2026\.10\.21'),
-  ($verified -match '2026-10-20 through 2026-10-21'),
+  ($verified -match '2026-09-01 through 2026-10-20'),
   ($verified -match 'InpAllowLong=false'),
   ($verified -match 'InpRiskPercent=0\.5'),
   ($verified -match 'InpStopATR=0\.45'),
@@ -63,7 +63,7 @@ $checks = @(
   ($verified -match 'InpRequireFastEMARejection=true'),
   ($verified -match 'Model=4')
 )
-if ($checks -contains $false) { throw "Real-tick probe preflight failed: period, risk, stop, spread, ADX, direction, or Model=4 mismatch." }
+if ($checks -contains $false) { throw "Historical Model=4 preflight failed: date range, risk, stop, spread, ADX, direction, or tester model mismatch." }
 
 New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -155,7 +155,7 @@ $lines += @("", "## Real-tick journal evidence", "", "- Model=4 was requested; t
 if ($realTickLines.Count -gt 0) { foreach ($tickLine in $realTickLines) { $lines += ("- " + $tickLine.Trim()) } } else { $lines += "- No matching real-tick status line was found in copied logs; inspect archived terminal/tester logs." }
 $historySyncEndText = if ($null -ne $historySyncEnd) { $historySyncEnd.ToString("yyyy-MM-dd") } else { "NOT_FOUND" }
 $lastMarketTimeText = if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }
-$lines += @("", "## Data coverage gate", "", "- $coverageState", "- Coverage floor: 8,000 M5 bars; historical-data coverage audit only, not profitability validation.", "- Broker history synchronized through: $historySyncEndText", "- Latest market signal timestamp (SIGNAL_AUDIT): $lastMarketTimeText", "- Requested inclusive dates: 2026-09-01 through 2026-10-20; configured ToDate boundary: 2026-10-21.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
+$lines += @("", "## Historical data coverage gate", "", "- $coverageState", "- Coverage floor: 8,000 M5 bars; historical-data coverage audit only, not profitability validation.", "- Broker history synchronized through: $historySyncEndText", "- Latest market signal timestamp (SIGNAL_AUDIT): $lastMarketTimeText", "- Requested inclusive dates: 2026-09-01 through 2026-10-20; configured ToDate boundary: 2026-10-21.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
 $lines | Set-Content -LiteralPath (Join-Path $resultsDir "adx25-model4-history-report-audit.md") -Encoding utf8
 $lines | ForEach-Object { Write-Output $_ }
 $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
