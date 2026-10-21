@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.006"
+#property version   "1.007"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -376,6 +376,20 @@ void OnTick()
          (ulong)PositionGetInteger(POSITION_MAGIC)==InpMagic)
       {
          LogEvent("ENTRY_SKIP","position already open for this symbol/magic");
+         return;
+      }
+   }
+
+   // A market request may briefly be accepted as PLACED before a position appears.
+   // Do not issue a duplicate while an order for this symbol/magic is still active.
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      ulong orderTicket=OrderGetTicket(i);
+      if(orderTicket==0) continue; // OrderGetTicket selects the order for property reads.
+      if(OrderGetString(ORDER_SYMBOL)==_Symbol &&
+         (ulong)OrderGetInteger(ORDER_MAGIC)==InpMagic)
+      {
+         LogEvent("ENTRY_SKIP","active order already exists for this symbol/magic; order="+(string)orderTicket);
          return;
       }
    }
