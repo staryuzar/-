@@ -58,7 +58,7 @@ foreach ($change in $changes) {
   if (!$content.Contains($change[0])) { throw "Expected tester marker not found; refusing to run an unverified period: $($change[0])" }
   $content = $content.Replace($change[0], $change[1])
 }
-$legacyExperiment = "long entries disabled for one-sided diagnostic. bidirectional performance diagnostic with strict tick coverage gate; no live orders."
+$legacyExperiment = "long entries disabled for one-sided diagnostic. short-only matched control with strict tick coverage gate; no live orders."
 if (!$content.Contains($legacyExperiment)) { throw "Bidirectional parameter experiment label marker missing." }
 $content = $content.Replace($legacyExperiment, "long entries disabled for short-only diagnostic. EMA20 rejection=true, candle-direction=true; strict Model=4 data gate; no live orders.")
 $legacyMinLabel = "max ADX=25, long entries disabled for short-only diagnostic."
