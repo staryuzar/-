@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.001"
+#property version   "1.002"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -16,6 +16,7 @@ input int              InpRSIPeriod           = 14;
 input double           InpRSIMidline          = 50.0;
 input int              InpADXPeriod           = 14;
 input double           InpMinADX              = 18.0;
+input double           InpMaxADX              = 40.0;
 input double           InpMaxSpreadPoints      = 100.0;
 input int              InpATRPeriod           = 14;
 input double           InpStopATR             = 1.8;
@@ -186,7 +187,8 @@ int OnInit()
 {
    if(InpRiskPercent<=0.0 || InpRiskPercent>2.0 || InpFastEMA<2 || InpSlowEMA<=InpFastEMA ||
       InpBiasFastEMA<2 || InpBiasSlowEMA<=InpBiasFastEMA || InpStopATR<=0.0 ||
-      InpTargetATR<=0.0 || InpATRPeriod<2 || InpRSIPeriod<2 || InpADXPeriod<2 || InpMaxSpreadPoints<=0.0)
+      InpTargetATR<=0.0 || InpATRPeriod<2 || InpRSIPeriod<2 || InpADXPeriod<2 ||
+      InpMinADX<=0.0 || InpMaxADX<InpMinADX || InpMaxSpreadPoints<=0.0)
    {
       Print("GoldLab: invalid input parameters.");
       return INIT_PARAMETERS_INCORRECT;
@@ -207,7 +209,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.001; quote-side stops and max-spread entry guard enabled.");
+   LogEvent("INIT","Research candidate v1.002; ADX upper-bound filter plus quote-side stops and max-spread guard.");
    return INIT_SUCCEEDED;
 }
 
@@ -297,9 +299,9 @@ void OnTick()
    // this allows valid entries while RSI remains on the trend side of 50 and continues moving.
    // Signals still use only completed bars (shift 1 and shift 2).
    bool longSignal=(biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
-                    rsi1>rsi2 && adx>=InpMinADX);
+                    rsi1>rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
    bool shortSignal=(biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
-                     rsi1<rsi2 && adx>=InpMinADX);
+                     rsi1<rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
 
    double spreadPoints=(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/_Point;
    LogEvent("SIGNAL_AUDIT",
@@ -311,6 +313,7 @@ void OnTick()
       ";RSIprev="+DoubleToString(rsi2,2)+";RSI="+DoubleToString(rsi1,2)+
       ";ADX="+DoubleToString(adx,2)+";ATR="+DoubleToString(atr,_Digits)+
       ";spread_points="+DoubleToString(spreadPoints,1)+
+      ";adx_min="+DoubleToString(InpMinADX,1)+";adx_max="+DoubleToString(InpMaxADX,1)+
       ";max_spread_points="+DoubleToString(InpMaxSpreadPoints,1)+
       ";spread_allowed="+(spreadPoints<=InpMaxSpreadPoints ? "1":"0")+
       ";long="+(longSignal ? "1":"0")+";short="+(shortSignal ? "1":"0"));
