@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-# Coverage audit: run MT5 Model=4 over historical data and record the journal real-tick start date; not a profitability acceptance test.
+# Bidirectional development-window diagnostic on MT5 Model=4; strict historical tick gate; not a profitability acceptance test.
 # This wrapper rewrites only the disposable CI workspace, never the committed runner.
 $scriptPath = ".github/scripts/goldlab_mt5_test.ps1"
 $eaPath = "trading-lab/gold-xauusd/GoldLabEA.mq5"
@@ -50,13 +50,21 @@ $content = $content.Replace($setCsvMarker, $setCsvMarker + [Environment]::NewLin
 $confirmationCheck = '($html -match ''(?is)InpAllowLong=true</b>''))'
 if (!$content.Contains($confirmationCheck)) { throw "Tester input verification marker missing." }
 $content = $content.Replace($confirmationCheck, '($html -match ''(?is)InpAllowLong=true</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=false</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>''))')
-$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries enabled)", "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long enabled, candle-direction confirmation=false, fast EMA rejection=true)")
+$legacyPass = "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long entries disabled)"
+if (!$content.Contains($legacyPass)) { throw "Bidirectional input summary marker missing; refusing a misleading run log." }
+$content = $content.Replace($legacyPass, "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=25, long entries enabled, candle-direction confirmation=false, fast EMA rejection=true)")
 $content = $content.Replace("max ADX=40", "max ADX=25")
 $content = $content.Replace("ADX 18-40", "ADX 18-25")
 foreach ($change in $changes) {
   if (!$content.Contains($change[0])) { throw "Expected tester marker not found; refusing to run an unverified period: $($change[0])" }
   $content = $content.Replace($change[0], $change[1])
 }
+$legacyExperiment = "long entries disabled for one-sided diagnostic. bidirectional performance diagnostic with strict tick coverage gate; no live orders."
+if (!$content.Contains($legacyExperiment)) { throw "Bidirectional parameter experiment label marker missing." }
+$content = $content.Replace($legacyExperiment, "long entries enabled for bidirectional diagnostic. EMA20 rejection=true, candle-direction=false; strict Model=4 data gate; no live orders.")
+$content = $content.Replace("long entries disabled)", "long entries enabled)")
+$content = $content.Replace("short-only test inputs", "bidirectional test inputs")
+$content = $content.Replace("requested short-only test parameters", "requested bidirectional test parameters")
 Set-Content -LiteralPath $scriptPath -Value $content -Encoding utf8
 $verified = Get-Content -LiteralPath $scriptPath -Raw
 $checks = @(
@@ -95,7 +103,7 @@ if (!(Test-Path -LiteralPath $reportPath) -or (Get-Item -LiteralPath $reportPath
   throw "Expected historical Model=4 HTML report is missing/empty; this is an incomplete run, not a zero-trade result."
 }
 $html = Get-Content -LiteralPath $reportPath -Raw
-if ($html -notmatch '2026\.09\.01\s*-\s*2026\.10\.21') { throw "Tester report does not prove the requested final holdout period." }
+if ($html -notmatch '2026\.09\.01\s*-\s*2026\.10\.21') { throw "Tester report does not prove the requested bidirectional development diagnostic period." }
 
 function Read-TesterMetric([string]$label,[string]$source) {
   $escaped = [regex]::Escape($label)
@@ -117,7 +125,7 @@ $metrics = [ordered]@{
   "Maximal consecutive loss" = Read-TesterMetric "Maximal consecutive loss (count)" $html
 }
 $lines = @(
-  "# GoldLab ADX25 Model=4 historical coverage report audit",
+  "# GoldLab ADX25 Model=4 bidirectional diagnostic report audit",
   "",
   "- Period: 2026-09-01 through 2026-10-20",
   "- Model: Model=4 — Every tick based on real ticks; actual real-tick coverage must be verified in MT5 journal",
@@ -179,6 +187,75 @@ $historySyncEndText = if ($null -ne $historySyncEnd) { $historySyncEnd.ToString(
 $lastMarketTimeText = if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }
 $lines += @("", "## Strict historical data coverage gate", "", "- $coverageState", "- Coverage floor: 8,000 M5 bars; diagnostic only, not strategy acceptance.", "- History Quality: $($metrics['History Quality'])", "- Broker history synchronized through: $historySyncEndText", "- Latest market signal timestamp (SIGNAL_AUDIT): $lastMarketTimeText", "- Earliest real-tick start date: $realTickStartText", "- Lines indicating missing/discarded/mismatched real ticks or generated-tick fallback: $($badTickLines.Count)", "- Requested inclusive dates: 2026-09-01 through 2026-10-20; configured ToDate boundary: 2026-10-21.")
 if ($badTickLines.Count -gt 0) { $lines += @("", "## Disqualifying real-tick journal lines", ""); foreach ($badTickLine in $badTickLines) { $lines += ("- " + $badTickLine.Trim()) } }
+
+# Attribute closed-position net results by entry side using the MT5 deal CSVs.
+# Each position_id is counted once; net is the sum of profit, commission and swap across its deals.
+$csvHeaders = @("deal","time","symbol","entry","type","volume","price","profit","commission","swap","reason","position_id")
+$positionTrades = @{}
+$tradeAuditDir = Join-Path $resultsDir "trade-audit"
+$tradeAuditFiles = @()
+if (Test-Path -LiteralPath $tradeAuditDir) {
+  $tradeAuditFiles = @(Get-ChildItem -LiteralPath $tradeAuditDir -Filter "*.csv" -File -ErrorAction SilentlyContinue)
+}
+foreach ($csvFile in $tradeAuditFiles) {
+  $csvLines = @(Get-Content -LiteralPath $csvFile.FullName -ErrorAction SilentlyContinue | Where-Object { $_.Trim().Length -gt 0 })
+  if ($csvLines.Count -eq 0) { continue }
+  if ($csvLines[0] -match '^\s*"?deal"?\s*,') { $csvLines = @($csvLines | Select-Object -Skip 1) }
+  foreach ($dealRow in ($csvLines | ConvertFrom-Csv -Header $csvHeaders)) {
+    $positionId = ([string]$dealRow.position_id).Trim()
+    if ([string]::IsNullOrWhiteSpace($positionId)) { continue }
+    if (!$positionTrades.ContainsKey($positionId)) {
+      $positionTrades[$positionId] = [ordered]@{ Net=0.0; Side="UNKNOWN"; EntryTime=""; DealRows=0 }
+    }
+    $positionRecord = $positionTrades[$positionId]
+    foreach ($field in @("profit","commission","swap")) {
+      $amount = 0.0
+      if ([double]::TryParse([string]$dealRow.$field,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$amount)) {
+        $positionRecord.Net += $amount
+      }
+    }
+    $positionRecord.DealRows++
+    if ([string]$dealRow.entry -eq "0" -and [string]$dealRow.type -in @("0","1")) {
+      $positionRecord.Side = if ([string]$dealRow.type -eq "0") { "LONG" } else { "SHORT" }
+      $positionRecord.EntryTime = [string]$dealRow.time
+    }
+  }
+}
+$sideSummary = [ordered]@{}
+foreach ($side in @("LONG","SHORT","UNKNOWN")) {
+  $sideRecords = @($positionTrades.GetEnumerator() | Where-Object { $_.Value.Side -eq $side })
+  if ($sideRecords.Count -eq 0) { continue }
+  $stats = [ordered]@{ Trades=0; Net=0.0; Wins=0; Losses=0; Breakeven=0 }
+  foreach ($sideRecord in $sideRecords) {
+    $tradeNet = [double]$sideRecord.Value.Net
+    $stats.Trades++
+    $stats.Net += $tradeNet
+    if ($tradeNet -gt 0.000001) { $stats.Wins++ }
+    elseif ($tradeNet -lt -0.000001) { $stats.Losses++ }
+    else { $stats.Breakeven++ }
+  }
+  $sideSummary[$side] = $stats
+}
+$lines += @("", "## MT5 trade CSV attribution by entry direction", "", "- CSV files found: $($tradeAuditFiles.Count)", "- Position IDs grouped: $($positionTrades.Count)", "- Side convention: opening deal type 0=BUY/LONG; type 1=SELL/SHORT; grouped net includes profit, commission and swap.")
+if ($sideSummary.Count -eq 0) {
+  $lines += "- Directional attribution unavailable: no position-level deal rows could be parsed."
+} else {
+  foreach ($side in $sideSummary.Keys) {
+    $stats = $sideSummary[$side]
+    $lines += ("- {0}: trades={1}; net={2:N2} USD; wins={3}; losses={4}; breakeven={5}" -f $side,$stats.Trades,$stats.Net,$stats.Wins,$stats.Losses,$stats.Breakeven)
+  }
+  $csvNet = 0.0
+  foreach ($side in $sideSummary.Keys) { $csvNet += [double]$sideSummary[$side].Net }
+  $reportNet = 0.0
+  $reportNetFound = [double]::TryParse([string]$metrics["Total Net Profit"],[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$reportNet)
+  if ($reportNetFound) {
+    $parityDelta = [math]::Abs($csvNet-$reportNet)
+    $lines += ("- CSV net total: {0:N2} USD; Strategy Tester net total: {1:N2} USD; absolute difference: {2:N2} USD; parity={3}" -f $csvNet,$reportNet,$parityDelta,($(if ($parityDelta -le 0.10) { "PASS" } else { "REVIEW" })))
+  } else {
+    $lines += "- CSV/HTML net parity: REVIEW (Strategy Tester net value not parseable)."
+  }
+}
+
 $lines | Set-Content -LiteralPath (Join-Path $resultsDir "adx25-model4-bidirectional-report-audit.md") -Encoding utf8
 $lines | ForEach-Object { Write-Output $_ }
 $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
