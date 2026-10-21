@@ -1,0 +1,39 @@
+name: GoldLab synthetic spread exit-path probe
+
+on:
+  push:
+    branches: [goldlab-spread-exit-probe]
+    paths:
+      - ".github/scripts/goldlab_spread_exit_probe.ps1"
+      - ".github/workflows/goldlab-spread-exit-probe.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-spread-exit-probe
+  cancel-in-progress: false
+
+jobs:
+  spread-exit-probe:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated spread-exit diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Compile and run targeted MT5 synthetic-spread probe
+        shell: pwsh
+        run: |
+          .github/scripts/goldlab_spread_exit_probe.ps1
+
+      - name: Upload tester report and diagnostic source/logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-spread-exit-probe-${{ github.run_id }}
+          path: goldlab-results/
+          if-no-files-found: warn
+          retention-days: 90
