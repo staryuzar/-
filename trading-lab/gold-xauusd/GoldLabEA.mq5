@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.010"
+#property version   "1.011"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -41,12 +41,26 @@ bool TradeRetcodeAccepted(const uint code)
 {
    return (code==TRADE_RETCODE_DONE || code==TRADE_RETCODE_DONE_PARTIAL || code==TRADE_RETCODE_PLACED);
 }
-ENUM_ORDER_TYPE_FILLING SymbolFillingMode()
+// Choose only a filling policy supported by this symbol and execution mode.
+ENUM_ORDER_TYPE_FILLING SymbolFillingMode(bool &ok)
 {
    long flags=SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE);
+   ENUM_SYMBOL_TRADE_EXECUTION execution=(ENUM_SYMBOL_TRADE_EXECUTION)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_EXEMODE);
+   ok=true;
+   if(execution==SYMBOL_TRADE_EXECUTION_MARKET)
+   {
+      // RETURN is not permitted for Market Execution.
+      if((flags & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC) return ORDER_FILLING_IOC;
+      if((flags & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK) return ORDER_FILLING_FOK;
+      ok=false;
+      return ORDER_FILLING_FOK;
+   }
    if((flags & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK) return ORDER_FILLING_FOK;
    if((flags & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC) return ORDER_FILLING_IOC;
-   return ORDER_FILLING_RETURN;
+   // RETURN is supported for Request/Instant/Exchange modes where no flag is needed.
+   if(execution!=SYMBOL_TRADE_EXECUTION_MARKET) return ORDER_FILLING_RETURN;
+   ok=false;
+   return ORDER_FILLING_FOK;
 }
 
 // Preflight each broker trade request. Passing a check is not a fill guarantee;
@@ -79,7 +93,15 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
    request.action=TRADE_ACTION_DEAL; request.symbol=_Symbol; request.magic=InpMagic;
    request.volume=lots; request.type=type;
    request.price=(type==ORDER_TYPE_BUY ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID));
-   request.sl=sl; request.tp=tp; request.deviation=20; request.type_filling=SymbolFillingMode();
+   request.sl=sl; request.tp=tp; request.deviation=20;
+   bool fillingOk=false;
+   request.type_filling=SymbolFillingMode(fillingOk);
+   if(!fillingOk)
+   {
+      lastTradeRetcode=TRADE_RETCODE_INVALID_FILL;
+      Print("GoldLab|ORDER_FILL_MODE_REJECT|",_Symbol,"|context=open;execution_mode=",IntegerToString((int)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_EXEMODE)),";filling_flags=",IntegerToString((int)SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE)));
+      return false;
+   }
    request.type_time=ORDER_TIME_GTC; request.comment=comment;
    if(!PreflightTradeRequest(request,"open")) return false;
    bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
@@ -96,7 +118,16 @@ bool ClosePositionByTicket(const ulong ticket)
    request.symbol=PositionGetString(POSITION_SYMBOL); request.magic=InpMagic; request.volume=volume;
    request.type=(side==POSITION_TYPE_BUY ? ORDER_TYPE_SELL : ORDER_TYPE_BUY);
    request.price=(side==POSITION_TYPE_BUY ? SymbolInfoDouble(_Symbol,SYMBOL_BID) : SymbolInfoDouble(_Symbol,SYMBOL_ASK));
-   request.deviation=20; request.type_filling=SymbolFillingMode(); request.type_time=ORDER_TIME_GTC;
+   request.deviation=20;
+   bool fillingOk=false;
+   request.type_filling=SymbolFillingMode(fillingOk);
+   if(!fillingOk)
+   {
+      lastTradeRetcode=TRADE_RETCODE_INVALID_FILL;
+      Print("GoldLab|ORDER_FILL_MODE_REJECT|",_Symbol,"|context=close;execution_mode=",IntegerToString((int)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_EXEMODE)),";filling_flags=",IntegerToString((int)SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE)));
+      return false;
+   }
+   request.type_time=ORDER_TIME_GTC;
    request.comment="GoldLab opposite-signal close";
    if(!PreflightTradeRequest(request,"close")) return false;
    bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
