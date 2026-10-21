@@ -112,17 +112,17 @@ if (Test-Path -LiteralPath $logsDir) {
     $logText += (Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue) + [Environment]::NewLine
   }
 }
-$dateTokens = [regex]::Matches($logText,'2026\.\d{2}\.\d{2}\s+\d{2}:\d{2}:\d{2}')
+$dateTokens = [regex]::Matches($logText,'(?m)^.*?(2026\.\d{2}\.\d{2}\s+\d{2}:\d{2}:\d{2})\s+GoldLab\|SIGNAL_AUDIT\|')
 $lastMarketTime = $null
 foreach ($token in $dateTokens) {
   try {
-    $parsed = [datetime]::ParseExact($token.Value,'yyyy.MM.dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture)
+    $parsed = [datetime]::ParseExact($token.Groups[1].Value,'yyyy.MM.dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture)
     if ($null -eq $lastMarketTime -or $parsed -gt $lastMarketTime) { $lastMarketTime = $parsed }
   } catch {}
 }
 $dateCoverage = ($null -ne $lastMarketTime -and $lastMarketTime.Date -ge [datetime]'2026-10-19')
 $coverageState = if ($barCount -ge 4500 -and $dateCoverage) { "PASS: minimum bar count met and logs reach 2026-10-19" } else { "INCOMPLETE: insufficient bars or preserved tester logs do not reach 2026-10-19; do not treat performance as validated" }
-$lines += @("", "## Data coverage gate", "", "- $coverageState", "- Minimum screening floor: 4,500 M5 bars; not proof that every session is present.", "- Latest preserved tester timestamp: " + $(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }), "- Requested inclusive last date: 2026-10-19; configured ToDate boundary: 2026-10-20.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
+$lines += @("", "## Data coverage gate", "", "- $coverageState", "- Minimum screening floor: 4,500 M5 bars; not proof that every session is present.", "- Latest market signal timestamp (SIGNAL_AUDIT): " + $(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }), "- Requested inclusive last date: 2026-10-19; configured ToDate boundary: 2026-10-20.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
 $lines | Set-Content -LiteralPath (Join-Path $resultsDir "final-holdout-report-audit.md") -Encoding utf8
 $lines | ForEach-Object { Write-Output $_ }
 $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
