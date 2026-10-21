@@ -2,7 +2,7 @@ name: GoldLab MT5 Model 4 ADX23 Short-Only Candle Control
 
 on:
   push:
-    branches: [gold-xauusd-expert-lab]
+    branches: [gold-xauusd-expert-lab, goldlab-next-candidate]
     paths:
       - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_mt5_test.ps1"
