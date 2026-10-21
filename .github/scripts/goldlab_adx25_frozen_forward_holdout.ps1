@@ -126,7 +126,14 @@ if ($nowUtc -lt $holdoutReadyAfterUtc) {
   $notReady | Set-Content -LiteralPath (Join-Path $resultsDir "adx25-frozen-forward-report-audit.md") -Encoding utf8
   Add-Content -LiteralPath (Join-Path $resultsDir "adx25-frozen-forward-preflight.txt") -Value @("", "Status: NOT RUN (future holdout gate)", "UTC check: $($nowUtc.ToString('o'))", "Earliest allowed run: $($holdoutReadyAfterUtc.ToString('o'))", "No performance metrics generated.") -Encoding utf8
   $notReady | ForEach-Object { Write-Output $_ }
-  throw "Holdout NOT RUN: the locked 2026-10-21 to 2026-10-23 period is not complete. No Strategy Tester metrics were generated."
+  # A future-dated holdout is an expected preflight deferral, not a strategy/test failure.
+  # Preserve an explicit NOT RUN audit trail while keeping the Actions result from
+  # falsely presenting the guarded, intentionally unlaunched test as a failed backtest.
+  if ($env:GITHUB_STEP_SUMMARY) {
+    $notReady | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+  }
+  Write-Output "::notice title=Holdout intentionally deferred::No Strategy Tester metrics generated; the frozen period is not fully in the past."
+  return
 }
 
 & $scriptPath
