@@ -65,7 +65,7 @@ $legacyMinLabel = "max ADX=25, long entries disabled for short-only diagnostic."
 if (!$content.Contains($legacyMinLabel)) { throw "Minimum-ADX sensitivity label marker missing." }
 $content = $content.Replace($legacyMinLabel, "min ADX=23, max ADX=25, long entries disabled for short-only diagnostic.")
 $content = $content.Replace("ADX 18-25", "ADX 23-25")
-$content = $content.Replace("max ADX=25, long entries disabled, candle-direction confirmation=true", "min ADX=23, max ADX=25, long entries disabled, candle-direction confirmation=true")
+# Input verification already includes min ADX=23; do not add this threshold a second time.
 
 # Short-only mode keeps the original disabled-long summary.
 # Short-only mode keeps the base runner input description.
