@@ -86,7 +86,7 @@ $metrics = [ordered]@{
   "Total Trades" = Read-TesterMetric "Total Trades" $html
   "Profit Trades (% of total)" = Read-TesterMetric "Profit Trades (% of total)" $html
   "Loss Trades (% of total)" = Read-TesterMetric "Loss Trades (% of total)" $html
-  "Maximal consecutive loss" = Read-TesterMetric "Maximal consecutive loss" $html
+  "Maximal consecutive loss" = Read-TesterMetric "Maximal consecutive loss (count)" $html
 }
 $lines = @(
   "# GoldLab ten-day report audit",
