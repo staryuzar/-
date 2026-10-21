@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.004"
+#property version   "1.005"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -26,6 +26,7 @@ input double           InpTrailATR             = 1.4;
 input bool             InpCloseOnOpposite     = true;
 input bool             InpWriteTradeCSV       = true;
 input bool             InpRequireSignalCandleDirection = false;
+input bool             InpRequireFastEMARejection = false;
 
 uint lastTradeRetcode=0;
 int hFast=INVALID_HANDLE, hSlow=INVALID_HANDLE;
@@ -211,7 +212,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.004; optional completed-candle direction confirmation; ADX ceiling; max-spread guard.");
+   LogEvent("INIT","Research candidate v1.005; optional completed-candle direction and fast-EMA rejection filters; ADX ceiling; max-spread guard.");
    return INIT_SUCCEEDED;
 }
 
@@ -288,11 +289,15 @@ void OnTick()
    double fast1,slow1,biasFast,biasSlow,rsi1,rsi2,adx,atr;
    double candleOpen1=iOpen(_Symbol,InpEntryTF,1);
    double candleClose1=iClose(_Symbol,InpEntryTF,1);
+   double candleHigh1=iHigh(_Symbol,InpEntryTF,1);
+   double candleLow1=iLow(_Symbol,InpEntryTF,1);
    if(!ReadValue(hFast,0,1,fast1) ||
       !ReadValue(hSlow,0,1,slow1) || !ReadValue(hBiasFast,0,1,biasFast) ||
       !ReadValue(hBiasSlow,0,1,biasSlow) || !ReadValue(hRSI,0,1,rsi1) ||
       !ReadValue(hRSI,0,2,rsi2) || !ReadValue(hADX,0,1,adx) || !ReadValue(hATR,0,1,atr) ||
-      !MathIsValidNumber(candleOpen1) || !MathIsValidNumber(candleClose1) || candleOpen1<=0.0 || candleClose1<=0.0)
+      !MathIsValidNumber(candleOpen1) || !MathIsValidNumber(candleClose1) ||
+      !MathIsValidNumber(candleHigh1) || !MathIsValidNumber(candleLow1) ||
+      candleOpen1<=0.0 || candleClose1<=0.0 || candleHigh1<=0.0 || candleLow1<=0.0 || candleHigh1<candleLow1)
    {
       LogEvent("DATA_WAIT","indicator values unavailable");
       return;
@@ -307,9 +312,13 @@ void OnTick()
    bool bearishSignalCandle=(candleClose1<candleOpen1);
    bool candleLongAllowed=(!InpRequireSignalCandleDirection || bullishSignalCandle);
    bool candleShortAllowed=(!InpRequireSignalCandleDirection || bearishSignalCandle);
-   bool longSignal=(InpAllowLong && candleLongAllowed && biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
+   bool longFastEMARejection=(candleLow1<=fast1 && candleClose1>fast1);
+   bool shortFastEMARejection=(candleHigh1>=fast1 && candleClose1<fast1);
+   bool longFastEMAAllowed=(!InpRequireFastEMARejection || longFastEMARejection);
+   bool shortFastEMAAllowed=(!InpRequireFastEMARejection || shortFastEMARejection);
+   bool longSignal=(InpAllowLong && candleLongAllowed && longFastEMAAllowed && biasFast>biasSlow && fast1>slow1 && rsi1>InpRSIMidline &&
                     rsi1>rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
-   bool shortSignal=(candleShortAllowed && biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
+   bool shortSignal=(candleShortAllowed && shortFastEMAAllowed && biasFast<biasSlow && fast1<slow1 && rsi1<InpRSIMidline &&
                      rsi1<rsi2 && adx>=InpMinADX && adx<=InpMaxADX);
 
    double spreadPoints=(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/_Point;
@@ -323,8 +332,11 @@ void OnTick()
       ";ADX="+DoubleToString(adx,2)+";ATR="+DoubleToString(atr,_Digits)+
       ";candle_open="+DoubleToString(candleOpen1,_Digits)+
       ";candle_close="+DoubleToString(candleClose1,_Digits)+
+      ";candle_high="+DoubleToString(candleHigh1,_Digits)+
+      ";candle_low="+DoubleToString(candleLow1,_Digits)+
       ";candle_bull="+(bullishSignalCandle ? "1":"0")+ ";candle_bear="+(bearishSignalCandle ? "1":"0")+
-      ";require_signal_candle="+(InpRequireSignalCandleDirection ? "1":"0")+
+      ";ema_reject_long="+(longFastEMARejection ? "1":"0")+ ";ema_reject_short="+(shortFastEMARejection ? "1":"0")+
+      ";require_signal_candle="+(InpRequireSignalCandleDirection ? "1":"0")+ ";require_fast_ema_rejection="+(InpRequireFastEMARejection ? "1":"0")+
       ";spread_points="+DoubleToString(spreadPoints,1)+
       ";adx_min="+DoubleToString(InpMinADX,1)+";adx_max="+DoubleToString(InpMaxADX,1)+
       ";allow_long="+(InpAllowLong ? "1":"0")+

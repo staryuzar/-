@@ -12,6 +12,7 @@ on:
       - ".github/scripts/goldlab_final_adx27_wrapper.ps1"
       - ".github/scripts/goldlab_candle_confirm_diagnostic.ps1"
       - ".github/scripts/goldlab_adx27_control_diagnostic.ps1"
+      - ".github/scripts/goldlab_adx27_fast_ema_rejection_diagnostic.ps1"
       - ".github/workflows/goldlab-mt5-tester.yml"
   pull_request:
     branches: [main]
@@ -40,16 +41,16 @@ jobs:
       - name: Checkout research branch
         uses: actions/checkout@v4
 
-      - name: Run matched ADX27 control without candle confirmation
+      - name: Run ADX27 fast-EMA rejection diagnostic
         shell: pwsh
         run: |
-          .github/scripts/goldlab_adx27_control_diagnostic.ps1
+          .github/scripts/goldlab_adx27_fast_ema_rejection_diagnostic.ps1
 
       - name: Upload test evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: goldlab-mt5-adx27-no-candle-control-${{ github.run_id }}
+          name: goldlab-mt5-adx27-fast-ema-rejection-${{ github.run_id }}
           path: goldlab-results/
           if-no-files-found: warn
           retention-days: 90
