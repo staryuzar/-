@@ -13,7 +13,7 @@ $content = Get-Content -LiteralPath $scriptPath -Raw
 $changes = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-01 through 2026-09-10 (10-day short-side-only validation)"),
   @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-09-10"),
-  @("ToDate=2026.10.19", "ToDate=2026.09.10"),
+  @("ToDate=2026.10.19", "ToDate=2026.09.11"),
   @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19", "GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-09-10")
 )
 foreach ($change in $changes) {
@@ -23,7 +23,7 @@ foreach ($change in $changes) {
 Set-Content -LiteralPath $scriptPath -Value $content -Encoding utf8
 $verified = Get-Content -LiteralPath $scriptPath -Raw
 $checks = @(
-  ($verified -match 'FromDate=2026\.09\.01\s*\r?\nToDate=2026\.09\.10'),
+  ($verified -match 'FromDate=2026\.09\.01\s*\r?\nToDate=2026\.09\.11'),
   ($verified -match '2026-09-01 through 2026-09-10'),
   ($verified -match 'InpAllowLong=false'),
   ($verified -match 'InpRiskPercent=0\.5'),
@@ -56,7 +56,7 @@ if (!(Test-Path -LiteralPath $reportPath) -or (Get-Item -LiteralPath $reportPath
   throw "Expected ten-day HTML report is missing/empty; this is an incomplete run, not a zero-trade result."
 }
 $html = Get-Content -LiteralPath $reportPath -Raw
-if ($html -notmatch '2026\.09\.01\s*-\s*2026\.09\.10') { throw "Tester report does not prove the requested ten-day period." }
+if ($html -notmatch '2026\.09\.01\s*-\s*2026\.09\.11') { throw "Tester report does not prove the requested ten-day period." }
 
 function Read-TesterMetric([string]$label,[string]$source) {
   $escaped = [regex]::Escape($label)
@@ -92,10 +92,27 @@ $lines = @(
 foreach ($key in $metrics.Keys) { $lines += ("- " + $key + ": " + $metrics[$key]) }
 $barCount = 0
 if ($metrics["Bars"] -match '^\s*\d+') { $barCount = [int]$Matches[0] }
-$coverageState = if ($barCount -ge 1200) { "PASS: bar-count floor met" } else { "INCOMPLETE: fewer than 1,200 M5 bars across the ten-day requested period; do not treat performance as validated" }
-$lines += @("", "## Data coverage gate", "", "- $coverageState", "- 1,200 is a minimum screening floor, not proof that every session is present.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
+$logText = ""
+$logsDir = Join-Path $resultsDir "logs"
+if (Test-Path -LiteralPath $logsDir) {
+  $logFiles = @(Get-ChildItem -LiteralPath $logsDir -Filter "*.txt" -File -ErrorAction SilentlyContinue)
+  foreach ($logFile in $logFiles) {
+    $logText += (Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue) + "\`n"
+  }
+}
+$dateTokens = [regex]::Matches($logText,'2026\.09\.\d{2}\s+\d{2}:\d{2}:\d{2}')
+$lastMarketTime = $null
+foreach ($token in $dateTokens) {
+  try {
+    $parsed = [datetime]::ParseExact($token.Value,'yyyy.MM.dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture)
+    if ($null -eq $lastMarketTime -or $parsed -gt $lastMarketTime) { $lastMarketTime = $parsed }
+  } catch {}
+}
+$dateCoverage = ($null -ne $lastMarketTime -and $lastMarketTime.Date -ge [datetime]'2026-09-10')
+$coverageState = if ($barCount -ge 2000 -and $dateCoverage) { "PASS: minimum bar count met and logs reach 2026-09-10" } else { "INCOMPLETE: insufficient bars or preserved tester logs do not reach 2026-09-10; do not treat performance as validated" }
+$lines += @("", "## Data coverage gate", "", "- $coverageState", "- Minimum screening floor: 2,000 M5 bars; not proof that every session is present.", "- Latest preserved tester timestamp: " + $(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" }), "- Requested inclusive last date: 2026-09-10; configured ToDate boundary: 2026-09-11.", "- Compare first/last deal dates in the HTML/logs before interpreting performance.")
 $lines | Set-Content -LiteralPath (Join-Path $resultsDir "ten-day-report-audit.md") -Encoding utf8
 $lines | ForEach-Object { Write-Output $_ }
 $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Add-Content -LiteralPath (Join-Path $resultsDir "ten-day-preflight.txt") -Value @("", "Report SHA-256: $reportHash", "Report bytes: $((Get-Item -LiteralPath $reportPath).Length)", "Coverage gate: $coverageState", "UTC verified: $([DateTime]::UtcNow.ToString('o'))") -Encoding utf8
-if ($barCount -lt 1200) { throw "Data-coverage gate failed: only $barCount M5 bars for the requested ten-day period." }
+if ($barCount -lt 2000 -or -not $dateCoverage) { throw "Data-coverage gate failed: bars=$barCount; latest tester time=$(if ($null -ne $lastMarketTime) { $lastMarketTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "NOT_FOUND" })." }
