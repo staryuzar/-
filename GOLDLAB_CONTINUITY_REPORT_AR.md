@@ -518,3 +518,34 @@
 - تصميم الجولة التالية — بعد اختبار الحجز فقط إذا بقيت الحاجة قائمة: عدادات منفصلة لسياقات `open/close/modify-sltp`؛ سجل قصير في فرع `TRADE_TRANSACTION_REQUEST` لردّ الخادم مع request_id وretcode وcomment/order/deal؛ والاستمرار في حفظ `DEAL_ADD` كما هو. يجب أن يكون الـhandler خفيفًا، دون حلقات طويلة أو إعادة مسح كامل التاريخ، لأن وثائق MetaQuotes تنص على حد أقصى لطابور المعاملات يبلغ 1024 وقد تُستبدل أحداث قديمة إذا طال المعالج.
 - المراجع الرسمية: [OnTradeTransaction](https://www.mql5.com/en/docs/event_handlers/ontradetransaction)، [MqlTradeResult](https://www.mql5.com/en/docs/constants/structures/mqltraderesult)، [Deal Properties](https://www.mql5.com/en/docs/constants/tradingconstants/dealproperties)، [Event Handling](https://www.mql5.com/en/docs/basis/function/events).
 - الخطوة التالية الملزمة: بعد الموعد المسموح لاختبار الحجز، اجمع HTML + Journal + CSV أولًا. لا تغيّر منطق التداول في تلك الجولة. بعد تسجيل قرار الحجز فقط، يمكن فتح patch تشخيصي منفصل لمطابقة ردود الطلبات والأحداث المنفذة؛ تُعاد ترجمة/اختبار النسخة التشخيصية على نافذة داخلية، ولا تُعتبر نتيجة الربحية دليلًا مستقلًا بسبب تغيير القياس.
+
+
+---
+
+## تجربة v1.014 المنفصلة — ربط نتائج الطلب بمعرّفات OnTradeTransaction (2026-10-23)
+
+**الغرض البحثي:** لا تعديل على شروط الدخول/الخروج أو إدارة المخاطرة. هذه التجربة تضيف تسجيلًا لكل استجابة OrderSend الفورية، ثم تسجل رد الخادم في `TRADE_TRANSACTION_REQUEST` لمطابقة `result.request_id`، مع الإبقاء على `TRADE_TRANSACTION_DEAL_ADD` كمرجع CSV للتنفيذ.
+
+### المراجع الفنية التي قادت التعديل
+- توثيق MetaQuotes يوضح أن `request` و`result` صالحان للتحليل داخل `OnTradeTransaction` عند `TRADE_TRANSACTION_REQUEST`، وأن الطلب الواحد قد يولد عدة أحداث غير مضمونة الترتيب، كما أن طابور الأحداث حجمه 1024؛ لذلك يكتب المعالج سجلًا قصيرًا ولا يعد كل حدث صفقة. https://www.mql5.com/en/docs/event_handlers/ontradetransaction
+- `MqlTradeResult` يوفّر `request_id`, `retcode`, `deal`, `order`, `volume`, `price`, `comment`, و`retcode_external`; يمكن ربط رد الطلب بمعرّفه ثم التحقق من الصفقات عبر `DEAL_ADD`/التاريخ. https://www.mql5.com/en/docs/constants/structures/mqltraderesult
+- `OrderSend()==true` لا يعني وحده أن الطلب نُفذ؛ تُراجع استجابة الخادم ثم سجل الصفقات. https://www.mql5.com/en/docs/trading/ordersend
+- دليل رموز الاستجابة يميز `DONE` و`DONE_PARTIAL` و`PLACED` عن رموز مثل `NO_CHANGES` أو `ORDER_CHANGED`؛ لا يصنَّف أي رمز غير متوقع كنجاح تلقائيًا دون مراجعة. https://www.mql5.com/en/docs/constants/errorswarnings/enum_trade_return_codes
+
+### التغييرات المعزولة
+- فرع تجريبي جديد: [goldlab-request-result-candidate](https://github.com/staryuzar/-/tree/goldlab-request-result-candidate). لا يُدمج تلقائيًا، ولم تتغير `main` أو `gold-xauusd-expert-lab`.
+- EA v1.014 (commit `a7b19cbe8e4317b94736852540a49658c99bc44a`): سجل `GoldLab|ORDER_SEND_RESULT` لكل استدعاء، ويضيف `request_id` والرمز والصفقة/الأمر والحجم والسعر والتعليق و`last_error`. كما يعد ويطبع `ORDER_REQUEST_RESULT` لردود الخادم المطابقة للرمز والـMagic Number، وملخص `ORDER_REQUEST_SUMMARY`. لا يُغيّر معايير قبول الطلب التي كانت في v1.013.
+- سكربت الفحص يزيل النسخ المكررة بين سجلي Chart/Core قبل حساب الأحداث، ويتحقق من عدد سجل كل إرسال، وتوازن الملخصات، وعدم تكرار معرّفات غير صفرية، ومطابقة `request_id` بين النتيجة الفورية ورد الخادم. يسجل المعرّفات غير المتطابقة والرموز خارج قائمة القبول قبل إيقاف بوابة القبول.
+- سير Actions صار يسمح بالفرع التجريبي، مع بقاء الإعدادات نفسها: XAUUSD M5، Model=4، 2026-08-05 إلى 2026-10-20، إيداع 500 دولار، والمخاطرة/الفلاتر نفسها. هذا اختبار تشخيصي ضمن عينة التطوير لا اختبار ربحية مستقل ولا اختبار حجز.
+
+### محاولات التشغيل وتصحيح الأدوات
+- Run #14 [39869965896](https://github.com/staryuzar/-/actions/runs/39869965896) فشل قبل MetaEditor بسبب صياغة PowerShell في Regex ملخص الطلب؛ لم تحدث ترجمة أو نتيجة MT5.
+- Run #15 [39870004598](https://github.com/staryuzar/-/actions/runs/39870004598) أعاد نفس فشل التحليل النحوي قبل بدء الاختبار؛ أُبقي الخطأ مسجلًا، لا نعده فشلًا في كود EA.
+- أصلحت نهاية Regex على commit `e7db16f6a23daf5a008a0bfb53de0f3c5c8d1fdf` قبل تشغيل الجولة التالية.
+- Run #16 [39870103918](https://github.com/staryuzar/-/actions/runs/39870103918) هو الاختبار على هذا التصحيح. **آخر حالة تحقق:** `in_progress` في خطوة `Run MT5 Model=4 OrderCheck diagnostic`; لم يظهر Artifact أو نتيجة ترجمة عند آخر تحقق. يجب فحصه بعد اكتماله وعدم وصفه بالنجاح قبله.
+
+### الخطوة التالية الدقيقة
+1. فحص Run #16 والـArtifact، أولًا compile 0/0 والـHTML/CSV/Journal وOrderCheck/OrderSend.
+2. لا يقبل v1.014 إلا إذا تطابقت أعداد سجل النتائج مع عدد الاستدعاءات، وكانت `request_id` غير صفرية وفريدة وقابلة للربط، وتطابق عدد callbacks مع الملخص، ولا توجد رموز غير مفهومة أو ردود غير مرتبطة. إذا فشل أي شرط، تُراجع الأدلة قبل تعديل شرط الفحص.
+3. إذا كان رد الخادم يستخدم رمزًا غير موجود في قائمة `DONE/DONE_PARTIAL/PLACED` مثل `NO_CHANGES`، لا تُوسّع القائمة تلقائيًا؛ راجع `action` والـcomment وسجل `TRAIL_FAIL`/الصفقات أولًا.
+4. تبقى نافذة الحجز 2026-10-21 إلى 2026-10-23 محمية حتى 2026-10-24 12:00 UTC (15:00 عدن). لا تغييرات استراتيجية ولا تداول حي قبل قرار الاختبار المجمد.
