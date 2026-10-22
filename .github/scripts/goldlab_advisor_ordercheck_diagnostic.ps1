@@ -49,7 +49,7 @@ $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
 $content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
 $content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.20')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
-$newChecks = '($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')
+$newChecks = '($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
 $content = $content.Replace($oldMax, $newChecks)
 $content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input + date verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true, report period ends 2026-10-20)")
