@@ -2,7 +2,7 @@ name: GoldLab Advisor — OrderCheck Execution Safety
 
 on:
   push:
-    branches: [goldlab-ordercheck-candidate]
+    branches: [goldlab-ordercheck-candidate, goldlab-request-result-candidate]
     paths:
       - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_advisor_ordercheck_diagnostic.ps1"
