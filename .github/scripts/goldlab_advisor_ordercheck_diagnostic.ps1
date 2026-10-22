@@ -213,12 +213,23 @@ foreach ($line in $rawImmediateResultLines) {
 $sendResultDuplicateCount = $rawImmediateResultLines.Count - $uniqueImmediateResultLines.Count
 $sendResultIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $sendResultZeroIds = 0
+$sendResultSignatures = @{}
+$sendResultZeroSignatures = @()
 foreach ($line in $uniqueImmediateResultLines) {
   $markerIndex = $line.IndexOf("GoldLab|ORDER_SEND_RESULT|", [System.StringComparison]::Ordinal)
   $payload = $line.Substring($markerIndex + "GoldLab|ORDER_SEND_RESULT|".Length)
-  if ($payload -match ';request_id=(\d+);retcode=') {
-    if ($Matches[1] -eq "0") { $sendResultZeroIds++ } else { [void]$sendResultIds.Add($Matches[1]) }
-  } else { throw "Cannot parse request_id from ORDER_SEND_RESULT: $payload" }
+  if ($payload -match ';request_id=(\d+);retcode=(\d+);order=(\d+);deal=(\d+);volume=([\d.]+);price=([\d.]+);comment=') {
+    $rid = [string]$Matches[1]
+    $signature = "$($Matches[2])|$($Matches[3])|$($Matches[4])|$($Matches[5])|$($Matches[6])"
+    if ($rid -eq "0") {
+      $sendResultZeroIds++
+      if ($Matches[3] -eq "0" -and $Matches[4] -eq "0") { throw "request_id=0 has neither an order nor a deal ticket; no safe fallback key exists." }
+      $sendResultZeroSignatures += $signature
+    } else {
+      [void]$sendResultIds.Add($rid)
+      $sendResultSignatures[$rid] = $signature
+    }
+  } else { throw "Cannot parse request_id and result signature from ORDER_SEND_RESULT: $payload" }
 }
 if ($uniqueImmediateResultLines.Count -ne $sendCallTotal) {
   throw "ORDER_SEND_RESULT records ($($uniqueImmediateResultLines.Count)) do not equal OrderSend calls ($sendCallTotal)."
@@ -242,13 +253,24 @@ foreach ($line in $rawRequestResultLines) {
 $requestResultDuplicateCount = $rawRequestResultLines.Count - $uniqueRequestResultLines.Count
 $requestResultIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $requestResultZeroIds = 0
+$requestResultSignatures = @{}
+$requestResultZeroSignatures = @()
 $requestResultOtherRetcodeLines = @()
 foreach ($line in $uniqueRequestResultLines) {
   $markerIndex = $line.IndexOf("GoldLab|ORDER_REQUEST_RESULT|", [System.StringComparison]::Ordinal)
   $payload = $line.Substring($markerIndex + "GoldLab|ORDER_REQUEST_RESULT|".Length)
-  if ($payload -match '\|request_id=(\d+);action=') {
-    if ($Matches[1] -eq "0") { $requestResultZeroIds++ } else { [void]$requestResultIds.Add($Matches[1]) }
-  } else { throw "Cannot parse request_id from ORDER_REQUEST_RESULT: $payload" }
+  if ($payload -match ';request_id=(\d+);action=[^;]+;type=[^;]+;magic=\d+;retcode=(\d+);accepted_by_retcode=(true|false);comment=.*?;order=(\d+);deal=(\d+);volume=([\d.]+);price=([\d.]+);retcode_external=(-?\d+)') {
+    $rid = [string]$Matches[1]
+    $signature = "$($Matches[2])|$($Matches[4])|$($Matches[5])|$($Matches[6])|$($Matches[7])"
+    if ($rid -eq "0") {
+      $requestResultZeroIds++
+      if ($Matches[4] -eq "0" -and $Matches[5] -eq "0") { throw "request_id=0 callback has neither an order nor a deal ticket; no safe fallback key exists." }
+      $requestResultZeroSignatures += $signature
+    } else {
+      [void]$requestResultIds.Add($rid)
+      $requestResultSignatures[$rid] = $signature
+    }
+  } else { throw "Cannot parse request_id and result signature from ORDER_REQUEST_RESULT: $payload" }
   if ($payload -match ';accepted_by_retcode=false;') { $requestResultOtherRetcodeLines += $line }
 }
 
@@ -284,11 +306,28 @@ if (($requestAcceptedSummary + $requestOtherSummary) -ne $requestCallbackSummary
 $matchedRequestIds = 0
 $unmatchedSendIds = @()
 $unmatchedReplyIds = @()
+$signatureMismatches = @()
 foreach ($id in $sendResultIds) {
-  if ($requestResultIds.Contains($id)) { $matchedRequestIds++ } else { $unmatchedSendIds += $id }
+  if ($requestResultIds.Contains($id)) {
+    if ($sendResultSignatures[$id] -eq $requestResultSignatures[$id]) { $matchedRequestIds++ }
+    else { $signatureMismatches += $id }
+  } else { $unmatchedSendIds += $id }
 }
 foreach ($id in $requestResultIds) {
   if (!$sendResultIds.Contains($id)) { $unmatchedReplyIds += $id }
+}
+if ($sendResultZeroIds -ne $requestResultZeroIds) {
+  throw "request_id=0 record count differs between immediate results and server callbacks."
+}
+if ($sendResultZeroIds -gt 1) {
+  throw "More than one request_id=0 encountered; signature fallback is ambiguous."
+}
+$matchedZeroIdFallback = 0
+if ($sendResultZeroIds -eq 1) {
+  if ($sendResultZeroSignatures[0] -ne $requestResultZeroSignatures[0]) {
+    throw "request_id=0 fallback signature mismatch on retcode/order/deal/volume/price."
+  }
+  $matchedZeroIdFallback = 1
 }
 @(
   "",
@@ -303,7 +342,9 @@ foreach ($id in $requestResultIds) {
   "Mirrored request-result copies ignored: $requestResultDuplicateCount",
   "Distinct nonzero callback request IDs: $($requestResultIds.Count)",
   "Callback records with request_id=0: $requestResultZeroIds",
-  "Matched distinct nonzero request IDs: $matchedRequestIds",
+  "Matched distinct nonzero request IDs (including result signature): $matchedRequestIds",
+  "Verified request_id=0 fallback matches by retcode/order/deal/volume/price: $matchedZeroIdFallback",
+  "Request-result signature mismatches: $($signatureMismatches.Count)",
   "Immediate request IDs without matching callback: $($unmatchedSendIds.Count)",
   "Callback request IDs without matching immediate result: $($unmatchedReplyIds.Count)",
   "Callback summary: callbacks=$requestCallbackSummary; accepted_by_retcode=$requestAcceptedSummary; other_retcode=$requestOtherSummary",
@@ -320,8 +361,8 @@ if ($requestResultIds.Count -ne ($uniqueRequestResultLines.Count - $requestResul
   throw "Duplicate nonzero request IDs occurred across request-result callbacks."
 }
 if ($uniqueRequestResultLines.Count -lt 1) { throw "No unique request response callbacks were observed." }
-if ($sendResultZeroIds -gt 0 -or $requestResultZeroIds -gt 0) {
-  throw "Request ID correlation is incomplete because at least one request_id is zero."
+if ($signatureMismatches.Count -gt 0) {
+  throw "Immediate/server response signatures mismatch for request IDs: $($signatureMismatches -join ',')."
 }
 if ($unmatchedSendIds.Count -gt 0 -or $unmatchedReplyIds.Count -gt 0) {
   throw "Request ID correlation mismatch: inspect unmatched IDs in run-summary.txt."
@@ -329,6 +370,6 @@ if ($unmatchedSendIds.Count -gt 0 -or $unmatchedReplyIds.Count -gt 0) {
 if ($requestOtherSummary -gt 0) {
   throw "$requestOtherSummary server request result(s) were outside the accepted retcode allow-list; inspect the recorded callback details before acceptance."
 }
-"Request-result correlation gate: PASS (matched IDs=$matchedRequestIds; callbacks=$requestCallbackSummary; other retcodes=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+"Request-result correlation gate: PASS (matched nonzero IDs=$matchedRequestIds; verified zero-ID signature fallbacks=$matchedZeroIdFallback; callbacks=$requestCallbackSummary; signature mismatches=0; other retcodes=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 
 Get-Content -LiteralPath $summaryPath
