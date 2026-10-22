@@ -93,14 +93,14 @@ AllowDllImport=0
 $password = $null
 $proc = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", "/config:$config") -WorkingDirectory $install -PassThru
 Start-Sleep -Seconds 45
-$terminalLogs = Join-Path $install "logs"
-$logs = @()
-if (Test-Path $terminalLogs) { $logs = @(Get-ChildItem -LiteralPath $terminalLogs -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 8) }
+$logs = @(Get-ChildItem -LiteralPath $install -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue |
+  Where-Object { $_.LastWriteTimeUtc -ge $started.AddMinutes(-3) } |
+  Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 12)
 $logText = ($logs | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue }) -join [Environment]::NewLine
 $loginRedacted = $logText -replace [regex]::Escape($login), "[ACCOUNT REDACTED]" -replace [regex]::Escape($server), "[SERVER REDACTED]"
 $loginRedacted = $loginRedacted -replace '(?i)(password|passwd)\s*[:=]\s*\S+', '$1=[REDACTED]'
 $loginRedacted | Set-Content (Join-Path $reports "terminal-login-log-sanitized.txt") -Encoding utf8
-if ($logText -match '(?i)authorization on .* successful|authorized on .* successful|connected to .*successfully|connection established') {
+if ($logText -match '(?i)\bauthorized on\b|\bauthorization on\b.*\bsuccessful\b|\bconnected to\b.*\bsuccessfully\b|\bconnection established\b|\bconnection to .* established\b') {
   "Headway demo login evidence: PASS (success marker found; no trade/tester launched)." | Add-Content $summary -Encoding utf8
 } else {
   "Headway demo login evidence: INCONCLUSIVE (no recognized success marker in recent logs)." | Add-Content $summary -Encoding utf8
