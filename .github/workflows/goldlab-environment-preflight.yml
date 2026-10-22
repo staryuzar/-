@@ -1,6 +1,11 @@
 name: GoldLab Environment Preflight (no strategy test)
 
 on:
+  push:
+    branches: [goldlab-request-result-candidate]
+    paths:
+      - ".github/workflows/goldlab-environment-preflight.yml"
+      - ".github/scripts/goldlab_environment_preflight.ps1"
   workflow_dispatch:
 
 permissions:
