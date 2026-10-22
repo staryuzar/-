@@ -6,18 +6,23 @@ if (!(Test-Path -LiteralPath $runnerPath)) { throw "Generic MT5 runner is missin
 if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLabEA source is missing." }
 
 $source = Get-Content -LiteralPath $eaPath -Raw
-if ($source -notmatch '(?m)^#property version\s+"1\.013"' -or
+if ($source -notmatch '(?m)^#property version\s+"1\.014"' -or
     $source -notmatch 'PreflightTradeRequest\(request,"open"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"close"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"modify-sltp"\)' -or
     $source -notmatch 'ORDER_CHECK_SUMMARY' -or
     $source -notmatch 'if\(!ok\s*\|\|\s*check\.retcode\s*!=\s*0\)' -or
     $source -notmatch 'call_ok=' -or
-    $source -notmatch 'Research candidate v1\.013;' -or
+    $source -notmatch 'Research candidate v1\.014;' -or
     $source -notmatch 'RecordOrderSendTelemetry\(' -or
     $source -notmatch 'ORDER_SEND_FAIL' -or
-    $source -notmatch 'ORDER_SEND_SUMMARY') {
-  throw "EA source does not contain the intended v1.013 OrderCheck and OrderSend telemetry gates."
+    $source -notmatch 'ORDER_SEND_SUMMARY' -or
+    $source -notmatch 'ORDER_SEND_RESULT' -or
+    $source -notmatch 'ORDER_REQUEST_RESULT' -or
+    $source -notmatch 'ORDER_REQUEST_SUMMARY' -or
+    $source -notmatch 'void OnTradeTransaction\(' -or
+    $source -notmatch 'TRADE_TRANSACTION_REQUEST') {
+  throw "EA source does not contain the intended v1.014 OrderCheck, OrderSend, and request-result telemetry gates."
 }
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $content = Get-Content -LiteralPath $runnerPath -Raw
@@ -70,11 +75,11 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
 @(
   "OrderCheck execution-safety diagnostic",
   "EA source SHA-256: $sourceHash",
-  "EA version: 1.013",
+  "EA version: 1.014",
   "Period: 2026-08-05 through 2026-10-20",
   "Model: 4 — every tick based on real ticks",
   "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true.",
-  "OrderCheck preflight and OrderSend results are logged separately. OrderSend telemetry adds diagnostics only and does not guarantee eventual fill.",
+  "OrderCheck preflight, immediate OrderSend results, and TRADE_TRANSACTION_REQUEST replies are logged separately. This is diagnostics only; deal history remains the execution audit.",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath (Join-Path $PWD "goldlab-ordercheck-preflight.txt") -Encoding utf8
 
@@ -173,4 +178,149 @@ if ($sendCallTotal -lt 1) { throw "No OrderSend call observed; result telemetry 
 if (($sendAcceptedTotal + $sendFailTotal) -ne $sendCallTotal) { throw "OrderSend summary counts do not reconcile; inspect tester telemetry." }
 if ($sendFailTotal -gt 0) { throw "OrderSend recorded $sendFailTotal failure(s); inspect detailed ORDER_SEND_FAIL records before acceptance." }
 "OrderSend telemetry gate: PASS (calls=$sendCallTotal; accepted=$sendAcceptedTotal; failures=$sendFailTotal; duplicate copies ignored=$sendDuplicateCount)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+
+$rawImmediateResultLines = @()
+$rawRequestResultLines = @()
+$rawRequestSummaryLines = @()
+foreach ($file in @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".txt",".log") })) {
+  $lines = Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue
+  $rawImmediateResultLines += @($lines | Where-Object { $_ -match 'GoldLab\|ORDER_SEND_RESULT\|' })
+  $rawRequestResultLines += @($lines | Where-Object { $_ -match 'GoldLab\|ORDER_REQUEST_RESULT\|' })
+  $rawRequestSummaryLines += @($lines | Where-Object { $_ -match 'GoldLab\|ORDER_REQUEST_SUMMARY\|' })
+}
+if ($rawImmediateResultLines.Count -eq 0) { throw "No ORDER_SEND_RESULT records found; per-call telemetry is incomplete." }
+if ($rawRequestResultLines.Count -eq 0) { throw "No ORDER_REQUEST_RESULT records found; server request-result telemetry is incomplete." }
+if ($rawRequestSummaryLines.Count -eq 0) { throw "No ORDER_REQUEST_SUMMARY found; request-result summary is incomplete." }
+
+$seenImmediatePayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$uniqueImmediateResultLines = @()
+$seenImmediateSeq = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($line in $rawImmediateResultLines) {
+  $marker = "GoldLab|ORDER_SEND_RESULT|"
+  $markerIndex = $line.IndexOf($marker, [System.StringComparison]::Ordinal)
+  if ($markerIndex -lt 0) { throw "Malformed ORDER_SEND_RESULT record." }
+  $payload = $line.Substring($markerIndex + $marker.Length).Trim()
+  if ($payload -notmatch '^[^|]+\|seq=\d+;context=[^;]+;sent=(true|false);accepted=(true|false);request_id=\d+;retcode=\d+;') {
+    throw "Unexpected ORDER_SEND_RESULT payload format: $payload"
+  }
+  if ($payload -match '\|seq=(\d+);') {
+    if (!$seenImmediateSeq.Add($Matches[1])) { throw "Duplicate send sequence number across distinct payloads: $($Matches[1])" }
+  }
+  if ($seenImmediatePayloads.Add($payload)) { $uniqueImmediateResultLines += $line }
+}
+$sendResultDuplicateCount = $rawImmediateResultLines.Count - $uniqueImmediateResultLines.Count
+$sendResultIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$sendResultZeroIds = 0
+foreach ($line in $uniqueImmediateResultLines) {
+  $markerIndex = $line.IndexOf("GoldLab|ORDER_SEND_RESULT|", [System.StringComparison]::Ordinal)
+  $payload = $line.Substring($markerIndex + "GoldLab|ORDER_SEND_RESULT|".Length)
+  if ($payload -match ';request_id=(\d+);retcode=') {
+    if ($Matches[1] -eq "0") { $sendResultZeroIds++ } else { [void]$sendResultIds.Add($Matches[1]) }
+  } else { throw "Cannot parse request_id from ORDER_SEND_RESULT: $payload" }
+}
+if ($uniqueImmediateResultLines.Count -ne $sendCallTotal) {
+  throw "ORDER_SEND_RESULT records ($($uniqueImmediateResultLines.Count)) do not equal OrderSend calls ($sendCallTotal)."
+}
+
+$seenRequestPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$uniqueRequestResultLines = @()
+foreach ($line in $rawRequestResultLines) {
+  $marker = "GoldLab|ORDER_REQUEST_RESULT|"
+  $markerIndex = $line.IndexOf($marker, [System.StringComparison]::Ordinal)
+  if ($markerIndex -lt 0) { throw "Malformed ORDER_REQUEST_RESULT record." }
+  $payload = $line.Substring($markerIndex + $marker.Length).Trim()
+  if ($payload -notmatch '^[^|]+\|request_id=\d+;action=[^;]+;type=[^;]+;magic=\d+;retcode=\d+;accepted_by_retcode=(true|false);') {
+    throw "Unexpected ORDER_REQUEST_RESULT payload format: $payload"
+  }
+  if ($seenRequestPayloads.Add($payload)) { $uniqueRequestResultLines += $line }
+}
+$requestResultDuplicateCount = $rawRequestResultLines.Count - $uniqueRequestResultLines.Count
+$requestResultIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$requestResultZeroIds = 0
+$requestResultOtherRetcodeLines = @()
+foreach ($line in $uniqueRequestResultLines) {
+  $markerIndex = $line.IndexOf("GoldLab|ORDER_REQUEST_RESULT|", [System.StringComparison]::Ordinal)
+  $payload = $line.Substring($markerIndex + "GoldLab|ORDER_REQUEST_RESULT|".Length)
+  if ($payload -match '\|request_id=(\d+);action=') {
+    if ($Matches[1] -eq "0") { $requestResultZeroIds++ } else { [void]$requestResultIds.Add($Matches[1]) }
+  } else { throw "Cannot parse request_id from ORDER_REQUEST_RESULT: $payload" }
+  if ($payload -match ';accepted_by_retcode=false;') { $requestResultOtherRetcodeLines += $line }
+}
+
+$seenRequestSummaryPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$uniqueRequestSummaryLines = @()
+foreach ($line in $rawRequestSummaryLines) {
+  $marker = "GoldLab|ORDER_REQUEST_SUMMARY|"
+  $markerIndex = $line.IndexOf($marker, [System.StringComparison]::Ordinal)
+  if ($markerIndex -lt 0) { throw "Malformed ORDER_REQUEST_SUMMARY record." }
+  $payload = $line.Substring($markerIndex + $marker.Length).Trim()
+  if ($payload -notmatch '^[^|]+\|callbacks=\d+;accepted_by_retcode=\d+;other_retcode=\d+;deinit_reason=\d+) {
+    throw "Unexpected ORDER_REQUEST_SUMMARY payload format: $payload"
+  }
+  if ($seenRequestSummaryPayloads.Add($payload)) { $uniqueRequestSummaryLines += $line }
+}
+if ($uniqueRequestSummaryLines.Count -ne 1) {
+  throw "Expected exactly one unique ORDER_REQUEST_SUMMARY payload, got $($uniqueRequestSummaryLines.Count)."
+}
+$requestCallbackSummary = 0
+$requestAcceptedSummary = 0
+$requestOtherSummary = 0
+$uniqueSummaryLine = $uniqueRequestSummaryLines[0]
+if ($uniqueSummaryLine -match 'callbacks=(\d+)') { $requestCallbackSummary = [int]$Matches[1] }
+if ($uniqueSummaryLine -match 'accepted_by_retcode=(\d+)') { $requestAcceptedSummary = [int]$Matches[1] }
+if ($uniqueSummaryLine -match 'other_retcode=(\d+)') { $requestOtherSummary = [int]$Matches[1] }
+if ($requestCallbackSummary -ne $uniqueRequestResultLines.Count) {
+  throw "ORDER_REQUEST_SUMMARY callbacks ($requestCallbackSummary) do not match unique request-result records ($($uniqueRequestResultLines.Count))."
+}
+if (($requestAcceptedSummary + $requestOtherSummary) -ne $requestCallbackSummary) {
+  throw "Request-result summary counters do not reconcile."
+}
+
+$matchedRequestIds = 0
+$unmatchedSendIds = @()
+$unmatchedReplyIds = @()
+foreach ($id in $sendResultIds) {
+  if ($requestResultIds.Contains($id)) { $matchedRequestIds++ } else { $unmatchedSendIds += $id }
+}
+foreach ($id in $requestResultIds) {
+  if (!$sendResultIds.Contains($id)) { $unmatchedReplyIds += $id }
+}
+@(
+  "",
+  "## OrderSend ↔ OnTradeTransaction request-result correlation",
+  "Raw ORDER_SEND_RESULT lines: $($rawImmediateResultLines.Count)",
+  "Unique ORDER_SEND_RESULT records: $($uniqueImmediateResultLines.Count)",
+  "Mirrored send-result copies ignored: $sendResultDuplicateCount",
+  "Distinct nonzero immediate request IDs: $($sendResultIds.Count)",
+  "Immediate result records with request_id=0: $sendResultZeroIds",
+  "Raw ORDER_REQUEST_RESULT lines: $($rawRequestResultLines.Count)",
+  "Unique ORDER_REQUEST_RESULT records: $($uniqueRequestResultLines.Count)",
+  "Mirrored request-result copies ignored: $requestResultDuplicateCount",
+  "Distinct nonzero callback request IDs: $($requestResultIds.Count)",
+  "Callback records with request_id=0: $requestResultZeroIds",
+  "Matched distinct nonzero request IDs: $matchedRequestIds",
+  "Immediate request IDs without matching callback: $($unmatchedSendIds.Count)",
+  "Callback request IDs without matching immediate result: $($unmatchedReplyIds.Count)",
+  "Callback summary: callbacks=$requestCallbackSummary; accepted_by_retcode=$requestAcceptedSummary; other_retcode=$requestOtherSummary",
+  "Unique ORDER_REQUEST_SUMMARY record:"
+) | Add-Content -LiteralPath $summaryPath -Encoding utf8
+$uniqueRequestSummaryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+if ($unmatchedSendIds.Count -gt 0) { "Unmatched send request IDs: $($unmatchedSendIds -join ',')" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+if ($unmatchedReplyIds.Count -gt 0) { "Unmatched callback request IDs: $($unmatchedReplyIds -join ',')" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+if ($requestResultOtherRetcodeLines.Count -gt 0) {
+  "Request-result callbacks outside the existing DONE/DONE_PARTIAL/PLACED allow-list:" | Add-Content -LiteralPath $summaryPath -Encoding utf8
+  $requestResultOtherRetcodeLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+}
+if ($uniqueRequestResultLines.Count -lt 1) { throw "No unique request response callbacks were observed." }
+if ($sendResultZeroIds -gt 0 -or $requestResultZeroIds -gt 0) {
+  throw "Request ID correlation is incomplete because at least one request_id is zero."
+}
+if ($unmatchedSendIds.Count -gt 0 -or $unmatchedReplyIds.Count -gt 0) {
+  throw "Request ID correlation mismatch: inspect unmatched IDs in run-summary.txt."
+}
+if ($requestOtherSummary -gt 0) {
+  throw "$requestOtherSummary server request result(s) were outside the accepted retcode allow-list; inspect the recorded callback details before acceptance."
+}
+"Request-result correlation gate: PASS (matched IDs=$matchedRequestIds; callbacks=$requestCallbackSummary; other retcodes=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+
 Get-Content -LiteralPath $summaryPath
