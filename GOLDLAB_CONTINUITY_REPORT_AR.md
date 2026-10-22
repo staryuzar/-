@@ -333,3 +333,34 @@
 - **قرار السلامة:** لا أغير `GoldLabEA.mq5` الآن؛ التغيير سيغيّر بصمة المرشح المحجوز وقد يجعل بوابة الحجز ترفضه، كما أن الفترة 21–23 أكتوبر محفوظة كاختبار مستقل. يُسجل الإصلاح المقترح للنسخة التالية: فتح الملف ثم استخدام `FileSize(handle)==0` لكتابة العنوان قبل أول صف، وإلا الانتقال إلى نهاية الملف؛ اختبار ملف جديد وآخر موجود وملف بلا رأس مع التأكد من عدم تكرار العنوان، ثم إعادة فحص تطابق مجاميع صفقات CSV مع تقرير MT5.
 - **التصنيف:** ملاحظة تنسيق/قابلية تدقيق مؤجلة، لا تغيير استراتيجية ولا تفسير مثبت لخسائر المرشح.
 
+
+
+## استئناف بحثي مؤرخ — 2026-10-23 (OrderCheck v1.012 / Run 39860986550)
+
+### الالتزام وسلامة الفروع
+- فرع البحث فقط: `goldlab-ordercheck-candidate`.
+- الالتزام التطبيقي: [`9e864d6d0cb27f705ecb7dd04da0d156ae28dd00`](https://github.com/staryuzar/-/commit/9e864d6d0cb27f705ecb7dd04da0d156ae28dd00) — `fix(goldlab): require clean OrderCheck retcode in preflight`.
+- لم تتغير `main` أو `gold-xauusd-expert-lab` أو المرشحون الآخرون في هذه الجولة. لم يُجرَ تداول حي.
+- المصدر الحالي `trading-lab/gold-xauusd/GoldLabEA.mq5` هو `#property version "1.012"`. داخل `PreflightTradeRequest` أصبحت بوابة الفشل `if(!ok || check.retcode!=0)`، ويُسجل `call_ok` مع `retcode` و`comment` و`GetLastError()`. أُحدّث فاحص ما قبل التشغيل ليرفض المصادر التي لا تحمل هذا الشرط أو هذا السجل.
+
+### الاختبار الفعلي
+- GitHub Actions: [Run 39860986550](https://github.com/staryuzar/-/actions/runs/39860986550), workflow `GoldLab Advisor — OrderCheck Execution Safety`, run number 6، head SHA يطابق الالتزام أعلاه، النتيجة التقنية `success`.
+- Artifact ID: `12462011650`, الاسم `goldlab-ordercheck-39860986550`, الحجم 1,669,023 bytes. رابط العرض: https://github.com/staryuzar/-/actions/runs/39860986550/artifacts/12462011650
+- داخل Artifact: `compile-log.txt` يقول `0 errors, 0 warnings`؛ MT5 Build `5.0.0.6281`؛ Strategy Tester exit code `0`؛ نموذج `4 — Every tick based on real ticks`؛ رمز `XAUUSD,M5`؛ إعدادات risk 0.50%, SL 0.45 ATR، TP 2.4 ATR، trailing 1.4 ATR، spread 100، ADX 23–25، short-only، candle-direction=true وEMA-rejection=true.
+- تقرير HTML: History Quality **98% real ticks**؛ 15,370 شمعة؛ 32,284,064 tick؛ صافي +$26.64؛ PF 1.59؛ Expected Payoff +$0.76؛ 35 صفقة، 11 رابحة و24 خاسرة؛ أقصى Equity DD $18.98 (3.59%). CSV يتضمن 70 deal rows (35 entry + 35 exit) وصافي نتائج الخروج شاملاً commission/swap يساوي +$26.64؛ فرق CSV/HTML = $0.00.
+- سجل MT5: `History synchronized from 2025.01.02 to 2026.10.21`، لكن سطر التيكات الحقيقية يبدأ من `2026.08.05 00:00:00` بينما الاختبار يبدأ `2026.08.04`; لذلك يعرض التقرير 98%، لا 100%. هذه نتيجة Tester تاريخية حقيقية لكنها **غير كاملة من حيث تغطية التيكات الحقيقية**، فلا يجوز اعتمادها كاختبار أداء نظيف أو خارج العينة. الأرقام متطابقة مع تشغيل التطوير السابق ولا تثبت ربحًا مستقلًا.
+- دليل حارس OrderCheck في السجلات الخام: سطران متطابقان في سجل EA وCore، وكل واحد `passed=747;failed=0`; يوجد **747 فحصًا فريدًا ناجحًا، 0 رفض**. لا توجد `ORDER_CHECK_FAIL` في السجلات المفحوصة. السكربت الحالي يواصل عدّ السطرين كـ1494؛ هذا عيب عدّ/عرض معروف لم يُصلح في هذا الالتزام.
+- تناقض وصف النسخة: `goldlab-ordercheck-preflight.txt` ما زال يطبع `EA version: 1.011` كنص ثابت، وسطر `GoldLab|INIT` داخل Journal يقول `Research candidate v1.009` رغم أن فاحص المصدر اجتاز النسخة 1.012 ومسار runner ينسخ ملف المصدر الذي تحقّق منه. هذا يدل على **بيانات تعريفية قديمة في سجلات التشخيص**، وليس دليلًا كافيًا وحده على أن المصدر الذي جرى تجميعه مختلف. يلزم تصحيح هذه التسميات ثم إعادة التحقق من التطابق.
+- نتيجة سلامة التنفيذ: الاختبار لم يكشف رفض OrderCheck، والبوابة الجديدة اجتازت ترجمة وتشغيل MT5؛ لكن لا يمكن إثبات من الملخص وحده حالات retcode الناجحة فرديًا، لأن EA لا يسجل حاليًا سجلًا منفردًا لكل نجاح. لا نخلط هذا مع قبول الربحية.
+
+### معرفة جديدة محددة المصدر
+- وثائق MQL5 الرسمية `OrderCheck`: https://www.mql5.com/en/docs/trading/ordercheck و`MqlTradeCheckResult`: https://www.mql5.com/en/docs/constants/structures/mqltradecheckresult. تذكر أن `true` يعني نجاح الفحص الأساسي فقط وليس ضمان تنفيذ الأمر، وتعرض الوثائق `retcode=0` في نتيجة تحقق ناجحة. كما أن `OrderSend` له نتيجة منفصلة يجب فحص `MqlTradeResult.retcode` فيها.
+- وثائق MQL5 الرسمية عن [Trade transaction request/response and logging](https://www.mql5.com/en/articles/13052) تشرح اختلاف request/check/result/transaction؛ ينبغي الاحتفاظ بالمعاملة/السجل الخام وعدم جمع نسخة السجل المكررة على أنها طلب مستقل.
+- التفريغ النصي لفيديو Vidollar بعنوان “I cracked the GOLD trading Strategy. (It's stupid simple)”: https://app.faketrades.in/s/cracked-the-gold-trading-strategy-it-s-stupid-simple. التفريغ يتضمن توصيفًا لاتجاه السوق ومستويات swing وtrendline وFVG مع توقيت ارتدادي تقديري دون قواعد حسابية كاملة للدخول/وقف الخسارة/الخروج؛ لذلك استُخدم لتحديد ما لا يصلح كفرضية قابلة للاختبار كما هو، وليس كدليل ربح.
+- البحث المحكم Bailey, Borwein, López de Prado & Zhu (2017), “The Probability of Backtest Overfitting”, DOI https://doi.org/10.21314/jcf.2016.322، https://escholarship.org/uc/item/4w1110bb. يشرح مخاطر اختيار الاستراتيجية بناءً على backtests ويقترح PBO/CSCV؛ وهذا يدعم إبقاء بيانات التطوير منفصلة عن نافذة الحجز وعدم اعتماد الربح داخل العينة.
+
+### الفرضية وما بقي
+- الفرضية التي طُبقت: يُعد preflight ناجحًا فقط إذا `OrderCheck(request,check)==true` **و** `check.retcode==0`. النتيجة: ترجمة وتشغيل Tester نجحا تقنيًا، مع `passed=747`, `failed=0` فريدة من السجلات، دون ظهور `ORDER_CHECK_FAIL`. هذا اختبار سلامة تنفيذ لا اختبار ميزة ربحية.
+- ما فشل/ما بقي: (1) عدّ السجل مكررًا إلى 1494 بدل 747؛ (2) نصا النسخة 1.011 و1.009 قديمان؛ (3) جودة التاريخ 98% بسبب بداية real ticks في 5 أغسطس لا 4 أغسطس؛ (4) النتيجة التاريخية على نافذة التطوير ليست مستقلة. لم يتغير أي متغير تداول أو معلمة ربحية.
+- الخطوة التالية: تعديل واحد منفصل يخص موثوقية القياس فقط: deduplicate `ORDER_CHECK_SUMMARY` حسب payload مع عرض `raw lines` و`unique summaries` و`passed` و`failed` بشكل مستقل. في الجولة التالية تُصحح تسميات النسخة وتُضاف بوابة صريحة تغطي نقص real ticks أو تصنفه `INCOMPLETE`؛ ثم يُعاد تشغيل فرع المرشح على نافذة التشخيص ذاتها فقط، لا فترة الحجز.
+- **نافذة 2026-10-21 إلى 2026-10-23 ما تزال محجوزة.** لا تغيّر مرشح `gold-xauusd-expert-lab` أو بصمة مصدره؛ لا يبدأ أي اختبار قبول للحجز إلا بعد 2026-10-24 12:00 UTC (15:00 بتوقيت عدن).
