@@ -82,17 +82,15 @@ foreach ($file in @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAct
 }
 if ($rawSummaryLines.Count -eq 0) { throw "No ORDER_CHECK_SUMMARY line was found in copied MT5 logs; result is incomplete." }
 
-# MT5 writes the same EA summary to both the chart log and Core log. Count each
-# distinct summary payload once, while retaining every raw line for audit.
+# MT5 mirrors the EA summary in chart and Core logs; count each unique payload once.
 $seenSummaryPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $uniqueSummaryLines = @()
 foreach ($line in $rawSummaryLines) {
-  $payloadMatch = [regex]::Match($line, 'GoldLab\|ORDER_CHECK_SUMMARY\|(.+)
-)
-  if (!$payloadMatch.Success) { throw "Malformed ORDER_CHECK_SUMMARY record; refusing an ambiguous count." }
-  $payload = $payloadMatch.Groups[1].Value.Trim()
-  if ($payload -notmatch '^[^|]+\|passed=\d+;failed=\d+;deinit_reason=\d+
-) {
+  $marker = "GoldLab|ORDER_CHECK_SUMMARY|"
+  $markerIndex = $line.IndexOf($marker, [System.StringComparison]::Ordinal)
+  if ($markerIndex -lt 0) { throw "Malformed ORDER_CHECK_SUMMARY record; refusing an ambiguous count." }
+  $payload = $line.Substring($markerIndex + $marker.Length).Trim()
+  if ($payload -notmatch '^[^|]+\|passed=\d+;failed=\d+;deinit_reason=\d+') {
     throw "Unexpected ORDER_CHECK_SUMMARY payload format: $payload"
   }
   if ($seenSummaryPayloads.Add($payload)) { $uniqueSummaryLines += $line }
