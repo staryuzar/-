@@ -6,12 +6,14 @@ if (!(Test-Path -LiteralPath $runnerPath)) { throw "Generic MT5 runner is missin
 if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLabEA source is missing." }
 
 $source = Get-Content -LiteralPath $eaPath -Raw
-if ($source -notmatch '(?m)^#property version\s+"1\.011"' -or
+if ($source -notmatch '(?m)^#property version\s+"1\.012"' -or
     $source -notmatch 'PreflightTradeRequest\(request,"open"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"close"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"modify-sltp"\)' -or
-    $source -notmatch 'ORDER_CHECK_SUMMARY') {
-  throw "EA source does not contain the intended v1.010 OrderCheck patch."
+    $source -notmatch 'ORDER_CHECK_SUMMARY' -or
+    $source -notmatch 'if\(!ok\s*\|\|\s*check\.retcode\s*!=\s*0\)' -or
+    $source -notmatch 'call_ok=') {
+  throw "EA source does not contain the intended v1.012 OrderCheck return-code gate."
 }
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $content = Get-Content -LiteralPath $runnerPath -Raw

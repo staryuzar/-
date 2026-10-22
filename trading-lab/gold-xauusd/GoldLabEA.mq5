@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.011"
+#property version   "1.012"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -72,12 +72,14 @@ bool PreflightTradeRequest(MqlTradeRequest &request,const string context)
    ResetLastError();
    bool ok=OrderCheck(request,check);
    int errorCode=GetLastError();
-   if(!ok)
+   // Require both a successful API call and a clean server-side preflight retcode.
+   if(!ok || check.retcode!=0)
    {
       orderCheckFailCount++;
       lastTradeRetcode=check.retcode;
       Print("GoldLab|ORDER_CHECK_FAIL|",_Symbol,
             "|context=",context,
+            ";call_ok=",(ok ? "true" : "false"),
             ";retcode=",IntegerToString((int)check.retcode),
             ";comment=",check.comment,
             ";last_error=",IntegerToString(errorCode));
