@@ -259,7 +259,7 @@ $requestResultOtherRetcodeLines = @()
 foreach ($line in $uniqueRequestResultLines) {
   $markerIndex = $line.IndexOf("GoldLab|ORDER_REQUEST_RESULT|", [System.StringComparison]::Ordinal)
   $payload = $line.Substring($markerIndex + "GoldLab|ORDER_REQUEST_RESULT|".Length)
-  if ($payload -match ';request_id=(\d+);action=[^;]+;type=[^;]+;magic=\d+;retcode=(\d+);accepted_by_retcode=(true|false);comment=.*?;order=(\d+);deal=(\d+);volume=([\d.]+);price=([\d.]+);retcode_external=(-?\d+)') {
+  if ($payload -match '^[^|]+\|request_id=(\d+);action=[^;]+;type=[^;]+;magic=\d+;retcode=(\d+);accepted_by_retcode=(true|false);comment=.*?;order=(\d+);deal=(\d+);volume=([\d.]+);price=([\d.]+);retcode_external=(-?\d+)$') {
     $rid = [string]$Matches[1]
     $signature = "$($Matches[2])|$($Matches[4])|$($Matches[5])|$($Matches[6])|$($Matches[7])"
     if ($rid -eq "0") {
