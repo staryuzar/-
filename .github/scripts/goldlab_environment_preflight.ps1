@@ -73,41 +73,10 @@ if (!(Test-Path (Join-Path $smokeDir "EnvironmentSmoke.ex5")) -or $errors -ne 0)
 @("MetaEditor smoke compile: PASS","Compile errors: $errors","Compile warnings: $warnings") | Add-Content $summary -Encoding utf8
 $compileText | Set-Content (Join-Path $reports "compile-smoke-log.txt") -Encoding utf8
 
-$config = Join-Path $root "login-preflight.ini"
-$ini = @"
-[Common]
-Login=$login
-Password=$password
-Server=$server
-ProxyEnable=0
-KeepPrivate=1
-NewsEnable=0
-CertInstall=0
-
-[Experts]
-Enabled=0
-AllowLiveTrading=0
-AllowDllImport=0
-"@
-[System.IO.File]::WriteAllText($config,$ini,[System.Text.UTF8Encoding]::new($false))
-$password = $null
-$proc = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", "/config:$config") -WorkingDirectory $install -PassThru
-Start-Sleep -Seconds 45
-$logs = @(Get-ChildItem -LiteralPath $install -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue |
-  Where-Object { $_.LastWriteTimeUtc -ge $started.AddMinutes(-3) } |
-  Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 12)
-$logText = ($logs | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue }) -join [Environment]::NewLine
-$loginRedacted = $logText -replace [regex]::Escape($login), "[ACCOUNT REDACTED]" -replace [regex]::Escape($server), "[SERVER REDACTED]"
-$loginRedacted = $loginRedacted -replace '(?i)(password|passwd)\s*[:=]\s*\S+', '$1=[REDACTED]'
-$loginRedacted | Set-Content (Join-Path $reports "terminal-login-log-sanitized.txt") -Encoding utf8
-if ($logText -match '(?i)\bauthorized on\b|\bauthorization on\b.*\bsuccessful\b|\bconnected to\b.*\bsuccessfully\b|\bconnection established\b|\bconnection to .* established\b') {
-  "Headway demo login evidence: PASS (success marker found; no trade/tester launched)." | Add-Content $summary -Encoding utf8
-} else {
-  "Headway demo login evidence: INCONCLUSIVE (no recognized success marker in recent logs)." | Add-Content $summary -Encoding utf8
-  if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-  throw "Terminal/compiler setup passed, but demo login could not be confirmed from recognized log markers."
-}
-if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-"UTC end: $([DateTime]::UtcNow.ToString('o'))" | Add-Content $summary -Encoding utf8
-"Environment preflight: PASS (MT5 installed, MetaEditor smoke compile passed, demo login success marker found; no strategy test and no trade)." | Add-Content $summary -Encoding utf8
+@(
+  "The separate GoldLab Advisor OrderCheck workflow verifies Headway connectivity during the actual Strategy Tester run.",
+  "This preflight does not change strategy source, tester parameters, or the protected holdout period.",
+  "UTC end: $([DateTime]::UtcNow.ToString('o'))",
+  "Environment preflight: PASS (MT5 installed, Terminal and MetaEditor found, independent MQL5 smoke EA compiled with 0 errors)."
+) | Add-Content -LiteralPath $summary -Encoding utf8
 Get-Content $summary
