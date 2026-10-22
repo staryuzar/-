@@ -12,7 +12,8 @@ if ($source -notmatch '(?m)^#property version\s+"1\.012"' -or
     $source -notmatch 'PreflightTradeRequest\(request,"modify-sltp"\)' -or
     $source -notmatch 'ORDER_CHECK_SUMMARY' -or
     $source -notmatch 'if\(!ok\s*\|\|\s*check\.retcode\s*!=\s*0\)' -or
-    $source -notmatch 'call_ok=') {
+    $source -notmatch 'call_ok=' -or
+    $source -notmatch 'Research candidate v1\.012;') {
   throw "EA source does not contain the intended v1.012 OrderCheck return-code gate."
 }
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -66,7 +67,7 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
 @(
   "OrderCheck execution-safety diagnostic",
   "EA source SHA-256: $sourceHash",
-  "EA version: 1.011",
+  "EA version: 1.012",
   "Period: 2026-08-04 through 2026-10-20",
   "Model: 4 — every tick based on real ticks",
   "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true.",
