@@ -22,7 +22,7 @@ $content = Get-Content -LiteralPath $runnerPath -Raw
 $writeCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
 $writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N"
 $replacements = @(
-  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-04 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
+  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; OrderCheck diagnostic)"),
   @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, ADX=23-25, long entries disabled, candle-direction and EMA rejection enabled. Real-tick demo/tester diagnostic only."),
   @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min23OrderCheckStop045.set"),
@@ -30,15 +30,15 @@ $replacements = @(
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=25.0||25.0||1.0||25.0||N"),
   @("InpWriteTradeCSV=true||false||0||true||N", $writeCsvReplacement),
   @("ADX 18-40, long entries disabled", "ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true"),
-  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop045_2026-08-04_to_2026-10-20"),
-  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx25_min23_stop045_2026-08-04_to-2026-10-20.htm")
+  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop045_2026-08-05_to_2026-10-20"),
+  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx25_min23_stop045_2026-08-05_to-2026-10-20.htm")
 )
 foreach ($pair in $replacements) {
   if (!$content.Contains($pair[0])) { throw "Exact generic-runner replacement marker is missing: $($pair[0])" }
   $content = $content.Replace($pair[0], $pair[1])
 }
 $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
-$content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.04')
+$content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
 $content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.21')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
 $newChecks = '($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'')'
@@ -52,13 +52,13 @@ $checks = @(
   ($content -match 'InpRequireSignalCandleDirection=true'),
   ($content -match 'InpRequireFastEMARejection=true'),
   ($content -match '(?m)^Model=4\r?$'),
-  ($content -match '(?m)^FromDate=2026\.08\.04\r?$'),
+  ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
   ($content -match '(?m)^ToDate=2026\.10\.21\r?$'),
   ($content -match 'GoldLab_ordercheck_adx25_min23_stop045_2026-08-04_to-2026-10-20'),
   ($content -match 'OrderCheck diagnostic')
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","FromDate=2026.08.04","ToDate=2026.10.21","report basename","OrderCheck diagnostic label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","FromDate=2026.08.05","ToDate=2026.10.21","report basename","OrderCheck diagnostic label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
@@ -68,7 +68,7 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
   "OrderCheck execution-safety diagnostic",
   "EA source SHA-256: $sourceHash",
   "EA version: 1.012",
-  "Period: 2026-08-04 through 2026-10-20",
+  "Period: 2026-08-05 through 2026-10-20",
   "Model: 4 — every tick based on real ticks",
   "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true.",
   "OrderCheck is called before market entry, opposite close and SL/TP modification. This tests request preflight, not a guarantee of eventual fill.",
