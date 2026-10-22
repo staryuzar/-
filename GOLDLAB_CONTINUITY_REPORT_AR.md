@@ -470,3 +470,17 @@
 - فحصت أحداث EA المخصصة نفسها، وليس مجرد البحث عن الكلمة الحرفية `OrderSend`. في Run #8 وRun #9 توجد 35 رسالة `GoldLab|SELL_SENT` في سجل Chart و35 نسخة موازية في سجل Core/agent؛ وهذا يطابق 35 صفقة بيع/مركزًا مكتملًا في HTML و70 deal rows في CSV. النسختان سجلات مكررة للحدث نفسه، لا 70 دخولًا.
 - لم تظهر في السجلات المفحوصة أحداث `BUY_FAIL`, `SELL_FAIL`, `CLOSE_FAIL`, `TRAIL_FAIL`، كما لم تظهر `ORDER_CHECK_FAIL` أو `ORDER_FILL_MODE_REJECT`. إذن لا يوجد فشل إرسال مسجل في هذين التشغيلين، مع بقاء ذلك مشروطًا بما يسجله EA.
 - توضيح الفجوة: EA يسجل بالفعل العلامات عالية المستوى `SELL_SENT` و`BUY_FAIL/SELL_FAIL/CLOSE_FAIL/TRAIL_FAIL` مع آخر retcode عند الفشل؛ لكنه لا يكتب سجلًا كاملًا لكل استجابة `MqlTradeResult` يتضمن `comment/order/deal/last_error`. لذلك يبقى تطوير سجل الاستجابة التفصيلي تحسينًا لاحقًا، لا استنتاجًا بأن إرسال الأوامر فشل في التشغيلين.
+
+
+## نتيجة Run #11 — نجاح فحص النسخة 1.012 وتغطية التاريخ — 2026-10-23
+- التشغيل [39863400881](https://github.com/staryuzar/-/actions/runs/39863400881)، head `aee933c688fcce1689f7b7fe32817f172b16b945`، اكتمل بـ `success`. Artifact ID `12463062402`: https://github.com/staryuzar/-/actions/runs/39863400881/artifacts/12463062402.
+- ترجمة MetaEditor: 0 errors, 0 warnings؛ MT5 tester exit code 0؛ EA version 1.012 وINIT يطبع `Research candidate v1.012`; Model=4؛ XAUUSD M5؛ فترة التقرير 2026-08-05 إلى 2026-10-20.
+- تقرير HTML: **History Quality=100% real ticks**، Bars=15,095، Ticks=31,998,971، صافي +$26.64، PF=1.59، Expected Payoff=+$0.76، Max Equity DD=$18.98 (3.59%)، 35 صفقة (11 رابحة/24 خاسرة)، 70 deal rows. CSV SHA-256 `73ee950287df3957b2e98d4586a5dbc5dc30c8a95ba97eb824fb9706fee78a9d`, 70 rows وصافي +$26.64، ومطابق تمامًا لـCSV في Run #8/#9.
+- سجل الاختبار يذكر `real ticks begin from 2026.08.05 00:00:00`، وهو مطابق لبداية الفترة. في ملفات الـJournal المفحوصة لم تظهر `real ticks absent`, `real ticks discarded`, `tick volumes not matched`, `tick prices ... not matched` أو `every tick generation used`. في هذا التشغيل اجتازت نافذة التشخيص بوابة التغطية بحسب HTML + Journal معًا؛ هذا لا يمنح اعتمادًا للربحية لأن البيانات استخدمت في التطوير.
+- بوابة OrderCheck: raw summary lines=2، unique payloads=1، duplicates ignored=1، passes=747، failures=0. ظهرت 35 رسالة `SELL_SENT` فريدة لكل سجل من سجلي Chart/Core، و0 من `BUY_FAIL/SELL_FAIL/CLOSE_FAIL/TRAIL_FAIL` و0 `ORDER_CHECK_FAIL`. سجلات ENTRY_REJECT=44 بسبب عدم توافق أصغر لوت مع ميزانية الخطر؛ الرفض حافظ على حد 0.50% ولم يفرض مخاطرة زائدة.
+- القرار: **التغطية في Run #11 مقبولة لهذه النافذة التشخيصية**، ومصدر التغطية والنسخة وتعداد OrderCheck موثق. الأداء +$26.64/PF1.59 ما زال داخل العينة، فلا يثبت ربحية مستقبلية ولا يُعتمد للتداول الحي.
+
+### الخطوة التالية بعد Run #11
+- إضافة سجل تنفيذ مفصّل محدود عند فشل `OrderSend`، مع عدادات `calls/retcode-accepted/failures` وملخص `ORDER_SEND_SUMMARY` في `OnDeinit`. لا يُغيّر هذا منطق الدخول أو الخروج أو إعدادات المخاطر؛ الهدف إظهار الفرق بين فحص الطلب ونتيجة الإرسال.
+- تحديث حارس التشخيص ليشترط إصدار EA 1.013 ووجود telemetry الجديد، ثم تشغيل Strategy Tester على النافذة النظيفة نفسها والتحقق من نتائج `OrderCheck` و`OrderSend` وCSV/HTML/Journals.
+- بعد ذلك، يلزم انتظار موعد اختبار الحجز 2026-10-24 12:00 UTC (15:00 عدن) لتقييم نافذة 2026-10-21–2026-10-23 المجمدة؛ لا تتغير المعلمات أثناء الحجز ولا يُعد الاختبار التاريخي الداخلي قبولًا.
