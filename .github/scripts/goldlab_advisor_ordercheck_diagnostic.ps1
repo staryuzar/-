@@ -76,29 +76,52 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
 
 & $runtimeRunner
 $reports = Join-Path $PWD "goldlab-results"
-$summaryLines = @()
+$rawSummaryLines = @()
 foreach ($file in @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".txt",".log") })) {
-  $summaryLines += @(Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue | Where-Object { $_ -match 'GoldLab\|ORDER_CHECK_SUMMARY\|' })
+  $rawSummaryLines += @(Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue | Where-Object { $_ -match 'GoldLab\|ORDER_CHECK_SUMMARY\|' })
 }
-if ($summaryLines.Count -eq 0) { throw "No ORDER_CHECK_SUMMARY line was found in copied MT5 logs; result is incomplete." }
+if ($rawSummaryLines.Count -eq 0) { throw "No ORDER_CHECK_SUMMARY line was found in copied MT5 logs; result is incomplete." }
+
+# MT5 writes the same EA summary to both the chart log and Core log. Count each
+# distinct summary payload once, while retaining every raw line for audit.
+$seenSummaryPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$uniqueSummaryLines = @()
+foreach ($line in $rawSummaryLines) {
+  $payloadMatch = [regex]::Match($line, 'GoldLab\|ORDER_CHECK_SUMMARY\|(.+)
+)
+  if (!$payloadMatch.Success) { throw "Malformed ORDER_CHECK_SUMMARY record; refusing an ambiguous count." }
+  $payload = $payloadMatch.Groups[1].Value.Trim()
+  if ($payload -notmatch '^[^|]+\|passed=\d+;failed=\d+;deinit_reason=\d+
+) {
+    throw "Unexpected ORDER_CHECK_SUMMARY payload format: $payload"
+  }
+  if ($seenSummaryPayloads.Add($payload)) { $uniqueSummaryLines += $line }
+}
+if ($uniqueSummaryLines.Count -eq 0) { throw "No unique ORDER_CHECK_SUMMARY payload was found; result is incomplete." }
+
 $passTotal = 0
 $failTotal = 0
-foreach ($line in $summaryLines) {
+foreach ($line in $uniqueSummaryLines) {
   if ($line -match 'passed=(\d+)') { $passTotal += [int]$Matches[1] }
   if ($line -match 'failed=(\d+)') { $failTotal += [int]$Matches[1] }
 }
+$duplicateCount = $rawSummaryLines.Count - $uniqueSummaryLines.Count
 $summaryPath = Join-Path $reports "run-summary.txt"
 @(
   "",
   "## OrderCheck preflight diagnostic",
   "EA source SHA-256: $sourceHash",
-  "Summary lines found: $($summaryLines.Count)",
-  "OrderCheck passes: $passTotal",
-  "OrderCheck failures: $failTotal",
-  "OrderCheck summary records:"
+  "Raw summary log lines: $($rawSummaryLines.Count)",
+  "Unique summary payloads: $($uniqueSummaryLines.Count)",
+  "Duplicate summary copies ignored: $duplicateCount",
+  "OrderCheck passes (unique payloads): $passTotal",
+  "OrderCheck failures (unique payloads): $failTotal",
+  "Unique OrderCheck summary records:"
 ) | Add-Content -LiteralPath $summaryPath -Encoding utf8
-$summaryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+$uniqueSummaryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+"Raw OrderCheck summary lines (includes duplicates):" | Add-Content -LiteralPath $summaryPath -Encoding utf8
+$rawSummaryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
 if ($passTotal -lt 1) { throw "No OrderCheck success was observed; request-preflight remains unproven." }
 if ($failTotal -gt 0) { throw "OrderCheck rejected $failTotal request(s); inspect tester logs before acceptance." }
-"OrderCheck diagnostic gate: PASS (passes=$passTotal; failures=$failTotal)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+"OrderCheck diagnostic gate: PASS (unique passes=$passTotal; unique failures=$failTotal; duplicate copies ignored=$duplicateCount)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 Get-Content -LiteralPath $summaryPath
