@@ -8,33 +8,6 @@ $summary = Join-Path $reports "environment-preflight.txt"
 $started = [DateTime]::UtcNow
 @("GoldLab environment preflight (no strategy test, no trade)","UTC start: $($started.ToString('o'))","Runner OS: $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription)","Runner architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)","Strategy source and inputs are not modified.") | Set-Content -LiteralPath $summary -Encoding utf8
 
-$credentialRaw = [string]$env:MT5_CREDENTIALS
-if ([string]::IsNullOrWhiteSpace($credentialRaw)) { throw "Missing Actions secret 'mt5'; account-connectivity check cannot run." }
-$credentialObject = $null
-try { $credentialObject = ConvertFrom-Json -InputObject $credentialRaw -ErrorAction Stop } catch { }
-$login = ""; $password = ""; $server = "mt5.demo.trade-hw.online"
-if ($null -ne $credentialObject) {
-  $login = [string]$credentialObject.login
-  if ([string]::IsNullOrWhiteSpace($login)) { $login = [string]$credentialObject.account }
-  $password = [string]$credentialObject.password
-  if (![string]::IsNullOrWhiteSpace([string]$credentialObject.server)) { $server = [string]$credentialObject.server }
-} else {
-  $lines = @($credentialRaw -split "\r?\n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-  $fields = @{}
-  foreach ($line in $lines) { if ($line -match '(?i)^(login|account|password|server)\s*[:=]\s*(.*)$') { $fields[$matches[1].ToLowerInvariant()] = $matches[2] } }
-  if ($fields.ContainsKey("login") -or $fields.ContainsKey("account")) {
-    $login = [string]$fields["login"]; if (!$login) { $login = [string]$fields["account"] }
-    $password = [string]$fields["password"]; if ($fields["server"]) { $server = [string]$fields["server"] }
-  } elseif ($lines.Count -ge 2) {
-    $login = [string]$lines[0]; $password = [string]$lines[1]; if ($lines.Count -ge 3) { $server = [string]$lines[2] }
-  }
-}
-if ($login -notmatch '^\d{4,20}$' -or [string]::IsNullOrWhiteSpace($password)) { throw "Invalid MT5 secret format; values are suppressed." }
-Write-Output "::add-mask::$login"
-Write-Output "::add-mask::$password"
-Write-Output "::add-mask::$server"
-$credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $null
-
 $installer = Join-Path $root "mt5setup.exe"
 Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile $installer -TimeoutSec 180
 if (!(Test-Path $installer) -or (Get-Item $installer).Length -lt 100000) { throw "Official MT5 installer missing or too small." }
