@@ -139,8 +139,7 @@ foreach ($line in $rawSendSummaryLines) {
   $markerIndex = $line.IndexOf($marker, [System.StringComparison]::Ordinal)
   if ($markerIndex -lt 0) { throw "Malformed ORDER_SEND_SUMMARY record; refusing an ambiguous count." }
   $payload = $line.Substring($markerIndex + $marker.Length).Trim()
-  if ($payload -notmatch '^[^|]+\|calls=\d+;accepted=\d+;failed=\d+;deinit_reason=\d+
-) {
+  if ($payload -notmatch '^[^|]+\|calls=\d+;accepted=\d+;failed=\d+;deinit_reason=\d+$') {
     throw "Unexpected ORDER_SEND_SUMMARY payload format: $payload"
   }
   if ($seenSendPayloads.Add($payload)) { $uniqueSendSummaryLines += $line }
