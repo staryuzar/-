@@ -394,3 +394,30 @@
 1. إصلاح بيانات تعريف النسخة فقط: جعل رسالة `INIT` وملف preflight يعرضان `1.012` المتحققة، ثم تشغيل CI والتحقق من هذه العلامات في Artifact.
 2. في جولة منفصلة، مواءمة بداية تشخيص Model=4 مع بداية real ticks التي رصدها MT5 (`2026-08-05`) والتحقق هل تصبح الجودة 100%. لا تغيّر شروط التداول لهذا الغرض؛ إن لم تصل الجودة المطلوبة، صنّف الأداء `INCOMPLETE` ولا تخترع/تولّد real ticks.
 3. إبقاء `main` والمرشح `gold-xauusd-expert-lab` مغلقين عن التعديل. نافذة 2026-10-21 إلى 2026-10-23 محجوزة، ولا تُشغّل قبل 2026-10-24 12:00 UTC (15:00 عدن).
+
+
+## متابعة نقطة الاستئناف — 2026-10-23 (تشغيل #9 طويل/غير محسوم + تدقيق مصدر التيكات)
+
+### تصحيح تسميات النسخة على الالتزام الحالي
+- الالتزام: [`be8b79aeca96555ab84b0b0d8db87a8f0e5e52a0`](https://github.com/staryuzar/-/commit/be8b79aeca96555ab84b0b0d8db87a8f0e5e52a0), الرسالة: `fix(goldlab): align diagnostic version labels with EA 1.012`.
+- التعديل لا يغيّر قواعد الدخول أو الخروج: رسالة `INIT` في EA أصبحت `Research candidate v1.012`، وملف preflight يعرض `EA version: 1.012`، وأضيف شرط ساكن للتأكد من تطابق رسالة INIT.
+- تشغيل التحقق: [39861984452](https://github.com/staryuzar/-/actions/runs/39861984452), run #9, head SHA يطابق الالتزام أعلاه. آخر قراءة للـAPI أظهرت `status=in_progress`، وخطوة `Run MT5 Model=4 OrderCheck diagnostic` ما تزال جارية ولا يوجد Artifact بعد. endpoint السجلات لم يُرجع ملف log قابلًا للتنزيل (404 BlobNotFound) أثناء استمرار التشغيل. لذلك لا يوجد حتى الآن دليل على أن اختبار #9 أكمل أو أن التسميات الجديدة ظهرت في HTML/Journal. لا أعتبره نجاحًا ولا فشلًا في الاستراتيجية؛ حالته `IN PROGRESS / NOT VERIFIED`.
+- لا توجد وسيلة إلغاء موثوقة متاحة عبر أدوات GitHub المستخدمة في هذه الجلسة. لا أُرسل تشغيلًا إضافيًا إلى مجموعة التزامن نفسها قبل حسم هذا التشغيل، حتى لا تتراكم وظائف معلقة.
+
+### فحص سجل التيكات — نتيجة من الملف الخام لا من الحالة المختصرة
+- راجعت ملفات `mt5-log-04.txt` و`mt5-log-05.txt` من Artifact run #8. السطران يعرضان: `XAUUSD : real ticks begin from 2026.08.05 00:00:00`. الاختبار مضبوط ليبدأ في 2026-08-04، لذا لا يغطي اليوم الأول بتيكات حقيقية بالكامل؛ وهذا يتسق مع History Quality = 98%.
+- لم أجد في السجلات التي فُحصت عبارات `real ticks absent` أو `real ticks discarded`، لكن غياب هذه النصوص في المجموعة المفحوصة لا يكفي وحده لإثبات أن بقية كل الدقائق استخدمت تيكات أصلية. يلزم الحصول على كل Journal ذات الصلة وتحليل كل رسائل التوليد/الاستبعاد.
+- وثيقة MQL5 المنشورة 2026-10-19، “Where your backtest stops being real: Measuring the depth of your broker's tick history”: https://www.mql5.com/en/articles/24562، توضح أن MT5 قد يولّد تيكات عند غياب/استبعاد بيانات tick وأن History Quality المبني على M1 قد لا يقيس النسبة الحقيقية لدقائق real ticks. المصدر الرسمي لاختبار الاستراتيجيات: https://www.mql5.com/en/docs/runtime/testing. هذا أحدث تطور بحثي مادي في منهج التحقق من البيانات لهذه التجربة.
+- فرضية الاختبار التالية، منفصلة عن الربحية: نقل بداية نافذة التشخيص فقط من `2026.08.04` إلى `2026.08.05`، مع إبقاء بقية المعلمات كما هي، ثم تحليل Journal الكامل بحثًا عن `real ticks begin`, `real ticks absent`, `real ticks discarded` وأي سطر يقول `every tick generation used`. لا يكفي نجاح شرط Model=4 أو History Quality وحده. إذا كان السجل غير موجود أو لم يمكن حساب التغطية، تظل النتيجة `INCOMPLETE`.
+- هذه نافذة تشخيص تطوير وليست نافذة قبول؛ نتيجة +$26.64/PF 1.59/DD 3.59% سابقًا غير مستقلة لأن الفترة استُخدمت في التطوير، ويظل 98% جودة تاريخ قيدًا على نقاء الاختبار. لا يوجد تغيير على استراتيجية التداول في هذه الجولة.
+
+### مصادر المنهج البحثي لهذا القرار
+- MQL5 official `OrderCheck`: https://www.mql5.com/en/docs/trading/ordercheck و`MqlTradeCheckResult`: https://www.mql5.com/en/docs/constants/structures/mqltradecheckresult؛ الشرط الحالي يمنع المرور عند `retcode != 0` حتى لو أعادت الدالة true.
+- MQL5 official Journal/tick testing article: https://www.mql5.com/en/articles/24562؛ يجعل تدقيق ملف Journal واحتساب دقائق real ticks واجبًا بدل قبول Quality% وحدها.
+- Bailey, Borwein, López de Prado & Zhu (2017), “The Probability of Backtest Overfitting”, DOI https://doi.org/10.21314/jcf.2016.322, https://escholarship.org/uc/item/4w1110bb؛ يدعم الفصل بين التطوير والاختبار المحجوز وتجنب انتقاء إعداد رابح داخل العينة.
+- تفريغ فيديو تداول الذهب “I cracked the GOLD trading Strategy. (It's stupid simple)”: https://app.faketrades.in/s/cracked-the-gold-trading-strategy-it-s-stupid-simple. لأن الوصف لا يعرّف آليًا قواعد الاتجاه/الـFVG/الدخول والوقف والخروج، عومل كمطالبة تعليمية غير مثبتة لا كقاعدة تُنقل إلى EA.
+
+### القرار التالي
+1. انتظر فقط نتيجة/حالة تشغيل #9 الحالية داخل سجل الجلسة؛ لا تعتبره نجاحًا وهو `in_progress`.
+2. بعد حسمه، صحّح بداية نافذة التشخيص إلى 2026-08-05 في تغيير واحد صغير، دون تغيير منطق التداول أو المعلمات، ثم اختبر واعرض ملف Journal كاملًا.
+3. إذا لم تنتهِ وظيفة #9 وتظل محتجزة، تُسجّل كعائق Actions محدد، ولا يتم تجاوز القيد بتغيير `main` أو فرع المرشح المجمد. الاختبار المحجوز 2026-10-21 إلى 2026-10-23 لا يُشغّل قبل 2026-10-24 12:00 UTC.
