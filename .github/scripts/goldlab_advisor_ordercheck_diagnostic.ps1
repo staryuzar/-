@@ -203,10 +203,12 @@ foreach ($line in $rawImmediateResultLines) {
   if ($payload -notmatch '^[^|]+\|seq=\d+;context=[^;]+;sent=(true|false);accepted=(true|false);request_id=\d+;retcode=\d+;') {
     throw "Unexpected ORDER_SEND_RESULT payload format: $payload"
   }
-  if ($payload -match '\|seq=(\d+);') {
-    if (!$seenImmediateSeq.Add($Matches[1])) { throw "Duplicate send sequence number across distinct payloads: $($Matches[1])" }
+  if ($seenImmediatePayloads.Add($payload)) {
+    if ($payload -match '\|seq=(\d+);') {
+      if (!$seenImmediateSeq.Add($Matches[1])) { throw "Duplicate send sequence number across distinct payloads: $($Matches[1])" }
+    }
+    $uniqueImmediateResultLines += $line
   }
-  if ($seenImmediatePayloads.Add($payload)) { $uniqueImmediateResultLines += $line }
 }
 $sendResultDuplicateCount = $rawImmediateResultLines.Count - $uniqueImmediateResultLines.Count
 $sendResultIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
