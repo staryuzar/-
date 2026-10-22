@@ -19,8 +19,6 @@ jobs:
   environment-preflight:
     runs-on: windows-2022
     timeout-minutes: 12
-    env:
-      MT5_CREDENTIALS: ${{ secrets.mt5 }}
     steps:
       - name: Checkout isolated candidate
         uses: actions/checkout@v4
