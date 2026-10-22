@@ -259,7 +259,7 @@ foreach ($line in $rawRequestSummaryLines) {
   $markerIndex = $line.IndexOf($marker, [System.StringComparison]::Ordinal)
   if ($markerIndex -lt 0) { throw "Malformed ORDER_REQUEST_SUMMARY record." }
   $payload = $line.Substring($markerIndex + $marker.Length).Trim()
-  if ($payload -notmatch '^[^|]+\|callbacks=\d+;accepted_by_retcode=\d+;other_retcode=\d+;deinit_reason=\d+) {
+  if ($payload -notmatch '^[^|]+\|callbacks=\d+;accepted_by_retcode=\d+;other_retcode=\d+;deinit_reason=\d+$') {
     throw "Unexpected ORDER_REQUEST_SUMMARY payload format: $payload"
   }
   if ($seenRequestSummaryPayloads.Add($payload)) { $uniqueRequestSummaryLines += $line }
