@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.012"
+#property version   "1.013"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -30,6 +30,7 @@ input bool             InpRequireFastEMARejection = false;
 
 uint lastTradeRetcode=0;
 ulong orderCheckPassCount=0, orderCheckFailCount=0;
+ulong orderSendCallCount=0, orderSendAcceptedCount=0, orderSendFailCount=0;
 int hFast=INVALID_HANDLE, hSlow=INVALID_HANDLE;
 int hBiasFast=INVALID_HANDLE, hBiasSlow=INVALID_HANDLE;
 int hRSI=INVALID_HANDLE, hADX=INVALID_HANDLE, hATR=INVALID_HANDLE;
@@ -88,6 +89,33 @@ bool PreflightTradeRequest(MqlTradeRequest &request,const string context)
    orderCheckPassCount++;
    return true;
 }
+
+/* Record OrderSend responses separately from OrderCheck preflight.
+   This adds diagnostics only; callers retain the existing acceptance rules. */
+void RecordOrderSendTelemetry(const string context,const bool sent,
+                              const MqlTradeResult &result,const bool accepted,
+                              const int errorCode)
+{
+   orderSendCallCount++;
+   if(accepted)
+   {
+      orderSendAcceptedCount++;
+      return;
+   }
+
+   orderSendFailCount++;
+   Print("GoldLab|ORDER_SEND_FAIL|",_Symbol,
+         "|context=",context,
+         ";sent=",(sent ? "true" : "false"),
+         ";accepted=",(accepted ? "true" : "false"),
+         ";retcode=",IntegerToString((int)result.retcode),
+         ";comment=",result.comment,
+         ";order=",(string)result.order,
+         ";deal=",(string)result.deal,
+         ";retcode_external=",IntegerToString((int)result.retcode_external),
+         ";last_error=",IntegerToString(errorCode));
+}
+
 bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double sl,const double tp,const string comment)
 {
    MqlTradeRequest request; MqlTradeResult result;
@@ -106,8 +134,13 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
    }
    request.type_time=ORDER_TIME_GTC; request.comment=comment;
    if(!PreflightTradeRequest(request,"open")) return false;
-   bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
-   return (sent && TradeRetcodeAccepted(result.retcode));
+   ResetLastError();
+   bool sent=OrderSend(request,result);
+   int errorCode=GetLastError();
+   lastTradeRetcode=result.retcode;
+   bool accepted=(sent && TradeRetcodeAccepted(result.retcode));
+   RecordOrderSendTelemetry("open",sent,result,accepted,errorCode);
+   return accepted;
 }
 bool ClosePositionByTicket(const ulong ticket)
 {
@@ -132,8 +165,13 @@ bool ClosePositionByTicket(const ulong ticket)
    request.type_time=ORDER_TIME_GTC;
    request.comment="GoldLab opposite-signal close";
    if(!PreflightTradeRequest(request,"close")) return false;
-   bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
-   return (sent && TradeRetcodeAccepted(result.retcode));
+   ResetLastError();
+   bool sent=OrderSend(request,result);
+   int errorCode=GetLastError();
+   lastTradeRetcode=result.retcode;
+   bool accepted=(sent && TradeRetcodeAccepted(result.retcode));
+   RecordOrderSendTelemetry("close",sent,result,accepted,errorCode);
+   return accepted;
 }
 bool ModifyPositionSLTP(const ulong ticket,const double sl,const double tp)
 {
@@ -143,8 +181,13 @@ bool ModifyPositionSLTP(const ulong ticket,const double sl,const double tp)
    request.action=TRADE_ACTION_SLTP; request.position=ticket;
    request.symbol=PositionGetString(POSITION_SYMBOL); request.magic=InpMagic; request.sl=sl; request.tp=tp;
    if(!PreflightTradeRequest(request,"modify-sltp")) return false;
-   bool sent=OrderSend(request,result); lastTradeRetcode=result.retcode;
-   return (sent && result.retcode==TRADE_RETCODE_DONE);
+   ResetLastError();
+   bool sent=OrderSend(request,result);
+   int errorCode=GetLastError();
+   lastTradeRetcode=result.retcode;
+   bool accepted=(sent && result.retcode==TRADE_RETCODE_DONE);
+   RecordOrderSendTelemetry("modify-sltp",sent,result,accepted,errorCode);
+   return accepted;
 }
 
 bool ReadValue(const int handle,const int buffer,const int shift,double &value)
@@ -290,7 +333,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.012; blocks live execution on real accounts while permitting Strategy Tester; active-order entry guard; optional candle/EMA filters; ADX ceiling; max-spread guard.");
+   LogEvent("INIT","Research candidate v1.013; blocks live execution on real accounts while permitting Strategy Tester; active-order entry guard; optional candle/EMA filters; ADX ceiling; max-spread guard.");
    return INIT_SUCCEEDED;
 }
 
@@ -299,6 +342,11 @@ void OnDeinit(const int reason)
    Print("GoldLab|ORDER_CHECK_SUMMARY|",_Symbol,
          "|passed=",IntegerToString((int)orderCheckPassCount),
          ";failed=",IntegerToString((int)orderCheckFailCount),
+         ";deinit_reason=",IntegerToString(reason));
+   Print("GoldLab|ORDER_SEND_SUMMARY|",_Symbol,
+         "|calls=",IntegerToString((int)orderSendCallCount),
+         ";accepted=",IntegerToString((int)orderSendAcceptedCount),
+         ";failed=",IntegerToString((int)orderSendFailCount),
          ";deinit_reason=",IntegerToString(reason));
    if(hFast!=INVALID_HANDLE) IndicatorRelease(hFast);
    if(hSlow!=INVALID_HANDLE) IndicatorRelease(hSlow);

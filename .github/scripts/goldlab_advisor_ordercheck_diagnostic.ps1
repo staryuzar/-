@@ -6,15 +6,18 @@ if (!(Test-Path -LiteralPath $runnerPath)) { throw "Generic MT5 runner is missin
 if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLabEA source is missing." }
 
 $source = Get-Content -LiteralPath $eaPath -Raw
-if ($source -notmatch '(?m)^#property version\s+"1\.012"' -or
+if ($source -notmatch '(?m)^#property version\s+"1\.013"' -or
     $source -notmatch 'PreflightTradeRequest\(request,"open"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"close"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"modify-sltp"\)' -or
     $source -notmatch 'ORDER_CHECK_SUMMARY' -or
     $source -notmatch 'if\(!ok\s*\|\|\s*check\.retcode\s*!=\s*0\)' -or
     $source -notmatch 'call_ok=' -or
-    $source -notmatch 'Research candidate v1\.012;') {
-  throw "EA source does not contain the intended v1.012 OrderCheck return-code gate."
+    $source -notmatch 'Research candidate v1\.013;' -or
+    $source -notmatch 'RecordOrderSendTelemetry\(' -or
+    $source -notmatch 'ORDER_SEND_FAIL' -or
+    $source -notmatch 'ORDER_SEND_SUMMARY') {
+  throw "EA source does not contain the intended v1.013 OrderCheck and OrderSend telemetry gates."
 }
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $content = Get-Content -LiteralPath $runnerPath -Raw
@@ -67,11 +70,11 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
 @(
   "OrderCheck execution-safety diagnostic",
   "EA source SHA-256: $sourceHash",
-  "EA version: 1.012",
+  "EA version: 1.013",
   "Period: 2026-08-05 through 2026-10-20",
   "Model: 4 — every tick based on real ticks",
   "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true.",
-  "OrderCheck is called before market entry, opposite close and SL/TP modification. This tests request preflight, not a guarantee of eventual fill.",
+  "OrderCheck preflight and OrderSend results are logged separately. OrderSend telemetry adds diagnostics only and does not guarantee eventual fill.",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath (Join-Path $PWD "goldlab-ordercheck-preflight.txt") -Encoding utf8
 
@@ -123,4 +126,52 @@ $rawSummaryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPa
 if ($passTotal -lt 1) { throw "No OrderCheck success was observed; request-preflight remains unproven." }
 if ($failTotal -gt 0) { throw "OrderCheck rejected $failTotal request(s); inspect tester logs before acceptance." }
 "OrderCheck diagnostic gate: PASS (unique passes=$passTotal; unique failures=$failTotal; duplicate copies ignored=$duplicateCount)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+
+$rawSendSummaryLines = @()
+foreach ($file in @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".txt",".log") })) {
+  $rawSendSummaryLines += @(Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue | Where-Object { $_ -match 'GoldLab\|ORDER_SEND_SUMMARY\|' })
+}
+if ($rawSendSummaryLines.Count -eq 0) { throw "No ORDER_SEND_SUMMARY line found; send telemetry is incomplete." }
+$seenSendPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$uniqueSendSummaryLines = @()
+foreach ($line in $rawSendSummaryLines) {
+  $marker = "GoldLab|ORDER_SEND_SUMMARY|"
+  $markerIndex = $line.IndexOf($marker, [System.StringComparison]::Ordinal)
+  if ($markerIndex -lt 0) { throw "Malformed ORDER_SEND_SUMMARY record; refusing an ambiguous count." }
+  $payload = $line.Substring($markerIndex + $marker.Length).Trim()
+  if ($payload -notmatch '^[^|]+\|calls=\d+;accepted=\d+;failed=\d+;deinit_reason=\d+
+) {
+    throw "Unexpected ORDER_SEND_SUMMARY payload format: $payload"
+  }
+  if ($seenSendPayloads.Add($payload)) { $uniqueSendSummaryLines += $line }
+}
+if ($uniqueSendSummaryLines.Count -eq 0) { throw "No unique ORDER_SEND_SUMMARY payload found; result is incomplete." }
+$sendCallTotal = 0
+$sendAcceptedTotal = 0
+$sendFailTotal = 0
+foreach ($line in $uniqueSendSummaryLines) {
+  if ($line -match 'calls=(\d+)') { $sendCallTotal += [int]$Matches[1] }
+  if ($line -match 'accepted=(\d+)') { $sendAcceptedTotal += [int]$Matches[1] }
+  if ($line -match 'failed=(\d+)') { $sendFailTotal += [int]$Matches[1] }
+}
+$sendDuplicateCount = $rawSendSummaryLines.Count - $uniqueSendSummaryLines.Count
+@(
+  "",
+  "## OrderSend result telemetry",
+  "EA source SHA-256: $sourceHash",
+  "Raw summary log lines: $($rawSendSummaryLines.Count)",
+  "Unique summary payloads: $($uniqueSendSummaryLines.Count)",
+  "Duplicate summary copies ignored: $sendDuplicateCount",
+  "OrderSend calls (unique payloads): $sendCallTotal",
+  "OrderSend accepted (unique payloads): $sendAcceptedTotal",
+  "OrderSend failures (unique payloads): $sendFailTotal",
+  "Unique OrderSend summary records:"
+) | Add-Content -LiteralPath $summaryPath -Encoding utf8
+$uniqueSendSummaryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+"Raw OrderSend summary lines (includes duplicates):" | Add-Content -LiteralPath $summaryPath -Encoding utf8
+$rawSendSummaryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+if ($sendCallTotal -lt 1) { throw "No OrderSend call observed; result telemetry is unproven." }
+if (($sendAcceptedTotal + $sendFailTotal) -ne $sendCallTotal) { throw "OrderSend summary counts do not reconcile; inspect tester telemetry." }
+if ($sendFailTotal -gt 0) { throw "OrderSend recorded $sendFailTotal failure(s); inspect detailed ORDER_SEND_FAIL records before acceptance." }
+"OrderSend telemetry gate: PASS (calls=$sendCallTotal; accepted=$sendAcceptedTotal; failures=$sendFailTotal; duplicate copies ignored=$sendDuplicateCount)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 Get-Content -LiteralPath $summaryPath
