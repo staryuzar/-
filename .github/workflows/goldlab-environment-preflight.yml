@@ -1,0 +1,34 @@
+name: GoldLab Environment Preflight (no strategy test)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-environment-preflight
+  cancel-in-progress: false
+
+jobs:
+  environment-preflight:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated candidate
+        uses: actions/checkout@v4
+
+      - name: Provision MT5, compile smoke EA, and verify demo login only
+        shell: pwsh
+        run: .github/scripts/goldlab_environment_preflight.ps1
+
+      - name: Upload sanitized environment diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-environment-preflight-${{ github.run_id }}
+          path: goldlab-environment-results/
+          if-no-files-found: warn
+          retention-days: 30
