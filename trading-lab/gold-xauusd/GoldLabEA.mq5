@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.013"
+#property version   "1.014"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -31,6 +31,7 @@ input bool             InpRequireFastEMARejection = false;
 uint lastTradeRetcode=0;
 ulong orderCheckPassCount=0, orderCheckFailCount=0;
 ulong orderSendCallCount=0, orderSendAcceptedCount=0, orderSendFailCount=0;
+ulong orderRequestCallbackCount=0, orderRequestAcceptedCount=0, orderRequestOtherRetcodeCount=0;
 int hFast=INVALID_HANDLE, hSlow=INVALID_HANDLE;
 int hBiasFast=INVALID_HANDLE, hBiasSlow=INVALID_HANDLE;
 int hRSI=INVALID_HANDLE, hADX=INVALID_HANDLE, hATR=INVALID_HANDLE;
@@ -97,6 +98,19 @@ void RecordOrderSendTelemetry(const string context,const bool sent,
                               const int errorCode)
 {
    orderSendCallCount++;
+   Print("GoldLab|ORDER_SEND_RESULT|",_Symbol,
+         "|seq=",(string)orderSendCallCount,
+         ";context=",context,
+         ";sent=",(sent ? "true" : "false"),
+         ";accepted=",(accepted ? "true" : "false"),
+         ";request_id=",(string)result.request_id,
+         ";retcode=",IntegerToString((int)result.retcode),
+         ";order=",(string)result.order,
+         ";deal=",(string)result.deal,
+         ";volume=",DoubleToString(result.volume,2),
+         ";price=",DoubleToString(result.price,_Digits),
+         ";comment=",result.comment,
+         ";last_error=",IntegerToString(errorCode));
    if(accepted)
    {
       orderSendAcceptedCount++;
@@ -333,7 +347,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.013; blocks live execution on real accounts while permitting Strategy Tester; active-order entry guard; optional candle/EMA filters; ADX ceiling; max-spread guard.");
+   LogEvent("INIT","Research candidate v1.014; adds request-result correlation telemetry only; strategy/risk rules unchanged; blocks live execution on real accounts while permitting Strategy Tester.");
    return INIT_SUCCEEDED;
 }
 
@@ -347,6 +361,11 @@ void OnDeinit(const int reason)
          "|calls=",IntegerToString((int)orderSendCallCount),
          ";accepted=",IntegerToString((int)orderSendAcceptedCount),
          ";failed=",IntegerToString((int)orderSendFailCount),
+         ";deinit_reason=",IntegerToString(reason));
+   Print("GoldLab|ORDER_REQUEST_SUMMARY|",_Symbol,
+         "|callbacks=",IntegerToString((int)orderRequestCallbackCount),
+         ";accepted_by_retcode=",IntegerToString((int)orderRequestAcceptedCount),
+         ";other_retcode=",IntegerToString((int)orderRequestOtherRetcodeCount),
          ";deinit_reason=",IntegerToString(reason));
    if(hFast!=INVALID_HANDLE) IndicatorRelease(hFast);
    if(hSlow!=INVALID_HANDLE) IndicatorRelease(hSlow);
@@ -550,6 +569,30 @@ void OnTick()
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result)
 {
+   // The request/result arguments are meaningful only for TRADE_TRANSACTION_REQUEST.
+   // Keep this handler lightweight: a compact single-line record per own-symbol/magic request.
+   if(trans.type==TRADE_TRANSACTION_REQUEST && request.symbol==_Symbol &&
+      (ulong)request.magic==InpMagic)
+   {
+      orderRequestCallbackCount++;
+      bool acceptedByRetcode=TradeRetcodeAccepted(result.retcode);
+      if(acceptedByRetcode) orderRequestAcceptedCount++;
+      else orderRequestOtherRetcodeCount++;
+      Print("GoldLab|ORDER_REQUEST_RESULT|",_Symbol,
+            "|request_id=",(string)result.request_id,
+            ";action=",EnumToString(request.action),
+            ";type=",EnumToString(request.type),
+            ";magic=",(string)request.magic,
+            ";retcode=",IntegerToString((int)result.retcode),
+            ";accepted_by_retcode=",(acceptedByRetcode ? "true" : "false"),
+            ";comment=",result.comment,
+            ";order=",(string)result.order,
+            ";deal=",(string)result.deal,
+            ";volume=",DoubleToString(result.volume,2),
+            ";price=",DoubleToString(result.price,_Digits),
+            ";retcode_external=",IntegerToString(result.retcode_external));
+   }
+
    if(trans.type!=TRADE_TRANSACTION_DEAL_ADD || trans.deal==0) return;
    if(HistoryDealSelect(trans.deal) && HistoryDealGetString(trans.deal,DEAL_SYMBOL)==_Symbol &&
       (ulong)HistoryDealGetInteger(trans.deal,DEAL_MAGIC)==InpMagic)
