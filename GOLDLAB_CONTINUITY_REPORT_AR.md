@@ -364,3 +364,33 @@
 - ما فشل/ما بقي: (1) عدّ السجل مكررًا إلى 1494 بدل 747؛ (2) نصا النسخة 1.011 و1.009 قديمان؛ (3) جودة التاريخ 98% بسبب بداية real ticks في 5 أغسطس لا 4 أغسطس؛ (4) النتيجة التاريخية على نافذة التطوير ليست مستقلة. لم يتغير أي متغير تداول أو معلمة ربحية.
 - الخطوة التالية: تعديل واحد منفصل يخص موثوقية القياس فقط: deduplicate `ORDER_CHECK_SUMMARY` حسب payload مع عرض `raw lines` و`unique summaries` و`passed` و`failed` بشكل مستقل. في الجولة التالية تُصحح تسميات النسخة وتُضاف بوابة صريحة تغطي نقص real ticks أو تصنفه `INCOMPLETE`؛ ثم يُعاد تشغيل فرع المرشح على نافذة التشخيص ذاتها فقط، لا فترة الحجز.
 - **نافذة 2026-10-21 إلى 2026-10-23 ما تزال محجوزة.** لا تغيّر مرشح `gold-xauusd-expert-lab` أو بصمة مصدره؛ لا يبدأ أي اختبار قبول للحجز إلا بعد 2026-10-24 12:00 UTC (15:00 بتوقيت عدن).
+
+
+## متابعة استئناف — 2026-10-23 (dedupe telemetry، Run 7 فشل سكربت، Run 8 نجح)
+
+### تشغيل 7 — فشل تشخيصي برمجي وليس تداوليًا
+- الالتزام: [`8f19bb687b588c3bd865098ac6229b3b1eb8f6a7`](https://github.com/staryuzar/-/commit/8f19bb687b588c3bd865098ac6229b3b1eb8f6a7).
+- التشغيل: [39861484351](https://github.com/staryuzar/-/actions/runs/39861484351), conclusion `failure`.
+- السبب الحقيقي من سجل PowerShell: `ParserError` قرب السطر 94 بعد أن أدخل التعديل السابق انقسامًا غير صحيح في تعبير التحقق من payload. لم يصل هذا التشغيل إلى compile أو Strategy Tester؛ وسجل الرفع يقول إن الملفات لم توجد، لذلك **لا يوجد Artifact صالح ولا نتيجة MT5** لهذه الجولة.
+- الإصلاح: [`7bcf5a62f1dfb0048ca90b9792582bc39b52667f`](https://github.com/staryuzar/-/commit/7bcf5a62f1dfb0048ca90b9792582bc39b52667f) استبدل التقاط النص بعلامة نصية و`IndexOf/Substring`، مع فحص شكل payload قبل جمع الأرقام.
+
+### تشغيل 8 — إثبات إصلاح العد
+- التشغيل: [39861613507](https://github.com/staryuzar/-/actions/runs/39861613507), run number 8، head = `7bcf5a62f1dfb0048ca90b9792582bc39b52667f`, conclusion `success`.
+- Artifact ID `12462795111`, `goldlab-ordercheck-39861613507`; الرابط https://github.com/staryuzar/-/actions/runs/39861613507/artifacts/12462795111.
+- مصدر الاختبار EA `1.012` عبر فحص المصدر في diagnostic guard، `MetaEditor 0 errors, 0 warnings`, MT5 Build `5.0.0.6281`, Strategy Tester exit code 0, Model=4, XAUUSD M5. الإعدادات بقيت كما هي: risk=0.50%, stop=0.45 ATR, target=2.4 ATR, trailing=1.4 ATR, max spread=100, ADX=23–25, short-only, candle-direction=true, EMA-rejection=true.
+- تقرير `run-summary.txt` يعرض الآن: raw summary lines=2، unique summary payloads=1، duplicate copies ignored=1، OrderCheck passes (unique)=747، failures (unique)=0. سجل MT5 يحوي 2 نسخة للـsummary نفسه و0 من `ORDER_CHECK_FAIL`. هذا يصلح تضخيم الأرقام من 1494 إلى 747.
+- تقرير MT5 HTML: جودة التاريخ 98% real ticks، 15,370 شمعة، 32,284,064 tick، net profit +$26.64، PF=1.59، Expected Payoff=+$0.76، 35 صفقة (11 رابحة / 24 خاسرة)، Max Equity DD $18.98 (3.59%). CSV: 70 deal rows (35 دخول + 35 خروج)، مجموع صافي صفقات الخروج بعد commission/swap = +$26.64 (فرق HTML/CSV = 0).
+- سبب جودة 98% محدد في السجل: بدأ الاختبار يوم 2026-08-04، بينما السجل يذكر `real ticks begin from 2026.08.05 00:00:00`. لذلك هذه ليست تغطية 100% real ticks؛ تُقبل نتيجة الجولة فقط كفحص سلامة تنفيذ تشخيصي مع قيد جودة التاريخ، وليست قياس أداء مقبولًا أو خارج العينة.
+- يوجد وصفا نسخة قديمان في السجلات: ملف preflight الثابت يعرض `EA version: 1.011`، وسطر `GoldLab|INIT` في EA يعرض `v1.009`. حارس المصدر الحالي يشترط `#property version "1.012"` ويحسب SHA-256 للملف الذي ينسخه runner، لذا تبدو التسميتان متقادمتين لا دليلًا على أن ملفًا آخر جُمّع. مع ذلك تضرّان بقابلية التدقيق، ويجب تصحيحهما في تعديل منفصل.
+- **تقييم الفرضية:** قاعدة `OrderCheck()==true && check.retcode==0` موجودة في النسخة المترجمة ونتج عنها 747 فحصًا ناجحًا و0 فشل مسجل في نافذة التشخيص. هذا يدعم سلامة preflight للطلبات التي وصلت إلى هذه البوابة فقط؛ لا يضمن تعبئة الأوامر ولا ربحية استراتيجية الدخول.
+
+### مصادر بحثية أضيفت لهذه الجولة
+- MQL5 Reference `OrderCheck`: https://www.mql5.com/en/docs/trading/ordercheck و`MqlTradeCheckResult`: https://www.mql5.com/en/docs/constants/structures/mqltradecheckresult؛ توضّح أن `true` نجاح فحص أساسي لا ضمان تنفيذ، وأن `retcode/comment` حقول مستقلة. مصدر تنفيذ الطلب `OrderSend`: https://www.mql5.com/en/docs/trading/ordersend.
+- وثيقة MQL5 عن معاملات التداول وتسجيل الطلب/النتيجة: https://www.mql5.com/en/articles/13052؛ استخدمت لتأكيد ضرورة الفصل بين الطلب ونتيجة الفحص والنتيجة/المعاملات.
+- تفريغ فيديو Vidollar، “I cracked the GOLD trading Strategy. (It's stupid simple)”: https://app.faketrades.in/s/cracked-the-gold-trading-strategy-it-s-stupid-simple. وصف التحليل المصاحب يعتبرها غير قابلة للاختبار كما عُرضت لأن الميل البنيوي وFVG وتوقيت الارتداد لم تُعرّف بقواعد آلية كاملة؛ مطالبات الربح كلام صاحب الفيديو وليست دليلًا اختباريًا مستقلاً.
+- Bailey, Borwein, López de Prado & Zhu (2017), “The Probability of Backtest Overfitting”, DOI https://doi.org/10.21314/jcf.2016.322; https://escholarship.org/uc/item/4w1110bb. يبرر عدم اعتماد نتيجة موجبة من نافذة تطوير تم تعديل الاستراتيجية عليها؛ الاختبار المحجوز يبقى منفصلًا.
+
+### نقطة الاستئناف الدقيقة التالية
+1. إصلاح بيانات تعريف النسخة فقط: جعل رسالة `INIT` وملف preflight يعرضان `1.012` المتحققة، ثم تشغيل CI والتحقق من هذه العلامات في Artifact.
+2. في جولة منفصلة، مواءمة بداية تشخيص Model=4 مع بداية real ticks التي رصدها MT5 (`2026-08-05`) والتحقق هل تصبح الجودة 100%. لا تغيّر شروط التداول لهذا الغرض؛ إن لم تصل الجودة المطلوبة، صنّف الأداء `INCOMPLETE` ولا تخترع/تولّد real ticks.
+3. إبقاء `main` والمرشح `gold-xauusd-expert-lab` مغلقين عن التعديل. نافذة 2026-10-21 إلى 2026-10-23 محجوزة، ولا تُشغّل قبل 2026-10-24 12:00 UTC (15:00 عدن).
