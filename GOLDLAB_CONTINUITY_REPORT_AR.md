@@ -576,3 +576,37 @@
 4. **LEARN MQL5 TUTORIAL BASICS – 3 HOW TO USE THE STRATEGY TESTER** — MQL5 Tutorial، 2 فبراير 2019: https://www.youtube.com/watch?v=MMYwKGAoiYE. مادة تمهيدية قديمة لإعداد الاختبار، نستخدمها لتوضيح الواجهة فقط لا لاعتبارها مرجعًا حديثًا لدقة بيانات التيكات.
 
 **خلاصة التعلم:** الفيديوهات التعليمية تساعد في فهم الواجهة وبناء الطلب، لكن قواعد القبول الحاسمة تُؤخذ من المرجع الرسمي وسجلات MT5 التي أنتجها الاختبار الفعلي؛ لا تُستبدل هذه الأدلة بملخص فيديو أو ادعاء ربحية.
+
+
+---
+
+## تحديث تجهيز بيئة التطوير الآلي وحماية نطاق الاختبار — 2026-10-23
+
+### 1. بيئة Windows / MetaTrader / MetaEditor
+- الفحص النهائي للبيئة [Run 39874355973](https://github.com/staryuzar/-/actions/runs/39874355973) نجح على Windows Server 2022، MT5 build 6281 وMetaEditor build 6281.
+- Artifact `12467786152` يحتوي `environment-preflight.txt` و`compile-smoke-log.txt`. برنامج MQL5 الاختباري المستقل جُمّع بنتيجة 0 أخطاء و0 تحذيرات.
+- هذا الفحص لا يحتاج بيانات Headway ولا يشغّل استراتيجية الذهب. بيانات الاتصال تُستخدم فقط داخل سير العمل الفعلي للمستشار.
+- البيئة على hosted runner مؤقتة، لا تبقى نافذتا MT5/MetaEditor مفتوحتين بين الجولات.
+
+### 2. سير التطوير والاختبار
+- البيئة المؤقتة: [goldlab-environment-preflight.yml](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/.github/workflows/goldlab-environment-preflight.yml).
+- اختبار المستشار الفعلي: [goldlab-advisor-ordercheck.yml](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/.github/workflows/goldlab-advisor-ordercheck.yml). يجمّع GoldLabEA ويشغّل MT5 Strategy Tester على نافذة التطوير عند تعديل EA أو مشغل الاختبار في الفرع المرشح، ثم يرفع التقرير والسجلات.
+- توثيق الحل وحدود البيئة: [ENVIRONMENT_SETUP_SOLUTION_AR.md](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/trading-lab/gold-xauusd/ENVIRONMENT_SETUP_SOLUTION_AR.md).
+
+### 3. تصحيح حدود الزمن — مهم
+- Run 18 [39871264908](https://github.com/staryuzar/-/actions/runs/39871264908) نجح بوابة سجلات التنفيذ: 747 نتيجة OrderCheck، و747 استدعاء OrderSend مقبول، و747 callback مربوطاً بعد إزالة نسخ سجلات Chart/Core المكررة. بيانات التجربة أثبتت اتصال Headway-Demo أثناء جلسة MT5، ثم انتهى الاتصال بانتهاء الخادم المؤقت.
+- مراجعة HTML الفعلية بعد ذلك وجدت أن رأس التقرير يقول `M5 (2026.08.05 - 2026.10.21)`، رغم أن ملخص التشغيل واسم التقرير كانا يشيران إلى 2026-10-20. آخر صفقة CSV كانت بتاريخ 2026-10-20، لكن هذا وحده لا يثبت أن بيانات يوم 21 لم تدخل النموذج.
+- لذلك يحتفظ Run 18 كدليل تشخيص لسجلات التنفيذ فقط؛ لا يُستخدم كاختبار نظيف مؤكد الاستبعاد لفترة الحجز.
+- عُدّل مشغل الاختبار في commit `1422e02dd455978def0024f79b049a2627300073` ليضبط `ToDate=2026.10.20` ويتحقق من أن تقرير HTML النهائي يعرض المدى الدقيق `2026.08.05 - 2026.10.20`. أي انحراف في الفترة يؤدي إلى رفض الجولة.
+- محاولة Run [39874541462](https://github.com/staryuzar/-/actions/runs/39874541462) فشلت سريعاً بسبب ParserError في صيغة PowerShell بعد التعديل الأول، قبل تشغيل MT5؛ لم تنتج اختبار استراتيجية. تم تصحيح علامة الاقتباس في commit `1422e02dd455978def0024f79b049a2627300073`.
+
+### 4. الجولة المصححة الحالية
+- Run [39874581680](https://github.com/staryuzar/-/actions/runs/39874581680) على commit `1422e02dd455978def0024f79b049a2627300073` يجري تشغيل MT5 Strategy Tester بعد اجتياز تحميل المستودع ووصوله إلى خطوة الاختبار.
+- **الحالة النهائية لم تتأكد في هذا السجل بعد**. بعد اكتماله يجب مراجعة HTML (نهاية الفترة 2026-10-20)، وCSV، وJournal، وبوابات OrderCheck/OrderSend/callback. لا تقبل الجولة إذا لم يتطابق تاريخ HTML أو إن تعذر ربط السجلات.
+- لا تغير EA أو مدخلاته لتجريب الأداء بناءً على هذه الجولة؛ الغرض الأول تصحيح حدود الزمن والتحقق من الأتمتة.
+
+### 5. الحماية والثوابت
+- `main` لا يزال عند SHA `295bfb953d0086cf8b249e0ab35b711ffc72170c`.
+- `gold-xauusd-expert-lab` المجمد لا يزال عند SHA `d5f1f5f7541de729ed9814e6c0be742aedd6025c`.
+- لا تغييرات على أي منهما؛ كل العمل على `goldlab-request-result-candidate`.
+- النافذة المحجوزة 2026-10-21 إلى 2026-10-23 لا تُستخدم لتقييم الاستراتيجية قبل 2026-10-24 12:00 UTC (15:00 عدن).
