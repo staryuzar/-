@@ -23,7 +23,7 @@ jobs:
       - name: Checkout isolated candidate
         uses: actions/checkout@v4
 
-      - name: Provision MT5, compile smoke EA, and verify demo login only
+      - name: Provision MT5 and compile smoke EA (no strategy test)
         shell: pwsh
         run: .github/scripts/goldlab_environment_preflight.ps1
 
