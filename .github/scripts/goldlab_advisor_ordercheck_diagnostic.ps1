@@ -223,6 +223,9 @@ foreach ($line in $uniqueImmediateResultLines) {
 if ($uniqueImmediateResultLines.Count -ne $sendCallTotal) {
   throw "ORDER_SEND_RESULT records ($($uniqueImmediateResultLines.Count)) do not equal OrderSend calls ($sendCallTotal)."
 }
+if ($sendResultIds.Count -ne ($uniqueImmediateResultLines.Count - $sendResultZeroIds)) {
+  throw "Duplicate nonzero request IDs occurred across immediate OrderSend results."
+}
 
 $seenRequestPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $uniqueRequestResultLines = @()
@@ -312,6 +315,9 @@ if ($unmatchedReplyIds.Count -gt 0) { "Unmatched callback request IDs: $($unmatc
 if ($requestResultOtherRetcodeLines.Count -gt 0) {
   "Request-result callbacks outside the existing DONE/DONE_PARTIAL/PLACED allow-list:" | Add-Content -LiteralPath $summaryPath -Encoding utf8
   $requestResultOtherRetcodeLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+}
+if ($requestResultIds.Count -ne ($uniqueRequestResultLines.Count - $requestResultZeroIds)) {
+  throw "Duplicate nonzero request IDs occurred across request-result callbacks."
 }
 if ($uniqueRequestResultLines.Count -lt 1) { throw "No unique request response callbacks were observed." }
 if ($sendResultZeroIds -gt 0 -or $requestResultZeroIds -gt 0) {
