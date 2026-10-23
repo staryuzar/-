@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.007"
+#property version   "1.008"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -366,7 +366,7 @@ bool ComputeOne(int t,int j,int &score)
       score=(uptrend && bearNow<0 && bearNow>bearPrev ? 1 :
              (downtrend && a>0 && a<bullPrev ? -1 : 0));
       g_diagA[t][j]=a; g_diagB[t][j]=bullPrev; g_diagC[t][j]=bearNow;
-      g_diagD[t][j]=bearPrev; g_diagE[t][j]=cc[0];
+      g_diagD[t][j]=bearPrev; g_diagE[t][j]=emaNow; // Trend threshold; candle_close is exported separately.
       return true;
    }
    if(j==ULTIMATE_OSC)
