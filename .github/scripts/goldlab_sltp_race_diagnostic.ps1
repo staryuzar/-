@@ -41,7 +41,7 @@ $writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSig
 $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; Random Delay ExecutionMode=-1 diagnostic)"),
-  @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Execution robustness experiment: frozen ADX25 baseline rules; short-only; candle direction and fast EMA rejection enabled; Model 4 real ticks; Random Delay ExecutionMode=-1. Only the one-off invalid-stop retry adds a 0.50 ATR cushion, with volume recalculated to preserve the risk budget."),
+  @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Execution robustness experiment: frozen ADX25 baseline rules; short-only; candle direction and fast EMA rejection enabled; Model 4 real ticks; Random Delay ExecutionMode=-1. The one-off invalid-stop retry uses an extra buffer of $retryBufferText ATR, with volume recalculated to preserve the risk budget."),
   @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min23OrderCheckStop045_RANDOM_DELAY.set"),
   @("InpMinADX=18.0||18.0||1.0||18.0||N", "InpMinADX=23.0||23.0||1.0||23.0||N"),
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=25.0||25.0||1.0||25.0||N"),
@@ -64,7 +64,7 @@ if (!$content.Contains($oldMax)) { throw "Parameter verification source marker n
 $newChecks = $newChecks.Replace("__FORCE_EXPECTED__", $forceInjectionValue)
 $newChecks = $newChecks.Replace("__BUFFER_EXPECTED__", [regex]::Escape($retryBufferText))
 $content = $content.Replace($oldMax, $newChecks)
-$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (ADX25 baseline rules confirmed; retry-only stop buffer=0.50 ATR; Model 4 real ticks; ExecutionMode=-1 Random Delay; period ends 2026-10-20)")
+$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (ADX25 baseline rules confirmed; one-retry buffer=$retryBufferText ATR; Model 4 real ticks; ExecutionMode=-1 Random Delay; period ends 2026-10-20)")
 
 $checks = @(
   ($content -match 'InpMinADX=23\.0'),
@@ -79,10 +79,12 @@ $checks = @(
   ($content -match '(?m)^ToDate=2026\.10\.20\r?$'),
   ($content -match 'GoldLab_ordercheck_adx25_min23_stop045_slptrace_2026-08-05_to-2026-10-20'),
   ($content -match '2026\.10\.20'),
-  ($content -match 'Random Delay ExecutionMode=-1 diagnostic')
+  ($content -match 'Random Delay ExecutionMode=-1 diagnostic'),
+  ($content.Contains("extra buffer of $retryBufferText ATR")),
+  ($content.Contains("one-retry buffer=$retryBufferText ATR"))
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=$retryBufferText","InpTestForceInvalidStopsOnce=$forceInjectionValue","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=$retryBufferText","InpTestForceInvalidStopsOnce=$forceInjectionValue","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label","dynamic extra-buffer label","dynamic retry-buffer verification label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
