@@ -1,0 +1,32 @@
+name: TV26 MetaEditor compile
+
+on:
+  push:
+    branches:
+      - tv26-five-timeframes-arabic-candidate
+    paths:
+      - "trading-lab/tv26/**"
+      - ".github/scripts/tv26_compile_smoke.ps1"
+      - ".github/workflows/tv26-compile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+      - name: Compile candidate with official MetaEditor
+        shell: pwsh
+        run: ./\.github/scripts/tv26_compile_smoke.ps1
+      - name: Upload compiler evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-metaeditor-compile-report
+          path: tv26-results/
+          if-no-files-found: warn
