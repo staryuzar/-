@@ -38,7 +38,7 @@ $replacements = @(
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=27.0||27.0||1.0||27.0||N"),
   @("InpWriteTradeCSV=true||false||0||true||N", $writeCsvReplacement),
   @("ADX 18-40, long entries disabled", "ADX 23-27, long entries disabled, candle direction=true, fast EMA rejection=true"),
-  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop045_2026-08-05_to_2026-10-20"),
+  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx27_min23_stop045_2026-08-05_to_2026-10-20"),
   @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx27_min23_stop045_2026-08-05_to-2026-10-20.htm")
 )
 foreach ($pair in $replacements) {
