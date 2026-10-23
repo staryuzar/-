@@ -70,7 +70,7 @@ try {
   }
 
   $importIni=Join-Path $root "import.ini"
-  $ic=@("[Common]","Login=$login","Password=$passCfg","Server=$server","ProxyEnable=0","KeepPrivate=1","NewsEnable=0","CertInstall=0","","[Experts]","Enabled=1","AllowLiveTrading=0","AllowDllImport=0","","[StartUp]","Script=GoldLab\GoldLabDukascopyImport","Symbol=XAUUSD","Period=M1","ShutdownTerminal=1") -join "\r\n"
+  $ic=@("[Common]","Login=$login","Password=$passCfg","Server=$server","ProxyEnable=0","KeepPrivate=1","NewsEnable=0","CertInstall=0","","[Experts]","Enabled=1","AllowLiveTrading=0","AllowDllImport=0","","[StartUp]","Script=GoldLab\GoldLabDukascopyImport","Symbol=XAUUSD","Period=M1","ShutdownTerminal=1") -join [Environment]::NewLine
   [IO.File]::WriteAllText($importIni,$ic,[Text.Encoding]::ASCII)
   $env:MT5_CREDENTIALS=$null
   $ip=Start-Process $terminal.FullName -ArgumentList @("/portable","/config:$importIni") -WorkingDirectory $install -PassThru
@@ -91,11 +91,11 @@ try {
     "InpTargetATR=2.4||2.4||0.1||2.4||N","InpTrailATR=1.4||1.4||0.1||1.4||N","InpMaxSpreadPoints=1000.0||1000.0||100.0||1000.0||N",
     "InpCloseOnOpposite=true||false||0||true||N","InpWriteTradeCSV=true||false||0||true||N","InpRequireSignalCandleDirection=true||true||0||true||N","InpRequireFastEMARejection=true||true||0||true||N",
     "InpTestForceInvalidStopsOnce=false||false||0||true||N"
-  ) -join "\r\n"
+  ) -join [Environment]::NewLine
   [IO.File]::WriteAllText((Join-Path $tester $setName),$set,[Text.UTF8Encoding]::new($false))
   $base="goldlab-results\GoldLab_Dukascopy_CustomSymbol_M5_2026-03-26_to_2026-03-27"
   $testIni=Join-Path $root "tester.ini"
-  $tc=@("[Common]","Login=$login","Password=$passCfg","Server=$server","ProxyEnable=0","KeepPrivate=1","NewsEnable=0","CertInstall=0","","[Experts]","Enabled=1","AllowLiveTrading=0","AllowDllImport=0","","[Tester]","Expert=GoldLab\GoldLabEA.ex5","ExpertParameters=$setName","Symbol=XAUUSD_DK0326","Period=M5","Model=4","ExecutionMode=-1","Optimization=0","FromDate=2026.03.26","ToDate=2026.03.27","ForwardMode=0","Deposit=500","Currency=USD","Leverage=1:1000","Report=$base","ReplaceReport=1","ShutdownTerminal=1","UseLocal=1","UseRemote=0","UseCloud=0","Visual=0") -join "\r\n"
+  $tc=@("[Common]","Login=$login","Password=$passCfg","Server=$server","ProxyEnable=0","KeepPrivate=1","NewsEnable=0","CertInstall=0","","[Experts]","Enabled=1","AllowLiveTrading=0","AllowDllImport=0","","[Tester]","Expert=GoldLab\GoldLabEA.ex5","ExpertParameters=$setName","Symbol=XAUUSD_DK0326","Period=M5","Model=4","ExecutionMode=-1","Optimization=0","FromDate=2026.03.26","ToDate=2026.03.27","ForwardMode=0","Deposit=500","Currency=USD","Leverage=1:1000","Report=$base","ReplaceReport=1","ShutdownTerminal=1","UseLocal=1","UseRemote=0","UseCloud=0","Visual=0") -join [Environment]::NewLine
   [IO.File]::WriteAllText($testIni,$tc,[Text.Encoding]::ASCII)
   $env:MT5_CREDENTIALS=$null
   $tp=Start-Process $terminal.FullName -ArgumentList @("/portable","/config:$testIni") -WorkingDirectory $install -PassThru
