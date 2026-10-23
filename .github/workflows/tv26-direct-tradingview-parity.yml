@@ -43,13 +43,11 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for tf in M1 M5 M15 M30 H1; do
-            file="trading-lab/tv26/parity-input/TV26_${tf}.csv"
-            if [[ ! -s "$file" ]]; then
-              echo "::error title=Missing TradingView export::Upload $file from Pine chart-data export; see trading-lab/tv26/DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md."
-              missing=1
-            fi
-          done
+          file="trading-lab/tv26/parity-input/TV26_AllTF.csv"
+          if [[ ! -s "$file" ]]; then
+            echo "::error title=Missing TradingView export::Upload the single TV26_AllTF.csv exported from TradingView_Parity_AllTF_Export.pine; see trading-lab/tv26/DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md."
+            missing=1
+          fi
           if [[ ! -s trading-lab/tv26/parity-input/MT5_Audit.csv ]]; then
             echo "::error title=Missing MT5 audit::The cloud MT5 audit artifact was not materialized."
             missing=1
@@ -61,8 +59,12 @@ jobs:
           set -euo pipefail
           mkdir -p tv26-direct-parity-results
           for tf in M1 M5 M15 M30 H1; do
+            python trading-lab/tv26/split_tv26_alltf_export.py \
+              --input trading-lab/tv26/parity-input/TV26_AllTF.csv \
+              --timeframe "${tf}" \
+              --output "tv26-direct-parity-results/TV26_${tf}_normalized.csv"
             python trading-lab/tv26/compare_tv26_csv.py \
-              --tv "trading-lab/tv26/parity-input/TV26_${tf}.csv" \
+              --tv "tv26-direct-parity-results/TV26_${tf}_normalized.csv" \
               --mt5 trading-lab/tv26/parity-input/MT5_Audit.csv \
               --timeframe "${tf}" \
               --mt5-utc-offset-hours "${{ inputs.mt5_utc_offset_hours }}" \
