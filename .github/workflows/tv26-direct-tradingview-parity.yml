@@ -1,0 +1,44 @@
+name: TV26 direct TradingView parity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout parity inputs
+        uses: actions/checkout@v4
+      - name: Validate required exports
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s trading-lab/tv26/parity-input/MT5_Audit.csv
+          for tf in M1 M5 M15 M30 H1; do
+            test -s "trading-lab/tv26/parity-input/TV26_${tf}.csv"
+          done
+      - name: Compare component votes for all five timeframes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tv26-direct-parity-results
+          for tf in M1 M5 M15 M30 H1; do
+            python trading-lab/tv26/compare_tv26_tradingview_export.py \
+              --tv-csv "trading-lab/tv26/parity-input/TV26_${tf}.csv" \
+              --mt5-csv trading-lab/tv26/parity-input/MT5_Audit.csv \
+              --timeframe "${tf}" \
+              --report "tv26-direct-parity-results/${tf}-report.md" \
+              --json "tv26-direct-parity-results/${tf}-report.json"
+          done
+      - name: Upload direct parity reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-direct-tradingview-parity-${{ github.run_id }}
+          path: tv26-direct-parity-results/
+          if-no-files-found: warn
+          retention-days: 30
