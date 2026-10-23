@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.001"
+#property version   "1.002"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
