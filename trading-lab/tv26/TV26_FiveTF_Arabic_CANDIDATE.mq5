@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.003"
+#property version   "1.004"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -35,6 +35,10 @@ int g_bulls[N_TF], g_bears[N_TF], g_atr[N_TF], g_trendEMA[N_TF];
 int g_macdFast[N_TF], g_macdSlow[N_TF];
 int g_scores[N_TF][N_RATINGS];
 bool g_working[N_TF][N_RATINGS];
+double g_diagA[N_TF][N_RATINGS],g_diagB[N_TF][N_RATINGS],g_diagC[N_TF][N_RATINGS];
+double g_diagD[N_TF][N_RATINGS],g_diagE[N_TF][N_RATINGS];
+datetime g_lastAuditBar[N_TF];
+string g_auditFile="";
 double g_rating[N_TF];
 double g_maRating[N_TF], g_oscRating[N_TF];
 int g_ready[N_TF], g_maReady[N_TF], g_oscReady[N_TF];
@@ -209,7 +213,9 @@ bool ComputeOne(int t,int j,int &score)
       if(!ReadBuf(g_handles[t][j],0,1,a)) return false;
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
-      score=(cc[0]>a ? 1 : (cc[0]<a ? -1 : 0)); return true;
+      score=(cc[0]>a ? 1 : (cc[0]<a ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=cc[0];
+      return true;
    }
    if(j==ICHIMOKU_BASE)
    {
@@ -221,6 +227,8 @@ bool ComputeOne(int t,int j,int &score)
       if(spanA>spanB && base>spanA && conversion>base && cc[0]>conversion) score=1;
       else if(spanA<spanB && base<spanA && conversion<base && cc[0]<conversion) score=-1;
       else score=0;
+      g_diagA[t][j]=conversion; g_diagB[t][j]=base; g_diagC[t][j]=spanA;
+      g_diagD[t][j]=spanB; g_diagE[t][j]=cc[0];
       return true;
    }
    if(j==VWMA20 || j==HULL9)
@@ -229,29 +237,39 @@ bool ComputeOne(int t,int j,int &score)
       if(a==EMPTY_VALUE || !MathIsValidNumber(a)) return false;
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
-      score=(cc[0]>a ? 1 : (cc[0]<a ? -1 : 0)); return true;
+      score=(cc[0]>a ? 1 : (cc[0]<a ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=cc[0];
+      return true;
    }
    if(j==RSI14)
    {
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
-      score=(a<30 && a>b ? 1 : (a>70 && a<b ? -1 : 0)); return true;
+      score=(a<30 && a>b ? 1 : (a>70 && a<b ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=b;
+      return true;
    }
    if(j==STOCH14)
    {
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],1,1,b)) return false;
-      score=(a<20 && b<20 && a>b ? 1 : (a>80 && b>80 && a<b ? -1 : 0)); return true;
+      score=(a<20 && b<20 && a>b ? 1 : (a>80 && b>80 && a<b ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=b;
+      return true;
    }
    if(j==CCI20)
    {
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
-      score=(a<-100 && a>b ? 1 : (a>100 && a<b ? -1 : 0)); return true;
+      score=(a<-100 && a>b ? 1 : (a>100 && a<b ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=b;
+      return true;
    }
    if(j==ADX14)
    {
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],1,1,b) || !ReadBuf(g_handles[t][j],2,1,c)) return false;
       double prevADX=0;
       if(!ReadBuf(g_handles[t][j],0,2,prevADX)) return false;
-      score=(a>20 && b>c && a>prevADX ? 1 : (a>20 && b<c && a<prevADX ? -1 : 0)); return true;
+      score=(a>20 && b>c && a>prevADX ? 1 : (a>20 && b<c && a<prevADX ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=b; g_diagC[t][j]=c; g_diagD[t][j]=prevADX;
+      return true;
    }
    if(j==AO)
    {
@@ -260,7 +278,9 @@ bool ComputeOne(int t,int j,int &score)
       bool buyCross=(a>0 && b<=0), sellCross=(a<0 && b>=0);
       bool buySaucer=(a>0 && b>0 && a>b && b<prev2);
       bool sellSaucer=(a<0 && b<0 && a<b && b>prev2);
-      score=(buyCross || buySaucer ? 1 : (sellCross || sellSaucer ? -1 : 0)); return true;
+      score=(buyCross || buySaucer ? 1 : (sellCross || sellSaucer ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=b; g_diagC[t][j]=prev2;
+      return true;
    }
    if(j==MOMENTUM10)
    {
@@ -270,6 +290,7 @@ bool ComputeOne(int t,int j,int &score)
       double momNow=closes[0]-closes[10];
       double momPrev=closes[1]-closes[11];
       score=(momNow>momPrev ? 1 : (momNow<momPrev ? -1 : 0));
+      g_diagA[t][j]=momNow; g_diagB[t][j]=momPrev; g_diagC[t][j]=closes[0]; g_diagD[t][j]=closes[10];
       return true;
    }
    if(j==MACD)
@@ -290,6 +311,7 @@ bool ComputeOne(int t,int j,int &score)
       for(int i=count-2;i>=0;i--) signal=alpha*macdValues[i]+(1.0-alpha)*signal;
       a=macdValues[0]; b=signal;
       score=(a>b ? 1 : (a<b ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=b; g_diagC[t][j]=fastValues[0]; g_diagD[t][j]=slowValues[0];
       return true;
    }
    if(j==STOCH_RSI)
@@ -315,12 +337,15 @@ bool ComputeOne(int t,int j,int &score)
       bool downtrend=(trendClose[0]<emaTrend), uptrend=(trendClose[0]>emaTrend);
       score=(downtrend && k0<20 && d0<20 && k0>d0 ? 1 :
              (uptrend && k0>80 && d0>80 && k0<d0 ? -1 : 0));
+      g_diagA[t][j]=k0; g_diagB[t][j]=d0; g_diagC[t][j]=trendClose[0]; g_diagD[t][j]=emaTrend;
       return true;
    }
    if(j==WILLIAMS_R)
    {
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
-      score=(a<-80 && a>b ? 1 : (a>-20 && a<b ? -1 : 0)); return true;
+      score=(a<-80 && a>b ? 1 : (a>-20 && a<b ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=b;
+      return true;
    }
    if(j==BULL_BEAR_POWER)
    {
@@ -333,12 +358,17 @@ bool ComputeOne(int t,int j,int &score)
       // Trend is the close's position relative to EMA(50); no extra EMA-slope gate.
       bool uptrend=(cc[0]>emaNow), downtrend=(cc[0]<emaNow);
       score=(uptrend && bearNow<0 && bearNow>bearPrev ? 1 :
-             (downtrend && a>0 && a<bullPrev ? -1 : 0)); return true;
+             (downtrend && a>0 && a<bullPrev ? -1 : 0));
+      g_diagA[t][j]=a; g_diagB[t][j]=bullPrev; g_diagC[t][j]=bearNow;
+      g_diagD[t][j]=bearPrev; g_diagE[t][j]=cc[0];
+      return true;
    }
    if(j==ULTIMATE_OSC)
    {
       a=UltimateValue(g_tfs[t]); if(a==EMPTY_VALUE || !MathIsValidNumber(a)) return false;
-      score=(a>70 ? 1 : (a<30 ? -1 : 0)); return true;
+      score=(a>70 ? 1 : (a<30 ? -1 : 0));
+      g_diagA[t][j]=a;
+      return true;
    }
    return false;
 }
@@ -349,6 +379,8 @@ void EvaluateAll()
       int maSum=0,oscSum=0; g_ready[t]=0; g_maReady[t]=0; g_oscReady[t]=0;
       for(int j=0;j<N_RATINGS;j++)
       {
+         g_diagA[t][j]=EMPTY_VALUE; g_diagB[t][j]=EMPTY_VALUE;
+         g_diagC[t][j]=EMPTY_VALUE; g_diagD[t][j]=EMPTY_VALUE; g_diagE[t][j]=EMPTY_VALUE;
          int s=0; bool ok=ComputeOne(t,j,s);
          g_working[t][j]=ok; g_scores[t][j]=(ok?s:0);
          if(ok){g_ready[t]++; if(j<15){maSum+=s;g_maReady[t]++;}else{oscSum+=s;g_oscReady[t]++;}}
@@ -405,6 +437,45 @@ void DrawPanel()
    if(g_lastBlock!="") p+="\nسبب المنع/التنبيه: "+g_lastBlock;
    p+="\nالتداول الآلي: "+(InpEnableTrading?"مفعّل":"معطّل")+" | حماية الحساب التجريبي: "+(InpDemoOnly?"مفعّلة":"غير مفعّلة");
    Comment(p);
+}
+string AuditValue(double v)
+{
+   if(v==EMPTY_VALUE || !MathIsValidNumber(v)) return "";
+   return DoubleToString(v,8);
+}
+void ExportAuditForTF(int t)
+{
+   datetime closedBar=iTime(_Symbol,g_tfs[t],1);
+   if(closedBar<=0 || closedBar==g_lastAuditBar[t]) return;
+   int fh=FileOpen(g_auditFile,FILE_READ|FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_SHARE_READ|FILE_ANSI,',',CP_UTF8);
+   if(fh==INVALID_HANDLE)
+   {
+      Print("TV26 audit export: FileOpen failed, error=",GetLastError()," file=",g_auditFile);
+      return;
+   }
+   if(FileSize(fh)==0)
+      FileWrite(fh,"bar_open_time_server","symbol","timeframe","component","readiness","vote","value_a","value_b","value_c","value_d","value_e");
+   FileSeek(fh,0,SEEK_END);
+   string ts=TimeToString(closedBar,TIME_DATE|TIME_MINUTES);
+   string summaryReady=(g_ready[t]==N_RATINGS && g_maReady[t]==15 && g_oscReady[t]==11 ? "OK" : "INCOMPLETE");
+   FileWrite(fh,ts,_Symbol,TFName(g_tfs[t]),"SUMMARY",summaryReady,"",
+             AuditValue(g_rating[t]),AuditValue(g_maRating[t]),AuditValue(g_oscRating[t]),
+             IntegerToString(g_ready[t]),IntegerToString(g_maReady[t])+"/"+IntegerToString(g_oscReady[t]));
+   for(int j=0;j<N_RATINGS;j++)
+   {
+      string ready=(g_working[t][j] ? "OK" : "NOT_READY");
+      string vote=(g_working[t][j] ? IntegerToString(g_scores[t][j]) : "");
+      FileWrite(fh,ts,_Symbol,TFName(g_tfs[t]),g_names[j],ready,vote,
+                AuditValue(g_diagA[t][j]),AuditValue(g_diagB[t][j]),AuditValue(g_diagC[t][j]),
+                AuditValue(g_diagD[t][j]),AuditValue(g_diagE[t][j]));
+   }
+   FileFlush(fh);
+   FileClose(fh);
+   g_lastAuditBar[t]=closedBar;
+}
+void ExportAuditIfNeeded()
+{
+   for(int t=0;t<N_TF;t++) ExportAuditForTF(t);
 }
 bool IsNewM1Bar()
 {
@@ -503,6 +574,7 @@ int OnInit()
       for(int k=0;k<t;k++) if(g_tfs[t]==g_tfs[k]){Print("TV26: يجب اختيار خمسة أطر زمنية مختلفة");return INIT_PARAMETERS_INCORRECT;}
    if(InpRiskPercent<=0 || InpStopATR<=0 || InpTargetATR<=0){Print("TV26: إعدادات المخاطرة غير صالحة");return INIT_PARAMETERS_INCORRECT;}
    InitHandles();
+   g_auditFile="TV26_Audit_"+_Symbol+"_"+IntegerToString((int)InpMagic)+".csv";
    EventSetTimer(2);
    Print("TV26 Arabic candidate initialized. This is a research candidate; validate in MetaEditor and Strategy Tester before use.");
    return INIT_SUCCEEDED;
@@ -513,10 +585,10 @@ void OnDeinit(const int reason)
 }
 void OnTimer()
 {
-   EvaluateAll();DrawPanel();
+   EvaluateAll();DrawPanel();ExportAuditIfNeeded();
 }
 void OnTick()
 {
    if(!IsNewM1Bar()) return;
-   EvaluateAll();DrawPanel();TradeIfAligned();DrawPanel();
+   EvaluateAll();DrawPanel();ExportAuditIfNeeded();TradeIfAligned();DrawPanel();
 }
