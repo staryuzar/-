@@ -270,21 +270,32 @@ foreach ($line in $rawImmediateResultLines) {
 $sendResultDuplicateCount = $rawImmediateResultLines.Count - $uniqueImmediateResultLines.Count
 $sendResultIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $sendResultZeroIds = 0
+$sendResultZeroSentCount = 0
 $sendResultSignatures = @{}
+$sendResultSentById = @{}
 $sendResultZeroSignatures = @()
 foreach ($line in $uniqueImmediateResultLines) {
   $markerIndex = $line.IndexOf("GoldLab|ORDER_SEND_RESULT|", [System.StringComparison]::Ordinal)
   $payload = $line.Substring($markerIndex + "GoldLab|ORDER_SEND_RESULT|".Length)
+  $sentMatch = [regex]::Match($payload,'^[^|]+\|seq=\d+;context=[^;]+;sent=(true|false);accepted=(true|false);request_id=\d+;')
+  if (!$sentMatch.Success) { throw "Cannot parse sent flag from ORDER_SEND_RESULT: $payload" }
+  $wasSent = ($sentMatch.Groups[1].Value -eq "true")
   if ($payload -match ';request_id=(\d+);retcode=(\d+);order=(\d+);deal=(\d+);volume=([\d.]+);price=([\d.]+);comment=') {
     $rid = [string]$Matches[1]
     $signature = "$($Matches[2])|$($Matches[3])|$($Matches[4])|$($Matches[5])|$($Matches[6])"
     if ($rid -eq "0") {
       $sendResultZeroIds++
-      if ($Matches[3] -eq "0" -and $Matches[4] -eq "0") { throw "request_id=0 has neither an order nor a deal ticket; no safe fallback key exists." }
-      $sendResultZeroSignatures += $signature
+            if ($wasSent) {
+        if ($Matches[3] -eq "0" -and $Matches[4] -eq "0") { throw "sent=true with request_id=0 has neither an order nor a deal ticket; no safe fallback key exists." }
+        $sendResultZeroSentCount++
+        $sendResultZeroSignatures += $signature
+      } elseif ($Matches[3] -ne "0" -or $Matches[4] -ne "0") {
+        throw "sent=false request_id=0 unexpectedly carries an order/deal ticket; inspect terminal result."
+      }
     } else {
       [void]$sendResultIds.Add($rid)
       $sendResultSignatures[$rid] = $signature
+      $sendResultSentById[$rid] = $wasSent
     }
   } else { throw "Cannot parse request_id and result signature from ORDER_SEND_RESULT: $payload" }
 }
@@ -370,24 +381,31 @@ if (($requestAcceptedSummary + $requestOtherSummary) -ne $requestCallbackSummary
 $matchedRequestIds = 0
 $unmatchedSendIds = @()
 $unmatchedReplyIds = @()
+$verifiedLocalStaleNoReplyIds = @()
 $signatureMismatches = @()
 foreach ($id in $sendResultIds) {
   if ($requestResultIds.Contains($id)) {
     if ($sendResultSignatures[$id] -eq $requestResultSignatures[$id]) { $matchedRequestIds++ }
     else { $signatureMismatches += $id }
-  } else { $unmatchedSendIds += $id }
+  } elseif (($sendResultSentById.ContainsKey($id)) -and (-not [bool]$sendResultSentById[$id]) -and $staleClosedRequestIds.Contains($id)) {
+    # A local OrderSend failure (sent=false) never reached the server, so OnTradeTransaction is not expected.
+    # Treat it as correlated only when the independent SLTP_STATE audit proves the position closed during the delay.
+    $verifiedLocalStaleNoReplyIds += $id
+  } else {
+    $unmatchedSendIds += $id
+  }
 }
 foreach ($id in $requestResultIds) {
   if (!$sendResultIds.Contains($id)) { $unmatchedReplyIds += $id }
 }
-if ($sendResultZeroIds -ne $requestResultZeroIds) {
-  throw "request_id=0 record count differs between immediate results and server callbacks."
+if ($sendResultZeroSentCount -ne $requestResultZeroIds) {
+  throw "sent=true request_id=0 results ($sendResultZeroSentCount) do not match server callbacks ($requestResultZeroIds); sent=false local failures do not require server callbacks."
 }
-if ($sendResultZeroIds -gt 1) {
-  throw "More than one request_id=0 encountered; signature fallback is ambiguous."
+if ($sendResultZeroSentCount -gt 1) {
+  throw "More than one sent=true request_id=0 encountered; signature fallback is ambiguous."
 }
 $matchedZeroIdFallback = 0
-if ($sendResultZeroIds -eq 1) {
+if ($sendResultZeroSentCount -eq 1) {
   if ($sendResultZeroSignatures[0] -ne $requestResultZeroSignatures[0]) {
     throw "request_id=0 fallback signature mismatch on retcode/order/deal/volume/price."
   }
@@ -401,6 +419,7 @@ if ($sendResultZeroIds -eq 1) {
   "Mirrored send-result copies ignored: $sendResultDuplicateCount",
   "Distinct nonzero immediate request IDs: $($sendResultIds.Count)",
   "Immediate result records with request_id=0: $sendResultZeroIds",
+  "Expected server callbacks for request_id=0 (sent=true): $sendResultZeroSentCount",
   "Raw ORDER_REQUEST_RESULT lines: $($rawRequestResultLines.Count)",
   "Unique ORDER_REQUEST_RESULT records: $($uniqueRequestResultLines.Count)",
   "Mirrored request-result copies ignored: $requestResultDuplicateCount",
@@ -410,6 +429,7 @@ if ($sendResultZeroIds -eq 1) {
   "Verified request_id=0 fallback matches by retcode/order/deal/volume/price: $matchedZeroIdFallback",
   "Request-result signature mismatches: $($signatureMismatches.Count)",
   "Immediate request IDs without matching callback: $($unmatchedSendIds.Count)",
+  "Verified sent=false stale-close requests without server callback: $($verifiedLocalStaleNoReplyIds.Count)",
   "Callback request IDs without matching immediate result: $($unmatchedReplyIds.Count)",
   "Callback summary: callbacks=$requestCallbackSummary; accepted_by_retcode=$requestAcceptedSummary; other_retcode=$requestOtherSummary",
   "Unique ORDER_REQUEST_SUMMARY record:"
@@ -435,8 +455,9 @@ $rawNonAcceptedCallbackCount = $requestResultOtherRetcodeLines.Count + $requestR
 if ($requestOtherSummary -ne $rawNonAcceptedCallbackCount) {
   throw "Raw other-retcode summary ($requestOtherSummary) does not reconcile with recorded callback lines ($rawNonAcceptedCallbackCount)."
 }
-if ($requestResultStaleClosureLines.Count -ne $sendFailClassificationCount) {
-  throw "Stale-close callback count ($($requestResultStaleClosureLines.Count)) does not match verified failed modify requests ($sendFailClassificationCount)."
+$verifiedStaleCloseTotal = $requestResultStaleClosureLines.Count + $verifiedLocalStaleNoReplyIds.Count
+if ($verifiedStaleCloseTotal -ne $sendFailClassificationCount) {
+  throw "Verified stale-close server callbacks ($($requestResultStaleClosureLines.Count)) plus local sent=false/no-callback races ($($verifiedLocalStaleNoReplyIds.Count)) do not match verified failed modify requests ($sendFailClassificationCount)."
 }
 if ($requestOtherSummary -gt $requestResultStaleClosureLines.Count) {
   throw "$($requestOtherSummary - $requestResultStaleClosureLines.Count) callback(s) outside the allow-list were not verified as stale closed-position races."
@@ -445,7 +466,7 @@ if ($requestResultStaleClosureLines.Count -gt 0) {
   "Callbacks classified as stale closed-position races (retcode remains non-accepted):" | Add-Content -LiteralPath $summaryPath -Encoding utf8
   $requestResultStaleClosureLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
 }
-"Request-result correlation gate: PASS (matched nonzero IDs=$matchedRequestIds; zero-ID fallback=$matchedZeroIdFallback; callbacks=$requestCallbackSummary; raw nonaccepted retcodes=$requestOtherSummary; verified closed-position callbacks=$($requestResultStaleClosureLines.Count); actionable nonaccepted callbacks=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+"Request-result correlation gate: PASS (matched nonzero server IDs=$matchedRequestIds; zero-ID fallback=$matchedZeroIdFallback; server callbacks=$requestCallbackSummary; verified sent=false local stale-close calls without callbacks=$($verifiedLocalStaleNoReplyIds.Count); verified stale-close server callbacks=$($requestResultStaleClosureLines.Count); unresolved correlation mismatches=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 
 # Reconcile the HTML report with the deal-level CSV; requests/callbacks are not trade counts.
 $qaFailures = [System.Collections.Generic.List[string]]::new()
