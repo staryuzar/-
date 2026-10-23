@@ -55,6 +55,42 @@ def normalized_lots(
     return round(lots, decimals)
 
 
+def cap_retry_buffer_distance(
+    base_distance: float,
+    requested_buffer: float,
+    risk_budget: float,
+    min_lot: float = 0.01,
+    max_lot: float = 100.0,
+    step: float = 0.01,
+    loss_per_lot_per_distance: float = 100.0,
+) -> float | None:
+    """Return the largest affordable extra distance, or None if the base itself is unaffordable."""
+    values = (base_distance, requested_buffer, risk_budget, min_lot, max_lot, step, loss_per_lot_per_distance)
+    if not all(math.isfinite(v) for v in values):
+        raise ValueError("risk-cap inputs must be finite")
+    if base_distance < 0 or requested_buffer < 0 or risk_budget <= 0 or loss_per_lot_per_distance <= 0:
+        raise ValueError("invalid risk-cap distance or budget")
+    if normalized_lots(risk_budget, base_distance * loss_per_lot_per_distance, min_lot, max_lot, step) < min_lot:
+        return None
+    if normalized_lots(risk_budget, (base_distance + requested_buffer) * loss_per_lot_per_distance, min_lot, max_lot, step) >= min_lot:
+        return requested_buffer
+    affordable, unaffordable = 0.0, requested_buffer
+    for _ in range(24):
+        candidate = (affordable + unaffordable) * 0.5
+        candidate_lots = normalized_lots(
+            risk_budget,
+            (base_distance + candidate) * loss_per_lot_per_distance,
+            min_lot,
+            max_lot,
+            step,
+        )
+        if candidate_lots >= min_lot:
+            affordable = candidate
+        else:
+            unaffordable = candidate
+    return affordable
+
+
 def spread_allows_retry(spread_points: float, max_spread_points: float) -> bool:
     return (
         math.isfinite(spread_points)
@@ -122,6 +158,22 @@ class RetryMathTests(unittest.TestCase):
                 if lots > 0:
                     self.assertLessEqual(lots * per_lot_loss, budget + 1e-8)
                     self.assertGreaterEqual(lots, 0.01)
+
+    def test_adaptive_buffer_caps_requested_cushion_to_minimum_lot_budget(self) -> None:
+        effective = cap_retry_buffer_distance(2.11, 0.50 * 3.91, 2.50)
+        self.assertIsNotNone(effective)
+        assert effective is not None
+        self.assertAlmostEqual(effective, 0.39, delta=0.0002)
+        self.assertLessEqual(2.11 + effective, 2.50 + 1e-8)
+        self.assertLess(effective, 0.50 * 3.91)
+
+    def test_adaptive_buffer_keeps_request_when_fully_affordable(self) -> None:
+        requested = 0.05 * 3.91
+        effective = cap_retry_buffer_distance(2.11, requested, 2.50)
+        self.assertAlmostEqual(effective if effective is not None else -1.0, requested, places=8)
+
+    def test_adaptive_buffer_refuses_when_base_risk_already_exceeds_budget(self) -> None:
+        self.assertIsNone(cap_retry_buffer_distance(2.60, 0.25, 2.50))
 
     def test_spread_limit_is_inclusive_but_never_exceeded(self) -> None:
         self.assertTrue(spread_allows_retry(100.0, 100.0))
@@ -210,6 +262,10 @@ class RetryMathTests(unittest.TestCase):
         self.assertIn("double candidateLots=LotsForRisk(type,retryEntry,candidateSL);", source)
         self.assertIn("if(candidateLots>=minLot)", source)
         self.assertIn("if(retryLots<minLot && retryBufferDistance>0.0)", source)
+        self.assertIn("if(zeroBufferLots>=minLot)", source)
+        self.assertIn("double affordableBuffer=0.0;", source)
+        self.assertIn("retryBufferDistance=affordableBuffer;", source)
+        self.assertIn("retryBufferCapped=(retryLots>=minLot", source)
         self.assertIn("if(zeroBufferLots>=minLot)", source)
         self.assertIn("if(retryLots<minLot || retryLots<=0.0)", source)
         self.assertIn('LogEvent("OPEN_STOP_RETRY_BUFFER_CAPPED"', source)
