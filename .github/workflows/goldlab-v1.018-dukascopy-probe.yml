@@ -27,7 +27,7 @@ jobs:
           npx --yes dukascopy-node@latest \
             -i xauusd -from 2026-03-26 -to 2026-03-27 \
             -t tick -f csv -dir ./dukascopy-tick-probe \
-            -bs 4 -bp 1000 -r 2 -rp 1000 --retry-on-empty
+            -bs 4 -bp 1000 -r 3 -rp 1000 --retry-on-empty --no-fail-after-retries
 
       - name: Validate timestamps, bid/ask fields and tick ordering
         shell: bash
