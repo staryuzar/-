@@ -135,6 +135,16 @@ tf = input.timeframe("1", "الإطار الزمني المراد تدقيقه")
      gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
 closedBarTime = request.security(syminfo.tickerid, tf, time[1],
      gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+closedOpen = request.security(syminfo.tickerid, tf, open[1],
+     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+closedHigh = request.security(syminfo.tickerid, tf, high[1],
+     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+closedLow = request.security(syminfo.tickerid, tf, low[1],
+     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+closedClose = request.security(syminfo.tickerid, tf, close[1],
+     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+closedVolume = request.security(syminfo.tickerid, tf, volume[1],
+     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
 
 var table t = table.new(position.top_right, 3, 31, border_width=1)
 if barstate.islast
@@ -179,6 +189,11 @@ plot(totalRating, "TV26.total", display=display.data_window)
 plot(ratingMA, "TV26.ma", display=display.data_window)
 plot(ratingOther, "TV26.osc", display=display.data_window)
 plot(closedBarTime, "TV26.bar_open_time", display=display.data_window)
+plot(closedOpen, "TV26.open", display=display.data_window)
+plot(closedHigh, "TV26.high", display=display.data_window)
+plot(closedLow, "TV26.low", display=display.data_window)
+plot(closedClose, "TV26.close", display=display.data_window)
+plot(closedVolume, "TV26.volume", display=display.data_window)
 
 plot(rSma10, "TV26.SMA10", display=display.data_window)
 plot(rSma20, "TV26.SMA20", display=display.data_window)
