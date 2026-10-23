@@ -28,6 +28,40 @@ if ($accountLogin -notmatch '^\d{4,20}$' -or [string]::IsNullOrWhiteSpace($accou
 Write-Output "::add-mask::$accountLogin"; Write-Output "::add-mask::$accountPassword"; Write-Output "::add-mask::$accountServer"
 $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $null
 
+$diagnosticsDir = Join-Path $reports "diagnostics"
+New-Item -ItemType Directory -Path $diagnosticsDir -Force | Out-Null
+function Save-MT5Diagnostics {
+  $candidates = @()
+  $roots = @($install,(Join-Path $env:APPDATA "MetaQuotes\Terminal"))
+  foreach ($r in $roots) {
+    if (!(Test-Path -LiteralPath $r)) { continue }
+    try {
+      $candidates += @(Get-ChildItem -LiteralPath $r -File -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in @(".log",".txt") } |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 20)
+    } catch {}
+  }
+  $unique = @($candidates | Sort-Object LastWriteTime -Descending | Select-Object -Unique -First 30)
+  $i = 0
+  foreach ($item in $unique) {
+    try {
+      $rawLog = Get-Content -LiteralPath $item.FullName -Raw -ErrorAction Stop
+      $rawLog = $rawLog -replace [regex]::Escape($accountLogin), "[ACCOUNT REDACTED]"
+      $rawLog = $rawLog -replace [regex]::Escape($accountPassword), "[PASSWORD REDACTED]"
+      $rawLog = $rawLog -replace [regex]::Escape($accountServer), "[SERVER REDACTED]"
+      $rawLog = $rawLog -replace '(?i)(password|passwd)\s*[:=]\s*\S+', '$1=[REDACTED]'
+      $i++
+      $rawLog | Set-Content -LiteralPath (Join-Path $diagnosticsDir ("mt5-diagnostic-{0:D2}.txt" -f $i)) -Encoding utf8
+    } catch {}
+  }
+  @(
+    "MT5 diagnostics captured at $([DateTime]::UtcNow.ToString('o'))",
+    "Candidate log files copied: $i",
+    "Install directory: $install",
+    "Portable mode requested for both importer and tester: true"
+  ) | Set-Content -LiteralPath (Join-Path $diagnosticsDir "diagnostic-manifest.txt") -Encoding utf8
+}
+
 $tickSource = Get-ChildItem -LiteralPath (Join-Path $PWD "external-ticks") -Filter "xauusd-tick-2026-03-26-2026-03-27.csv" -File -Recurse | Select-Object -First 1
 $ratesSource = Get-ChildItem -LiteralPath (Join-Path $PWD "dukascopy-warmup") -Filter "*.csv" -File -Recurse | Select-Object -First 1
 if (!$tickSource -or !$ratesSource) { throw "External tick artifact or M1 warm-up CSV is missing." }
@@ -92,9 +126,18 @@ ShutdownTerminal=1
 [System.IO.File]::WriteAllText($importIni,$importConfig,[System.Text.UTF8Encoding]::new($false))
 $resultFile = Join-Path $filesDir "dukascopy-import-result.txt"
 if (Test-Path $resultFile) { Remove-Item $resultFile -Force }
-$p = Start-Process -FilePath $terminal.FullName -ArgumentList ('/config:"' + $importIni + '"') -WorkingDirectory $install -PassThru
-if (!$p.WaitForExit(240000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw "MT5 importer exceeded four-minute timeout." }
-if (!(Test-Path $resultFile)) { throw "Importer result file missing; inspect terminal logs." }
+$p = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", ('/config:"' + $importIni + '"')) -WorkingDirectory $install -PassThru
+if (!$p.WaitForExit(240000)) {
+  Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+  Save-MT5Diagnostics
+  throw "MT5 importer exceeded four-minute timeout; sanitized terminal logs were captured."
+}
+if (!(Test-Path $resultFile)) {
+  Save-MT5Diagnostics
+  $nearby = @(Get-ChildItem -LiteralPath $install -Filter "dukascopy-import-result.txt" -File -Recurse -ErrorAction SilentlyContinue)
+  ("Importer result missing. Expected portable Files path: $resultFile; same-name results elsewhere: $($nearby.Count)") | Add-Content -LiteralPath (Join-Path $diagnosticsDir "diagnostic-manifest.txt") -Encoding utf8
+  throw "Importer result file missing after portable startup; sanitized terminal logs were captured."
+}
 Copy-Item -LiteralPath $resultFile -Destination (Join-Path $reports "dukascopy-import-result.txt") -Force
 $importSummary = Get-Content -LiteralPath $resultFile -Raw
 if ($importSummary -notmatch '(?m)^status=PASS\s*$' -or $importSummary -notmatch '(?m)^ticks_imported=480416\s*$' -or $importSummary -notmatch '(?m)^rates_bad_rows=0\s*$') { throw "Custom-symbol import validation failed." }
@@ -165,11 +208,15 @@ ReplaceReport=1
 ShutdownTerminal=1
 "@
 [System.IO.File]::WriteAllText($testerIni,$testerConfig,[System.Text.UTF8Encoding]::new($false))
-$testProc = Start-Process -FilePath $terminal.FullName -ArgumentList ('/config:"' + $testerIni + '"') -WorkingDirectory $install -PassThru
-if (!$testProc.WaitForExit(600000)) { Stop-Process -Id $testProc.Id -Force -ErrorAction SilentlyContinue; throw "Custom-symbol Strategy Tester exceeded ten-minute timeout." }
+$testProc = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", ('/config:"' + $testerIni + '"')) -WorkingDirectory $install -PassThru
+if (!$testProc.WaitForExit(600000)) {
+  Stop-Process -Id $testProc.Id -Force -ErrorAction SilentlyContinue
+  Save-MT5Diagnostics
+  throw "Custom-symbol Strategy Tester exceeded ten-minute timeout; sanitized terminal logs were captured."
+}
 $report = Get-ChildItem -LiteralPath $install -Filter "GoldLab_Dukascopy_customsymbol_2026-03-26.htm" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
 if (!$report) { $report = Get-ChildItem -LiteralPath $install -Filter "GoldLab_Dukascopy_customsymbol_2026-03-26.html" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
-if (!$report) { throw "No custom-symbol Strategy Tester HTML report was produced." }
+if (!$report) { Save-MT5Diagnostics; throw "No custom-symbol Strategy Tester HTML report was produced; sanitized terminal logs were captured." }
 $reportOut = Join-Path $reports "GoldLab_Dukascopy_customsymbol_2026-03-26.htm"
 Copy-Item -LiteralPath $report.FullName -Destination $reportOut -Force
 $html = Get-Content -LiteralPath $reportOut -Raw
@@ -197,6 +244,8 @@ if ($bars -lt 400 -or $ticks -lt 400000 -or $trades -lt 0 -or $deals -lt 0 -or [
 
 $auditFiles = @(Get-ChildItem -LiteralPath $install -Filter "GoldLab_trade_audit.csv" -File -Recurse -ErrorAction SilentlyContinue)
 $csvRows = 0; $csvNet = 0.0; $csvIds = [System.Collections.Generic.HashSet[string]]::new()
+Save-MT5Diagnostics
+
 if ($auditFiles.Count -gt 0) {
   $auditOut = Join-Path $reports "trade-audit"; New-Item -ItemType Directory -Path $auditOut -Force | Out-Null
   $index = 0
