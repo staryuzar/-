@@ -606,9 +606,9 @@
 - لا تغير EA أو مدخلاته لتجريب الأداء بناءً على هذه الجولة؛ الغرض الأول تصحيح حدود الزمن والتحقق من الأتمتة.
 
 ### 5. الحماية والثوابت
-- `main` لا يزال عند SHA `295bfb953d0086cf8b249e0ab35b711ffc72170c`.
+- لقطة تقرير 2026-10-23 كانت تسجل `main` عند SHA `295bfb953d0086cf8b249e0ab35b711ffc72170c`؛ هذا مرجع تاريخي وليس الرأس الحالي. أحدث فحص API في 2026-10-24 يثبت `main=3a2e5b4a82791383cd58e8da65d0917ee2194dac` كما هو موثق في الإضافة الأحدث.
 - `gold-xauusd-expert-lab` المجمد لا يزال عند SHA `d5f1f5f7541de729ed9814e6c0be742aedd6025c`.
-- لا تغييرات على أي منهما؛ كل العمل على `goldlab-request-result-candidate`.
+- في تلك الجولة لم تُجر تغييرات على `main` أو الفرع المجمد؛ كان العمل حينها على `goldlab-request-result-candidate`. العمل التشخيصي الحالي موثق في الإضافة الأحدث على `goldlab-adx27-telemetry-breakdown-candidate`.
 - النافذة المحجوزة 2026-10-21 إلى 2026-10-23 لا تُستخدم لتقييم الاستراتيجية قبل 2026-10-24 12:00 UTC (15:00 عدن).
 
 
@@ -620,6 +620,7 @@
 - فرع المرشح المعزول: `goldlab-adx27-telemetry-breakdown-candidate`.
 - الالتزام الذي أضاف تفصيل السياقات في مشغل الاختبار: `687d6adf6898048fc750e7a2c786e16871fb11ce`.
 - الالتزام الذي فعّل سير Actions للفرع المعزول: `1a2976eaaa4f2327dcc55ac3ef48150900e4ca81`.
+- الالتزام الذي حدّث هذا التقرير بعد فحص Artifact: `e66371f313276ab8d564190652ecd95f4bde9837`.
 - Run: [40025879293](https://github.com/staryuzar/-/actions/runs/40025879293); Artifact ID `12531724761`, `goldlab-adx27-40025879293`.
 - بصمة مصدر EA v1.014 المختبَر: SHA-256 `149e0e84be72c92246ffca6be1a8c566d4b99645f941d12ebebc3aff0bd4755c`.
 - آخر رؤوس تم التحقق منها قبل تحديث التقرير: `main=3a2e5b4a82791383cd58e8da65d0917ee2194dac`; `gold-xauusd-expert-lab=d5f1f5f7541de729ed9814e6c0be742aedd6025c`; `goldlab-ordercheck-candidate=9cb52a5381904b824c4fa61cf7024c1ba61a3a9e`; `goldlab-advisor-v2-candidate=b527f8d0145a468d6d4e7e82d5ef6e909ac926d5`; `goldlab-adx27-experiment=cdfaedd8049ca60c58de90afcf6aacd97856c526`. لم تُجر أي كتابة على `main` أو المرشح المجمد.
