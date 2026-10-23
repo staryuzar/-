@@ -1,0 +1,84 @@
+name: GoldLab v1.018 External XAUUSD Tick Import Proof
+
+on:
+  push:
+    branches: [goldlab-v1.018-custom-tick-import]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - "trading-lab/gold-xauusd/GoldLabDukascopyImport.mq5"
+      - ".github/scripts/goldlab_custom_tick_import_test.ps1"
+      - ".github/workflows/goldlab-v1.018-custom-tick-import.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-shared-headway-mt5
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  import-and-test:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated v1.018 import candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js for Dukascopy downloader
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download one day of independent XAUUSD tick history
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path "dukascopy-tick-probe" -Force | Out-Null
+          & npx.cmd --yes dukascopy-node@latest -i xauusd -from 2026-03-26 -to 2026-03-27 -t tick -f csv -dir ./dukascopy-tick-probe -bs 4 -bp 1000 -r 3 -rp 1000 --retry-on-empty --no-fail-after-retries
+          if ($LASTEXITCODE -ne 0) { throw "Dukascopy downloader failed with exit code $LASTEXITCODE." }
+          $csv = Get-ChildItem -LiteralPath "dukascopy-tick-probe" -Filter "xauusd-tick-2026-03-26-2026-03-27.csv" -File -Recurse | Select-Object -First 1
+          if (!$csv -or $csv.Length -lt 1000000) { throw "No valid-sized XAUUSD tick CSV was downloaded." }
+          "Tick CSV: $($csv.Name); bytes=$($csv.Length)" | Write-Host
+
+      - name: Parse harness and verify source safety gates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ea = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabEA.mq5" -Raw
+          $imp = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabDukascopyImport.mq5" -Raw
+          $test = ".github/scripts/goldlab_custom_tick_import_test.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $test).Path,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            foreach ($e in $errors) { Write-Host ("PARSE FAIL line {0}: {1}" -f $e.Extent.StartLineNumber,$e.Message) }
+            throw "Custom tick import harness does not parse."
+          }
+          if ($ea -notmatch '(?m)^#property version\s+"1\.018"' -or
+              $ea -notmatch '(?m)^input bool\s+InpTestForceInvalidStopsOnce\s*=\s*false;' -or
+              $imp -notmatch 'CustomTicksReplace\(' -or
+              $imp -notmatch 'CopyTicksRange\(' -or
+              $imp -notmatch 'OrderCalcProfit\(' -or
+              $imp -notmatch 'STATUS=PASS;' -or
+              $test -match 'InpTestForceInvalidStopsOnce=true|ForceInvalidStopsOnce\b') {
+            throw "Version, custom-tick import/readback/risk checks, or injection-off contract failed."
+          }
+          Write-Host ("PASS: PowerShell parsed {0} tokens; v1.018 source, custom-tick import/readback contract and injection-off verified." -f $tokens.Count)
+
+      - name: Compile, import ticks, and verify MT5 Strategy Tester data quality
+        shell: pwsh
+        run: .github/scripts/goldlab_custom_tick_import_test.ps1
+
+      - name: Upload tick sample, MT5 report, importer results and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-v1-018-custom-tick-import-${{ github.run_id }}
+          path: |
+            dukascopy-tick-probe/
+            goldlab-results/
+          if-no-files-found: warn
+          retention-days: 30
