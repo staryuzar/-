@@ -3,6 +3,16 @@
 ## Purpose
 A research candidate for XAUUSD in MT5. It calculates 26 Technical-Ratings-style components on five configurable timeframes (defaults M1/M5/M15/M30/H1), shows each component's signal and readiness in Arabic, and displays the aggregate rating and operational count for each timeframe.
 
+## المطابقة المباشرة مع TradingView
+
+جهزنا أداة مقارنة مباشرة تعتمد على تصدير Pine الحقيقي، لا على إعادة تنفيذ المعادلات فقط:
+- الدليل خطوة بخطوة: [DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md](DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md)
+- أداة المقارنة المجربة: [compare_tv26_csv.py](compare_tv26_csv.py)
+- مرجع Pine لتصدير التصويتات الـ26: [TradingView_Parity_Components_1TF.pine](TradingView_Parity_Components_1TF.pine)
+- سير عمل GitHub للمقارنة: [tv26-direct-tradingview-parity.yml](../../.github/workflows/tv26-direct-tradingview-parity.yml)
+
+يلزم تصدير CSV واحد لكل إطار من TradingView، وملف تدقيق MT5 من نفس فترة الاختبار. المقارنة تفحص OHLC أولًا ثم درجات الملخص وأصوات المكونات. لا يُدّعى تحقق المطابقة الفعلية قبل توفر ملفات TradingView الصادرة من Pine وتشغيل المقارنة عليها.
+
 ## 26 components
 **Moving-average group (15):** SMA/EMA 10, 20, 30, 50, 100, 200; Ichimoku Kijun/base line; VWMA 20; Hull MA 9.
 
