@@ -3,7 +3,7 @@ name: GoldLab v1.018 Risk-Capped INVALID_STOPS Retry
 
 on:
   push:
-    branches: [goldlab-sltp-retry-forced-test]
+    branches: [goldlab-sltp-retry-forced-test, goldlab-v1.018-risk-capped-buffer]
     paths:
       - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_sltp_race_diagnostic.ps1"
