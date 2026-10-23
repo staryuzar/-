@@ -1,0 +1,68 @@
+name: GoldLab v1.018 Full-Window Natural Performance Backtest
+
+on:
+  push:
+    branches: [goldlab-v1.018-risk-capped-buffer]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_sltp_performance_v1_018.ps1"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/workflows/goldlab-v1.018-performance.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-shared-headway-mt5
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  natural-performance:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout v1.018 isolated candidate
+        uses: actions/checkout@v4
+
+      - name: Parse and verify performance harness before MT5 launch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $file = ".github/scripts/goldlab_sltp_performance_v1_018.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            foreach ($e in $errors) { Write-Host ("PARSE FAIL line {0}: {1}" -f $e.Extent.StartLineNumber,$e.Message) }
+            throw "v1.018 full-window PowerShell harness parse failed; MT5 not launched."
+          }
+          $harness = Get-Content -LiteralPath $file -Raw
+          $ea = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabEA.mq5" -Raw
+          if ($ea -notmatch '(?m)^#property version\s+"1\.018"' -or
+              $ea -notmatch 'OPEN_STOP_RETRY_BUFFER_CAPPED' -or
+              -not $harness.Contains('FromDate=2026.08.05') -or
+              -not $harness.Contains('ToDate=2026.10.20') -or
+              -not $harness.Contains('InpStopRetryBufferATR=0.50') -or
+              -not $harness.Contains('InpTestForceInvalidStopsOnce=false') -or
+              -not $harness.Contains('requested retry-buffer maximum=0.50 ATR')) {
+            throw "Performance harness/source mismatch or tester-only fault injection could be enabled; no run accepted."
+          }
+          Write-Host ("PASS: PowerShell parsed {0} tokens; correct v1.018 source, full-window dates and natural-execution settings verified." -f $tokens.Count)
+
+      - name: Compile and run full-window natural-execution backtest
+        shell: pwsh
+        run: .github/scripts/goldlab_sltp_performance_v1_018.ps1
+
+      - name: Upload report, deal CSV, journal and reconciliation summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-v1-018-natural-performance-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
