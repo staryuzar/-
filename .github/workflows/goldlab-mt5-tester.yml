@@ -32,7 +32,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: goldlab-mt5-tester-${{ github.ref }}
+  group: goldlab-shared-headway-mt5
+  queue: max
   cancel-in-progress: false
 
 jobs:
