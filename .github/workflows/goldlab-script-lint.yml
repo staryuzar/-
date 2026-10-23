@@ -1,0 +1,56 @@
+name: GoldLab PowerShell Static Validation
+
+on:
+  push:
+    branches: [goldlab-request-result-candidate]
+    paths:
+      - ".github/scripts/*.ps1"
+      - ".github/workflows/goldlab-script-lint.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-script-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powershell-parse:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - name: Checkout candidate branch
+        uses: actions/checkout@v4
+
+      - name: Parse all GoldLab PowerShell scripts without running MT5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $files = @(
+            ".github/scripts/goldlab_advisor_ordercheck_diagnostic.ps1",
+            ".github/scripts/goldlab_mt5_test.ps1",
+            ".github/scripts/goldlab_environment_preflight.ps1"
+          )
+          $failed = $false
+          foreach ($file in $files) {
+            if (!(Test-Path -LiteralPath $file)) {
+              Write-Error "Missing required script: $file"
+              $failed = $true
+              continue
+            }
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              Write-Host "PARSE FAIL: $file"
+              foreach ($parseError in $parseErrors) {
+                Write-Host ("  line {0}: {1}" -f $parseError.Extent.StartLineNumber, $parseError.Message)
+              }
+              $failed = $true
+            } else {
+              Write-Host "PARSE PASS: $file ($($tokens.Count) tokens)"
+            }
+          }
+          if ($failed) { throw "At least one GoldLab PowerShell script has a parse error." }
+          Write-Host "GoldLab script syntax gate: PASS. No MT5 installation, account login, or strategy test executed."
