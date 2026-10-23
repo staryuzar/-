@@ -76,7 +76,7 @@ jobs:
             @{ Name = "holdout report boundary uses 2026.10.21 through 2026.10.24"; Pass = ($holdout.Contains("FromDate=2026.10.21") -and $holdout.Contains("ToDate=2026.10.24")) },
             @{ Name = "holdout CSV gate has exclusive end bound"; Pass = $holdout.Contains("2026.10.24 00:00:00") -and $holdout.Contains("Out-of-window CSV deals") },
             @{ Name = "holdout has minimum tick coverage gates"; Pass = ($holdout.Contains("minimum 500") -and $holdout.Contains("minimum 100000")) },
-            @{ Name = "holdout workflow trigger is restricted to explicit trigger file"; Pass = ($holdoutWorkflow.Contains("HOLDOUT_RUN_TRIGGER.md") -and -not $holdoutWorkflow.Contains("paths:\n      - \".github/scripts/goldlab_holdout_evaluation.ps1\"")) },
+            @{ Name = "holdout workflow trigger is restricted to explicit trigger file"; Pass = ($holdoutWorkflow -match '(?s)on:\s*push:\s*branches:\s*\[goldlab-request-result-candidate\]\s*paths:\s*-\s*"trading-lab/gold-xauusd/HOLDOUT_RUN_TRIGGER\.md"\s*\r?\n\s*\r?\npermissions:') },
             @{ Name = "holdout consumption lock is pushed before MT5 test step"; Pass = ($holdoutWorkflow.IndexOf("git push origin") -ge 0 -and $holdoutWorkflow.IndexOf("git push origin") -lt $holdoutWorkflow.IndexOf("Compile frozen EA and run the protected holdout exactly once")) },
             @{ Name = "holdout workflow pins frozen commit and source hash"; Pass = ($holdoutWorkflow.Contains("b3ff34caa837ce07e508ce9f8033123d737b7940") -and $holdoutWorkflow.Contains("149e0e84be72c92246ffca6be1a8c566d4b99645f941d12ebebc3aff0bd4755c")) }
           )
