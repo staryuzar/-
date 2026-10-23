@@ -77,6 +77,18 @@ def sign(a: pd.Series, b: pd.Series) -> pd.Series:
     out.loc[valid]=np.sign(diff.loc[valid])
     return out
 
+# Match the EA's tiny price/MA equality tolerance to avoid binary-float artifacts.
+# XAUUSD tick size is 0.01 in this lab, so tick_size * 1e-7 = 1e-9.
+PRICE_COMPARE_EPS = 1.0e-9
+
+def sign_price_level(source: pd.Series, level: pd.Series) -> pd.Series:
+    diff=source-level
+    out=pd.Series(np.nan,index=diff.index,dtype=float)
+    valid=source.notna() & level.notna()
+    values=diff.loc[valid]
+    out.loc[valid]=np.where(values.abs()<=PRICE_COMPARE_EPS,0.0,np.sign(values))
+    return out
+
 def rsi(close: pd.Series, n: int=14) -> pd.Series:
     delta=close.diff(); up=delta.clip(lower=0); down=(-delta).clip(lower=0)
     au=rma(up,n); ad=rma(down,n); rs=au/ad
@@ -90,12 +102,12 @@ def compute_votes(df: pd.DataFrame) -> dict[str,pd.Series]:
     o,h,l,c,v=(df[k].astype(float) for k in ("open","high","low","close","volume"))
     votes: dict[str,pd.Series]={}
     for n in (10,20,30,50,100,200):
-        votes[f"SMA{n}"]=sign(c,c.rolling(n,min_periods=n).mean())
-        votes[f"EMA{n}"]=sign(c,ema(c,n))
-    votes["HMA9"]=sign(c,wma(2*wma(c,4)-wma(c,9),3))
+        votes[f"SMA{n}"]=sign_price_level(c,c.rolling(n,min_periods=n).mean())
+        votes[f"EMA{n}"]=sign_price_level(c,ema(c,n))
+    votes["HMA9"]=sign_price_level(c,wma(2*wma(c,4)-wma(c,9),3))
     denom=v.rolling(20,min_periods=20).sum()
     vwma=(c*v).rolling(20,min_periods=20).sum()/denom.replace(0,np.nan)
-    votes["VWMA20"]=sign(c,vwma)
+    votes["VWMA20"]=sign_price_level(c,vwma)
     tenkan=(h.rolling(9,min_periods=9).max()+l.rolling(9,min_periods=9).min())/2
     kijun=(h.rolling(26,min_periods=26).max()+l.rolling(26,min_periods=26).min())/2
     span_a=(tenkan+kijun)/2
