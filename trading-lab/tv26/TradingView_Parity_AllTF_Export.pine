@@ -1,0 +1,227 @@
+// This is a diagnostic reimplementation of the published TechnicalRating v3 rating expressions.
+// © TradingView source-expression reference (MPL-2.0): https://www.tradingview.com/script/jDWyb5PG-TechnicalRating/
+// Reference source snapshot inspected: https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts
+//@version=6
+import TradingView/ta/9 as tvta
+import TradingView/TechnicalRating/3 as tvRating
+
+indicator("TV26 — تصدير مطابقة الأطر الخمسة", overlay=false, precision=3)
+
+f_calcRating(float src, bool bullCond, bool bearCond) =>
+    na(src) ? na : bullCond ? 1.0 : bearCond ? -1.0 : 0.0
+
+f_calcRatingMA(float ma, float src) =>
+    math.sign(src - ma)
+
+f_ratingName(float rating) =>
+    na(rating) ? "غير متاح" :
+     rating > 0.5 ? "شراء قوي" :
+     rating > 0.1 ? "شراء" :
+     rating < -0.5 ? "بيع قوي" :
+     rating < -0.1 ? "بيع" : "حياد"
+
+f_voteName(float rating) =>
+    na(rating) ? "غير متاح" :
+     rating > 0 ? "شراء (+1)" :
+     rating < 0 ? "بيع (-1)" : "حياد (0)"
+
+f_voteText(float rating) =>
+    na(rating) ? "—" : str.tostring(rating, "#.0")
+
+// Return order: total, MA, oscillators, then all 26 component votes in TechnicalRating v3 order.
+f_components() =>
+    [con, base, lead1, lead2, chikou] = tvta.ichimoku()
+    [kStoch, dStoch] = tvta.stochFull(14, 3, 3)
+    [kStochRsi, dStochRsi] = tvta.stochRsi(14, 14, 3, 3)
+    [diP, diN, adx] = ta.dmi(14, 14)
+    [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+    float bullPower = high - ta.ema(close, 13)
+    float bearPower = low - ta.ema(close, 13)
+    float rsi = ta.rsi(close, 14)
+    float cci = ta.cci(close, 20)
+    float mom = ta.mom(close, 10)
+    float priceAvg = ta.ema(close, 50)
+    bool downTrend = close < priceAvg
+    bool upTrend = close > priceAvg
+    float uo = tvta.uo(7, 14, 28)
+    float wr = tvta.wpr(14)
+    float ao = tvta.ao()
+
+    float rSma10 = f_calcRatingMA(ta.sma(close, 10), close)
+    float rSma20 = f_calcRatingMA(ta.sma(close, 20), close)
+    float rSma30 = f_calcRatingMA(ta.sma(close, 30), close)
+    float rSma50 = f_calcRatingMA(ta.sma(close, 50), close)
+    float rSma100 = f_calcRatingMA(ta.sma(close, 100), close)
+    float rSma200 = f_calcRatingMA(ta.sma(close, 200), close)
+    float rEma10 = f_calcRatingMA(ta.ema(close, 10), close)
+    float rEma20 = f_calcRatingMA(ta.ema(close, 20), close)
+    float rEma30 = f_calcRatingMA(ta.ema(close, 30), close)
+    float rEma50 = f_calcRatingMA(ta.ema(close, 50), close)
+    float rEma100 = f_calcRatingMA(ta.ema(close, 100), close)
+    float rEma200 = f_calcRatingMA(ta.ema(close, 200), close)
+    float rHull9 = f_calcRatingMA(ta.hma(close, 9), close)
+    float rVwma20 = f_calcRatingMA(ta.vwma(close, 20), close)
+    float rIchimoku = f_calcRating(lead2,
+         lead1[26] > lead2[26] and base > lead1[26] and con > base and close > con,
+         lead1[26] < lead2[26] and base < lead1[26] and con < base and close < con)
+
+    array<float> maRatings = array.from(
+         rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+         rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+         rHull9, rVwma20, rIchimoku)
+    float ratingMA = array.avg(maRatings)
+
+    float rRsi = f_calcRating(rsi[1], rsi < 30 and rsi[1] < rsi, rsi > 70 and rsi[1] > rsi)
+    float rStoch = f_calcRating(dStoch[1],
+         kStoch < 20 and dStoch < 20 and kStoch > dStoch,
+         kStoch > 80 and dStoch > 80 and kStoch < dStoch)
+    float rCci = f_calcRating(cci[1], cci < -100 and cci > cci[1], cci > 100 and cci < cci[1])
+    float rAdx = f_calcRating(adx,
+         adx > 20 and adx > adx[1] and diP > diN,
+         adx > 20 and adx > adx[1] and diP < diN)
+    float rAo = f_calcRating(ao[1],
+         ta.crossover(ao, 0) or (ao > 0 and ao[1] > 0 and ao > ao[1] and ao[2] > ao[1]),
+         ta.crossunder(ao, 0) or (ao < 0 and ao[1] < 0 and ao < ao[1] and ao[2] < ao[1]))
+    float rMomentum = f_calcRating(mom[1], mom > mom[1], mom < mom[1])
+    float rMacd = f_calcRating(macdSignal, macdLine > macdSignal, macdLine < macdSignal)
+    float rStochRsi = f_calcRating(priceAvg,
+         downTrend and kStochRsi < 20 and dStochRsi < 20 and kStochRsi > dStochRsi,
+         upTrend and kStochRsi > 80 and dStochRsi > 80 and kStochRsi < dStochRsi)
+    float rWilliams = f_calcRating(wr[1], wr < -80 and wr > wr[1], wr > -20 and wr < wr[1])
+    float rBullBear = f_calcRating(priceAvg,
+         upTrend and bearPower < 0 and bearPower > bearPower[1],
+         downTrend and bullPower > 0 and bullPower < bullPower[1])
+    float rUo = f_calcRating(uo, uo > 70, uo < 30)
+
+    array<float> oscRatings = array.from(
+         rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+         rStochRsi, rWilliams, rBullBear, rUo)
+    float ratingOther = array.avg(oscRatings)
+    float total = nz(ratingMA, 0) + nz(ratingOther, 0)
+    float ratingTotal = switch
+        not na(ratingMA) and not na(ratingOther) => total / 2
+        not na(ratingMA) or not na(ratingOther) => total
+        => na
+
+    [ratingTotal, ratingMA, ratingOther,
+     rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+     rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+     rHull9, rVwma20, rIchimoku,
+     rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+     rStochRsi, rWilliams, rBullBear, rUo]
+
+// Shift every field once inside the selected timeframe to use the same prior closed candle as MT5.
+f_confirmed() =>
+    [ratingTotal, ratingMA, ratingOther,
+     rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+     rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+     rHull9, rVwma20, rIchimoku,
+     rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+     rStochRsi, rWilliams, rBullBear, rUo] = f_components()
+    [ratingTotal[1], ratingMA[1], ratingOther[1],
+     rSma10[1], rSma20[1], rSma30[1], rSma50[1], rSma100[1], rSma200[1],
+     rEma10[1], rEma20[1], rEma30[1], rEma50[1], rEma100[1], rEma200[1],
+     rHull9[1], rVwma20[1], rIchimoku[1],
+     rRsi[1], rStoch[1], rCci[1], rAdx[1], rAo[1], rMomentum[1], rMacd[1],
+     rStochRsi[1], rWilliams[1], rBullBear[1], rUo[1]]
+
+// Authoritative aggregate benchmark: use TradingView's own TechnicalRating v3 library.
+f_library_ratings_confirmed() =>
+    [totalRating, oscillatorRating, maRating] = tvRating.calcRatingAll()
+    [totalRating[1], maRating[1], oscillatorRating[1]]
+
+
+// Pack the 26 {-1,0,+1} ratings into an exact base-4 integer.
+// Digits 0,1,2 mean -1,0,+1; digit 3 means not ready.
+// 4^26 - 1 is below 2^52, so every packed integer remains exactly representable.
+f_all_tf_payload() =>
+    [formulaTotal, formulaMA, formulaOther,
+     rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+     rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+     rHull9, rVwma20, rIchimoku,
+     rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+     rStochRsi, rWilliams, rBullBear, rUo] = f_components()
+    [libTotal, libOsc, libMA] = tvRating.calcRatingAll()
+    array<float> votes = array.from(
+         rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+         rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+         rHull9, rVwma20, rIchimoku,
+         rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+         rStochRsi, rWilliams, rBullBear, rUo)
+    float packedVotes = 0.0
+    for i = 0 to array.size(votes) - 1
+        float v = array.get(votes, i)
+        float digit = na(v) ? 3.0 : v + 1.0
+        packedVotes += digit * math.pow(4.0, i)
+    [packedVotes[1], libTotal[1], libMA[1], libOsc[1],
+     formulaTotal[1], formulaMA[1], formulaOther[1],
+     time[1], open[1], high[1], low[1], close[1]]
+
+// Use confirmed, prior-closed candles on each timeframe to prevent lookahead leakage.
+[PackedM1, TotalM1, MAM1, OSCM1, FormulaTotalM1, FormulaMAM1, FormulaOSCM1, TimeM1, OpenM1, HighM1, LowM1, CloseM1] = request.security(syminfo.tickerid, "1", f_all_tf_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[PackedM5, TotalM5, MAM5, OSCM5, FormulaTotalM5, FormulaMAM5, FormulaOSCM5, TimeM5, OpenM5, HighM5, LowM5, CloseM5] = request.security(syminfo.tickerid, "5", f_all_tf_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[PackedM15, TotalM15, MAM15, OSCM15, FormulaTotalM15, FormulaMAM15, FormulaOSCM15, TimeM15, OpenM15, HighM15, LowM15, CloseM15] = request.security(syminfo.tickerid, "15", f_all_tf_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[PackedM30, TotalM30, MAM30, OSCM30, FormulaTotalM30, FormulaMAM30, FormulaOSCM30, TimeM30, OpenM30, HighM30, LowM30, CloseM30] = request.security(syminfo.tickerid, "30", f_all_tf_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[PackedH1, TotalH1, MAH1, OSCH1, FormulaTotalH1, FormulaMAH1, FormulaOSCH1, TimeH1, OpenH1, HighH1, LowH1, CloseH1] = request.security(syminfo.tickerid, "60", f_all_tf_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+
+// Export one CSV with all 5 timeframes. All output plots are Data Window only.
+plot(PackedM1, "TV26.M1.packed", display=display.data_window)
+plot(TotalM1, "TV26.M1.total", display=display.data_window)
+plot(MAM1, "TV26.M1.ma", display=display.data_window)
+plot(OSCM1, "TV26.M1.osc", display=display.data_window)
+plot(FormulaTotalM1, "TV26.M1.formula_total", display=display.data_window)
+plot(FormulaMAM1, "TV26.M1.formula_ma", display=display.data_window)
+plot(FormulaOSCM1, "TV26.M1.formula_osc", display=display.data_window)
+plot(TimeM1, "TV26.M1.bar_open_time", display=display.data_window)
+plot(OpenM1, "TV26.M1.open", display=display.data_window)
+plot(HighM1, "TV26.M1.high", display=display.data_window)
+plot(LowM1, "TV26.M1.low", display=display.data_window)
+plot(CloseM1, "TV26.M1.close", display=display.data_window)
+plot(PackedM5, "TV26.M5.packed", display=display.data_window)
+plot(TotalM5, "TV26.M5.total", display=display.data_window)
+plot(MAM5, "TV26.M5.ma", display=display.data_window)
+plot(OSCM5, "TV26.M5.osc", display=display.data_window)
+plot(FormulaTotalM5, "TV26.M5.formula_total", display=display.data_window)
+plot(FormulaMAM5, "TV26.M5.formula_ma", display=display.data_window)
+plot(FormulaOSCM5, "TV26.M5.formula_osc", display=display.data_window)
+plot(TimeM5, "TV26.M5.bar_open_time", display=display.data_window)
+plot(OpenM5, "TV26.M5.open", display=display.data_window)
+plot(HighM5, "TV26.M5.high", display=display.data_window)
+plot(LowM5, "TV26.M5.low", display=display.data_window)
+plot(CloseM5, "TV26.M5.close", display=display.data_window)
+plot(PackedM15, "TV26.M15.packed", display=display.data_window)
+plot(TotalM15, "TV26.M15.total", display=display.data_window)
+plot(MAM15, "TV26.M15.ma", display=display.data_window)
+plot(OSCM15, "TV26.M15.osc", display=display.data_window)
+plot(FormulaTotalM15, "TV26.M15.formula_total", display=display.data_window)
+plot(FormulaMAM15, "TV26.M15.formula_ma", display=display.data_window)
+plot(FormulaOSCM15, "TV26.M15.formula_osc", display=display.data_window)
+plot(TimeM15, "TV26.M15.bar_open_time", display=display.data_window)
+plot(OpenM15, "TV26.M15.open", display=display.data_window)
+plot(HighM15, "TV26.M15.high", display=display.data_window)
+plot(LowM15, "TV26.M15.low", display=display.data_window)
+plot(CloseM15, "TV26.M15.close", display=display.data_window)
+plot(PackedM30, "TV26.M30.packed", display=display.data_window)
+plot(TotalM30, "TV26.M30.total", display=display.data_window)
+plot(MAM30, "TV26.M30.ma", display=display.data_window)
+plot(OSCM30, "TV26.M30.osc", display=display.data_window)
+plot(FormulaTotalM30, "TV26.M30.formula_total", display=display.data_window)
+plot(FormulaMAM30, "TV26.M30.formula_ma", display=display.data_window)
+plot(FormulaOSCM30, "TV26.M30.formula_osc", display=display.data_window)
+plot(TimeM30, "TV26.M30.bar_open_time", display=display.data_window)
+plot(OpenM30, "TV26.M30.open", display=display.data_window)
+plot(HighM30, "TV26.M30.high", display=display.data_window)
+plot(LowM30, "TV26.M30.low", display=display.data_window)
+plot(CloseM30, "TV26.M30.close", display=display.data_window)
+plot(PackedH1, "TV26.H1.packed", display=display.data_window)
+plot(TotalH1, "TV26.H1.total", display=display.data_window)
+plot(MAH1, "TV26.H1.ma", display=display.data_window)
+plot(OSCH1, "TV26.H1.osc", display=display.data_window)
+plot(FormulaTotalH1, "TV26.H1.formula_total", display=display.data_window)
+plot(FormulaMAH1, "TV26.H1.formula_ma", display=display.data_window)
+plot(FormulaOSCH1, "TV26.H1.formula_osc", display=display.data_window)
+plot(TimeH1, "TV26.H1.bar_open_time", display=display.data_window)
+plot(OpenH1, "TV26.H1.open", display=display.data_window)
+plot(HighH1, "TV26.H1.high", display=display.data_window)
+plot(LowH1, "TV26.H1.low", display=display.data_window)
+plot(CloseH1, "TV26.H1.close", display=display.data_window)
