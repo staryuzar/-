@@ -46,9 +46,13 @@ jobs:
               -not $harness.Contains('FromDate=2026.08.05') -or
               -not $harness.Contains('ToDate=2026.10.20') -or
               -not $harness.Contains('InpStopRetryBufferATR=0.50') -or
-              -not $harness.Contains('InpTestForceInvalidStopsOnce=false') -or
               -not $harness.Contains('requested retry-buffer maximum=0.50 ATR')) {
-            throw "Performance harness/source mismatch or tester-only fault injection could be enabled; no run accepted."
+            throw "Performance harness/source mismatch; no run accepted."
+          }
+          if ($ea -notmatch '(?m)^input bool\s+InpTestForceInvalidStopsOnce\s*=\s*false;' -or
+              $ea -notmatch 'if\(InpTestForceInvalidStopsOnce && !testerMode\)' -or
+              $harness -match 'InpTestForceInvalidStopsOnce\s*=\s*true|ForceInvalidStopsOnce') {
+            throw "Tester-only fault injection is not safely disabled in the natural-performance run."
           }
           Write-Host ("PASS: PowerShell parsed {0} tokens; correct v1.018 source, full-window dates and natural-execution settings verified." -f $tokens.Count)
 
