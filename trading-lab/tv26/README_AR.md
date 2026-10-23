@@ -6,7 +6,7 @@ A research candidate for XAUUSD in MT5. It calculates 26 Technical-Ratings-style
 ## 26 components
 **Moving-average group (15):** SMA/EMA 10, 20, 30, 50, 100, 200; Ichimoku Kijun/base line; VWMA 20; Hull MA 9.
 
-**Oscillator group (11):** RSI 14, Stochastic 14/3/3, CCI 20, ADX 14 with +DI/-DI, Awesome Oscillator, Momentum 10, MACD 12/26/9, Stochastic RSI (derived), Williams %R 14, Bulls/Bears Power (13 EMA), Ultimate Oscillator (7/14/28).
+**Oscillator group (11):** RSI 14, Stochastic 14/3/3, CCI 20, ADX 14 with +DI/-DI, Awesome Oscillator, Momentum 10, MACD 12/26/9, Stochastic RSI (derived), Williams %R 14, Bulls/Bears Power (50 EMA for TechnicalRating v3 parity; the standalone indicator page defaults to 13), Ultimate Oscillator (7/14/28).
 
 Each component returns +1 buy, 0 neutral, or -1 sell. The aggregate is the average of valid component scores. It is explicitly marked **غير مكتمل** and trading is blocked unless all 26 components are ready on every configured timeframe.
 
@@ -66,6 +66,13 @@ For each of M1, M5, M15, M30 and H1, capture the same closed candle timestamp an
 4. Any disagreement, likely cause, correction, and retest result.
 Do not enable real-account trading based on this audit alone.
 
+
+## Latest candidate note — 2026-10-23
+
+- The EA's Arabic panel now displays the numeric values for the overall, MA, and oscillator ratings, in addition to their category labels.
+- It prints the timestamp of each timeframe's last closed MT5 candle (broker/server time) to make comparisons with TradingView use the same bar.
+- The latest source display change is commit `e9b80a62cb7e9b767f58d51a665779e46d99ddc2`. Its MetaEditor workflow result must be checked before distributing that source as a compiled build.
+- For the BBP period, the parity target is the public `TechnicalRating/3` library's 50-period component, not the standalone BBP indicator's default parameter. Keep those two contexts distinct.
 
 ## TradingView-side reference panel
 A Pine Script reference indicator was added at [TradingView_Parity_5TF.pine](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Parity_5TF.pine). It imports TradingView's public TechnicalRating v3 library and displays overall, MA and oscillator ratings for M1/M5/M15/M30/H1. It is a summary comparison aid; it does not expose all 26 component states individually.
