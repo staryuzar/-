@@ -1,0 +1,50 @@
+# سجل البحث التطبيقي: يوتيوب وMQL5 — GoldLab
+
+**التاريخ:** 2026-10-23  
+**الفرع:** `goldlab-request-result-candidate`  
+**النطاق المحمي:** لا اختبار للاستراتيجية على 2026-10-21 إلى 2026-10-23 قبل 2026-10-24 12:00 UTC.
+
+## أولاً: موارد يوتيوب التي جرى البحث عنها
+
+هذه موارد تعليمية لفهم أدوات المنصة وآلية تنفيذ الأوامر، وليست دليلاً على ربحية أي استراتيجية. جرى التحقق من ملاءمة موضوعاتها بمقارنة ما تعرضه مع مرجع MQL5 الرسمي؛ لم أتعامل مع عنوان الفيديو وحده كدليل على صحته.
+
+1. [MQL5 Tutorial — HOW TO USE THE STRATEGY TESTER](https://www.youtube.com/watch?v=MMYwKGAoiYE) — أساسيات تشغيل الاختبار وضبط الفترة والنموذج.
+2. [René Balke / FX Bot Trading — How to Use the MT5 Strategy Tester to Backtest an EA](https://www.youtube.com/watch?v=lXn4QqNnoRQ) — خطوات backtest وقراءة التقرير.
+3. [MQL5 Tutorial — Running your first Backtest](https://www.youtube.com/watch?v=6KSgHWoIIrM) — بدء اختبار أولي قابل للتكرار.
+4. [EcoEngineering — Sending Order in MQL5 using MqlTradeResult and MqlTradeRequest](https://www.youtube.com/watch?v=oTihO60HX48) — فصل الطلب عن نتيجة الخادم ومراجعة حقول النتيجة.
+5. [FJ UNIVERSE — Metatrader: MT5 Strategy Tester (Backtesting)](https://www.youtube.com/watch?v=DUTNxpaDNvI) — مراجعة واجهة الاختبار ومخرجاتها.
+
+## ثانياً: التحقق الرسمي الذي يحكم التطبيق
+
+- [Strategy Testing — MetaTrader 5](https://www.metatrader5.com/en/terminal/help/algotrading/testing): نمط real ticks هو الخيار الأقرب إلى التاريخ المسجل فعلياً. يوضح الدليل كذلك أن **تاريخ النهاية غير مشمول**: يبدأ الاختبار وينتهي عند 00:00 للتواريخ المحددة، وتُستخدم آخر حركة قبل تاريخ النهاية. لذلك يجب تدقيق إعداد النهاية مع الفترة المكتوبة داخل تقرير HTML، لا الاكتفاء باسم الملف أو نص ملخص المشغل.
+- [Real and Generated Ticks](https://www.metatrader5.com/en/terminal/help/algotrading/tick_generation): سجل حركات الوسيط قد ينقصه بعض ticks؛ ينبغي مراجعة جودة البيانات واحتمال التحول إلى حركات مولدة.
+- [OrderSend](https://www.mql5.com/en/docs/trading/ordersend): رجوع الدالة بقيمة true لا يثبت تنفيذ الصفقة. يجب قراءة `MqlTradeResult.retcode` ونتيجة المعالجة.
+- [OrderCheck](https://www.mql5.com/en/docs/trading/ordercheck): الفحص المسبق لا يضمن قبول الطلب أو تنفيذه لاحقاً.
+- [OnTradeTransaction](https://www.mql5.com/en/docs/event_handlers/ontradetransaction): طلب واحد قد ينتج عدة أحداث معاملات، وترتيب وصول الأحداث ليس مضموناً. لذلك لا يجوز عدّ كل callback كصفقة مستقلة.
+- [MqlTradeResult](https://www.mql5.com/en/docs/constants/structures/mqltraderesult): `request_id`, `retcode`, `order`, `deal`, `volume`, و`price` تساعد على مطابقة نتيجة الطلب مع callback.
+- [CopyBuffer](https://www.mql5.com/en/docs/series/copybuffer): الموضع 0 هو الشمعة الحالية؛ قراءات الموضع 1 و2 تستخدم شموعاً مكتملة وتقلل إشارات إعادة الرسم.
+- [Walk-forward efficiency ratio in MQL5](https://www.mql5.com/en/articles/23250): تحسين نتيجة فترة واحدة يمكن أن يفرط في ملاءمة ضوضاء الماضي؛ نحتاج فترة مستقلة لم تُستخدم للتعديل.
+
+## ثالثاً: ما طُبّق أو أُضيف إلى المختبر
+
+1. **فحص تجميع مستقل:** workflow منفصل يثبت MT5 وMetaEditor على Windows مؤقت، ويجمع EA دخانياً دون تداول. نجح التشغيل `39874355973` بنتيجة 0 أخطاء و0 تحذيرات.
+2. **تشغيل فعلي لـ Strategy Tester:** التشغيل `39874581680` جمع GoldLabEA v1.014 وشغّل XAUUSD M5 بنموذج 4، وأنتج تقرير HTML وCSV سجل الصفقات وسجلات منصة MT5.
+3. **حماية تاريخ الاختبار:** ضبط `ToDate=2026.10.20` والتحقق من أن تقرير MT5 نفسه يعرض `M5 (2026.08.05 - 2026.10.20)`. يمنع هذا حجز يوم الاختبار المحمي من الدخول عرضاً.
+4. **مطابقة معاملات الطلبات:** إزالة الأسطر المكررة التي تظهر في سجل الشارت وسجل Core، ومطابقة request IDs وتوقيعات النتائج، مع fallback وحيد صريح عندما يكون request_id صفراً.
+5. **الفصل بين الدليل والتنفيذ:** أعداد OrderCheck وOrderSend وOnTradeTransaction تقيس الطلبات ونتائجها، وليست عدداً للصفقات. CSV التاريخ الفعلي هو المرجع لعدد deals وإجمالي الربح والخسارة.
+
+## رابعاً: نتيجة التطوير الحالية — لا تُفسر كربحية مؤكدة
+
+التشغيل `39874581680` اكتمل بنجاح على Windows Server 2022. أظهر تقريره: نهاية فترة 2026-10-20، جودة `100% real ticks`، صافي ربح `+$20.76`، معامل ربح `1.47`، تراجع حقوق ملكية `3.59%`، و33 صفقة (10 رابحة، 23 خاسرة). هذه نافذة تطوير مختصرة وإعداد تشخيصي short-only؛ ليست اختباراً مستقلاً ولا تثبت ربحية مستدامة. المرجع [هنا](https://github.com/staryuzar/-/actions/runs/39874581680).
+
+## خامساً: الخطوة التالية
+
+قبل قبول أي جولة، يجب فحص:
+- أن تقرير HTML يطابق المدخلات والفترة المقصودة.
+- أن سجل CSV يطابق عدد deals في التقرير وأن صافي الربح من CSV يطابق التقرير ضمن هامش التقريب.
+- أن جميع أوقات صفقات CSV تقع قبل حد النهاية الحصري، وأن جودة ticks الموثقة تلائم هدف الاختبار.
+- أن عدادات OrderCheck/OrderSend/OnTradeTransaction تتصالح، مع عدم احتساب callbacks المتعددة كصفقات مستقلة.
+- بعد انتهاء فترة الحجز، تشغيل اختبار مستقل مرة واحدة دون ضبط المعلمات عليه؛ لا يُستخدم holdout لاختيار الإعدادات.
+
+## الفصل الزمني
+لا تشغّل استراتيجية الذهب على 2026-10-21 إلى 2026-10-23 ولا تعدّل مدخلاتها استناداً إلى هذه الفترة قبل 2026-10-24 12:00 UTC. يمكن خلال الحجز تطوير أدوات التقارير والفحص الثابت فقط.
