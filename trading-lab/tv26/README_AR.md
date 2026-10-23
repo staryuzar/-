@@ -8,10 +8,12 @@ A research candidate for XAUUSD in MT5. It calculates 26 Technical-Ratings-style
 جهزنا أداة مقارنة مباشرة تعتمد على تصدير Pine الحقيقي، لا على إعادة تنفيذ المعادلات فقط:
 - الدليل خطوة بخطوة: [DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md](DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md)
 - أداة المقارنة المجربة: [compare_tv26_csv.py](compare_tv26_csv.py)
-- مرجع Pine لتصدير التصويتات الـ26: [TradingView_Parity_Components_1TF.pine](TradingView_Parity_Components_1TF.pine)
+- مؤشر Pine الموحّد الذي يخرج الأطر الخمسة بملف واحد: [TradingView_Parity_AllTF_Export.pine](TradingView_Parity_AllTF_Export.pine)
+- فك ترميز الملف الموحّد: [split_tv26_alltf_export.py](split_tv26_alltf_export.py)
+- نسخة Pine لإطار واحد عند الحاجة: [TradingView_Parity_Components_1TF.pine](TradingView_Parity_Components_1TF.pine)
 - سير عمل GitHub للمقارنة: [tv26-direct-tradingview-parity.yml](../../.github/workflows/tv26-direct-tradingview-parity.yml)
 
-يلزم تصدير CSV واحد لكل إطار من TradingView، وملف تدقيق MT5 من نفس فترة الاختبار. المقارنة تفحص OHLC أولًا ثم درجات الملخص وأصوات المكونات. لا يُدّعى تحقق المطابقة الفعلية قبل توفر ملفات TradingView الصادرة من Pine وتشغيل المقارنة عليها.
+يلزم تصدير CSV واحد من TradingView يضم الأطر الخمسة معًا؛ ينزّل سير العمل ملف تدقيق MT5 من المختبر السحابي تلقائيًا. المقارنة تفحص OHLC أولًا ثم درجات الملخص وأصوات المكونات. لا يُدّعى تحقق المطابقة الفعلية قبل توفر ملفات TradingView الصادرة من Pine وتشغيل المقارنة عليها.
 
 ## حالة المطابقة المباشرة
 راجع تقرير الحالة والأدلة والشرط المتبقي في TV26_DIRECT_PARITY_STATUS_2026-10-23.md. المقارنة الفعلية مع TradingView لا تُعلن نجاحًا قبل إدخال CSV الحقيقي المُصدّر من Pine وتشغيل سير العمل.
