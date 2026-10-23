@@ -3,9 +3,11 @@ import TradingView/TechnicalRating/3 as tvRating
 
 indicator("TV26 — مرجع مطابقة الملخصات (5 أطر)", overlay=false, precision=3)
 
-f_ratings() =>
+// Return the prior confirmed bar in the requested timeframe.
+// lookahead_on is safe here because every returned expression is offset by [1].
+f_ratings_confirmed() =>
     [totalRating, oscillatorRating, maRating] = tvRating.calcRatingAll()
-    [totalRating, maRating, oscillatorRating]
+    [totalRating[1], maRating[1], oscillatorRating[1]]
 
 f_label(float rating) =>
     na(rating) ? "غير متاح" :
@@ -23,11 +25,11 @@ tf3 = input.timeframe("15", "الإطار 3")
 tf4 = input.timeframe("30", "الإطار 4")
 tf5 = input.timeframe("60", "الإطار 5")
 
-[total1, ma1, osc1] = request.security(syminfo.tickerid, tf1, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-[total2, ma2, osc2] = request.security(syminfo.tickerid, tf2, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-[total3, ma3, osc3] = request.security(syminfo.tickerid, tf3, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-[total4, ma4, osc4] = request.security(syminfo.tickerid, tf4, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-[total5, ma5, osc5] = request.security(syminfo.tickerid, tf5, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+[total1, ma1, osc1] = request.security(syminfo.tickerid, tf1, f_ratings_confirmed(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[total2, ma2, osc2] = request.security(syminfo.tickerid, tf2, f_ratings_confirmed(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[total3, ma3, osc3] = request.security(syminfo.tickerid, tf3, f_ratings_confirmed(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[total4, ma4, osc4] = request.security(syminfo.tickerid, tf4, f_ratings_confirmed(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[total5, ma5, osc5] = request.security(syminfo.tickerid, tf5, f_ratings_confirmed(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
 
 var table t = table.new(position.top_right, 5, 6, border_width=1)
 if barstate.islast
