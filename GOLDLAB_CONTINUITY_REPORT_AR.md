@@ -610,3 +610,34 @@
 - `gold-xauusd-expert-lab` المجمد لا يزال عند SHA `d5f1f5f7541de729ed9814e6c0be742aedd6025c`.
 - لا تغييرات على أي منهما؛ كل العمل على `goldlab-request-result-candidate`.
 - النافذة المحجوزة 2026-10-21 إلى 2026-10-23 لا تُستخدم لتقييم الاستراتيجية قبل 2026-10-24 12:00 UTC (15:00 عدن).
+
+
+## تحديث بحثي وتجريبي — 2026-10-23 (GitHub Actions)
+
+### بحث YouTube وتطبيقه
+- MT5 Strategy Tester: https://www.youtube.com/watch?v=lXn4QqNnoRQ
+- MQL5 Strategy Tester basics: https://www.youtube.com/watch?v=MMYwKGAoiYE
+- MQL5 OrderSend / MqlTradeResult: https://www.youtube.com/watch?v=88OepMSenl8
+- TradingView ADX: https://www.youtube.com/watch?v=BNP11NjQgM8
+- توثيق رسمي: https://www.mql5.com/en/docs/runtime/testing و https://www.metatrader5.com/en/terminal/help/algotrading/tick_generation
+- ملاحظة نزاهة: أمكن التحقق من عناوين وروابط وملخصات نتائج البحث؛ لا أدعي مشاهدة كاملة للفيديوهات التي تعذر فتحها مباشرة.
+
+### تجربة ADX 23–30 — مرفوضة
+- فرع مستقل: https://github.com/staryuzar/-/tree/goldlab-adx30-experiment
+- التشغيلان المكتملان: https://github.com/staryuzar/-/actions/runs/39878553971 و https://github.com/staryuzar/-/actions/runs/39878578878
+- تغيير واحد فقط عن خط الأساس: الحد الأعلى لـ ADX من 25 إلى 30. المصدر v1.014 نفسه، الفترة M5 من 2026-08-05 إلى 2026-10-20، نموذج 4.
+- النتيجة المكررة: -1.59 USD، PF 0.99، أقصى تراجع حقوق ملكية 9.29%، 88 صفقة، فوز 22.73%، جودة 100% real ticks.
+- خط الأساس ADX 23–25: +20.76 USD، PF 1.47، أقصى تراجع حقوق ملكية 3.59%، 33 صفقة.
+- القرار: لا نعتمد ADX 23–30. التوسيع زاد الصفقات وأضعف الأداء. هذه مقارنة على نافذة تطوير واحدة فقط، لا إثبات خارج العينة.
+
+### تجربة ADX 23–27 — قيد التنفيذ
+- فرع مستقل: https://github.com/staryuzar/-/tree/goldlab-adx27-experiment
+- التشغيل: https://github.com/staryuzar/-/actions/runs/39878896592
+- تم اجتياز فحص PowerShell الثابت: https://github.com/staryuzar/-/actions/runs/39878911338
+- المتغير الوحيد عن خط الأساس هو الحد الأعلى ADX=27؛ التاريخ يظل حتى 2026-10-20. لا تعتمد نتيجة قبل اكتمال Strategy Tester وفحص تقرير HTML/CSV.
+- تقرير التجربة والمواد البحثية محفوظة في فرع التجربة.
+
+### الحماية
+- `main` ما زال `295bfb953d0086cf8b249e0ab35b711ffc72170c`.
+- `gold-xauusd-expert-lab` ما زال `d5f1f5f7541de729ed9814e6c0be742aedd6025c`.
+- لم تُجر أي اختبارات على نافذة 2026-10-21 إلى 2026-10-23؛ تبقى محمية حتى 2026-10-24 12:00 UTC.
