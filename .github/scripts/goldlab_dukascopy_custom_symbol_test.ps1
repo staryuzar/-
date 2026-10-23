@@ -202,7 +202,7 @@ Leverage=1:1000
 Model=4
 ExecutionMode=-1
 FromDate=2026.03.26
-ToDate=2026.03.28
+ToDate=2026.03.27
 Report=goldlab-results\GoldLab_Dukascopy_customsymbol_2026-03-26
 ReplaceReport=1
 ShutdownTerminal=1
@@ -225,22 +225,25 @@ $checks = @(
   ($html -match '(?is)InpMaxSpreadPoints=1000(?:\.0+)?</b>'),
   ($html -match '(?is)InpStopRetryBufferATR=0\.5(?:0+)?</b>'),
   ($html -match '(?is)InpTestForceInvalidStopsOnce=false</b>'),
-  ($html -match '(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.03\.26 - 2026\.03\.28\)</b>')
+  ($qualityMatch.Success -and $qualityMatch.Groups[1].Value.Trim() -eq "100% real ticks"),
+  ($html -match '(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.03\.26 - 2026\.03\.27\)</b>')
 )
 if ($checks -contains $false) { throw "Tester report failed custom-symbol/input/date verification." }
 $barMatch = [regex]::Match($html,'(?is)Bars:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
+$qualityMatch = [regex]::Match($html,'(?is)History Quality:</td>\s*<td[^>]*><b>\s*([^<]+?)\s*</b>')
 $tickMatch = [regex]::Match($html,'(?is)Ticks:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
 $tradeMatch = [regex]::Match($html,'(?is)Total Trades:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
 $dealMatch = [regex]::Match($html,'(?is)Total Deals:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
 $netMatch = [regex]::Match($html,'(?is)Total Net Profit:</td>\s*<td[^>]*><b>\s*([-+\d,.]+)\s*</b>')
 $pfMatch = [regex]::Match($html,'(?is)Profit Factor:</td>\s*<td[^>]*><b>\s*([\d,.]+)\s*</b>')
+$historyQuality = if($qualityMatch.Success){$qualityMatch.Groups[1].Value.Trim()}else{"UNKNOWN"}
 $bars = if($barMatch.Success){[long]$barMatch.Groups[1].Value.Replace(",","")}else{-1}
 $ticks = if($tickMatch.Success){[long]$tickMatch.Groups[1].Value.Replace(",","")}else{-1}
 $trades = if($tradeMatch.Success){[long]$tradeMatch.Groups[1].Value.Replace(",","")}else{-1}
 $deals = if($dealMatch.Success){[long]$dealMatch.Groups[1].Value.Replace(",","")}else{-1}
 $net = if($netMatch.Success){[double]::Parse($netMatch.Groups[1].Value,[Globalization.CultureInfo]::InvariantCulture)}else{[double]::NaN}
 $pf = if($pfMatch.Success){[double]::Parse($pfMatch.Groups[1].Value,[Globalization.CultureInfo]::InvariantCulture)}else{[double]::NaN}
-if ($bars -lt 400 -or $ticks -lt 400000 -or $trades -lt 0 -or $deals -lt 0 -or [double]::IsNaN($net)) { throw "Custom-symbol report data gates failed (bars=$bars ticks=$ticks trades=$trades deals=$deals net=$net)." }
+if ($historyQuality -ne "100% real ticks" -or $bars -lt 200 -or $ticks -lt 400000 -or $trades -lt 0 -or $deals -lt 0 -or [double]::IsNaN($net)) { throw "Custom-symbol report data gates failed (quality=$historyQuality bars=$bars ticks=$ticks trades=$trades deals=$deals net=$net)." }
 
 $auditFiles = @(Get-ChildItem -LiteralPath $install -Filter "GoldLab_trade_audit.csv" -File -Recurse -ErrorAction SilentlyContinue)
 $csvRows = 0; $csvNet = 0.0; $csvIds = [System.Collections.Generic.HashSet[string]]::new()
@@ -269,10 +272,10 @@ if ($deals -gt 0 -and ($csvRows -ne $deals -or [Math]::Abs([Math]::Round($csvNet
   "Importer SHA-256: $((Get-FileHash -LiteralPath $importSource -Algorithm SHA256).Hash.ToLowerInvariant())",
   "Data source: Dukascopy ticks plus Dukascopy M1 warm-up bars; NOT Headway broker history.",
   "Symbol: XAUUSD_DUKA; digits=3; point=0.001; spread cap=1000 points ($1.00 nominal).",
-  "Model=4; Random Delay; test period 2026.03.26-2026.03.28 to cover server-time boundaries.",
+  "Model=4; Random Delay; tester covers 2026.03.26 only (ToDate 2026.03.27 is exclusive), matching the one-day imported tick sample.",
   "Compile: EA and importer both 0 errors/0 warnings.",
   "Import summary: $importSummary",
-  "Report bars=$bars ticks=$ticks trades=$trades deals=$deals net=$net PF=$pf.",
+  "History quality=$historyQuality; report bars=$bars ticks=$ticks trades=$trades deals=$deals net=$net PF=$pf.",
   "CSV rows=$csvRows unique IDs=$($csvIds.Count) CSV net=$([Math]::Round($csvNet,2)).",
   "Interpretation: ingestion/strategy smoke test on an independent custom symbol, not broker execution or profitability validation."
 ) | Set-Content -LiteralPath (Join-Path $reports "dukascopy-custom-symbol-test-summary.txt") -Encoding utf8
