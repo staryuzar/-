@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.002"
+#property version   "1.003"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -251,7 +251,7 @@ bool ComputeOne(int t,int j,int &score)
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],1,1,b) || !ReadBuf(g_handles[t][j],2,1,c)) return false;
       double prevADX=0;
       if(!ReadBuf(g_handles[t][j],0,2,prevADX)) return false;
-      score=(a>20 && b>c && a>prevADX ? 1 : (a>20 && b<c && a>prevADX ? -1 : 0)); return true;
+      score=(a>20 && b>c && a>prevADX ? 1 : (a>20 && b<c && a<prevADX ? -1 : 0)); return true;
    }
    if(j==AO)
    {
