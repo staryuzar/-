@@ -1,0 +1,50 @@
+name: GoldLab v1.018 Performance Harness Static Validation
+
+on:
+  push:
+    branches: [goldlab-v1.018-risk-capped-buffer]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_retry_math_selftest.py"
+      - ".github/scripts/goldlab_sltp_performance_v1_018.ps1"
+      - ".github/workflows/goldlab-v1.018-performance-lint.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run EA math/source contract tests
+        run: python .github/scripts/goldlab_retry_math_selftest.py
+      - name: Parse and verify full-window PowerShell harness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $file = ".github/scripts/goldlab_sltp_performance_v1_018.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            foreach ($e in $errors) { Write-Host ("PARSE FAIL line {0}: {1}" -f $e.Extent.StartLineNumber,$e.Message) }
+            throw "Full-window performance harness PowerShell parse failed."
+          }
+          $script = Get-Content -LiteralPath $file -Raw
+          $ea = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabEA.mq5" -Raw
+          if ($ea -notmatch '(?m)^#property version\s+"1\.018"' -or
+              $ea -notmatch 'OPEN_STOP_RETRY_BUFFER_CAPPED' -or
+              -not $script.Contains('FromDate=2026.08.05') -or
+              -not $script.Contains('ToDate=2026.10.20') -or
+              -not $script.Contains('InpStopRetryBufferATR=0.50') -or
+              -not $script.Contains('requested retry-buffer maximum=0.50 ATR')) {
+            throw "Harness/source contract mismatch: expected v1.018, adaptive cap audit, August–October window, and 0.50 ATR requested maximum."
+          }
+          Write-Host ("PASS: PowerShell parsed {0} tokens; full-window dates and adaptive-buffer markers verified." -f $tokens.Count)
