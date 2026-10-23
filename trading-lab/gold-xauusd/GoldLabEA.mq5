@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.014"
+#property version   "1.015"
 #property description "GoldLab XAUUSD research candidate; demo/backtest only"
 
 
@@ -31,6 +31,7 @@ input bool             InpRequireFastEMARejection = false;
 uint lastTradeRetcode=0;
 ulong orderCheckPassCount=0, orderCheckFailCount=0;
 ulong orderSendCallCount=0, orderSendAcceptedCount=0, orderSendFailCount=0;
+ulong orderSendStaleModifyCount=0, orderSendOpenStopRetryCount=0, orderSendOpenStopRetryRecoveredCount=0, orderSendOpenStopRetryFailedCount=0;
 ulong orderRequestCallbackCount=0, orderRequestAcceptedCount=0, orderRequestOtherRetcodeCount=0;
 int hFast=INVALID_HANDLE, hSlow=INVALID_HANDLE;
 int hBiasFast=INVALID_HANDLE, hBiasSlow=INVALID_HANDLE;
@@ -153,6 +154,82 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
    int errorCode=GetLastError();
    lastTradeRetcode=result.retcode;
    bool accepted=(sent && TradeRetcodeAccepted(result.retcode));
+
+   // One bounded recovery attempt for a stop-distance rejection under delayed execution.
+   // Rebase the request to a fresh quote, retain at least the original risk distance,
+   // satisfy the current spread/stops-level constraints, and recalculate volume so the
+   // monetary risk budget remains bounded. Other retcodes are never retried.
+   if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)
+   {
+      orderSendOpenStopRetryCount++;
+      RecordOrderSendTelemetry("open-retryable-stop-reject",sent,result,false,errorCode);
+      MqlTick tick;
+      if(!SymbolInfoTick(_Symbol,tick) || tick.ask<=0.0 || tick.bid<=0.0 || tick.ask<tick.bid)
+      {
+         orderSendOpenStopRetryFailedCount++;
+         LogEvent("OPEN_STOP_RETRY_ABORT","fresh quote unavailable");
+         return false;
+      }
+
+      double retrySpreadPoints=(tick.ask-tick.bid)/_Point;
+      if(retrySpreadPoints>InpMaxSpreadPoints)
+      {
+         orderSendOpenStopRetryFailedCount++;
+         LogEvent("OPEN_STOP_RETRY_ABORT","spread exceeds guard;spread_points="+DoubleToString(retrySpreadPoints,1));
+         return false;
+      }
+
+      double originalRiskDistance=MathAbs(request.price-request.sl);
+      double targetDistance=MathAbs(request.tp-request.price);
+      double spread=tick.ask-tick.bid;
+      double minStopDistance=(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
+      double retryRiskDistance=MathMax(originalRiskDistance,spread+minStopDistance+2.0*_Point);
+      double retryEntry=(type==ORDER_TYPE_BUY ? tick.ask : tick.bid);
+      double retrySL=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry-retryRiskDistance : retryEntry+retryRiskDistance);
+      double retryTP=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry+targetDistance : retryEntry-targetDistance);
+      double retryLots=LotsForRisk(type,retryEntry,retrySL);
+      if(retryLots<=0.0)
+      {
+         orderSendOpenStopRetryFailedCount++;
+         LogEvent("OPEN_STOP_RETRY_ABORT","risk-sized volume below broker minimum;"+RiskRejectDetail(type,retryEntry,retrySL));
+         return false;
+      }
+
+      request.price=retryEntry;
+      request.sl=retrySL;
+      request.tp=retryTP;
+      request.volume=retryLots;
+      if(!PreflightTradeRequest(request,"open-retry"))
+      {
+         orderSendOpenStopRetryFailedCount++;
+         LogEvent("OPEN_STOP_RETRY_ABORT","fresh request failed OrderCheck;retcode="+IntegerToString((int)lastTradeRetcode));
+         return false;
+      }
+
+      ZeroMemory(result);
+      ResetLastError();
+      sent=OrderSend(request,result);
+      errorCode=GetLastError();
+      lastTradeRetcode=result.retcode;
+      accepted=(sent && TradeRetcodeAccepted(result.retcode));
+      RecordOrderSendTelemetry("open-retry",sent,result,accepted,errorCode);
+      if(accepted)
+      {
+         orderSendOpenStopRetryRecoveredCount++;
+         LogEvent("OPEN_STOP_RETRY_SUCCESS","retcode="+IntegerToString((int)result.retcode)+
+                  ";lots="+DoubleToString(retryLots,2)+
+                  ";sl="+DoubleToString(retrySL,_Digits)+
+                  ";tp="+DoubleToString(retryTP,_Digits)+
+                  ";spread_points="+DoubleToString(retrySpreadPoints,1));
+         return true;
+      }
+      orderSendOpenStopRetryFailedCount++;
+      LogEvent("OPEN_STOP_RETRY_FAIL","retcode="+IntegerToString((int)result.retcode)+
+               ";comment="+result.comment+
+               ";spread_points="+DoubleToString(retrySpreadPoints,1));
+      return false;
+   }
+
    RecordOrderSendTelemetry("open",sent,result,accepted,errorCode);
    return accepted;
 }
@@ -200,10 +277,22 @@ bool ModifyPositionSLTP(const ulong ticket,const double sl,const double tp)
    int errorCode=GetLastError();
    lastTradeRetcode=result.retcode;
    bool accepted=(sent && result.retcode==TRADE_RETCODE_DONE);
+
+   // A delayed SL/TP modification may arrive after the broker/tester has already
+   // closed the position. Record the rejected request, but don't treat it as an
+   // active-position protection failure or retry a ticket which no longer exists.
+   if(!accepted && !PositionSelectByTicket(ticket))
+   {
+      orderSendStaleModifyCount++;
+      RecordOrderSendTelemetry("modify-sltp-stale-after-close",sent,result,false,errorCode);
+      LogEvent("MODIFY_STALE_AFTER_CLOSE","ticket="+(string)ticket+
+               ";retcode="+IntegerToString((int)result.retcode));
+      return true;
+   }
+
    RecordOrderSendTelemetry("modify-sltp",sent,result,accepted,errorCode);
    return accepted;
 }
-
 bool ReadValue(const int handle,const int buffer,const int shift,double &value)
 {
    double data[];
@@ -347,7 +436,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.014; adds request-result correlation telemetry only; strategy/risk rules unchanged; blocks live execution on real accounts while permitting Strategy Tester.");
+   LogEvent("INIT","Research candidate v1.015; bounded invalid-stop retry uses fresh quote and re-calculates risk volume; stale SLTP result after position closure is classified; live real-account execution remains disabled.");
    return INIT_SUCCEEDED;
 }
 
@@ -366,6 +455,12 @@ void OnDeinit(const int reason)
          "|callbacks=",IntegerToString((int)orderRequestCallbackCount),
          ";accepted_by_retcode=",IntegerToString((int)orderRequestAcceptedCount),
          ";other_retcode=",IntegerToString((int)orderRequestOtherRetcodeCount),
+         ";deinit_reason=",IntegerToString(reason));
+      Print("GoldLab|ORDER_SEND_RECOVERY_SUMMARY|",_Symbol,
+         "|stale_modify=",IntegerToString((int)orderSendStaleModifyCount),
+         ";open_stop_retry_attempts=",IntegerToString((int)orderSendOpenStopRetryCount),
+         ";open_stop_retry_recovered=",IntegerToString((int)orderSendOpenStopRetryRecoveredCount),
+         ";open_stop_retry_failed=",IntegerToString((int)orderSendOpenStopRetryFailedCount),
          ";deinit_reason=",IntegerToString(reason));
    if(hFast!=INVALID_HANDLE) IndicatorRelease(hFast);
    if(hSlow!=INVALID_HANDLE) IndicatorRelease(hSlow);
