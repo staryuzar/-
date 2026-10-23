@@ -1,0 +1,44 @@
+name: GoldLab Random Delay — SLTP Race Diagnostic v1.015
+
+on:
+  push:
+    branches: [goldlab-sltp-race-diagnostic]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_sltp_race_diagnostic.ps1"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/workflows/goldlab-sltp-race-diagnostic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-shared-headway-mt5
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  sltp-race-diagnostic:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated v1.015 diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Compile and run identical-input Random Delay test
+        shell: pwsh
+        run: .github/scripts/goldlab_sltp_race_diagnostic.ps1
+
+      - name: Upload report, CSV, diagnostic log, and telemetry even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-sltp-race-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
