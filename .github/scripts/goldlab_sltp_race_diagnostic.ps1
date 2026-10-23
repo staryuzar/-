@@ -436,15 +436,18 @@ $matchedRequestIds = 0
 $unmatchedSendIds = @()
 $unmatchedReplyIds = @()
 $verifiedLocalStaleNoReplyIds = @()
+$verifiedLocalRecoveredOpenRetryNoReplyIds = @()
 $signatureMismatches = @()
 foreach ($id in $sendResultIds) {
   if ($requestResultIds.Contains($id)) {
     if ($sendResultSignatures[$id] -eq $requestResultSignatures[$id]) { $matchedRequestIds++ }
     else { $signatureMismatches += $id }
   } elseif (($sendResultSentById.ContainsKey($id)) -and (-not [bool]$sendResultSentById[$id]) -and $staleClosedRequestIds.Contains($id)) {
-    # A local OrderSend failure (sent=false) never reached the server, so OnTradeTransaction is not expected.
-    # Treat it as correlated only when the independent SLTP_STATE audit proves the position closed during the delay.
+    # A local SLTP failure is correlated only when a separate state log proves the position had closed.
     $verifiedLocalStaleNoReplyIds += $id
+  } elseif (($sendResultSentById.ContainsKey($id)) -and (-not [bool]$sendResultSentById[$id]) -and $retryableOpenRequestIds.Contains($id) -and $openStopRetryRecovered -eq $retryableOpenRequestIds.Count -and $openStopRetryFailed -eq 0) {
+    # A local invalid-stop rejection has no server callback; classify it only when the bounded retry was accepted.
+    $verifiedLocalRecoveredOpenRetryNoReplyIds += $id
   } else {
     $unmatchedSendIds += $id
   }
@@ -484,6 +487,7 @@ if ($sendResultZeroSentCount -eq 1) {
   "Request-result signature mismatches: $($signatureMismatches.Count)",
   "Immediate request IDs without matching callback: $($unmatchedSendIds.Count)",
   "Verified sent=false stale-close requests without server callback: $($verifiedLocalStaleNoReplyIds.Count)",
+  "Verified sent=false recovered open-stop retries without server callback: $($verifiedLocalRecoveredOpenRetryNoReplyIds.Count)",
   "Callback request IDs without matching immediate result: $($unmatchedReplyIds.Count)",
   "Callback summary: callbacks=$requestCallbackSummary; accepted_by_retcode=$requestAcceptedSummary; other_retcode=$requestOtherSummary",
   "Unique ORDER_REQUEST_SUMMARY record:"
@@ -505,22 +509,30 @@ if ($signatureMismatches.Count -gt 0) {
 if ($unmatchedSendIds.Count -gt 0 -or $unmatchedReplyIds.Count -gt 0) {
   throw "Request ID correlation mismatch: inspect unmatched IDs in run-summary.txt."
 }
-$rawNonAcceptedCallbackCount = $requestResultOtherRetcodeLines.Count + $requestResultStaleClosureLines.Count
+$rawNonAcceptedCallbackCount = $requestResultOtherRetcodeLines.Count + $requestResultStaleClosureLines.Count + $requestResultRecoveredOpenRetryLines.Count
 if ($requestOtherSummary -ne $rawNonAcceptedCallbackCount) {
   throw "Raw other-retcode summary ($requestOtherSummary) does not reconcile with recorded callback lines ($rawNonAcceptedCallbackCount)."
 }
 $verifiedStaleCloseTotal = $requestResultStaleClosureLines.Count + $verifiedLocalStaleNoReplyIds.Count
-if ($verifiedStaleCloseTotal -ne $sendFailClassificationCount) {
-  throw "Verified stale-close server callbacks ($($requestResultStaleClosureLines.Count)) plus local sent=false/no-callback races ($($verifiedLocalStaleNoReplyIds.Count)) do not match verified failed modify requests ($sendFailClassificationCount)."
+if ($verifiedStaleCloseTotal -ne $failedModifyRequestIds.Count) {
+  throw "Verified stale-close server callbacks ($($requestResultStaleClosureLines.Count)) plus local sent=false/no-callback races ($($verifiedLocalStaleNoReplyIds.Count)) do not match failed modify requests ($($failedModifyRequestIds.Count))."
 }
-if ($requestOtherSummary -gt $requestResultStaleClosureLines.Count) {
-  throw "$($requestOtherSummary - $requestResultStaleClosureLines.Count) callback(s) outside the allow-list were not verified as stale closed-position races."
+$verifiedOpenRetryTotal = $requestResultRecoveredOpenRetryLines.Count + $verifiedLocalRecoveredOpenRetryNoReplyIds.Count
+if ($verifiedOpenRetryTotal -ne $retryableOpenRequestIds.Count -or $openStopRetryRecovered -ne $retryableOpenRequestIds.Count -or $openStopRetryFailed -ne 0) {
+  throw "Invalid-stop retry correlation ($verifiedOpenRetryTotal) or recovery counters do not reconcile with original requests ($($retryableOpenRequestIds.Count))."
+}
+if ($requestOtherSummary -gt ($requestResultStaleClosureLines.Count + $requestResultRecoveredOpenRetryLines.Count)) {
+  throw "$($requestOtherSummary - $requestResultStaleClosureLines.Count - $requestResultRecoveredOpenRetryLines.Count) callback(s) were not verified as stale-close races or recovered INVALID_STOPS retries."
 }
 if ($requestResultStaleClosureLines.Count -gt 0) {
   "Callbacks classified as stale closed-position races (retcode remains non-accepted):" | Add-Content -LiteralPath $summaryPath -Encoding utf8
   $requestResultStaleClosureLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
 }
-"Request-result correlation gate: PASS (matched nonzero server IDs=$matchedRequestIds; zero-ID fallback=$matchedZeroIdFallback; server callbacks=$requestCallbackSummary; verified sent=false local stale-close calls without callbacks=$($verifiedLocalStaleNoReplyIds.Count); verified stale-close server callbacks=$($requestResultStaleClosureLines.Count); unresolved correlation mismatches=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+if ($requestResultRecoveredOpenRetryLines.Count -gt 0) {
+  "Server INVALID_STOPS callbacks classified as recovered only after an accepted bounded retry:" | Add-Content -LiteralPath $summaryPath -Encoding utf8
+  $requestResultRecoveredOpenRetryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+}
+"Request-result correlation gate: PASS (matched nonzero server IDs=$matchedRequestIds; zero-ID fallback=$matchedZeroIdFallback; server callbacks=$requestCallbackSummary; local stale-close no-callback=$($verifiedLocalStaleNoReplyIds.Count); recovered invalid-stop retry no-callback=$($verifiedLocalRecoveredOpenRetryNoReplyIds.Count); recovered invalid-stop callbacks=$($requestResultRecoveredOpenRetryLines.Count); unresolved correlation mismatches=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 
 # Reconcile the HTML report with the deal-level CSV; requests/callbacks are not trade counts.
 $qaFailures = [System.Collections.Generic.List[string]]::new()
