@@ -46,7 +46,7 @@ jobs:
               -not $harness.Contains('FromDate=2026.03.26') -or
               -not $harness.Contains('ToDate=2026.08.05') -or
               -not $harness.Contains('InpStopRetryBufferATR=0.50') -or
-              -not $harness.Contains('InpTestForceInvalidStops=false') -or
+              -not $harness.Contains('InpTestForceInvalidStopsOnce=false') -or
               -not $harness.Contains('$qaBars -lt 10000') -or
               -not $harness.Contains('$qaTicks -lt 10000000')) {
             throw "Early-regime harness/source mismatch or insufficient historical data-quality guards."
