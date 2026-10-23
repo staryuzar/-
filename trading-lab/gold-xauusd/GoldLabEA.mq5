@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.016"
+#property version   "1.017"
 #property description "GoldLab XAUUSD race-diagnostic candidate; demo/backtest only"
 
 
@@ -22,6 +22,7 @@ input double           InpMaxSpreadPoints      = 100.0;
 input int              InpATRPeriod           = 14;
 input double           InpStopATR             = 1.8;
 input double           InpStopRetryBufferATR   = 0.50; // Extra ATR cushion on one INVALID_STOPS retry only.
+input bool             InpTestForceInvalidStopsOnce = false; // Tester-only fault injection; MUST stay false outside controlled tests.
 input double           InpTargetATR           = 2.4;
 input double           InpTrailATR             = 1.4;
 input bool             InpCloseOnOpposite     = true;
@@ -38,6 +39,7 @@ int hFast=INVALID_HANDLE, hSlow=INVALID_HANDLE;
 int hBiasFast=INVALID_HANDLE, hBiasSlow=INVALID_HANDLE;
 int hRSI=INVALID_HANDLE, hADX=INVALID_HANDLE, hATR=INVALID_HANDLE;
 datetime lastBar=0;
+bool testInvalidStopsInjectionConsumed=false;
 string tradeLogName="GoldLab_trade_audit.csv";
 
 
@@ -150,11 +152,44 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
    }
    request.type_time=ORDER_TIME_GTC; request.comment=comment;
    if(!PreflightTradeRequest(request,"open")) return false;
+
+   // Save the real stop plan. The optional fault injection is accepted only in Strategy Tester.
+   const double plannedPrice=request.price;
+   const double plannedSL=request.sl;
+   const double plannedTP=request.tp;
+   bool forceInvalidStopsForThisSend=(InpTestForceInvalidStopsOnce &&
+                                      (bool)MQLInfoInteger(MQL_TESTER) &&
+                                      !testInvalidStopsInjectionConsumed);
+   if(forceInvalidStopsForThisSend)
+   {
+      testInvalidStopsInjectionConsumed=true;
+      // Deliberately invalidate both protection prices AFTER the first OrderCheck and BEFORE OrderSend.
+      // This isolated test fault is never enabled by default and OnInit rejects it outside the Tester.
+      request.sl=request.price;
+      request.tp=request.price;
+      LogEvent("TEST_INVALID_STOPS_INJECTION","outcome=prepared;price="+DoubleToString(request.price,_Digits));
+   }
+
    ResetLastError();
    bool sent=OrderSend(request,result);
    int errorCode=GetLastError();
    lastTradeRetcode=result.retcode;
    bool accepted=(sent && TradeRetcodeAccepted(result.retcode));
+
+   if(forceInvalidStopsForThisSend)
+   {
+      request.price=plannedPrice;
+      request.sl=plannedSL;
+      request.tp=plannedTP;
+      if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)
+      {
+         LogEvent("TEST_INVALID_STOPS_INJECTION","outcome=confirmed;request_id="+(string)result.request_id+";retcode="+IntegerToString((int)result.retcode));
+      }
+      else
+      {
+         LogEvent("TEST_INVALID_STOPS_INJECTION","outcome=not_confirmed;request_id="+(string)result.request_id+";retcode="+IntegerToString((int)result.retcode)+";accepted="+(accepted ? "true" : "false"));
+      }
+   }
 
    // One bounded recovery attempt for a stop-distance rejection under delayed execution.
    // Rebase the request to a fresh quote, retain at least the original risk distance,
@@ -274,6 +309,19 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
    }
 
    RecordOrderSendTelemetry("open",sent,result,accepted,errorCode);
+   if(forceInvalidStopsForThisSend && accepted)
+   {
+      // Defensive cleanup if a tester/build unexpectedly accepts the intentionally invalid request.
+      for(int i=PositionsTotal()-1;i>=0;i--)
+      {
+         ulong ticket=PositionGetTicket(i);
+         if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+         if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
+            (ulong)PositionGetInteger(POSITION_MAGIC)==InpMagic)
+            if(!ClosePositionByTicket(ticket))
+               LogEvent("TEST_INVALID_STOPS_INJECTION","outcome=emergency_close_failed;ticket="+(string)ticket);
+      }
+   }
    return accepted;
 }
 bool ClosePositionByTicket(const ulong ticket)
@@ -484,6 +532,12 @@ int OnInit()
       return INIT_FAILED;
    }
 
+   if(InpTestForceInvalidStopsOnce && !testerMode)
+   {
+      Print("GoldLab: InpTestForceInvalidStopsOnce is tester-only; initialization refused outside Strategy Tester.");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
    if(InpRiskPercent<=0.0 || InpRiskPercent>2.0 || InpFastEMA<2 || InpSlowEMA<=InpFastEMA ||
       InpBiasFastEMA<2 || InpBiasSlowEMA<=InpBiasFastEMA || InpStopATR<=0.0 ||
        InpStopRetryBufferATR<0.0 || InpStopRetryBufferATR>2.0 ||
@@ -509,7 +563,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.016; bounded INVALID_STOPS retry uses a disclosed ATR cushion and risk-sized volume; all other strategy rules unchanged; blocks live execution on real accounts while permitting Strategy Tester.");
+   LogEvent("INIT","Research candidate v1.017; bounded INVALID_STOPS retry uses a disclosed ATR cushion and risk-sized volume; tester-only forced INVALID_STOPS injection is disabled by default and rejected outside Strategy Tester; blocks live execution on real accounts.");
    return INIT_SUCCEEDED;
 }
 
