@@ -37,3 +37,31 @@ This is **not yet a verified bit-for-bit reproduction** of TradingView's proprie
 - First compile attempt exposed an unnecessary include dependency (`Trade/Trade.mqh`) and a version metadata warning; both were fixed, and the next compile passed.
 - The official installer returned exit code 1, but MetaEditor was present and the compile evidence was independently read from the artifact. This is recorded as an installer quirk, not as a compile failure.
 - **Not yet tested:** live chart rendering of Arabic text, indicator-by-indicator parity against TradingView, Strategy Tester, multi-period performance, order execution in a demo tester, and profitability. Compilation only proves the source compiles.
+
+
+## Parity audit — 2026-10-23 (source review; live-value match still pending)
+
+The first audit found material divergences from TradingView's published Technical Ratings rules. Corrections have been committed to the candidate source:
+- Overall rating now averages the MA-group mean and oscillator-group mean, rather than averaging all 26 scores as one undifferentiated pool.
+- Category boundaries use strict comparisons: Strong Buy > +0.5; Buy > +0.1 through +0.5; Neutral from -0.1 through +0.1; Sell from -0.5 up to but not including -0.1; Strong Sell < -0.5.
+- Ultimate Oscillator direction was reversed in the initial candidate; it is corrected to Buy above 70 and Sell below 30.
+- Momentum now compares its current value with its previous value rather than comparing to the fixed level 100.
+- RSI, Stochastic, CCI, ADX, AO, Williams %R and Ichimoku now include more of the published directional/turning conditions.
+- Stochastic RSI and Bull/Bear Power logic were revised; Bull/Bear Power now uses the 50-period configuration listed by the current public TechnicalRating library.
+
+Reference: TradingView Help Center, Technical Ratings: https://www.tradingview.com/support/solutions/43000614331-technical-ratings/
+Reference: current public TechnicalRating library description, updated 2024-11-29: https://www.tradingview.com/script/jDWyb5PG-TechnicalRating/
+
+### Known parity limitations still requiring verification
+- Exact current-library internals for Stochastic RSI, Bull/Bear Power, Ichimoku span alignment, and Hull MA must still be compared against the reference implementation.
+- TradingView and MT5 feeds can differ in OHLC, tick volume, session boundaries, and indicator initialization; the comparison must use the same symbol/provider and closed-bar timestamp.
+- No live TradingView values or user chart screenshots were available during this source audit. Therefore no claim of same-moment equality is made yet.
+- The last previously confirmed compile was the pre-audit candidate. A fresh MetaEditor compile is running for the updated commits; its result must be checked before this revision is called compile-verified.
+
+### Live comparison protocol
+For each of M1, M5, M15, M30 and H1, capture the same closed candle timestamp and record:
+1. TradingView symbol/provider and candle time.
+2. Overall Technical Rating, MA Rating and Oscillator Rating.
+3. The 26 component states from the EA panel.
+4. Any disagreement, likely cause, correction, and retest result.
+Do not enable real-account trading based on this audit alone.
