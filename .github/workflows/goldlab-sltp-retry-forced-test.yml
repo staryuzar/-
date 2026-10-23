@@ -56,6 +56,7 @@ jobs:
               $source -notmatch 'if\(InpTestForceInvalidStopsOnce && !testerMode\)' -or
               $source -notmatch 'outcome=confirmed;request_id=' -or
               -not $wrapper.Contains("ForceInvalidStopsOnce") -or
+              -not $wrapper.Contains("RetryBufferATR") -or
               -not $wrapper.Contains("Forced INVALID_STOPS test requires exactly one confirmed injected trigger")) {
             throw "Forced invalid-stop test is missing the tester-only guard, event correlation, or terminal-outcome assertion."
           }
@@ -68,7 +69,7 @@ jobs:
           Write-Host "Forced-path guards PASS; this test mode is off by default and blocked outside Strategy Tester."
       - name: Compile and exercise one forced INVALID_STOPS retry path in MT5
         shell: pwsh
-        run: .github/scripts/goldlab_sltp_race_diagnostic.ps1 -ForceInvalidStopsOnce
+        run: .github/scripts/goldlab_sltp_race_diagnostic.ps1 -ForceInvalidStopsOnce -RetryBufferATR 0.0
       - name: Upload MT5 report, CSV, journals, and reconciled summary even on failure
         if: always()
         uses: actions/upload-artifact@v4
