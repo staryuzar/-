@@ -5,6 +5,7 @@
 2. **Advisor OrderCheck Execution Safety:** هذا هو اختبار المستشار الفعلي. عند تعديل مصدر المستشار أو مشغل المختبر في الفروع المرشحة، يجمع GoldLabEA باستخدام MetaEditor ثم يشغل MT5 Strategy Tester بنموذج كل حركة اعتماداً على ticks الحقيقية المتاحة، مستخدماً سر GitHub Actions `mt5`. يحفظ تقرير MT5 والسجلات وتحليل سلامة أوامر التداول كـ artifact.
 
 ## أسلوب التطوير
+- راجع [سجل البحث التطبيقي من يوتيوب ومراجع MQL5](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/trading-lab/gold-xauusd/YOUTUBE_RESEARCH_AND_APPLIED_QA_AR.md) لمعرفة ما تم استخلاصه وتطبيقه على الاختبارات.
 - عدّل ملفات MQL5 على الفرع `goldlab-request-result-candidate` فقط.
 - تغييرات EA أو مشغل الاختبار تشغّل اختبار OrderCheck تلقائياً.
 - **التشغيل الفعلي حالياً عبر push على الفرع المرشح:** تحققتُ أن ملفات الـ workflow غير موجودة على `main`، حفاظاً على إبقائه دون تغيير؛ لذلك لا نعتمد على زر `Run workflow` في الواجهة، لأن GitHub يتطلب وجود ملف workflow في الفرع الافتراضي كي يظهر التشغيل اليدوي. كل تعديل في `GoldLabEA.mq5` أو مشغل الاختبار على الفرع المرشح يبدأ الاختبار تلقائياً. يمكن إعادة تشغيل جولة موجودة من صفحة نتائجها.
