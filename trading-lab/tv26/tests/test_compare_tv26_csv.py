@@ -16,7 +16,7 @@ class TV26ParityComparatorTests(unittest.TestCase):
         tv_time = parse_time(str(int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)))
         self.assertEqual(mt5_time, tv_time)
 
-    def make_fixtures(self, folder: Path, mismatch: bool = False):
+    def make_fixtures(self, folder: Path, mismatch: bool = False, formula_mismatch: bool = False):
         mt5_path = folder / "mt5.csv"
         tv_path = folder / "tv.csv"
         mt_headers = [
@@ -26,7 +26,8 @@ class TV26ParityComparatorTests(unittest.TestCase):
             "candle_low", "candle_close", "tick_volume",
         ]
         tv_headers = [
-            "time", "TV26.total", "TV26.ma", "TV26.osc", "TV26.bar_open_time",
+            "time", "TV26.total", "TV26.ma", "TV26.osc", "TV26.formula_total",
+            "TV26.formula_ma", "TV26.formula_osc", "TV26.bar_open_time",
             "TV26.open", "TV26.high", "TV26.low", "TV26.close", "TV26.volume",
         ] + ["TV26." + key for key in COMPONENTS]
         rows_mt, rows_tv = [], []
@@ -61,7 +62,10 @@ class TV26ParityComparatorTests(unittest.TestCase):
                 })
             tv_row = {
                 "time": time_mt, "TV26.total": "1", "TV26.ma": "1",
-                "TV26.osc": "1", "TV26.bar_open_time": str(epoch_ms),
+                "TV26.osc": "1",
+                "TV26.formula_total": "0.5" if formula_mismatch and minute == 1 else "1",
+                "TV26.formula_ma": "1", "TV26.formula_osc": "1",
+                "TV26.bar_open_time": str(epoch_ms),
                 "TV26.open": str(open_price), "TV26.high": str(open_price + 1),
                 "TV26.low": str(open_price - 1), "TV26.close": str(open_price + 0.25),
                 "TV26.volume": "100",
@@ -87,7 +91,9 @@ class TV26ParityComparatorTests(unittest.TestCase):
             self.assertEqual(result["component_vote_mismatches"], 0)
             self.assertEqual(result["price_mismatches"], 0)
             self.assertEqual(result["summary_mismatches"], 0)
-            self.assertEqual(len(details), 2 * (4 + 3 + 26))
+            self.assertEqual(result["formula_calibration_values_checked"], 6)
+            self.assertEqual(result["formula_calibration_mismatches"], 0)
+            self.assertEqual(len(details), 2 * (4 + 3 + 3 + 26))
 
     def test_single_component_mismatch_fails_and_is_located(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -99,6 +105,17 @@ class TV26ParityComparatorTests(unittest.TestCase):
             self.assertEqual(len(failed), 1)
             self.assertEqual(failed[0]["component"], COMPONENTS["RSI14"])
             self.assertIn("all_26_component_votes_match", result["pass_requirements"])
+
+    def test_formula_aggregate_mismatch_against_official_library_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            mt5, tv = self.make_fixtures(Path(temp), formula_mismatch=True)
+            result, details, report = compare_files(mt5, tv, "M1", 3, min_bars=2)
+            self.assertEqual(result["status"], "FAIL", report)
+            self.assertEqual(result["formula_calibration_mismatches"], 1)
+            failed = [d for d in details if d["result"] == "FAIL"]
+            self.assertEqual(len(failed), 1)
+            self.assertEqual(failed[0]["check"], "official_library_calibration")
+            self.assertIn("pine_component_aggregates_match_official_library", result["pass_requirements"])
 
     def test_wrong_time_offset_never_claims_parity(self):
         with tempfile.TemporaryDirectory() as temp:
