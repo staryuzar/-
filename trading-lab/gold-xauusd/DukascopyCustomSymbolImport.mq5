@@ -70,7 +70,7 @@ bool LoadRates(MqlRates &rates[],long &first_time,long &last_time)
       long vol=(long)StringToInteger(volume_text);
 
       if(stamp<=0 || o<=0 || h<=0 || l<=0 || c<=0 || h<l ||
-         o<h && o<l || o>h && o>l || c<h && c<l || c>h && c>l ||
+         (o<l || o>h || c<l || c>h) ||
          (previous>0 && stamp<=previous))
       {
          bad++;
@@ -89,9 +89,9 @@ bool LoadRates(MqlRates &rates[],long &first_time,long &last_time)
       rates[n].high=h;
       rates[n].low=l;
       rates[n].close=c;
-      rates[n].tick_volume=(ulong)MathMax(0,vol);
+      rates[n].tick_volume=(ulong)(vol>0 ? vol : 0);
       rates[n].spread=0;
-      rates[n].real_volume=(ulong)MathMax(0,vol);
+      rates[n].real_volume=(ulong)(vol>0 ? vol : 0);
       if(first_time==0) first_time=stamp;
       last_time=stamp;
       previous=stamp;
