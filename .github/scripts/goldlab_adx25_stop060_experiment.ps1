@@ -46,9 +46,10 @@ foreach ($pair in $replacements) {
   if (!$content.Contains($pair[0])) { throw "Exact generic-runner replacement marker is missing: $($pair[0])" }
   $content = $content.Replace($pair[0], $pair[1])
 }
-$content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
-$content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
-$content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.20')
+foreach ($datePair in @(@('Model=1','Model=4'), @('FromDate=2026.09.01','FromDate=2026.08.05'), @('ToDate=2026.10.19','ToDate=2026.10.20'))) {
+  if (!$content.Contains($datePair[0])) { throw "Tester config marker missing: $($datePair[0])" }
+  $content = $content.Replace($datePair[0], $datePair[1])
+}
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
 $newChecks = '($html.Contains(''InpRiskPercent=0.5</b>'') -and $html.Contains(''InpStopATR=0.60</b>'') -and $html.Contains(''InpMaxSpreadPoints=100.0</b>'') -and $html.Contains(''InpAllowLong=false</b>'') -and $html.Contains(''InpMinADX=24.0</b>'') -and $html.Contains(''InpMaxADX=25.0</b>'') -and $html.Contains(''InpRequireSignalCandleDirection=true</b>'') -and $html.Contains(''InpRequireFastEMARejection=true</b>'') -and $html.Contains(''<b>M5 (2026.08.05 - 2026.10.20)</b>''))'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
