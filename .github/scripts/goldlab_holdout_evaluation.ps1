@@ -1,8 +1,12 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $holdoutUnlock = [datetime]::ParseExact("2026-10-24T12:00:00Z","yyyy-MM-ddTHH:mm:ssZ",[Globalization.CultureInfo]::InvariantCulture).ToUniversalTime()
-if ([DateTime]::UtcNow -lt $holdoutUnlock) {
+$preflightOnly = ([string]$env:GOLDLAB_PREFLIGHT_ONLY -eq "true")
+if ([DateTime]::UtcNow -lt $holdoutUnlock -and !$preflightOnly) {
   throw "HOLDOUT LOCKED until 2026-10-24 12:00 UTC. Strategy Tester was not launched."
+}
+if ($preflightOnly) {
+  Write-Host "Holdout preflight-only mode: date lock bypass applies only to wrapper transformation checks; the MT5 runner must never be invoked."
 }
 $runnerPath = ".github/scripts/goldlab_mt5_test.ps1"
 $eaPath = "trading-lab/gold-xauusd/GoldLabEA.mq5"
@@ -79,6 +83,10 @@ if ($checks -contains $false) {
 }
 $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
 [System.IO.File]::WriteAllText($runtimeRunner, $content, [System.Text.UTF8Encoding]::new($false))
+if ($preflightOnly) {
+  Write-Host "HOLDOUT PREFLIGHT PASS: source hash and all exact parameter/date/report replacement markers verified. No MT5 install, login, Strategy Tester, or trade was run."
+  exit 0
+}
 @(
   "OrderCheck execution-safety diagnostic",
   "EA source SHA-256: $sourceHash",
