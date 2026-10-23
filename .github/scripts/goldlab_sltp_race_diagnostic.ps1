@@ -246,16 +246,20 @@ if ($recoverySummaryPayloads.Count -ne 1) {
 }
 $staleModifySummaryMatches = ($recoveryStaleModifyCount -eq $staleClosedRequestIds.Count)
 $openRetrySummaryMatches = ($openStopRetryAttempts -eq $retryableOpenRequestIds.Count)
-$openRetryFullyRecovered = ($openStopRetryRecovered -eq $retryableOpenRequestIds.Count -and $openStopRetryFailed -eq 0)
+$openRetryOutcomeCountersMatch = (
+  $openStopRetryAttempts -eq $retryableOpenRequestIds.Count -and
+  ($openStopRetryRecovered + $openStopRetryFailed) -eq $openStopRetryAttempts -and
+  $failedOpenRetryRequestIds.Count -eq $openStopRetryFailed
+)
 $allSendFailuresClassified = (
   $sendFailTotal -gt 0 -and
   $unclassifiableSendFailureSequences.Count -eq 0 -and
-  ($failedModifyRequestIds.Count + $retryableOpenRequestIds.Count) -eq $sendFailTotal -and
+  ($failedModifyRequestIds.Count + $retryableOpenRequestIds.Count + $failedOpenRetryRequestIds.Count) -eq $sendFailTotal -and
   $failedModifyRequestIds.Count -eq $staleClosedRequestIds.Count -and
   $stillOpenFailureRequestIds.Count -eq 0 -and
   $staleModifySummaryMatches -and
   $openRetrySummaryMatches -and
-  $openRetryFullyRecovered
+  $openRetryOutcomeCountersMatch
 )
 if ($sendFailTotal -gt 0) {
   foreach ($rid in $failedModifyRequestIds) {
@@ -272,9 +276,11 @@ if ($sendFailTotal -gt 0) {
       "Recovery summary stale-modify count: $recoveryStaleModifyCount",
       "Still-open modify failure IDs: $($stillOpenFailureRequestIds.Count)",
       "Unclassifiable unique OrderSend failure sequences: $($unclassifiableSendFailureSequences.Count)",
+  "Original invalid-stop triggers: $($retryableOpenRequestIds.Count)",
+      "Bounded retry failures safely refused: $($failedOpenRetryRequestIds.Count)",
       "OrderSend summary failure count: $sendFailTotal"
     ) | Add-Content -LiteralPath $summaryPath -Encoding utf8
-    throw "OrderSend failures include an unresolved request, an unrecovered invalid-stop retry, or a stale-close mismatch; reject robustness run."
+    throw "OrderSend failures include an unexplained request, an unsafe retry outcome, an open-position SLTP failure, or a stale-close mismatch; reject robustness run."
   }
   @(
     "OrderSend failure classification: PASS — all raw failures are explained, none is relabelled accepted",
@@ -282,7 +288,7 @@ if ($sendFailTotal -gt 0) {
     "Failed modify-SLTP requests with position already closed: $($failedModifyRequestIds.Count)",
     "Retryable invalid-stop first attempts: $($retryableOpenRequestIds.Count)",
     "Bounded open-stop retries attempted/recovered/failed: $openStopRetryAttempts/$openStopRetryRecovered/$openStopRetryFailed",
-    "Verified stale-close modifications remain failed; recovered entry retries remain raw failed attempts but were followed by one accepted retry.",
+    "Stale-close modifications remain failed. Each invalid-stop entry trigger is paired with exactly one bounded retry; each retry is either accepted or explicitly classified as a safe rejection with no order/deal.",
     "Still-open modify failure IDs: 0; unexplained failure sequences: 0"
   ) | Add-Content -LiteralPath $summaryPath -Encoding utf8
 }
