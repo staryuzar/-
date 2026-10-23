@@ -1,0 +1,43 @@
+name: GoldLab ADX 23–30 — Controlled Experiment
+
+on:
+  push:
+    branches: [goldlab-adx30-experiment]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_adx30_experiment.ps1"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/workflows/goldlab-adx30-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-adx30-experiment-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  adx30-experiment:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated ADX 23–30 experiment
+        uses: actions/checkout@v4
+
+      - name: Compile and run MT5 real-tick diagnostic
+        shell: pwsh
+        run: .github/scripts/goldlab_adx30_experiment.ps1
+
+      - name: Upload report, logs, and deal audit even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-adx30-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
