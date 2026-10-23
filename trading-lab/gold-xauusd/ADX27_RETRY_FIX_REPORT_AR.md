@@ -23,3 +23,15 @@
 - إعادة تشغيل الاختبار بعد الإصلاح: [GitHub Actions 39885757361](https://github.com/staryuzar/-/actions/runs/39885757361).
 - لا توجد نتيجة أداء معتمدة حتى يكتمل التشغيل الثاني وتُراجع HTML وCSV وسجلات MT5.
 - لا يُسمح بترقية ADX 23–27 لمجرد نجاح التجميع أو التشغيل؛ يلزم تقرير صالح ومقارنة على نفس نافذة التطوير مع خط الأساس ADX 23–25.
+
+## تحسين إضافي من بحث MQL5 الرسمي بتاريخ 19 أكتوبر 2026
+مقال MQL5: [Where your backtest stops being real: Measuring the depth of your broker's tick history](https://www.mql5.com/en/articles/24562) يوضح أن عبارة `100% real ticks` في تقرير HTML لا تثبت وحدها أن كل دقيقة في فترة الاختبار استُخدمت فيها تيكات الوسيط المقبولة. قد تُرفض تيكات بعض الدقائق ويولّد MT5 بدلاً منها تيكات مبنية على شموع الدقيقة، مع بقاء جودة التقرير 100%.
+
+لذلك في المرحلة التالية يجب أن يفحص المختبر أيضاً سجل MT5/وكيل الاختبار بحثاً عن:
+- `real ticks begin from`
+- `real ticks absent for ... minutes`
+- `real ticks discarded for ... minutes`
+- `tick prices ... mismatch`
+
+لن نعتمد وصف `100% real ticks` وحده؛ سنسجل تاريخ بداية التيكات ونسبة الدقائق المفقودة/المرفوضة إن ظهرت. المصدر الرسمي يشرح كذلك أن تنزيل تاريخ التيكات قد يستغرق وقتاً، وأن اكتمال الاختبار لا يساوي اكتمال بيانات التيكات.  
+المراجع: [MQL5 article](https://www.mql5.com/en/articles/24562)، [MetaTrader 5 Journal of Testing](https://www.metatrader5.com/en/terminal/help/algotrading/tester_journal).
