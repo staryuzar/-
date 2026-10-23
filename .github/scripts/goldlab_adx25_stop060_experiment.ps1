@@ -53,8 +53,8 @@ $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
 $newChecks = '($html.Contains(''InpRiskPercent=0.5</b>'') -and $html.Contains(''InpStopATR=0.60</b>'') -and $html.Contains(''InpMaxSpreadPoints=100.0</b>'') -and $html.Contains(''InpAllowLong=false</b>'') -and $html.Contains(''InpMinADX=23.0</b>'') -and $html.Contains(''InpMaxADX=25.0</b>'') -and $html.Contains(''InpRequireSignalCandleDirection=true</b>'') -and $html.Contains(''InpRequireFastEMARejection=true</b>'') -and $html.Contains(''<b>M5 (2026.08.05 - 2026.10.20)</b>''))'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
 $content = $content.Replace($oldMax, $newChecks)
-$oldLabel = 'Tester parameter file: $setName (risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled)'
-$newLabel = 'Tester parameter file: $setName (risk=0.50%, stop=0.60 ATR, max spread=100 points, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true)'
+$oldLabel = 'stop=0.45 ATR, max spread=100 points, ADX 18-40, long entries disabled'
+$newLabel = 'stop=0.60 ATR, max spread=100 points, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true'
 if (!$content.Contains($oldLabel)) { throw "Tester parameter summary label marker missing." }
 $content = $content.Replace($oldLabel, $newLabel)
 $content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input + date verification: PASS (risk=0.5, stop=0.60 ATR, max spread=100, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true, report period ends 2026-10-20)")
