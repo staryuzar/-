@@ -160,9 +160,9 @@ Visual=0
   $env:MT5_CREDENTIALS = $null
   $accountPasswordForConfig = $null
   $terminalProc = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", "/config:$config") -WorkingDirectory $install -PassThru
-  if (!$terminalProc.WaitForExit(900000)) {
+  if (!$terminalProc.WaitForExit(300000)) {
     Stop-Process -Id $terminalProc.Id -Force -ErrorAction SilentlyContinue
-    throw "Tester run exceeded 15 minutes; no completed result accepted."
+    throw "Isolated forced-path Strategy Tester run exceeded 5 minutes; no completed result accepted."
   }
   $possibleReports = @(
     (Join-Path $install ($reportRelative + ".htm")),
