@@ -31,7 +31,7 @@ enum RatingIndex
 
 ENUM_TIMEFRAMES g_tfs[N_TF];
 int g_handles[N_TF][N_RATINGS];
-int g_bulls[N_TF], g_bears[N_TF], g_atr[N_TF];
+int g_bulls[N_TF], g_bears[N_TF], g_atr[N_TF], g_trendEMA[N_TF];
 int g_scores[N_TF][N_RATINGS];
 bool g_working[N_TF][N_RATINGS];
 double g_rating[N_TF];
@@ -150,6 +150,7 @@ bool InitHandles()
       g_bulls[t]=iBullsPower(_Symbol,g_tfs[t],13);
       g_bears[t]=iBearsPower(_Symbol,g_tfs[t],13);
       g_atr[t]=iATR(_Symbol,g_tfs[t],InpATRPeriod);
+      g_trendEMA[t]=iMA(_Symbol,g_tfs[t],13,0,MODE_EMA,PRICE_CLOSE);
       int periods[12]={10,10,20,20,30,30,50,50,100,100,200,200};
       for(int j=0;j<12;j++)
       {
@@ -183,6 +184,7 @@ void ReleaseHandles()
       for(int j=0;j<N_RATINGS;j++)
          if(g_handles[t][j]!=INVALID_HANDLE) IndicatorRelease(g_handles[t][j]);
       if(g_bulls[t]!=INVALID_HANDLE) IndicatorRelease(g_bulls[t]);
+      if(g_trendEMA[t]!=INVALID_HANDLE) IndicatorRelease(g_trendEMA[t]);
       if(g_bears[t]!=INVALID_HANDLE) IndicatorRelease(g_bears[t]);
       if(g_atr[t]!=INVALID_HANDLE) IndicatorRelease(g_atr[t]);
    }
@@ -261,13 +263,23 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==STOCH_RSI)
    {
-      double rs[]; ArraySetAsSeries(rs,true);
-      if(CopyBuffer(g_handles[t][RSI14],0,1,14,rs)!=14) return false;
-      double lo=rs[0],hi=rs[0];
-      for(int i=1;i<14;i++){lo=MathMin(lo,rs[i]);hi=MathMax(hi,rs[i]);}
-      if(hi-lo<1e-8) return false;
-      double sr=(rs[0]-lo)/(hi-lo);
-      score=(sr<0.20 ? 1 : (sr>0.80 ? -1 : 0)); return true;
+      double rsi[]; ArraySetAsSeries(rsi,true);
+      if(CopyBuffer(g_handles[t][RSI14],0,1,20,rsi)!=20) return false;
+      double raw[7];
+      for(int sh=0;sh<7;sh++)
+      {
+         double lo=rsi[sh],hi=rsi[sh];
+         for(int k=sh;k<sh+14;k++){lo=MathMin(lo,rsi[k]);hi=MathMax(hi,rsi[k]);}
+         if(hi-lo<1e-8) return false;
+         raw[sh]=100.0*(rsi[sh]-lo)/(hi-lo);
+      }
+      double k0=(raw[0]+raw[1]+raw[2])/3.0, k1=(raw[1]+raw[2]+raw[3])/3.0;
+      double k2=(raw[2]+raw[3]+raw[4])/3.0;
+      double d0=(k0+k1+k2)/3.0;
+      bool downtrend=(rsi[0]<rsi[1]), uptrend=(rsi[0]>rsi[1]);
+      score=(downtrend && k0<20 && d0<20 && k0>d0 ? 1 :
+             (uptrend && k0>80 && d0>80 && k0<d0 ? -1 : 0));
+      return true;
    }
    if(j==WILLIAMS_R)
    {
@@ -276,9 +288,15 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==BULL_BEAR_POWER)
    {
-      if(!ReadBuf(g_bulls[t],0,1,a) || !ReadBuf(g_bears[t],0,1,b)) return false;
-      double total=a+b;
-      score=(total>0 ? 1 : (total<0 ? -1 : 0)); return true;
+      double bullPrev=0,bearNow=0,bearPrev=0,emaNow=0,emaPrev=0;
+      if(!ReadBuf(g_bulls[t],0,1,a) || !ReadBuf(g_bulls[t],0,2,bullPrev) ||
+         !ReadBuf(g_bears[t],0,1,bearNow) || !ReadBuf(g_bears[t],0,2,bearPrev) ||
+         !ReadBuf(g_trendEMA[t],0,1,emaNow) || !ReadBuf(g_trendEMA[t],0,2,emaPrev)) return false;
+      double cc[]; ArraySetAsSeries(cc,true);
+      if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
+      bool uptrend=(cc[0]>emaNow && emaNow>emaPrev), downtrend=(cc[0]<emaNow && emaNow<emaPrev);
+      score=(uptrend && bearNow<0 && bearNow>bearPrev ? 1 :
+             (downtrend && a>0 && a<bullPrev ? -1 : 0)); return true;
    }
    if(j==ULTIMATE_OSC)
    {
