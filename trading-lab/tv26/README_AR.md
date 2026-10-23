@@ -12,8 +12,8 @@ Each component returns +1 buy, 0 neutral, or -1 sell. The aggregate is the avera
 
 ## Trading gate
 - Entry is evaluated once per new M1 bar.
-- Buy only when all five timeframe ratings are >= +0.50 (شراء قوي).
-- Sell only when all five timeframe ratings are <= -0.50 (بيع قوي).
+- Buy only when all five complete timeframe ratings are strictly > +0.50 (شراء قوي).
+- Sell only when all five complete timeframe ratings are strictly < -0.50 (بيع قوي).
 - Mixed or weaker ratings mean wait; no forced entry.
 - One position per symbol + magic number. An opposite aligned signal attempts to close the existing position before reversing.
 - Default risk is 0.50% of equity, with M1 ATR(14) stop 2 ATR and target 3 ATR.
@@ -74,17 +74,17 @@ Do not enable real-account trading based on this audit alone.
 - CCI uses `close` as its input to match the reference formula, rather than MT5 `PRICE_TYPICAL`.
 - MACD is now computed as EMA(12) − EMA(26), with an EMA(9) signal line over the MACD series. This avoids relying on MT5's built-in MACD signal averaging, which differs from Pine's default EMA signal line.
 - Stochastic RSI trend and Bulls/Bears Power trend filters use the close's position relative to EMA(50), without an extra one-bar RSI-slope test or EMA-slope gate.
-- The ADX sell condition follows the current Screener help page (ADX rising); the separate Technical Ratings help page describes ADX falling for sell. This official-documentation conflict remains a live-parity check item rather than something to conceal.
+- The EA uses the official Technical Ratings Help Center condition for ADX sell: +DI < -DI, ADX > 20, and ADX falling versus the previous closed bar. The library page says v3 aligned to Screener methods, but its web description does not disclose every internal condition; verify exact live values.
 - For BBP period, the parity target is the public `TechnicalRating/3` library's 50-period component, not the standalone BBP indicator page's default parameter of 13.
-- Current source is version **1.002**, commit `2553e8cc9ee0485bce8b4e754420f4c533f6fd04`. Its exact MetaEditor build passed in [GitHub Actions run 39948065799](https://github.com/staryuzar/-/actions/runs/39948065799): **0 errors, 0 warnings**, EX5 size **41,886 bytes**. Artifact report: [tv26-metaeditor-compile-report](https://github.com/staryuzar/-/actions/runs/39948065799/artifacts/12498324569). Installer exit code was 1, but MetaEditor was present and completed the compile successfully. Compilation does not establish indicator parity or profitability.
+- Current MQL5 source is version **1.003**. The latest repository tree passed the MetaEditor compile-only workflow [run 39949116906](https://github.com/staryuzar/-/actions/runs/39949116906): **0 errors, 0 warnings**, generated EX5 size **41,314 bytes**. Report artifact: [tv26-metaeditor-compile-report](https://github.com/staryuzar/-/actions/runs/39949116906/artifacts/12499641976). The installer returned exit code 1, but MetaEditor was present and completed the compile successfully. Compilation does not establish indicator parity or profitability.
 
-### Comparator caveat
+### Comparator status
 
-The current `TradingView_Parity_5TF.pine` file still uses `request.security(..., lookahead=barmerge.lookahead_off)` without shifting the rating expressions to the previous confirmed higher-timeframe bar. It may therefore show a developing HTF rating while MT5 reports the last closed bar. The Pine comparison panel has not yet been updated/validated for closed-bar parity; do not use it as proof of same-candle equality until this is corrected and compiled in TradingView.
+The Pine comparison panel now shifts `calcRatingAll()` output by one bar inside each requested timeframe and uses `lookahead_on` only with those offset values, so it aims to show the prior confirmed bar instead of a developing higher-timeframe value. It displays overall, MA, and oscillator ratings numerically, their Arabic categories, and the timestamp of the corresponding closed candle. The script has **not** been compiled inside TradingView itself; check Pine Editor for acceptance before using it as the comparison oracle.
 
 ## TradingView-side reference panel
 A Pine Script reference indicator was added at [TradingView_Parity_5TF.pine](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Parity_5TF.pine). It imports TradingView's public TechnicalRating v3 library and displays overall, MA and oscillator ratings for M1/M5/M15/M30/H1. It is a summary comparison aid; it does not expose all 26 component states individually.
 
-To use it: open TradingView on the exact XAUUSD provider used by the MT5 broker, open Pine Editor, paste the file contents, save, and add it to the chart. Compare the table with the EA panel at the same closed-candle times. If TradingView rejects the script, capture the compiler error and revise the script; it has not yet been compiled by TradingView itself.
+To use it: open TradingView with the intended XAUUSD data provider, set the chart to **M1**, open Pine Editor, paste the file contents from GitHub, save, and add it to the chart. Compare the three numeric ratings against MT5 for each timeframe at the same candle timestamp (convert timezone labels as needed). If TradingView rejects the script, fix the reported Pine error before comparing; GitHub Actions checks only MQL5, not Pine compilation.
 
 The current GitHub Windows workflow uses MetaEditor only. A successful workflow run is source-compile evidence, not proof of indicator parity, and it cannot inspect the user's private TradingView chart.
