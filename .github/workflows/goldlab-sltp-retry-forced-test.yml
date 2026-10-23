@@ -66,9 +66,9 @@ jobs:
           if ($checkIndex -lt 0 -or $injectIndex -le $checkIndex -or $sendIndex -le $injectIndex) {
             throw "Invalid-stop injection is not strictly between initial OrderCheck and OrderSend."
           }
-          if ($source -notmatch 'requestedRetryBufferDistance=InpStopRetryBufferATR\\*retryATR' -or
+          if ($source -notmatch 'requestedRetryBufferDistance=InpStopRetryBufferATR\*retryATR' -or
               $source -notmatch 'OPEN_STOP_RETRY_BUFFER_CAPPED' -or
-              $source -notmatch 'for\\(int capIteration=0;capIteration<24;capIteration\\+\\+\\)' -or
+              $source -notmatch 'for\(int capIteration=0;capIteration<24;capIteration\+\+\)' -or
               $source -notmatch 'candidateLots>=minLot') {
             throw "Risk-capped adaptive buffer is missing its affordability search or audit log."
           }
