@@ -56,7 +56,7 @@ Reference: current public TechnicalRating library description, updated 2024-11-2
 - Exact current-library internals for Stochastic RSI, Bull/Bear Power, Ichimoku span alignment, and Hull MA must still be compared against the reference implementation.
 - TradingView and MT5 feeds can differ in OHLC, tick volume, session boundaries, and indicator initialization; the comparison must use the same symbol/provider and closed-bar timestamp.
 - No live TradingView values or user chart screenshots were available during this source audit. Therefore no claim of same-moment equality is made yet.
-- The last previously confirmed compile was the pre-audit candidate. A fresh MetaEditor compile is running for the updated commits; its result must be checked before this revision is called compile-verified.
+- Updated EA source compile: **PASS**, GitHub Actions run [39945996760](https://github.com/staryuzar/-/actions/runs/39945996760), source commit `43c169ec291e9216030ebf31e799ceae8f463309`. Compiler report: **0 errors, 0 warnings**, EX5 size 38,670 bytes. Artifact: [12498386430](https://github.com/staryuzar/-/actions/runs/39945996760/artifacts/12498386430). The later commits only add the TradingView reference script and documentation; the EA source itself is unchanged after this successful compile.
 
 ### Live comparison protocol
 For each of M1, M5, M15, M30 and H1, capture the same closed candle timestamp and record:
