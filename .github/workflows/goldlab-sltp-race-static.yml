@@ -51,7 +51,7 @@ jobs:
             @{ Name = "retry recalculates volume against revised stop risk"; Pass = ($ea.Contains("LotsForRisk(type,retryEntry,retrySL)") -and $ea.Contains("broker minimum")) },
             @{ Name = "retry passes OrderCheck again before second send"; Pass = ($ea.Contains('PreflightTradeRequest(request,"open-retry")') -and $ea.Contains('RecordOrderSendTelemetry("open-retry"')) },
             @{ Name = "retry counters are emitted in final recovery summary"; Pass = ($ea.Contains("open_stop_retry_attempts=") -and $ea.Contains("open_stop_retry_recovered=") -and $ea.Contains("open_stop_retry_failed=")) },
-            @{ Name = "harness treats original rejection as a failure and gates retry recovery"; Pass = ($wrapper.Contains("retryableOpenRequestIds") -and $wrapper.Contains("openRetryFullyRecovered") -and $wrapper.Contains("unclassifiableSendFailureSequences")) },
+            @{ Name = "harness accounts for both recovered and safely refused bounded retries"; Pass = ($wrapper.Contains("retryableOpenRequestIds") -and $wrapper.Contains("failedOpenRetryRequestIds") -and $wrapper.Contains("openStopRetryRecovered + $openStopRetryFailed") -and $wrapper.Contains("safe rejection with no order/deal") -and $wrapper.Contains("unclassifiableSendFailureSequences")) },
             @{ Name = "development-only interval is enforced"; Pass = ($wrapper.Contains("ToDate=2026.10.20") -and -not $wrapper.Contains("ToDate=2026.10.21")) }
           )
           $bad = $false
