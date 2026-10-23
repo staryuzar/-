@@ -210,10 +210,24 @@ void OnStart()
    }
 
    if(!CustomSymbolSetInteger(InpCustomSymbol,SYMBOL_DIGITS,3) ||
+      !CustomSymbolSetDouble(InpCustomSymbol,SYMBOL_POINT,0.001) ||
       !CustomSymbolSetDouble(InpCustomSymbol,SYMBOL_TRADE_TICK_SIZE,0.001) ||
+      !CustomSymbolSetInteger(InpCustomSymbol,SYMBOL_SPREAD_FLOAT,true) ||
       !CustomSymbolSetInteger(InpCustomSymbol,SYMBOL_TRADE_MODE,SYMBOL_TRADE_MODE_FULL))
    {
       Fail("custom_symbol_property_setup_error_"+IntegerToString(GetLastError()));
+      return;
+   }
+   if(!SymbolSelect(InpCustomSymbol,true))
+   {
+      Fail("custom_symbol_select_error_"+IntegerToString(GetLastError()));
+      return;
+   }
+   if(MathAbs(SymbolInfoDouble(InpCustomSymbol,SYMBOL_POINT)-0.001)>0.0000001 ||
+      MathAbs(SymbolInfoDouble(InpCustomSymbol,SYMBOL_TRADE_TICK_SIZE)-0.001)>0.0000001 ||
+      SymbolInfoInteger(InpCustomSymbol,SYMBOL_DIGITS)!=3)
+   {
+      Fail("custom_symbol_point_or_tick_size_mismatch");
       return;
    }
 
