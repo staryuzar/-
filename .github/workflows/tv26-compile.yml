@@ -27,6 +27,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tv26-metaeditor-compile-report
+          name: tv26-candidate-build-package
           path: tv26-results/
           if-no-files-found: warn
