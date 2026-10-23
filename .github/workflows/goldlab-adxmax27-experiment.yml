@@ -1,0 +1,41 @@
+name: GoldLab One-Variable Experiment — ADX Maximum 27
+
+on:
+  push:
+    branches: [goldlab-request-result-candidate]
+    paths:
+      - ".github/scripts/goldlab_adxmax27_experiment.ps1"
+      - ".github/workflows/goldlab-adxmax27-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-adxmax27-development-only
+  cancel-in-progress: false
+
+jobs:
+  adxmax27:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated candidate
+        uses: actions/checkout@v4
+
+      - name: Run one-variable ADX max 27 experiment on development window
+        shell: pwsh
+        run: .github/scripts/goldlab_adxmax27_experiment.ps1
+
+      - name: Upload ADX27 MT5 reports, CSV, logs, and correlation audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-adxmax27-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
