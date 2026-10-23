@@ -2,12 +2,11 @@ name: GoldLab v1.018 Full-Window Natural Performance Backtest
 
 on:
   push:
-    branches: [goldlab-v1.018-risk-capped-buffer]
+    branches: [goldlab-v1.018-risk-capped-buffer, goldlab-v1.018-lockfix-recovery]
     paths:
       - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_sltp_performance_v1_018.ps1"
       - ".github/scripts/goldlab_mt5_test.ps1"
-      - ".github/workflows/goldlab-v1.018-performance.yml"
 
 permissions:
   contents: read
