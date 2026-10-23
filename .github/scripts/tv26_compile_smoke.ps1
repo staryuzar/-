@@ -39,6 +39,8 @@ $auditChecks = @(
   @{ Name = "Retry history export while tester data is initializing"; File = "EA"; Text = "if(!g_historyExported) ExportReferenceHistory();" },
   @{ Name = "MACD signal uses EMA(9)"; File = "EA"; Text = "const double alpha=2.0/(9.0+1.0);" },
   @{ Name = "demo-only trade guard"; File = "EA"; Text = "if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)" },
+  @{ Name = "tester-only guard input"; File = "EA"; Text = "input bool   InpTesterOnly          = false;" },
+  @{ Name = "tester-only guard blocks non-tester execution"; File = "EA"; Text = "InpTesterOnly && !MQLInfoInteger(MQL_TESTER)" },
   @{ Name = "same-signal re-entry latch"; File = "EA"; Text = "sig==g_lastExecutedSignal" },
   @{ Name = "closed-candle component audit export"; File = "EA"; Text = "void ExportAuditIfNeeded()" },
   @{ Name = "audit retries incomplete bars"; File = "EA"; Text = "g_auditAttempts[t]<10" },
