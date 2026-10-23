@@ -39,6 +39,16 @@
 - بوابة طلبات التداول كذلك نجحت: 699 OrderCheck ناجحاً، و699 OrderSend مقبولاً، و699 callback مقبولاً، دون عدم تطابق أو retcodes غير مقبولة.
 - هذه الجولة تستخدم الفترة `M5 (2026.08.05 - 2026.10.20)` (النهاية غير مشمولة وفق آلية MT5)، فلا تدخل أيام 21–23 أكتوبر المحمية.
 
+## نتيجة تجربة ADX27: التعديل مرفوض
+- الاختبار الفعلي [39879772469](https://github.com/staryuzar/-/actions/runs/39879772469) نجح من ناحية التجميع والبيانات ومصالحة التقرير وCSV؛ المصدر لم يتغير، والتعديل الوحيد كان `InpMaxADX=25 → 27`.
+- النتيجة: `-$0.62` صافي، معامل ربح `0.99`، تراجع حقوق الملكية `6.22%`، `59` صفقة و`23.73%` رابحة. خط الأساس ADX25: `+$20.76`، معامل ربح `1.47`، تراجع حقوق الملكية `3.59%`، `33` صفقة و`30.30%` رابحة.
+- القرار: رفض ADX27 وعدم دمجه، مع توثيق النتيجة لئلا نعيد التجربة أو نختار أرقاماً إيجابية فقط. [تقرير البحث التطبيقي](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/trading-lab/gold-xauusd/YOUTUBE_RESEARCH_AND_APPLIED_QA_AR.md).
+
+## تجربة واقعية قيد التشغيل: ExecutionMode=-1
+- [سير العمل المنفصل](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/.github/workflows/goldlab-randomdelay-experiment.yml) يستخدم نفس مصدر EA ومدخلات ADX25 والفترة التطويرية، مع تغيير وضع تنفيذ MT5 فقط إلى التأخير العشوائي `ExecutionMode=-1`.
+- الغرض تحديد ما إذا كان نجاح الإعداد في نموذج بلا تأخير يعتمد على افتراض تنفيذ مثالي؛ وثائق MetaTrader تشرح أن `ExecutionMode=0` هو الوضع الطبيعي/بلا تأخير، وأن `-1` يحاكي التأخير العشوائي. [وثائق الاختبار الرسمية](https://www.metatrader5.com/en/terminal/help/algotrading/testing).
+- الفحص الثابت نجح في التشغيل [39880673597](https://github.com/staryuzar/-/actions/runs/39880673597). أما اختبار MT5 مع التأخير العشوائي فكان لا يزال قيد التنفيذ عند آخر مراجعة: [39880639847](https://github.com/staryuzar/-/actions/runs/39880639847). لا توجد نتيجة أداء مقبولة بعد لهذا الاختبار.
+
 ## آخر تحقق فعلي قبل فترة الحجز
 - إعداد النسخة المستقلة محفوظ في [GOLDLAB_V1014_HOLDOUT_BASELINE.json](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/trading-lab/gold-xauusd/GOLDLAB_V1014_HOLDOUT_BASELINE.json). يتضمن بصمة EA ومعلمات التقييم ونهاية الفترة الحصرية وسياسة القفل لمرة واحدة.
 - قيد مثبت في الإعداد: `ExecutionMode=0` لا يحاكي تأخير الشبكة؛ يحتفظ holdout بهذا الإعداد الثابت للمقارنة مع نافذة التطوير، لذلك لا نعرضه كاختبار تداول واقعي كامل. يمكن اختبار Random Delay كتجربة مستقلة بعد استهلاك holdout، وليس على نافذة الحجز نفسها.
