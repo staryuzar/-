@@ -40,8 +40,11 @@ jobs:
           $wrapper = Get-Content -LiteralPath $scriptPath -Raw
           $ea = Get-Content -LiteralPath $sourcePath -Raw
           $controls = @(
-            @{ Name = "EA version 1.016"; Pass = $ea.Contains('#property version   "1.016"') },
+            @{ Name = "EA version 1.017"; Pass = $ea.Contains('#property version   "1.016"') },
             @{ Name = "SLTP post-response state telemetry in EA"; Pass = $ea.Contains("SLTP_MODIFY_STATE") },
+            @{ Name = "forced invalid-stop injection is off by default and tester-only"; Pass = ($ea.Contains("input bool             InpTestForceInvalidStopsOnce = false;") -and $ea.Contains("if(InpTestForceInvalidStopsOnce && !testerMode)") -and $ea.Contains("(bool)MQLInfoInteger(MQL_TESTER)")) },
+            @{ Name = "forced invalid stop occurs only after OrderCheck and before OrderSend"; Pass = (($ea.IndexOf('PreflightTradeRequest(request,"open")') -ge 0) -and ($ea.IndexOf('PreflightTradeRequest(request,"open")') -lt $ea.IndexOf('request.sl=request.price;')) -and ($ea.IndexOf('request.sl=request.price;') -lt $ea.IndexOf('bool sent=OrderSend(request,result);')) -and $ea.Contains('outcome=confirmed;request_id=')) },
+            @{ Name = "planned SL/TP are restored before bounded retry"; Pass = ($ea.Contains("request.sl=plannedSL;") -and $ea.Contains("request.tp=plannedTP;") -and $ea.Contains("trigger_request_id=")) },
             @{ Name = "same-window real-tick Random Delay mode"; Pass = ($wrapper.Contains("ExecutionMode=-1") -and $wrapper.Contains("Model=4") -and $wrapper.Contains("ToDate=2026.10.20")) },
             @{ Name = "stale-position failures correlated by request_id"; Pass = ($wrapper.Contains("failedModifyRequestIds") -and $wrapper.Contains("staleClosedRequestIds") -and $wrapper.Contains("request_id=")) },
             @{ Name = "still-open failures remain a hard rejection"; Pass = ($wrapper.Contains("stillOpenFailureRequestIds.Count -eq 0") -and $wrapper.Contains("reject robustness run")) },
