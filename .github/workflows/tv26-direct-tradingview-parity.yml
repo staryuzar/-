@@ -3,6 +3,11 @@ name: TV26 direct TradingView parity
 on:
   workflow_dispatch:
     inputs:
+      mt5_audit_run_id:
+        description: 'GitHub Actions run ID that contains the cloud MT5 audit artifact'
+        required: true
+        default: '39977549957'
+        type: string
       mt5_utc_offset_hours:
         description: 'MT5 broker server offset from UTC, e.g. UTC+3 = 3'
         required: true
@@ -11,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   compare:
@@ -19,14 +25,27 @@ jobs:
     steps:
       - name: Checkout parity inputs
         uses: actions/checkout@v4
-      - name: Validate required exports
+      - name: Download cloud MT5 audit artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MT5_AUDIT_RUN_ID: ${{ inputs.mt5_audit_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p downloaded-mt5-audit
+          gh run download "$MT5_AUDIT_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "tv26-cloud-audit-$MT5_AUDIT_RUN_ID" --dir downloaded-mt5-audit
+          audit_file="$(find downloaded-mt5-audit -name 'TV26_Audit_*.csv' -type f | head -n 1)"
+          test -n "$audit_file"
+          cp "$audit_file" trading-lab/tv26/parity-input/MT5_Audit.csv
+      - name: Validate required TradingView exports
         shell: bash
         run: |
           set -euo pipefail
-          test -s trading-lab/tv26/parity-input/MT5_Audit.csv
           for tf in M1 M5 M15 M30 H1; do
             test -s "trading-lab/tv26/parity-input/TV26_${tf}.csv"
           done
+          test -s trading-lab/tv26/parity-input/MT5_Audit.csv
       - name: Compare component votes and summary ratings for all five timeframes
         shell: bash
         run: |
