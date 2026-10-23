@@ -14,6 +14,42 @@ $report = Join-Path $reportDir "compile-report.txt"
 if (-not (Test-Path -LiteralPath $source)) { throw "EA source not found: $source" }
 if (-not (Test-Path -LiteralPath $pine)) { throw "Pine comparator not found: $pine" }
 if (-not (Test-Path -LiteralPath $readme)) { throw "Arabic README not found: $readme" }
+
+# Static regression audit: guard the known TechnicalRating v3 parity rules before compiling.
+$sourceText = Get-Content -LiteralPath $source -Raw
+$pineText = Get-Content -LiteralPath $pine -Raw
+$auditChecks = @(
+  @{ Name = "five timeframe inputs"; File = "EA"; Text = "#define N_TF 5" },
+  @{ Name = "26-rating component set"; File = "EA"; Text = "#define N_RATINGS 26" },
+  @{ Name = "Bulls Power EMA(13)"; File = "EA"; Text = "g_bulls[t]=iBullsPower(_Symbol,g_tfs[t],13);" },
+  @{ Name = "Bears Power EMA(13)"; File = "EA"; Text = "g_bears[t]=iBearsPower(_Symbol,g_tfs[t],13);" },
+  @{ Name = "Ichimoku Span A uses lead[26] on closed candle"; File = "EA"; Text = "g_handles[t][j],2,27,spanA" },
+  @{ Name = "Ichimoku Span B uses lead[26] on closed candle"; File = "EA"; Text = "g_handles[t][j],3,27,spanB" },
+  @{ Name = "ADX sell rule matches TechnicalRating v3 source"; File = "EA"; Text = "a>20 && b<c && a>prevADX ? -1" },
+  @{ Name = "Momentum is close difference"; File = "EA"; Text = "double momNow=closes[0]-closes[10];" },
+  @{ Name = "MACD signal uses EMA(9)"; File = "EA"; Text = "const double alpha=2.0/(9.0+1.0);" },
+  @{ Name = "demo-only trade guard"; File = "EA"; Text = "if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)" },
+  @{ Name = "same-signal re-entry latch"; File = "EA"; Text = "sig==g_lastExecutedSignal" },
+  @{ Name = "closed-candle component audit export"; File = "EA"; Text = "void ExportAuditIfNeeded()" },
+  @{ Name = "Pine uses TechnicalRating v3"; File = "PINE"; Text = "import TradingView/TechnicalRating/3 as tvRating" },
+  @{ Name = "Pine outputs prior confirmed rating bar"; File = "PINE"; Text = "[totalRating[1], maRating[1], oscillatorRating[1]]" },
+  @{ Name = "Pine shifts values before lookahead_on"; File = "PINE"; Text = "lookahead=barmerge.lookahead_on" }
+)
+$auditFailures = @()
+foreach ($check in $auditChecks) {
+  $subject = if ($check.File -eq "PINE") { $pineText } else { $sourceText }
+  if ($subject.Contains($check.Text)) {
+    "STATIC AUDIT PASS: $($check.Name)" | Add-Content -LiteralPath $report -Encoding utf8
+  } else {
+    "STATIC AUDIT FAIL: $($check.Name) (missing expected expression)" | Add-Content -LiteralPath $report -Encoding utf8
+    $auditFailures += $check.Name
+  }
+}
+if ($auditFailures.Count -gt 0) {
+  throw ("Static parity audit failed: " + ($auditFailures -join "; "))
+}
+"Static regression audit: PASS ($($auditChecks.Count) checks)" | Add-Content -LiteralPath $report -Encoding utf8
+
 $uri = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
 Invoke-WebRequest -Uri $uri -OutFile $installer -UseBasicParsing
 "Installer bytes: $((Get-Item $installer).Length)" | Add-Content -LiteralPath $report -Encoding utf8
