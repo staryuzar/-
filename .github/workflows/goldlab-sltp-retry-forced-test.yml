@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: goldlab-shared-headway-mt5
+  group: goldlab-forced-invalid-stop-tests
   cancel-in-progress: true
 
 jobs:
