@@ -379,7 +379,7 @@ $qaReportPath = Join-Path $reports "GoldLab_ordercheck_adx25_min23_stop045_2026-
 $qaCsvDir = Join-Path $reports "trade-audit"
 $qaCsvFiles = @()
 if (Test-Path -LiteralPath $qaCsvDir) { $qaCsvFiles = @(Get-ChildItem -LiteralPath $qaCsvDir -Filter "*.csv" -File -ErrorAction SilentlyContinue) }
-$qaPeriod = ""; $qaQuality = ""; $qaNet = [double]::NaN; $qaTrades = -1; $qaDeals = -1
+$qaPeriod = ""; $qaQuality = ""; $qaNet = [double]::NaN; $qaTrades = -1; $qaDeals = -1; $qaBars = -1; $qaTicks = -1
 $qaRows = @(); $qaCsvNet = [double]::NaN; $qaOpens = 0; $qaExits = 0; $qaDateViolations = 0
 $qaIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 if (!(Test-Path -LiteralPath $qaReportPath)) {
@@ -394,6 +394,12 @@ if (!(Test-Path -LiteralPath $qaReportPath)) {
   $m = [regex]::Match($qaHtml,'(?is)History Quality:</td>\s*<td[^>]*><b>\s*([^<]+?)\s*</b>')
   if ($m.Success) { $qaQuality = $m.Groups[1].Value.Trim() }
   if ($qaQuality -ne "100% real ticks") { $qaFailures.Add("Expected 100% real ticks, report shows '$qaQuality'.") }
+  $m = [regex]::Match($qaHtml,'(?is)Bars:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
+  if ($m.Success) { $qaBars = [int64]::Parse($m.Groups[1].Value.Replace(",",""),[Globalization.CultureInfo]::InvariantCulture) } else { $qaFailures.Add("Could not parse Bars from MT5 HTML.") }
+  $m = [regex]::Match($qaHtml,'(?is)Ticks:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
+  if ($m.Success) { $qaTicks = [int64]::Parse($m.Groups[1].Value.Replace(",",""),[Globalization.CultureInfo]::InvariantCulture) } else { $qaFailures.Add("Could not parse Ticks from MT5 HTML.") }
+  if ($qaBars -lt 10000) { $qaFailures.Add("Insufficient development-window coverage: Bars=$qaBars, minimum 10000.") }
+  if ($qaTicks -lt 1000000) { $qaFailures.Add("Insufficient development-window tick coverage: Ticks=$qaTicks, minimum 1000000.") }
   $m = [regex]::Match($qaHtml,'(?is)Total Net Profit:</td>\s*<td[^>]*><b>\s*(-?[\d,]+(?:\.\d+)?)\s*</b>')
   if ($m.Success) { $qaNet = [double]::Parse($m.Groups[1].Value.Replace(",",""),[Globalization.CultureInfo]::InvariantCulture) } else { $qaFailures.Add("Could not parse Total Net Profit.") }
   $m = [regex]::Match($qaHtml,'(?is)Total Trades:</td>\s*<td[^>]*><b>\s*(\d+)\s*</b>')
@@ -439,6 +445,8 @@ if ($qaCsvFiles.Count -ne 1) {
   "## MT5 HTML ↔ deal CSV/date-quality gate",
   "Period: $qaPeriod",
   "History Quality: $qaQuality",
+  "MT5 Bars: $qaBars (minimum 10000)",
+  "MT5 Ticks: $qaTicks (minimum 1000000)",
   "MT5 Total Trades: $qaTrades",
   "MT5 Total Deals: $qaDeals",
   "CSV rows: $($qaRows.Count)",
@@ -453,6 +461,6 @@ if ($qaFailures.Count -gt 0) {
   $qaFailures | ForEach-Object { "FAIL: $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
   throw "MT5 HTML/CSV/date reconciliation gate failed; see run-summary.txt."
 }
-"MT5 HTML/CSV/date reconciliation gate: PASS." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+"MT5 HTML/CSV/date/coverage reconciliation gate: PASS (period, real-tick quality, minimum bars/ticks, deal count, profit, and timestamps verified)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 
 Get-Content -LiteralPath $summaryPath
