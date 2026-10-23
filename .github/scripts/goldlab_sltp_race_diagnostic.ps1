@@ -1,3 +1,4 @@
+param([switch]$ForceInvalidStopsOnce)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $runnerPath = ".github/scripts/goldlab_mt5_test.ps1"
@@ -5,15 +6,16 @@ $eaPath = "trading-lab/gold-xauusd/GoldLabEA.mq5"
 if (!(Test-Path -LiteralPath $runnerPath)) { throw "Generic MT5 runner is missing." }
 if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLabEA source is missing." }
 
+$forceInjectionValue = if ($ForceInvalidStopsOnce) { "true" } else { "false" }
 $source = Get-Content -LiteralPath $eaPath -Raw
-if ($source -notmatch '(?m)^#property version\s+"1\.016"' -or
+if ($source -notmatch '(?m)^#property version\s+"1\.017"' -or
     $source -notmatch 'PreflightTradeRequest\(request,"open"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"close"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"modify-sltp"\)' -or
     $source -notmatch 'ORDER_CHECK_SUMMARY' -or
     $source -notmatch 'if\(!ok\s*\|\|\s*check\.retcode\s*!=\s*0\)' -or
     $source -notmatch 'call_ok=' -or
-    $source -notmatch 'Research candidate v1\.016;' -or
+    $source -notmatch 'Research candidate v1\.017;' -or
     $source -notmatch 'RecordOrderSendTelemetry\(' -or
     $source -notmatch 'ORDER_SEND_FAIL' -or
     $source -notmatch 'ORDER_SEND_SUMMARY' -or
@@ -22,14 +24,17 @@ if ($source -notmatch '(?m)^#property version\s+"1\.016"' -or
     $source -notmatch 'ORDER_REQUEST_SUMMARY' -or
     $source -notmatch 'void OnTradeTransaction\(' -or
     $source -notmatch 'TRADE_TRANSACTION_REQUEST' -or
-    $source -notmatch 'SLTP_MODIFY_STATE') {
-  throw "EA source does not contain the intended v1.016 OrderCheck, retry-buffer, OrderSend, and request-result telemetry gates."
+    $source -notmatch 'SLTP_MODIFY_STATE' -or
+    $source -notmatch 'input bool\s+InpTestForceInvalidStopsOnce\s*=\s*false;' -or
+    $source -notmatch 'InpTestForceInvalidStopsOnce && !testerMode' -or
+    $source -notmatch 'outcome=confirmed;request_id=') {
+  throw "EA source does not contain the intended v1.017 tester-only forced INVALID_STOPS, OrderCheck, retry-buffer, OrderSend, and request-result telemetry gates."
 }
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $content = Get-Content -LiteralPath $runnerPath -Raw
 
 $writeCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
-$writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + "InpStopRetryBufferATR=0.50||0.50||0.05||0.50||N"
+$writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + "InpStopRetryBufferATR=0.50||0.50||0.05||0.50||N" + [Environment]::NewLine + "InpTestForceInvalidStopsOnce=$forceInjectionValue||false||0||true||N"
 $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; Random Delay ExecutionMode=-1 diagnostic)"),
@@ -51,8 +56,9 @@ $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
 $content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
 $content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.20')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
-$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=0\.5(?:0+)?</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
+$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=0\.5(?:0+)?</b>'') -and ($html -match ''(?is)InpTestForceInvalidStopsOnce=__FORCE_EXPECTED__</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
+$newChecks = $newChecks.Replace("__FORCE_EXPECTED__", $forceInjectionValue)
 $content = $content.Replace($oldMax, $newChecks)
 $content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (ADX25 baseline rules confirmed; retry-only stop buffer=0.50 ATR; Model 4 real ticks; ExecutionMode=-1 Random Delay; period ends 2026-10-20)")
 
@@ -62,6 +68,7 @@ $checks = @(
   ($content -match 'InpRequireSignalCandleDirection=true'),
   ($content -match 'InpRequireFastEMARejection=true'),
   ($content -match 'InpStopRetryBufferATR=0.50'),
+  ($content -match ("InpTestForceInvalidStopsOnce=" + $forceInjectionValue + "\|\|false\|\|0\|\|true\|\|N")),
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^ExecutionMode=-1\r?$'),
   ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
@@ -71,7 +78,7 @@ $checks = @(
   ($content -match 'Random Delay ExecutionMode=-1 diagnostic')
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=0.50","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=0.50","InpTestForceInvalidStopsOnce=$forceInjectionValue","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
@@ -80,10 +87,10 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
 @(
   "OrderCheck execution-safety diagnostic",
   "EA source SHA-256: $sourceHash",
-  "EA version: 1.016",
+  "EA version: 1.017",
   "Period: 2026-08-05 through 2026-10-20",
   "Model: 4 — every tick based on real ticks",
-  "Execution: Random Delay (ExecutionMode=-1); EA inputs match the frozen ADX25 development baseline; retry-only stop buffer=0.50 ATR is applied only after INVALID_STOPS.",
+  ("Execution: Random Delay (ExecutionMode=-1); frozen ADX25 baseline; retry-only buffer=0.50 ATR. " + $(if($ForceInvalidStopsOnce){"TEST MODE: inject one invalid stop after OrderCheck, Tester only."}else{"Natural execution mode; no stop injection."})),
   "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true; retry-only buffer=0.50 ATR.",
   "OrderCheck preflight, immediate OrderSend results, and TRADE_TRANSACTION_REQUEST replies are logged separately. This is diagnostics only; deal history remains the execution audit.",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
@@ -686,4 +693,26 @@ if ($qaFailures.Count -gt 0) {
 }
 "MT5 HTML/CSV/date/coverage reconciliation gate: PASS (period, real-tick quality, minimum bars/ticks, deal count, profit, and timestamps verified)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 
+if ($ForceInvalidStopsOnce) {
+  $forcedTriggerIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+  foreach ($logFile in @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".txt",".log") })) {
+    foreach ($line in (Get-Content -LiteralPath $logFile.FullName -ErrorAction SilentlyContinue)) {
+      if ($line -match 'GoldLab\|TEST_INVALID_STOPS_INJECTION\|[^|]+\|outcome=confirmed;request_id=(\d+);retcode=10016') {
+        [void]$forcedTriggerIds.Add([string]$Matches[1])
+      }
+    }
+  }
+  if ($forcedTriggerIds.Count -ne 1) { throw "Forced INVALID_STOPS test requires exactly one confirmed injected trigger; observed $($forcedTriggerIds.Count)." }
+  $triggerId = @($forcedTriggerIds)[0]
+  $terminalOutcomes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+  foreach ($logFile in @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".txt",".log") })) {
+    foreach ($line in (Get-Content -LiteralPath $logFile.FullName -ErrorAction SilentlyContinue)) {
+      if ($line -match ("GoldLab\|OPEN_STOP_RETRY_(SUCCESS|ABORT|FAIL)\|[^|]+\|trigger_request_id=" + [regex]::Escape($triggerId) + ";outcome=(recovered|safe_no_retry_send|retry_send_rejected)")) {
+        [void]$terminalOutcomes.Add([string]$Matches[2])
+      }
+    }
+  }
+  if ($terminalOutcomes.Count -ne 1) { throw "Injected request $triggerId must have exactly one terminal retry outcome; observed $($terminalOutcomes.Count)." }
+  "Forced INVALID_STOPS path gate: PASS (injected request_id=$triggerId; terminal outcome=$(@($terminalOutcomes)[0]); tester-only; duplicate journal copies ignored)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+}
 Get-Content -LiteralPath $summaryPath
