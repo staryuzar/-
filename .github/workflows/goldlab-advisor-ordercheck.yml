@@ -14,7 +14,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: goldlab-ordercheck-diagnostic-${{ github.ref }}
+  group: goldlab-shared-headway-mt5
+  queue: max
   cancel-in-progress: false
 
 jobs:
