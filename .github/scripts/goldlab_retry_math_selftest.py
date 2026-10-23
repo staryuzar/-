@@ -174,15 +174,15 @@ class RetryMathTests(unittest.TestCase):
     def test_retry_outcome_log_shapes_preserve_the_original_trigger_id(self) -> None:
         patterns = (
             (
-                re.compile(r"GoldLab\\|OPEN_STOP_RETRY_SUCCESS\\|[^|]+\\|trigger_request_id=(\\d+);outcome=recovered;"),
+                re.compile(r"GoldLab\|OPEN_STOP_RETRY_SUCCESS\|[^|]+\|trigger_request_id=(\d+);outcome=recovered;"),
                 "GoldLab|OPEN_STOP_RETRY_SUCCESS|XAUUSD|trigger_request_id=223;outcome=recovered;retcode=10009",
             ),
             (
-                re.compile(r"GoldLab\\|OPEN_STOP_RETRY_ABORT\\|[^|]+\\|trigger_request_id=(\\d+);outcome=safe_no_retry_send;reason=[^;]+"),
+                re.compile(r"GoldLab\|OPEN_STOP_RETRY_ABORT\|[^|]+\|trigger_request_id=(\d+);outcome=safe_no_retry_send;reason=[^;]+"),
                 "GoldLab|OPEN_STOP_RETRY_ABORT|XAUUSD|trigger_request_id=223;outcome=safe_no_retry_send;reason=volume_below_minimum;risk_budget=2.58",
             ),
             (
-                re.compile(r"GoldLab\\|OPEN_STOP_RETRY_FAIL\\|[^|]+\\|trigger_request_id=(\\d+);outcome=retry_send_rejected;retcode=\\d+"),
+                re.compile(r"GoldLab\|OPEN_STOP_RETRY_FAIL\|[^|]+\|trigger_request_id=(\d+);outcome=retry_send_rejected;retcode=\d+"),
                 "GoldLab|OPEN_STOP_RETRY_FAIL|XAUUSD|trigger_request_id=223;outcome=retry_send_rejected;retcode=10016",
             ),
         )
