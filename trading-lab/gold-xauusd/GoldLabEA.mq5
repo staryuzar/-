@@ -608,7 +608,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.017; bounded INVALID_STOPS retry uses a disclosed ATR cushion and risk-sized volume; tester-only forced INVALID_STOPS injection is disabled by default and rejected outside Strategy Tester; blocks live execution on real accounts.");
+   LogEvent("INIT","Research candidate v1.018; retry ATR cushion is capped to the largest affordable distance within the cash risk budget; tester-only forced INVALID_STOPS injection is disabled by default and rejected outside Strategy Tester; blocks live execution on real accounts.");
    return INIT_SUCCEEDED;
 }
 
