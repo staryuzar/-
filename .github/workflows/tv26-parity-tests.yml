@@ -38,5 +38,6 @@ jobs:
           trading-lab/tv26/tests/test_alltf_pine_contract.py
           trading-lab/tv26/tests/test_reference_tv26_formulas.py
           trading-lab/tv26/tests/test_validate_tv26_mt5_audit.py
+          trading-lab/tv26/tests/test_tv26_parity_pipeline_e2e.py
       - name: Run deterministic parity tests
         run: python -m unittest discover -s trading-lab/tv26/tests -v
