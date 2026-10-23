@@ -1,4 +1,4 @@
-name: GoldLab Forced INVALID_STOPS Retry Path — v1.017
+name: GoldLab v1.018 Risk-Capped INVALID_STOPS Retry
 # Dedicated tester-only fault-injection run; never a strategy performance benchmark.
 
 on:
@@ -66,7 +66,13 @@ jobs:
           if ($checkIndex -lt 0 -or $injectIndex -le $checkIndex -or $sendIndex -le $injectIndex) {
             throw "Invalid-stop injection is not strictly between initial OrderCheck and OrderSend."
           }
-          Write-Host "Forced-path guards PASS; this test mode is off by default and blocked outside Strategy Tester."
+          if ($source -notmatch 'requestedRetryBufferDistance=InpStopRetryBufferATR\\*retryATR' -or
+              $source -notmatch 'OPEN_STOP_RETRY_BUFFER_CAPPED' -or
+              $source -notmatch 'for\\(int capIteration=0;capIteration<24;capIteration\\+\\+\\)' -or
+              $source -notmatch 'candidateLots>=minLot') {
+            throw "Risk-capped adaptive buffer is missing its affordability search or audit log."
+          }
+          Write-Host "Risk-capped retry guards PASS; tester fault injection remains off by default and blocked outside Strategy Tester."
       - name: Compile and exercise one forced INVALID_STOPS retry path in MT5
         shell: pwsh
         run: .github/scripts/goldlab_sltp_race_diagnostic.ps1 -ForceInvalidStopsOnce -RetryBufferATR 0.05
