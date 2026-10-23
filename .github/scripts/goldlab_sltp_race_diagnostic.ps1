@@ -9,7 +9,7 @@ if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLabEA source is missing." }
 $forceInjectionValue = if ($ForceInvalidStopsOnce) { "true" } else { "false" }
 if ([double]::IsNaN($RetryBufferATR) -or [double]::IsInfinity($RetryBufferATR) -or $RetryBufferATR -lt 0.0 -or $RetryBufferATR -gt 2.0) { throw "RetryBufferATR must be finite and between 0.0 and 2.0." }
 $retryBufferText = $RetryBufferATR.ToString("0.00",[Globalization.CultureInfo]::InvariantCulture)
-$retryBufferRow = "InpStopRetryBufferATR=$retryBufferText||$retryBufferText||0.05||$retryBufferText||N"
+$retryBufferRow = "InpStopRetryBufferATR=$retryBufferText||0.00||0.05||2.00||N"
 $source = Get-Content -LiteralPath $eaPath -Raw
 if ($source -notmatch '(?m)^#property version\s+"1\.017"' -or
     $source -notmatch 'PreflightTradeRequest\(request,"open"\)' -or
