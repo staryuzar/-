@@ -162,13 +162,14 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
    // monetary risk budget remains bounded. Other retcodes are never retried.
    if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)
    {
+      ulong retryTriggerRequestId=result.request_id;
       orderSendOpenStopRetryCount++;
       RecordOrderSendTelemetry("open-retryable-stop-reject",sent,result,false,errorCode);
       MqlTick tick;
       if(!SymbolInfoTick(_Symbol,tick) || tick.ask<=0.0 || tick.bid<=0.0 || tick.ask<tick.bid)
       {
          orderSendOpenStopRetryFailedCount++;
-         LogEvent("OPEN_STOP_RETRY_ABORT","fresh quote unavailable");
+         LogEvent("OPEN_STOP_RETRY_ABORT","trigger_request_id="+(string)retryTriggerRequestId+";outcome=safe_no_retry_send;reason=fresh_quote_unavailable");
          return false;
       }
 
@@ -176,7 +177,7 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
       if(retrySpreadPoints>InpMaxSpreadPoints)
       {
          orderSendOpenStopRetryFailedCount++;
-         LogEvent("OPEN_STOP_RETRY_ABORT","spread exceeds guard;spread_points="+DoubleToString(retrySpreadPoints,1));
+         LogEvent("OPEN_STOP_RETRY_ABORT","trigger_request_id="+(string)retryTriggerRequestId+";outcome=safe_no_retry_send;reason=spread_guard_exceeded;spread_points="+DoubleToString(retrySpreadPoints,1));
          return false;
       }
 
@@ -192,7 +193,7 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
       if(!ReadValue(hATR,0,1,retryATR) || retryATR<=0.0)
       {
          orderSendOpenStopRetryFailedCount++;
-         LogEvent("OPEN_STOP_RETRY_ABORT","ATR unavailable;retry buffer cannot be sized safely");
+         LogEvent("OPEN_STOP_RETRY_ABORT","trigger_request_id="+(string)retryTriggerRequestId+";outcome=safe_no_retry_send;reason=atr_unavailable");
          return false;
       }
 
@@ -207,7 +208,7 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
       if(retryLots<=0.0)
       {
          orderSendOpenStopRetryFailedCount++;
-         LogEvent("OPEN_STOP_RETRY_ABORT","risk-sized volume below broker minimum;"+RiskRejectDetail(type,retryEntry,retrySL));
+         LogEvent("OPEN_STOP_RETRY_ABORT","trigger_request_id="+(string)retryTriggerRequestId+";outcome=safe_no_retry_send;reason=volume_below_minimum;"+RiskRejectDetail(type,retryEntry,retrySL));
          return false;
       }
 
@@ -218,7 +219,7 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
       if(!PreflightTradeRequest(request,"open-retry"))
       {
          orderSendOpenStopRetryFailedCount++;
-         LogEvent("OPEN_STOP_RETRY_ABORT","fresh request failed OrderCheck;retcode="+IntegerToString((int)lastTradeRetcode));
+         LogEvent("OPEN_STOP_RETRY_ABORT","trigger_request_id="+(string)retryTriggerRequestId+";outcome=safe_no_retry_send;reason=retry_ordercheck_failed;retcode="+IntegerToString((int)lastTradeRetcode));
          return false;
       }
 
@@ -232,7 +233,7 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
       if(accepted)
       {
          orderSendOpenStopRetryRecoveredCount++;
-         LogEvent("OPEN_STOP_RETRY_SUCCESS","retcode="+IntegerToString((int)result.retcode)+
+         LogEvent("OPEN_STOP_RETRY_SUCCESS","trigger_request_id="+(string)retryTriggerRequestId+";outcome=recovered;retcode="+IntegerToString((int)result.retcode)+
                    ";lots="+DoubleToString(retryLots,2)+
                    ";entry="+DoubleToString(retryEntry,_Digits)+
                    ";bid="+DoubleToString(tick.bid,_Digits)+
@@ -252,7 +253,7 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
           return true;
       }
       orderSendOpenStopRetryFailedCount++;
-      LogEvent("OPEN_STOP_RETRY_FAIL","retcode="+IntegerToString((int)result.retcode)+
+      LogEvent("OPEN_STOP_RETRY_FAIL","trigger_request_id="+(string)retryTriggerRequestId+";outcome=retry_send_rejected;retcode="+IntegerToString((int)result.retcode)+
                 ";comment="+result.comment+
                 ";entry="+DoubleToString(retryEntry,_Digits)+
                 ";bid="+DoubleToString(tick.bid,_Digits)+

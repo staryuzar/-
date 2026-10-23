@@ -186,6 +186,9 @@ $evidenceFiles = @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorActi
 $failedModifyRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $retryableOpenRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $failedOpenRetryRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$recoveredOpenRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$safeAbortedOpenRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$rejectedOpenRetryTriggerRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $staleClosedRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $stillOpenFailureRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $seenFailedSendSequences = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
@@ -218,7 +221,16 @@ foreach ($file in $evidenceFiles) {
         }
       }
     }
-    if ($line -match 'GoldLab\|SLTP_MODIFY_STATE\|[^|]+\|request_id=(\d+);ticket=\d+;position_exists_after=false;classification=closed_before_response;sent=false;accepted=false;retcode=3;last_error=4756;') {
+    if ($line -match 'GoldLab\|OPEN_STOP_RETRY_SUCCESS\|[^|]+\|trigger_request_id=(\d+);outcome=recovered;') {
+      [void]$recoveredOpenRequestIds.Add([string]$Matches[1])
+    }
+    if ($line -match 'GoldLab\|OPEN_STOP_RETRY_ABORT\|[^|]+\|trigger_request_id=(\d+);outcome=safe_no_retry_send;reason=[^;]+') {
+      [void]$safeAbortedOpenRequestIds.Add([string]$Matches[1])
+    }
+    if ($line -match 'GoldLab\|OPEN_STOP_RETRY_FAIL\|[^|]+\|trigger_request_id=(\d+);outcome=retry_send_rejected;retcode=\d+') {
+      [void]$rejectedOpenRetryTriggerRequestIds.Add([string]$Matches[1])
+    }
+    if ($line -match 'GoldLab\|SLTP_MODIFY_STATE\|[^|]+\|request_id=(\d+);ticket=\d+;position_exists_after=false;classification=closed_before_response;sent=false;accepted=false;retcode=3;last_error=4756;')
       [void]$staleClosedRequestIds.Add([string]$Matches[1])
     }
     if ($line -match 'GoldLab\|SLTP_MODIFY_STATE\|[^|]+\|request_id=(\d+);ticket=\d+;position_exists_after=true;classification=position_still_open;') {
@@ -247,10 +259,23 @@ if ($recoverySummaryPayloads.Count -ne 1) {
 }
 $staleModifySummaryMatches = ($recoveryStaleModifyCount -eq $staleClosedRequestIds.Count)
 $openRetrySummaryMatches = ($openStopRetryAttempts -eq $retryableOpenRequestIds.Count)
+$retryOutcomeCorrelationValid = $true
+foreach ($rid in $recoveredOpenRequestIds) {
+  if (!$retryableOpenRequestIds.Contains($rid) -or $safeAbortedOpenRequestIds.Contains($rid) -or $rejectedOpenRetryTriggerRequestIds.Contains($rid)) { $retryOutcomeCorrelationValid = $false }
+}
+foreach ($rid in $safeAbortedOpenRequestIds) {
+  if (!$retryableOpenRequestIds.Contains($rid) -or $recoveredOpenRequestIds.Contains($rid) -or $rejectedOpenRetryTriggerRequestIds.Contains($rid)) { $retryOutcomeCorrelationValid = $false }
+}
+foreach ($rid in $rejectedOpenRetryTriggerRequestIds) {
+  if (!$retryableOpenRequestIds.Contains($rid) -or $recoveredOpenRequestIds.Contains($rid) -or $safeAbortedOpenRequestIds.Contains($rid)) { $retryOutcomeCorrelationValid = $false }
+}
 $openRetryOutcomeCountersMatch = (
   $openStopRetryAttempts -eq $retryableOpenRequestIds.Count -and
   ($openStopRetryRecovered + $openStopRetryFailed) -eq $openStopRetryAttempts -and
-  $failedOpenRetryRequestIds.Count -eq $openStopRetryFailed
+  $recoveredOpenRequestIds.Count -eq $openStopRetryRecovered -and
+  ($safeAbortedOpenRequestIds.Count + $rejectedOpenRetryTriggerRequestIds.Count) -eq $openStopRetryFailed -and
+  ($recoveredOpenRequestIds.Count + $safeAbortedOpenRequestIds.Count + $rejectedOpenRetryTriggerRequestIds.Count) -eq $retryableOpenRequestIds.Count -and
+  $retryOutcomeCorrelationValid
 )
 $allSendFailuresClassified = (
   $sendFailTotal -gt 0 -and
@@ -278,7 +303,8 @@ if ($sendFailTotal -gt 0) {
       "Still-open modify failure IDs: $($stillOpenFailureRequestIds.Count)",
       "Unclassifiable unique OrderSend failure sequences: $($unclassifiableSendFailureSequences.Count)",
   "Original invalid-stop triggers: $($retryableOpenRequestIds.Count)",
-      "Bounded retry failures safely refused: $($failedOpenRetryRequestIds.Count)",
+      "Bounded retry-send rejected requests: $($failedOpenRetryRequestIds.Count)",
+      "Bounded retry outcomes by trigger ID: recovered=$($recoveredOpenRequestIds.Count); safe_abort_before_send=$($safeAbortedOpenRequestIds.Count); send_rejected=$($rejectedOpenRetryTriggerRequestIds.Count)",
       "OrderSend summary failure count: $sendFailTotal"
     ) | Add-Content -LiteralPath $summaryPath -Encoding utf8
     throw "OrderSend failures include an unexplained request, an unsafe retry outcome, an open-position SLTP failure, or a stale-close mismatch; reject robustness run."
@@ -289,6 +315,7 @@ if ($sendFailTotal -gt 0) {
     "Failed modify-SLTP requests with position already closed: $($failedModifyRequestIds.Count)",
     "Retryable invalid-stop first attempts: $($retryableOpenRequestIds.Count)",
     "Bounded open-stop retries attempted/recovered/failed: $openStopRetryAttempts/$openStopRetryRecovered/$openStopRetryFailed",
+    "Bounded retry outcomes by original trigger ID: recovered=$($recoveredOpenRequestIds.Count); safe_abort_before_second_send=$($safeAbortedOpenRequestIds.Count); second_send_rejected=$($rejectedOpenRetryTriggerRequestIds.Count)",
     "Stale-close modifications remain failed. Each invalid-stop entry trigger is paired with exactly one bounded retry; each retry is either accepted or explicitly classified as a safe rejection with no order/deal.",
     "Still-open modify failure IDs: 0; unexplained failure sequences: 0"
   ) | Add-Content -LiteralPath $summaryPath -Encoding utf8
@@ -544,8 +571,9 @@ if ($verifiedOpenRetryTriggerTotal -ne $retryableOpenRequestIds.Count) {
 if ($openStopRetryAttempts -ne $retryableOpenRequestIds.Count -or ($openStopRetryRecovered + $openStopRetryFailed) -ne $openStopRetryAttempts) {
   throw "Retry attempts/recovered/failed counters do not reconcile with original invalid-stop triggers."
 }
-if ($failedOpenRetryRequestIds.Count -ne $openStopRetryFailed) {
-  throw "Safely refused retry IDs ($($failedOpenRetryRequestIds.Count)) do not match retry-failed counter ($openStopRetryFailed)."
+$safeRetryRefusalCount = $safeAbortedOpenRequestIds.Count + $rejectedOpenRetryTriggerRequestIds.Count
+if ($safeRetryRefusalCount -ne $openStopRetryFailed) {
+  throw "Safe retry outcomes by trigger ID ($safeRetryRefusalCount) do not match retry-failed counter ($openStopRetryFailed)."
 }
 $verifiedFailedOpenRetryTotal = $requestResultFailedOpenRetryLines.Count + $verifiedLocalFailedOpenRetryNoReplyIds.Count
 if ($verifiedFailedOpenRetryTotal -ne $failedOpenRetryRequestIds.Count) {
