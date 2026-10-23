@@ -278,8 +278,52 @@ Visual=0
   } else {
     throw "MT5 tester report HTML not found; refusing to classify the run as a completed backtest."
   }
+  # Preserve MT5 Journal/Experts/Tester logs and redact credentials before artifact upload.
+  $logsOut = Join-Path $reports "diagnostic-logs"
+  New-Item -ItemType Directory -Path $logsOut -Force | Out-Null
+  $logCandidates = @()
+  foreach ($logRoot in @($install,(Join-Path $env:APPDATA "MetaQuotes\Terminal"),(Join-Path $env:LOCALAPPDATA "MetaQuotes\Terminal"))) {
+    if (Test-Path $logRoot) {
+      $logCandidates += @(Get-ChildItem -LiteralPath $logRoot -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue)
+    }
+  }
+  $logCandidates = @($logCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 30)
+  $logIndex = 0
+  foreach ($logFile in $logCandidates) {
+    try {
+      $rawLog = Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction Stop
+      $rawLog = $rawLog -replace [regex]::Escape($accountLogin), "[ACCOUNT REDACTED]"
+      $rawLog = $rawLog -replace [regex]::Escape($accountServer), "[SERVER REDACTED]"
+      if (![string]::IsNullOrWhiteSpace($accountPasswordForRedaction)) {
+        $rawLog = $rawLog -replace [regex]::Escape($accountPasswordForRedaction), "[PASSWORD REDACTED]"
+      }
+      $rawLog = $rawLog -replace '(?i)(password|passwd)\s*[:=]\s*\S+', '$1=[REDACTED]'
+      $logIndex++
+      $dest = Join-Path $logsOut ("mt5-log-{0:D2}.txt" -f $logIndex)
+      Set-Content -LiteralPath $dest -Value $rawLog -Encoding utf8
+    } catch { }
+  }
+  "Diagnostic logs preserved (redacted): $logIndex" | Add-Content -LiteralPath $summary -Encoding utf8
+  $diagText = ""
+  foreach ($safeLog in @(Get-ChildItem -LiteralPath $logsOut -Filter "*.txt" -File -ErrorAction SilentlyContinue)) {
+    try { $diagText += (Get-Content -LiteralPath $safeLog.FullName -Raw -ErrorAction Stop) + [Environment]::NewLine } catch {}
+  }
+  $diagnosticPatterns = [ordered]@{
+    "consensus_signal_bars" = 'TV26_CONSENSUS;signal='
+    "blocked_min_volume_risk_cap" = 'reason=MIN_VOLUME_RISK_CAP'
+    "blocked_spread" = 'reason=SPREAD'
+    "blocked_same_signal_latch" = 'reason=SAME_SIGNAL_LATCH'
+    "blocked_demo_guard" = 'reason=NOT_DEMO_ACCOUNT'
+    "accepted_orders" = 'TV26_ORDER_ACCEPTED;'
+    "rejected_orders" = 'TV26_ORDER_REJECTED;'
+    "blocked_invalid_atr" = 'reason=ATR_NOT_READY'
+  }
+  foreach ($metric in $diagnosticPatterns.Keys) {
+    $count = [regex]::Matches($diagText,[regex]::Escape($diagnosticPatterns[$metric])).Count
+    "$metric=$count" | Add-Content -LiteralPath $summary -Encoding utf8
+  }
   "UTC finish: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
-  "Classification: STRATEGY_TESTER_SIMULATION. Results apply only to this 3-day OHLC-model test; no live orders are permitted by the tester-only guard." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Classification: STRATEGY_TESTER_SIMULATION. Results apply only to $rangeLabelStart through $rangeLabelEnd under the 1-minute OHLC model; no live orders are permitted by the tester-only guard." | Add-Content -LiteralPath $summary -Encoding utf8
   Get-Content -LiteralPath $summary
 }
 finally {
