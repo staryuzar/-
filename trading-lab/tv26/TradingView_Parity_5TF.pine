@@ -1,0 +1,49 @@
+//@version=6
+import TradingView/TechnicalRating/3 as tvRating
+
+indicator("TV26 — مرجع مطابقة الملخصات (5 أطر)", overlay=false, precision=3)
+
+f_ratings() =>
+    [totalRating, oscillatorRating, maRating] = tvRating.calcRatingAll()
+    [totalRating, maRating, oscillatorRating]
+
+f_label(float rating) =>
+    na(rating) ? "غير متاح" :
+     rating > 0.5 ? "شراء قوي" :
+     rating > 0.1 ? "شراء" :
+     rating < -0.5 ? "بيع قوي" :
+     rating < -0.1 ? "بيع" : "حياد"
+
+f_text(float rating) =>
+    na(rating) ? "—" : str.tostring(rating, "#.000")
+
+tf1 = input.timeframe("1", "الإطار 1")
+tf2 = input.timeframe("5", "الإطار 2")
+tf3 = input.timeframe("15", "الإطار 3")
+tf4 = input.timeframe("30", "الإطار 4")
+tf5 = input.timeframe("60", "الإطار 5")
+
+[total1, ma1, osc1] = request.security(syminfo.tickerid, tf1, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+[total2, ma2, osc2] = request.security(syminfo.tickerid, tf2, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+[total3, ma3, osc3] = request.security(syminfo.tickerid, tf3, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+[total4, ma4, osc4] = request.security(syminfo.tickerid, tf4, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+[total5, ma5, osc5] = request.security(syminfo.tickerid, tf5, f_ratings(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+
+var table t = table.new(position.top_right, 5, 6, border_width=1)
+if barstate.islast
+    table.cell(t, 0, 0, "الإطار", text_color=color.white, bgcolor=color.rgb(45, 55, 72))
+    table.cell(t, 1, 0, "الملخص", text_color=color.white, bgcolor=color.rgb(45, 55, 72))
+    table.cell(t, 2, 0, "الدرجة", text_color=color.white, bgcolor=color.rgb(45, 55, 72))
+    table.cell(t, 3, 0, "المتوسطات", text_color=color.white, bgcolor=color.rgb(45, 55, 72))
+    table.cell(t, 4, 0, "المذبذبات", text_color=color.white, bgcolor=color.rgb(45, 55, 72))
+    table.cell(t, 0, 1, tf1), table.cell(t, 1, 1, f_label(total1)), table.cell(t, 2, 1, f_text(total1)), table.cell(t, 3, 1, f_label(ma1)), table.cell(t, 4, 1, f_label(osc1))
+    table.cell(t, 0, 2, tf2), table.cell(t, 1, 2, f_label(total2)), table.cell(t, 2, 2, f_text(total2)), table.cell(t, 3, 2, f_label(ma2)), table.cell(t, 4, 2, f_label(osc2))
+    table.cell(t, 0, 3, tf3), table.cell(t, 1, 3, f_label(total3)), table.cell(t, 2, 3, f_text(total3)), table.cell(t, 3, 3, f_label(ma3)), table.cell(t, 4, 3, f_label(osc3))
+    table.cell(t, 0, 4, tf4), table.cell(t, 1, 4, f_label(total4)), table.cell(t, 2, 4, f_text(total4)), table.cell(t, 3, 4, f_label(ma4)), table.cell(t, 4, 4, f_label(osc4))
+    table.cell(t, 0, 5, tf5), table.cell(t, 1, 5, f_label(total5)), table.cell(t, 2, 5, f_text(total5)), table.cell(t, 3, 5, f_label(ma5)), table.cell(t, 4, 5, f_label(osc5))
+
+plot(total1, "الملخص العام — الإطار 1", color=color.new(color.blue, 0))
+hline(0.5, "حد الشراء القوي", color=color.new(color.green, 30))
+hline(0.1, "حد الشراء", color=color.new(color.green, 65))
+hline(-0.1, "حد البيع", color=color.new(color.red, 65))
+hline(-0.5, "حد البيع القوي", color=color.new(color.red, 30))
