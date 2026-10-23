@@ -1,0 +1,116 @@
+name: GoldLab v1.018 — Import Dukascopy Ticks to Isolated MT5 Custom Symbol
+
+on:
+  push:
+    branches: [goldlab-v1.018-dukascopy-custom-symbol]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - "trading-lab/gold-xauusd/DukascopyCustomSymbolImport.mq5"
+      - ".github/scripts/goldlab_dukascopy_custom_symbol_test.ps1"
+      - ".github/workflows/goldlab-v1.018-dukascopy-custom-symbol.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: goldlab-shared-headway-mt5
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  custom-symbol-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 50
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated candidate
+        uses: actions/checkout@v4
+
+      - name: Download the validated independent XAUUSD tick sample
+        uses: actions/download-artifact@v4
+        with:
+          repository: ${{ github.repository }}
+          run-id: 39920856352
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: goldlab-dukascopy-xauusd-tick-probe-39920856352
+          path: external-ticks
+
+      - name: Set up Node.js for Dukascopy M1 warm-up history
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download M1 warm-up bars from the same independent source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dukascopy-warmup
+          npx --yes dukascopy-node@latest \
+            -i xauusd -from 2026-02-20 -to 2026-03-26 \
+            -t m1 -f csv -dir ./dukascopy-warmup -v \
+            -bs 4 -bp 1000 -r 3 -rp 1000 --retry-on-empty --no-fail-after-retries
+
+      - name: Validate warm-up bar range and OHLC integrity
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, json, math
+          from datetime import datetime, timezone
+          from pathlib import Path
+          files = sorted(Path("dukascopy-warmup").rglob("*.csv"))
+          if len(files) != 1:
+              raise SystemExit(f"FAIL: expected one M1 CSV, found {len(files)}")
+          rows = 0
+          first = last = None
+          previous = None
+          bad = 0
+          with files[0].open("r", newline="", encoding="utf-8-sig") as stream:
+              reader = csv.DictReader(stream)
+              if not reader.fieldnames:
+                  raise SystemExit("FAIL: M1 CSV header missing")
+              keys = {x.strip().lower(): x for x in reader.fieldnames}
+              if any(k not in keys for k in ("timestamp","open","high","low","close","volume")):
+                  raise SystemExit(f"FAIL: unexpected M1 columns {reader.fieldnames}")
+              for row in reader:
+                  try:
+                      stamp = int(float(row[keys["timestamp"]]))
+                      if stamp > 1_000_000_000_000: stamp //= 1000
+                      o,h,l,c = (float(row[keys[k]]) for k in ("open","high","low","close"))
+                      vol = float(row[keys["volume"]] or 0)
+                  except (TypeError, ValueError):
+                      bad += 1; continue
+                  if stamp <= 0 or not all(math.isfinite(x) for x in (o,h,l,c,vol)) or min(o,h,l,c) <= 0 or h < l or not (l <= o <= h and l <= c <= h) or (previous is not None and stamp <= previous):
+                      bad += 1; continue
+                  first = stamp if first is None else min(first, stamp)
+                  last = stamp if last is None else max(last, stamp)
+                  previous = stamp
+                  rows += 1
+          if rows < 15000 or bad or first is None or last is None:
+              raise SystemExit(f"FAIL: M1 warm-up integrity rows={rows} bad={bad}")
+          first_dt = datetime.fromtimestamp(first, timezone.utc)
+          last_dt = datetime.fromtimestamp(last, timezone.utc)
+          if first_dt.date().isoformat() > "2026-02-21" or last_dt.date().isoformat() < "2026-03-25":
+              raise SystemExit(f"FAIL: insufficient warm-up range {first_dt.isoformat()} -> {last_dt.isoformat()}")
+          summary = {"source":"Dukascopy XAUUSD M1", "file":files[0].name, "rows":rows,
+                     "first_utc":first_dt.isoformat(),"last_utc":last_dt.isoformat(),"invalid_rows":bad}
+          Path("dukascopy-warmup/validation-summary.json").write_text(json.dumps(summary,indent=2),encoding="utf-8")
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Import rates and ticks, then test v1.018 on isolated custom symbol
+        shell: pwsh
+        run: .github/scripts/goldlab_dukascopy_custom_symbol_test.ps1
+
+      - name: Upload import manifest, tester report, trade audit and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-v1-018-dukascopy-custom-symbol-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            external-ticks/
+            dukascopy-warmup/validation-summary.json
+          if-no-files-found: warn
+          retention-days: 30
