@@ -125,7 +125,7 @@ def main():
             mt_name=TV_TO_MT5[tv_name]
             mr=by_comp.get(mt_name)
             tv_vote=num(tr.get(tv_col,""))
-            if not mr or tv_vote is None or mr.get("readiness")!="READY":
+            if not mr or tv_vote is None or mr.get("readiness")!="OK":
                 component_stats[tv_name]["not_comparable"]+=1; continue
             mv=num(mr.get("vote",""))
             if mv is None:
