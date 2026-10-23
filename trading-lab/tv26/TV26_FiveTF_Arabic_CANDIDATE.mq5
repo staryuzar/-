@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.000"
+#property version   "1.001"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -343,11 +343,16 @@ void DrawPanel()
 {
    string p="مستشار تقييم TV26 | الذهب: "+_Symbol+"\n";
    p+="المكونات: 26 (15 متوسطاً + 11 مذبذباً) | الإطار مبني على شموع مغلقة\n";
-   p+="الإطار | الملخص العام | المتوسطات | المذبذبات | الجاهز\n";
+   p+="وقت الشمعة المغلقة (سيرفر MT5) | الإطار | الملخص العام | المتوسطات | المذبذبات | الجاهز\n";
    for(int t=0;t<N_TF;t++)
-      p+=TFName(g_tfs[t])+" | "+SummaryName(g_rating[t],g_ready[t],N_RATINGS)+" ("+DoubleToString(g_rating[t],3)+") | "+
-         SummaryName(g_maRating[t],g_maReady[t],15)+" | "+SummaryName(g_oscRating[t],g_oscReady[t],11)+" | "+
+   {
+      datetime closedBar=iTime(_Symbol,g_tfs[t],1);
+      string barTime=(closedBar>0 ? TimeToString(closedBar,TIME_DATE|TIME_MINUTES) : "غير متاح");
+      p+=barTime+" | "+TFName(g_tfs[t])+" | "+SummaryName(g_rating[t],g_ready[t],N_RATINGS)+" ("+DoubleToString(g_rating[t],3)+") | "+
+         SummaryName(g_maRating[t],g_maReady[t],15)+" ("+DoubleToString(g_maRating[t],3)+") | "+
+         SummaryName(g_oscRating[t],g_oscReady[t],11)+" ("+DoubleToString(g_oscRating[t],3)+") | "+
          IntegerToString(g_ready[t])+"/26\n";
+   }
    p+="\nحالة كل مؤشر في الأطر الخمسة: د1 / د5 / د15 / د30 / س1\n";
    for(int j=0;j<N_RATINGS;j++)
    {
