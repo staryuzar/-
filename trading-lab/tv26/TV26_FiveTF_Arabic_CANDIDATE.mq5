@@ -76,6 +76,11 @@ string SummaryName(double r,int ready,int expected)
    if(r< -0.10) return "بيع";
    return "حياد";
 }
+string RatingText(double r,int ready,int expected)
+{
+   if(expected<=0 || ready<expected) return "—";
+   return DoubleToString(r,3);
+}
 bool ReadBuf(int handle,int buffer,int shift,double &v)
 {
    if(handle==INVALID_HANDLE) return false;
@@ -163,14 +168,14 @@ bool InitHandles()
       g_handles[t][CCI20]=iCCI(_Symbol,g_tfs[t],20,PRICE_TYPICAL);
       g_handles[t][ADX14]=iADX(_Symbol,g_tfs[t],14);
       g_handles[t][AO]=iAO(_Symbol,g_tfs[t]);
-      g_handles[t][MOMENTUM10]=iMomentum(_Symbol,g_tfs[t],10,PRICE_CLOSE);
+      // TradingView Momentum is close minus close[10]; compute it manually below.
       g_handles[t][MACD]=iMACD(_Symbol,g_tfs[t],12,26,9,PRICE_CLOSE);
       g_handles[t][WILLIAMS_R]=iWPR(_Symbol,g_tfs[t],14);
       if(g_bulls[t]==INVALID_HANDLE || g_bears[t]==INVALID_HANDLE || g_atr[t]==INVALID_HANDLE)
          Print("TV26 init: handle auxiliary failed for ",TFName(g_tfs[t]));
       for(int j=0;j<N_RATINGS;j++)
       {
-         if(j==VWMA20 || j==HULL9 || j==STOCH_RSI || j==BULL_BEAR_POWER || j==ULTIMATE_OSC) continue;
+         if(j==VWMA20 || j==HULL9 || j==MOMENTUM10 || j==STOCH_RSI || j==BULL_BEAR_POWER || j==ULTIMATE_OSC) continue;
          if(g_handles[t][j]==INVALID_HANDLE)
             Print("TV26 init: handle failed: ",g_names[j]," / ",TFName(g_tfs[t]));
       }
@@ -253,8 +258,13 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==MOMENTUM10)
    {
-      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
-      score=(a>b ? 1 : (a<b ? -1 : 0)); return true;
+      // Match Pine ta.mom(close, 10): current close minus close 10 bars earlier.
+      double closes[]; ArraySetAsSeries(closes,true);
+      if(CopyClose(_Symbol,g_tfs[t],1,12,closes)!=12) return false;
+      double momNow=closes[0]-closes[10];
+      double momPrev=closes[1]-closes[11];
+      score=(momNow>momPrev ? 1 : (momNow<momPrev ? -1 : 0));
+      return true;
    }
    if(j==MACD)
    {
@@ -354,10 +364,10 @@ void DrawPanel()
    {
       datetime closedBar=iTime(_Symbol,g_tfs[t],1);
       string barTime=(closedBar>0 ? TimeToString(closedBar,TIME_DATE|TIME_MINUTES) : "غير متاح");
-      p+=barTime+" | "+TFName(g_tfs[t])+" | "+SummaryName(g_rating[t],g_ready[t],N_RATINGS)+" ("+DoubleToString(g_rating[t],3)+") | "+
-         SummaryName(g_maRating[t],g_maReady[t],15)+" ("+DoubleToString(g_maRating[t],3)+") | "+
-         SummaryName(g_oscRating[t],g_oscReady[t],11)+" ("+DoubleToString(g_oscRating[t],3)+") | "+
-         IntegerToString(g_ready[t])+"/26\n";
+      p+=barTime+" | "+TFName(g_tfs[t])+" | "+SummaryName(g_rating[t],g_ready[t],N_RATINGS)+" ("+RatingText(g_rating[t],g_ready[t],N_RATINGS)+") | "+
+         SummaryName(g_maRating[t],g_maReady[t],15)+" ("+RatingText(g_maRating[t],g_maReady[t],15)+") | "+
+         SummaryName(g_oscRating[t],g_oscReady[t],11)+" ("+RatingText(g_oscRating[t],g_oscReady[t],11)+") | "+
+         IntegerToString(g_ready[t])+"/26 (م "+IntegerToString(g_maReady[t])+"/15، ذ "+IntegerToString(g_oscReady[t])+"/11)\n";
    }
    p+="\nحالة كل مؤشر في الأطر الخمسة: د1 / د5 / د15 / د30 / س1\n";
    for(int j=0;j<N_RATINGS;j++)
