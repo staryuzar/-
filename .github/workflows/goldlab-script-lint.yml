@@ -2,7 +2,7 @@ name: GoldLab PowerShell Static Validation
 
 on:
   push:
-    branches: [goldlab-request-result-candidate]
+    branches: [goldlab-request-result-candidate, goldlab-adx30-experiment]
     paths:
       - ".github/scripts/*.ps1"
       - "trading-lab/gold-xauusd/GoldLabEA.mq5"
@@ -30,6 +30,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $files = @(
             ".github/scripts/goldlab_advisor_ordercheck_diagnostic.ps1",
+            ".github/scripts/goldlab_adx30_experiment.ps1",
             ".github/scripts/goldlab_holdout_evaluation.ps1",
             ".github/scripts/goldlab_mt5_test.ps1",
             ".github/scripts/goldlab_environment_preflight.ps1"
@@ -58,12 +59,14 @@ jobs:
 
           # Static controls guard against accidental holdout tests or live-trading enablement.
           $diagnostic = Get-Content -LiteralPath ".github/scripts/goldlab_advisor_ordercheck_diagnostic.ps1" -Raw
+          $adx30 = Get-Content -LiteralPath ".github/scripts/goldlab_adx30_experiment.ps1" -Raw
           $tester = Get-Content -LiteralPath ".github/scripts/goldlab_mt5_test.ps1" -Raw
           $ea = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabEA.mq5" -Raw
           $holdout = Get-Content -LiteralPath ".github/scripts/goldlab_holdout_evaluation.ps1" -Raw
           $controls = @(
             @{ Name = "development ToDate fixed at 2026.10.20"; Pass = ($diagnostic.Contains("ToDate=2026.10.20") -and -not $diagnostic.Contains("ToDate=2026.10.21")) },
             @{ Name = "exact report period guard present"; Pass = ($diagnostic.Contains('2026\.08\.05 - 2026\.10\.20') -and $diagnostic.Contains('Period:')) },
+            @{ Name = "ADX30 experiment keeps development-only window and upper bound 30"; Pass = ($adx30.Contains("InpMaxADX=30.0") -and $adx30.Contains("ToDate=2026.10.20") -and -not $adx30.Contains("ToDate=2026.10.21") -and $adx30.Contains("2026\.08\.05 - 2026\.10\.20")) },
             @{ Name = "HTML/CSV/deal/date reconciliation gate present"; Pass = ($diagnostic.Contains("MT5 HTML") -and $diagnostic.Contains("deal CSV/date-quality gate")) },
             @{ Name = "tester explicitly disables live trading"; Pass = $tester.Contains("AllowLiveTrading=0") },
             @{ Name = "EA refuses real-account execution outside tester"; Pass = $ea.Contains("accountMode==ACCOUNT_TRADE_MODE_REAL && !testerMode") },
