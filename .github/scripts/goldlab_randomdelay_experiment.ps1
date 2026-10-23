@@ -66,10 +66,10 @@ $checks = @(
   ($content -match '(?m)^ToDate=2026\.10\.20\r?$'),
   ($content -match 'GoldLab_ordercheck_adx25_min23_stop045_randomdelay_2026-08-05_to-2026-10-20'),
   ($content -match '2026\.10\.20'),
-  ($content -match 'OrderCheck diagnostic')
+  ($content -match 'Random Delay ExecutionMode=-1 diagnostic')
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","OrderCheck diagnostic label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
