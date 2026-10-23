@@ -30,9 +30,11 @@ jobs:
         run: >-
           python -m py_compile
           trading-lab/tv26/compare_tv26_csv.py
+          trading-lab/tv26/split_tv26_alltf_export.py
           trading-lab/tv26/reference_tv26_formulas.py
           trading-lab/tv26/validate_tv26_mt5_audit.py
           trading-lab/tv26/tests/test_compare_tv26_csv.py
+          trading-lab/tv26/tests/test_split_tv26_alltf_export.py
           trading-lab/tv26/tests/test_reference_tv26_formulas.py
           trading-lab/tv26/tests/test_validate_tv26_mt5_audit.py
       - name: Run deterministic parity tests
