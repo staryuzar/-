@@ -50,9 +50,13 @@ $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
 $content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
 $content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.20')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
-$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.60</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
+$newChecks = '($html.Contains(''InpRiskPercent=0.5</b>'') -and $html.Contains(''InpStopATR=0.60</b>'') -and $html.Contains(''InpMaxSpreadPoints=100.0</b>'') -and $html.Contains(''InpAllowLong=false</b>'') -and $html.Contains(''InpMinADX=23.0</b>'') -and $html.Contains(''InpMaxADX=25.0</b>'') -and $html.Contains(''InpRequireSignalCandleDirection=true</b>'') -and $html.Contains(''InpRequireFastEMARejection=true</b>'') -and $html.Contains(''<b>M5 (2026.08.05 - 2026.10.20)</b>''))'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
 $content = $content.Replace($oldMax, $newChecks)
+$oldLabel = 'Tester parameter file: $setName (risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled)'
+$newLabel = 'Tester parameter file: $setName (risk=0.50%, stop=0.60 ATR, max spread=100 points, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true)'
+if (!$content.Contains($oldLabel)) { throw "Tester parameter summary label marker missing." }
+$content = $content.Replace($oldLabel, $newLabel)
 $content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input + date verification: PASS (risk=0.5, stop=0.60 ATR, max spread=100, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true, report period ends 2026-10-20)")
 
 $checks = @(
@@ -61,6 +65,9 @@ $checks = @(
   ($content -match 'InpMaxADX=25\.0'),
   ($content -match 'InpRequireSignalCandleDirection=true'),
   ($content -match 'InpRequireFastEMARejection=true'),
+  ($content.Contains("InpRiskPercent=0.5</b>")),
+  ($content.Contains("InpStopATR=0.60</b>")),
+  ($content.Contains("Period:</td>\\s*<td[^>]*><b>M5 (2026\\.08\\.05 - 2026\\.10\\.20)</b>")),
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
   ($content -match '(?m)^ToDate=2026\.10\.20\r?$'),
