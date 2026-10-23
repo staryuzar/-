@@ -33,7 +33,7 @@ $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; OrderCheck diagnostic)"),
   @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, ADX=23-27, long entries disabled, candle-direction and EMA rejection enabled. Real-tick demo/tester diagnostic only."),
-  @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min23OrderCheckStop045.set"),
+  @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX27Min23OrderCheckStop045.set"),
   @("InpMinADX=18.0||18.0||1.0||18.0||N", "InpMinADX=23.0||23.0||1.0||23.0||N"),
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=27.0||27.0||1.0||27.0||N"),
   @("InpWriteTradeCSV=true||false||0||true||N", $writeCsvReplacement),
@@ -67,7 +67,7 @@ $checks = @(
   ($content -match 'OrderCheck diagnostic')
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","OrderCheck diagnostic label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=27.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","OrderCheck diagnostic label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
