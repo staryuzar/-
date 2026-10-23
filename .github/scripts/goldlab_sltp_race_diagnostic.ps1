@@ -6,14 +6,14 @@ if (!(Test-Path -LiteralPath $runnerPath)) { throw "Generic MT5 runner is missin
 if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLabEA source is missing." }
 
 $source = Get-Content -LiteralPath $eaPath -Raw
-if ($source -notmatch '(?m)^#property version\s+"1\.015"' -or
+if ($source -notmatch '(?m)^#property version\s+"1\.016"' -or
     $source -notmatch 'PreflightTradeRequest\(request,"open"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"close"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"modify-sltp"\)' -or
     $source -notmatch 'ORDER_CHECK_SUMMARY' -or
     $source -notmatch 'if\(!ok\s*\|\|\s*check\.retcode\s*!=\s*0\)' -or
     $source -notmatch 'call_ok=' -or
-    $source -notmatch 'Research candidate v1\.015;' -or
+    $source -notmatch 'Research candidate v1\.016;' -or
     $source -notmatch 'RecordOrderSendTelemetry\(' -or
     $source -notmatch 'ORDER_SEND_FAIL' -or
     $source -notmatch 'ORDER_SEND_SUMMARY' -or
@@ -23,17 +23,17 @@ if ($source -notmatch '(?m)^#property version\s+"1\.015"' -or
     $source -notmatch 'void OnTradeTransaction\(' -or
     $source -notmatch 'TRADE_TRANSACTION_REQUEST' -or
     $source -notmatch 'SLTP_MODIFY_STATE') {
-  throw "EA source does not contain the intended v1.015 OrderCheck, OrderSend, and request-result telemetry gates."
+  throw "EA source does not contain the intended v1.016 OrderCheck, retry-buffer, OrderSend, and request-result telemetry gates."
 }
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $content = Get-Content -LiteralPath $runnerPath -Raw
 
 $writeCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
-$writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N"
+$writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + "InpStopRetryBufferATR=0.50||0.50||0.05||0.50||N"
 $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; Random Delay ExecutionMode=-1 diagnostic)"),
-  @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Execution robustness experiment: exact ADX25 baseline inputs; short-only; candle direction and fast EMA rejection enabled; Model 4 real ticks; Random Delay ExecutionMode=-1. No strategy input is changed."),
+  @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Execution robustness experiment: frozen ADX25 baseline rules; short-only; candle direction and fast EMA rejection enabled; Model 4 real ticks; Random Delay ExecutionMode=-1. Only the one-off invalid-stop retry adds a 0.50 ATR cushion, with volume recalculated to preserve the risk budget."),
   @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min23OrderCheckStop045_RANDOM_DELAY.set"),
   @("InpMinADX=18.0||18.0||1.0||18.0||N", "InpMinADX=23.0||23.0||1.0||23.0||N"),
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=25.0||25.0||1.0||25.0||N"),
@@ -51,16 +51,17 @@ $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
 $content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
 $content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.20')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
-$newChecks = '($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
+$newChecks = '($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=0\.5</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
 $content = $content.Replace($oldMax, $newChecks)
-$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (EA inputs unchanged from ADX25 baseline; Model 4; ExecutionMode=-1 Random Delay; report period ends 2026-10-20)")
+$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (ADX25 baseline rules confirmed; retry-only stop buffer=0.50 ATR; Model 4 real ticks; ExecutionMode=-1 Random Delay; period ends 2026-10-20)")
 
 $checks = @(
   ($content -match 'InpMinADX=23\.0'),
   ($content -match 'InpMaxADX=25\.0'),
   ($content -match 'InpRequireSignalCandleDirection=true'),
   ($content -match 'InpRequireFastEMARejection=true'),
+  ($content -match 'InpStopRetryBufferATR=0.50'),
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^ExecutionMode=-1\r?$'),
   ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
@@ -70,7 +71,7 @@ $checks = @(
   ($content -match 'Random Delay ExecutionMode=-1 diagnostic')
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=0.50","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
@@ -79,11 +80,11 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
 @(
   "OrderCheck execution-safety diagnostic",
   "EA source SHA-256: $sourceHash",
-  "EA version: 1.015",
+  "EA version: 1.016",
   "Period: 2026-08-05 through 2026-10-20",
   "Model: 4 — every tick based on real ticks",
-  "Execution: Random Delay (ExecutionMode=-1); EA inputs match the frozen ADX25 development baseline.",
-  "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true.",
+  "Execution: Random Delay (ExecutionMode=-1); EA inputs match the frozen ADX25 development baseline; retry-only stop buffer=0.50 ATR is applied only after INVALID_STOPS.",
+  "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true; retry-only buffer=0.50 ATR.",
   "OrderCheck preflight, immediate OrderSend results, and TRADE_TRANSACTION_REQUEST replies are logged separately. This is diagnostics only; deal history remains the execution audit.",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath (Join-Path $PWD "goldlab-ordercheck-preflight.txt") -Encoding utf8
