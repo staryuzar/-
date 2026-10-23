@@ -76,7 +76,28 @@ Do not enable real-account trading based on this audit alone.
 - Stochastic RSI trend and Bulls/Bears Power trend filters use the close's position relative to EMA(50), without an extra one-bar RSI-slope test or EMA-slope gate.
 - The EA uses the official Technical Ratings Help Center condition for ADX sell: +DI < -DI, ADX > 20, and ADX falling versus the previous closed bar. The library page says v3 aligned to Screener methods, but its web description does not disclose every internal condition; verify exact live values.
 - For BBP period, the parity target is the public `TechnicalRating/3` library's 50-period component, not the standalone BBP indicator page's default parameter of 13.
-- Current MQL5 source is version **1.003**. The latest repository tree passed the MetaEditor compile-only workflow [run 39949116906](https://github.com/staryuzar/-/actions/runs/39949116906): **0 errors, 0 warnings**, generated EX5 size **41,314 bytes**. Report artifact: [tv26-metaeditor-compile-report](https://github.com/staryuzar/-/actions/runs/39949116906/artifacts/12499641976). The installer returned exit code 1, but MetaEditor was present and completed the compile successfully. Compilation does not establish indicator parity or profitability.
+- Current EA source is version **1.006**, commit `9bded515c66912e04bed6c25702cfb38b7c3f92f`. MetaEditor compile-only verification: [GitHub Actions run 39950166955](https://github.com/staryuzar/-/actions/runs/39950166955), **0 errors, 0 warnings**, EX5 size **50,830 bytes**. The full build package contains the compiled EX5, the exact MQL5 source, Pine comparator, README and install manifest. Compilation does not establish indicator parity or profitability.
+
+
+
+### Diagnostic CSV export — v1.004+
+
+The EA writes `TV26_Audit_<symbol>_<magic>.csv` to MT5's **Common\Files** directory, shown at the top of the EA chart panel. It appends one record for each newly closed candle per configured timeframe; MT5 must have history available for all five timeframes.
+
+Columns:
+- `bar_open_time_server`: opening timestamp of the closed candle in broker/server time.
+- `symbol`, `broker_company`, `broker_server`, `timeframe`: identify the price feed and timeframe being compared.
+- `component`, `readiness`, `vote`: component name, whether it calculated successfully, and its -1/0/+1 vote.
+- `value_a` through `value_e`: raw indicator values used by the vote. Their exact meanings vary by component; see below.
+- `candle_open`, `candle_high`, `candle_low`, `candle_close`, `tick_volume`: feed context to compare with the same TradingView candle.
+
+Raw-value mapping: MA rows store (MA, close); Ichimoku stores (conversion line, base line, Span A, Span B, close); VWMA/Hull store (average, close); RSI/CCI/Williams store (current, previous); Stochastic stores (K,D); ADX stores (ADX,+DI,-DI,previous ADX); AO stores (current, previous, two-bars-back); Momentum stores (current Momentum, previous Momentum, close, close[10]); MACD stores (MACD line, signal, EMA12, EMA26); Stochastic RSI stores (K,D,close,EMA50); Bulls/Bears stores (bull current,bull previous,bear current,bear previous,close); Ultimate Oscillator stores its value. Summary rows contain overall/MA/oscillator ratings (blank if incomplete), readiness counts and OHLCV.
+
+### Entry/reversal safety — v1.006
+
+- Last executed strong-direction state is persisted in a terminal Global Variable per symbol + magic number.
+- After a same-direction position exits, the EA will not reopen the same strong signal repeatedly until consensus ceases to be strong.
+- A reversal is not treated as complete after a partial close while the old position ticket still exists.
 
 ### Comparator status
 
