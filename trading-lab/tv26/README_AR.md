@@ -65,3 +65,11 @@ For each of M1, M5, M15, M30 and H1, capture the same closed candle timestamp an
 3. The 26 component states from the EA panel.
 4. Any disagreement, likely cause, correction, and retest result.
 Do not enable real-account trading based on this audit alone.
+
+
+## TradingView-side reference panel
+A Pine Script reference indicator was added at [TradingView_Parity_5TF.pine](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Parity_5TF.pine). It imports TradingView's public TechnicalRating v3 library and displays overall, MA and oscillator ratings for M1/M5/M15/M30/H1. It is a summary comparison aid; it does not expose all 26 component states individually.
+
+To use it: open TradingView on the exact XAUUSD provider used by the MT5 broker, open Pine Editor, paste the file contents, save, and add it to the chart. Compare the table with the EA panel at the same closed-candle times. If TradingView rejects the script, capture the compiler error and revise the script; it has not yet been compiled by TradingView itself.
+
+The current GitHub Windows workflow uses MetaEditor only. A successful workflow run is source-compile evidence, not proof of indicator parity, and it cannot inspect the user's private TradingView chart.
