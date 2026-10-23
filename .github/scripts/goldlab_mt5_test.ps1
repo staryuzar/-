@@ -245,6 +245,42 @@ Visual=0
   }
   "UTC finish: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
   "IMPORTANT: only the generated tester report and journal can establish whether trades were actually simulated. Missing report or missing history means FAIL/incomplete, not success." | Add-Content -LiteralPath $summary -Encoding utf8
+  # Reject a zero-history report before interpreting inputs or performance.
+  $periodMatch = [regex]::Match($html,'(?is)Period:</td>\s*<td[^>]*><b>\s*([A-Z0-9]+)\s*\((\d{4}\.\d{2}\.\d{2})\s*-\s*(\d{4}\.\d{2}\.\d{2})\)\s*</b>')
+  $barsMatch = [regex]::Match($html,'(?is)Bars:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
+  $ticksMatch = [regex]::Match($html,'(?is)Ticks:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
+  $reportBars = -1; $reportTicks = -1
+  if ($barsMatch.Success) { $reportBars = [int]$barsMatch.Groups[1].Value.Replace(",","") }
+  if ($ticksMatch.Success) { $reportTicks = [long]$ticksMatch.Groups[1].Value.Replace(",","") }
+  $emptyHistoryReasons = [System.Collections.Generic.List[string]]::new()
+  if (!$periodMatch.Success) {
+    $emptyHistoryReasons.Add("Report period is missing or malformed.")
+  } else {
+    if ($periodMatch.Groups[1].Value -ne "M5") { $emptyHistoryReasons.Add("Unexpected report timeframe: $($periodMatch.Groups[1].Value).") }
+    if ($periodMatch.Groups[2].Value -eq "1970.01.01" -or $periodMatch.Groups[3].Value -eq "1970.01.01") {
+      $emptyHistoryReasons.Add("MT5 returned the default 1970 report period.")
+    }
+  }
+  if ($reportBars -le 0) { $emptyHistoryReasons.Add("MT5 report has zero/missing bars.") }
+  if ($reportTicks -le 0) { $emptyHistoryReasons.Add("MT5 report has zero/missing ticks.") }
+  if ($emptyHistoryReasons.Count -gt 0) {
+    $recentTesterLogs = @()
+    if (Test-Path -LiteralPath $logsOut) {
+      foreach ($logFile in @(Get-ChildItem -LiteralPath $logsOut -Filter "*.txt" -File -ErrorAction SilentlyContinue)) {
+        $recentTesterLogs += @(Get-Content -LiteralPath $logFile.FullName -ErrorAction SilentlyContinue |
+          Where-Object { $_ -match '(?i)no history data|history ticks canceled|history download.*cancel|not enough.*history' })
+      }
+    }
+    @(
+      "Data integrity gate: FAIL — empty/incomplete Strategy Tester history; this is NOT a strategy performance result.",
+      "Parsed period: $(if ($periodMatch.Success) { $periodMatch.Groups[1].Value + ' (' + $periodMatch.Groups[2].Value + ' - ' + $periodMatch.Groups[3].Value + ')' } else { 'UNPARSED' })",
+      "Bars: $reportBars",
+      "Ticks: $reportTicks",
+      "History failure markers: $($recentTesterLogs.Count)"
+    ) + @($emptyHistoryReasons | ForEach-Object { "Reason: $_" }) + @($recentTesterLogs | Select-Object -First 20 | ForEach-Object { "Journal: $_" }) |
+      Add-Content -LiteralPath $summary -Encoding utf8
+    throw "MT5 report contains an empty or incomplete price-history result; do not evaluate strategy inputs/performance. See saved report and logs."
+  }
   $paramsConfirmed = (($html -match '(?is)InpRiskPercent=0\.5</b>') -and ($html -match '(?is)InpStopATR=0\.45</b>') -and ($html -match '(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>') -and ($html -match '(?is)InpMaxADX=40(?:\.0+)?</b>') -and ($html -match '(?is)InpAllowLong=false</b>'))
   if ($paramsConfirmed) {
     "Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)" | Add-Content -LiteralPath $summary -Encoding utf8
