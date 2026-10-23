@@ -8,6 +8,9 @@ on:
       - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
       - ".github/scripts/tv26_cloud_audit.ps1"
       - "trading-lab/tv26/validate_tv26_mt5_audit.py"
+      - "trading-lab/tv26/reference_tv26_formulas.py"
+      - "trading-lab/tv26/requirements-formula-audit.txt"
+      - "trading-lab/tv26/tests/**"
       - ".github/workflows/tv26-cloud-audit.yml"
   workflow_dispatch:
 
@@ -31,6 +34,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
       - name: Run isolated MT5 Strategy Tester audit (trading disabled)
         shell: pwsh
         run: ./.github/scripts/tv26_cloud_audit.ps1
@@ -41,6 +46,15 @@ jobs:
           --csv tv26-cloud-results/TV26_Audit_XAUUSD_26102326.csv
           --report tv26-cloud-results/data-integrity-report.md
           --json tv26-cloud-results/data-integrity-report.json
+      - name: Compare all 26 published formulas against MT5 votes on five frames
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-cloud-results/TV26_Audit_XAUUSD_26102326.csv
+          --history tv26-cloud-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-cloud-results/formula-parity-report.md
+          --details tv26-cloud-results/formula-parity-details.csv
+          --json tv26-cloud-results/formula-parity-report.json
       - name: Upload cloud audit evidence
         if: always()
         uses: actions/upload-artifact@v4
