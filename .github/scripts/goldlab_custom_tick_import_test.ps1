@@ -23,7 +23,7 @@ $passCfg=$password;$raw=$null;$o=$null;$lines=$null
 function SaveLogs {
   if(!(Test-Path $install)){return}
   $all=@()
-  foreach($d in @((Join-Path $install "Logs"),(Join-Path $install "MQL5\Logs"),(Join-Path $install "Tester\logs"))){
+  foreach($d in @((Join-Path $install "Logs"),(Join-Path $install "MQL5\Logs"),(Join-Path $install "Tester\logs"),(Join-Path $install "MQL5\Scripts\GoldLab"),(Join-Path $install "MQL5\Experts\GoldLab"))){
     if(Test-Path $d){$all+=@(Get-ChildItem $d -File -Recurse -Filter "*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 8)}
   }
   $i=0
@@ -38,7 +38,13 @@ try {
   $setup=Join-Path $root "mt5setup.exe"
   Invoke-WebRequest "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile $setup -TimeoutSec 180
   if(!(Test-Path $setup) -or (Get-Item $setup).Length -lt 100000){throw "MT5 installer missing."}
-  $sp=Start-Process $setup -ArgumentList @("/auto","/path:$install") -PassThru -Wait
+  Write-Host "Phase 1/4: launching official MT5 installer."
+  $sp=Start-Process $setup -ArgumentList @("/auto","/path:$install") -PassThru
+  if(!$sp.WaitForExit(300000)){
+    try{& "$env:SystemRoot\System32\taskkill.exe" /PID $sp.Id /T /F 2>&1 | Add-Content $summary -Encoding utf8}catch{}
+    throw "Official MT5 installer exceeded five-minute timeout; no tester result accepted."
+  }
+  Write-Host "MT5 installer exited: $($sp.ExitCode)"
   $terminal=Get-ChildItem $install -Filter "terminal64.exe" -File -Recurse | Select-Object -First 1
   $editor=Get-ChildItem $install -Filter "metaeditor64.exe" -File -Recurse | Select-Object -First 1
   if(!$terminal -or !$editor){throw "MT5 installation failed, exit=$($sp.ExitCode)."}
@@ -73,11 +79,17 @@ try {
   $ic=@("[Common]","Login=$login","Password=$passCfg","Server=$server","ProxyEnable=0","KeepPrivate=1","NewsEnable=0","CertInstall=0","","[Experts]","Enabled=1","AllowLiveTrading=0","AllowDllImport=0","","[StartUp]","Script=GoldLab\GoldLabDukascopyImport","Symbol=XAUUSD","Period=M1","ShutdownTerminal=1") -join [Environment]::NewLine
   [IO.File]::WriteAllText($importIni,$ic,[Text.Encoding]::ASCII)
   $env:MT5_CREDENTIALS=$null
-  $ip=Start-Process $terminal.FullName -ArgumentList @("/portable","/config:$importIni") -WorkingDirectory $install -PassThru
+  Write-Host "Phase 2/4: launching MQL5 custom-symbol tick importer."
+  $ip=Start-Process $terminal.FullName -ArgumentList @("/portable",('/config:"'+$importIni+'"')) -WorkingDirectory $install -PassThru
   if(!$ip.WaitForExit(600000)){try{& "$env:SystemRoot\System32\taskkill.exe" /PID $ip.Id /T /F|Out-Null}catch{};throw "Importer did not exit within 10 minutes."}
   Start-Sleep -Seconds 2
   $importFile=Join-Path $files "GoldLabDukascopyImportResult.txt"
-  if(!(Test-Path $importFile)){SaveLogs;throw "Importer result file missing."}
+  if(!(Test-Path $importFile)){
+    SaveLogs
+    $nearby=@(Get-ChildItem $install -Filter "GoldLabDukascopyImportResult.txt" -File -Recurse -ErrorAction SilentlyContinue)
+    ("Importer result missing; expected=$importFile; same-name copies elsewhere in portable install=$($nearby.Count)") | Add-Content $summary -Encoding utf8
+    throw "Importer result file missing after startup; inspect captured terminal/script journals."
+  }
   Copy-Item $importFile (Join-Path $reports "GoldLabDukascopyImportResult.txt") -Force
   $ir=Get-Content $importFile -Raw;$ir|Add-Content $summary -Encoding utf8
   if($ir -notmatch '(?m)^STATUS=PASS;'){SaveLogs;throw "Custom-symbol import/readback gate failed."}
@@ -98,7 +110,8 @@ try {
   $tc=@("[Common]","Login=$login","Password=$passCfg","Server=$server","ProxyEnable=0","KeepPrivate=1","NewsEnable=0","CertInstall=0","","[Experts]","Enabled=1","AllowLiveTrading=0","AllowDllImport=0","","[Tester]","Expert=GoldLab\GoldLabEA.ex5","ExpertParameters=$setName","Symbol=XAUUSD_DK0326","Period=M5","Model=4","ExecutionMode=-1","Optimization=0","FromDate=2026.03.26","ToDate=2026.03.27","ForwardMode=0","Deposit=500","Currency=USD","Leverage=1:1000","Report=$base","ReplaceReport=1","ShutdownTerminal=1","UseLocal=1","UseRemote=0","UseCloud=0","Visual=0") -join [Environment]::NewLine
   [IO.File]::WriteAllText($testIni,$tc,[Text.Encoding]::ASCII)
   $env:MT5_CREDENTIALS=$null
-  $tp=Start-Process $terminal.FullName -ArgumentList @("/portable","/config:$testIni") -WorkingDirectory $install -PassThru
+  Write-Host "Phase 3/4: launching MT5 Strategy Tester on the isolated custom symbol."
+  $tp=Start-Process $terminal.FullName -ArgumentList @("/portable",('/config:"'+$testIni+'"')) -WorkingDirectory $install -PassThru
   if(!$tp.WaitForExit(900000)){try{& "$env:SystemRoot\System32\taskkill.exe" /PID $tp.Id /T /F|Out-Null}catch{};SaveLogs;throw "Custom-symbol tester timed out."}
   "Tester terminal exit code: $($tp.ExitCode)"|Add-Content $summary -Encoding utf8
   $report=$null
@@ -123,6 +136,7 @@ try {
   if($dt.Groups[1].Value -ne "2026.03.26" -or $dt.Groups[2].Value -ne "2026.03.27"){SaveLogs;throw "Tester period mismatch."}
   if($html -notmatch '(?is)InpTestForceInvalidStopsOnce=false</b>' -or $html -notmatch '(?is)InpMaxSpreadPoints=1000(?:\.0+)?</b>'){SaveLogs;throw "Injection-off or spread-scaling input not confirmed in report."}
   "STATUS=PASS; custom-symbol tick import/readback and MT5 real-tick tester proof succeeded; not performance evidence."|Add-Content $summary -Encoding utf8
+  Write-Host "Phase 4/4: PASS — MT5 confirmed imported real ticks; no strategy-profit conclusion is drawn."
   SaveLogs
   Get-Content $summary
 }
