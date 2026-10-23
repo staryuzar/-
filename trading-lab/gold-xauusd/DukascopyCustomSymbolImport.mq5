@@ -99,8 +99,8 @@ bool LoadRates(MqlRates &rates[],long &first_time,long &last_time)
    FileClose(file);
    ResultLine("rates_rows="+IntegerToString(ArraySize(rates)));
    ResultLine("rates_bad_rows="+IntegerToString(bad));
-   ResultLine("rates_first_epoch="+LongToString(first_time));
-   ResultLine("rates_last_epoch="+LongToString(last_time));
+   ResultLine("rates_first_epoch="+IntegerToString(first_time));
+   ResultLine("rates_last_epoch="+IntegerToString(last_time));
    return (ArraySize(rates)>=15000 && bad==0 && first_time>0 && last_time>first_time);
 }
 
@@ -165,8 +165,8 @@ bool LoadTicks(MqlTick &ticks[],long &first_msc,long &last_msc)
    FileClose(file);
    ResultLine("ticks_rows="+IntegerToString(ArraySize(ticks)));
    ResultLine("ticks_bad_rows="+IntegerToString(bad));
-   ResultLine("ticks_first_msc="+LongToString(first_msc));
-   ResultLine("ticks_last_msc="+LongToString(last_msc));
+   ResultLine("ticks_first_msc="+IntegerToString(first_msc));
+   ResultLine("ticks_last_msc="+IntegerToString(last_msc));
    return (ArraySize(ticks)>=400000 && bad==0 && first_msc>0 && last_msc>first_msc);
 }
 
