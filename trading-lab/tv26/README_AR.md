@@ -1,4 +1,4 @@
-# TV26 Five-Timeframe Arabic EA — Candidate 1.008
+# TV26 Five-Timeframe Arabic EA — Candidate 1.009
 
 ## Purpose
 A research candidate for XAUUSD in MT5. It calculates 26 Technical-Ratings-style components on five configurable timeframes (defaults M1/M5/M15/M30/H1), shows each component's signal and readiness in Arabic, and displays the aggregate rating and operational count for each timeframe.
@@ -76,13 +76,13 @@ Do not enable real-account trading based on this audit alone.
 - Stochastic RSI trend and Bulls/Bears Power trend filters use the close's position relative to EMA(50), without an extra one-bar RSI-slope test or EMA-slope gate.
 - The EA now follows the v3 source expression for ADX: buy when +DI > −DI and ADX > 20 while rising; sell when +DI < −DI and ADX > 20 while also rising. This conflicts with the general Technical Ratings Help Center wording for ADX sell (falling ADX), so exact live value comparison remains essential.
 - The EA follows the frozen TechnicalRating v3 source expression: Bull Power = high − EMA(close,13); Bear Power = low − EMA(close,13). This differs from the library overview text that lists period 50. Source mirror inspected: [Tealstreet/tealchart official TradingView library-source snapshot](https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts).
-- The MQL5 source is now **version 1.008**, source commit `449bda0e64a89b5f85f6e9ed965c5c7184c83b96`. MetaEditor compile-only run [39951075793](https://github.com/staryuzar/-/actions/runs/39951075793) passed with **0 errors, 0 warnings** and generated EX5 size **50,248 bytes**. Its latest diagnostic correction also stores EMA(50) in the Bulls/Bears row's `value_e`, so the trend filter can be audited separately from the candle close. This is compile evidence only, not a Strategy Tester result or proof of numerical parity/profitability.
+- The EA source is now **version 1.009**, source commit `310be1a6b384dbe4591c7ff79570ce55808667b1`. In addition to the v1.008 formula corrections and diagnostics, CSV export now retries a newly closed candle up to 10 two-second timer cycles (about 20 seconds) while any of the 26 components are not ready. It then records the current readiness state once, rather than prematurely logging a one-time startup data-loading delay as the final state. This is compile-only software evidence, not a Strategy Tester result or proof of numerical parity/profitability; the v1.009 build run is [39952338409](https://github.com/staryuzar/-/actions/runs/39952338409).
 
 
 
 ### Diagnostic CSV export — v1.004+
 
-The EA writes `TV26_Audit_<symbol>_<magic>.csv` to MT5's **Common\Files** directory, shown at the top of the EA chart panel. It appends one record for each newly closed candle per configured timeframe; MT5 must have history available for all five timeframes.
+The EA writes `TV26_Audit_<symbol>_<magic>.csv` to MT5's **Common\Files** directory, shown at the top of the EA chart panel. It appends one record for each newly closed candle per configured timeframe; MT5 must have history available for all five timeframes. In v1.009, if a candle is not yet fully ready, export retries at each 2-second timer cycle up to 10 times (about 20 seconds); if components remain unavailable, it writes one incomplete record instead of postponing it indefinitely.
 
 Columns:
 - `bar_open_time_server`: opening timestamp of the closed candle in broker/server time.
