@@ -2,6 +2,12 @@ name: TV26 direct TradingView parity
 
 on:
   workflow_dispatch:
+    inputs:
+      mt5_utc_offset_hours:
+        description: 'MT5 broker server offset from UTC, e.g. UTC+3 = 3'
+        required: true
+        default: '3'
+        type: string
 
 permissions:
   contents: read
@@ -21,18 +27,20 @@ jobs:
           for tf in M1 M5 M15 M30 H1; do
             test -s "trading-lab/tv26/parity-input/TV26_${tf}.csv"
           done
-      - name: Compare component votes for all five timeframes
+      - name: Compare component votes and summary ratings for all five timeframes
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p tv26-direct-parity-results
           for tf in M1 M5 M15 M30 H1; do
-            python trading-lab/tv26/compare_tv26_tradingview_export.py \
-              --tv-csv "trading-lab/tv26/parity-input/TV26_${tf}.csv" \
-              --mt5-csv trading-lab/tv26/parity-input/MT5_Audit.csv \
+            python trading-lab/tv26/compare_tv26_csv.py \
+              --tv "trading-lab/tv26/parity-input/TV26_${tf}.csv" \
+              --mt5 trading-lab/tv26/parity-input/MT5_Audit.csv \
               --timeframe "${tf}" \
+              --mt5-utc-offset-hours "${{ inputs.mt5_utc_offset_hours }}" \
+              --min-bars 10 \
               --report "tv26-direct-parity-results/${tf}-report.md" \
-              --json "tv26-direct-parity-results/${tf}-report.json"
+              --details "tv26-direct-parity-results/${tf}-details.csv"
           done
       - name: Upload direct parity reports
         if: always()
