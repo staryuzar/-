@@ -696,16 +696,31 @@ void TradeIfAligned()
    {
       g_lastBlock="وضع الاختبار فقط مفعّل؛ التشغيل خارج Strategy Tester ممنوع";
       g_lastAction="لم يُرسل أمر خارج الاختبار";
+      Print("TV26_ENTRY_BLOCK;reason=TESTER_ONLY_GUARD");
       return;
    }
    int sig=AlignedSignal();
+   datetime decisionBar=iTime(_Symbol,PERIOD_M1,1);
    if(sig==0)
    {
       RememberSignal(0); // Re-arm after the five-timeframe consensus is no longer strong.
       g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";
       return;
    }
-   if(!InpEnableTrading){g_lastAction=(sig>0?"إشارة شراء قوي متوافقة":"إشارة بيع قوي متوافقة")+"؛ التنفيذ معطّل";return;}
+   Print("TV26_CONSENSUS;signal=",SignalName(sig),
+         ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+         ";M1=",DoubleToString(g_rating[0],3),
+         ";M5=",DoubleToString(g_rating[1],3),
+         ";M15=",DoubleToString(g_rating[2],3),
+         ";M30=",DoubleToString(g_rating[3],3),
+         ";H1=",DoubleToString(g_rating[4],3));
+
+   if(!InpEnableTrading)
+   {
+      g_lastAction=(sig>0?"إشارة شراء قوي متوافقة":"إشارة بيع قوي متوافقة")+"؛ التنفيذ معطّل";
+      Print("TV26_ENTRY_BLOCK;reason=TRADING_DISABLED;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+      return;
+   }
 
    ulong trackedTicket=0;
    ENUM_POSITION_TYPE trackedSide;
@@ -715,45 +730,135 @@ void TradeIfAligned()
       RememberSignal(sig);
       g_lastAction="الصفقة الحالية في اتجاه الإشارة؛ لا تكرار للدخول";
       g_lastBlock="";
+      Print("TV26_ENTRY_BLOCK;reason=POSITION_ALREADY_SAME_SIDE;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
       return;
    }
    if(!hasTracked && sig==g_lastExecutedSignal)
    {
       g_lastAction="انتظار؛ أُنفذت إشارة بهذا الاتجاه سابقاً، ولن تتكرر حتى تتغير حالة التوافق";
+      Print("TV26_ENTRY_BLOCK;reason=SAME_SIGNAL_LATCH;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
       return;
    }
    if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)
-   {g_lastBlock="حماية الحساب: التداول مسموح على الحساب التجريبي فقط";g_lastAction="لم يُرسل أمر";return;}
-   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK),bid=SymbolInfoDouble(_Symbol,SYMBOL_BID),point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
-   if(ask<=0 || bid<=0 || point<=0){g_lastBlock="السعر غير متاح";return;}
+   {
+      g_lastBlock="حماية الحساب: التداول مسموح على الحساب التجريبي فقط";
+      g_lastAction="لم يُرسل أمر";
+      Print("TV26_ENTRY_BLOCK;reason=NOT_DEMO_ACCOUNT;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+      return;
+   }
+
+   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
+   if(ask<=0 || bid<=0 || point<=0)
+   {
+      g_lastBlock="السعر غير متاح";
+      g_lastAction="لم يُرسل أمر";
+      Print("TV26_ENTRY_BLOCK;reason=INVALID_PRICE;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+            ";ask=",DoubleToString(ask,_Digits),";bid=",DoubleToString(bid,_Digits),";point=",DoubleToString(point,8));
+      return;
+   }
    double spread=(ask-bid)/point;
-   if(spread>InpMaxSpreadPoints){g_lastBlock="السبريد أعلى من الحد: "+DoubleToString(spread,1);g_lastAction="انتظار";return;}
+   if(spread>InpMaxSpreadPoints)
+   {
+      g_lastBlock="السبريد أعلى من الحد: "+DoubleToString(spread,1);
+      g_lastAction="انتظار";
+      Print("TV26_ENTRY_BLOCK;reason=SPREAD;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+            ";spread_points=",DoubleToString(spread,1),";limit=",DoubleToString(InpMaxSpreadPoints,1));
+      return;
+   }
+
    // Validate ATR, stops and volume before closing any opposite position.
    double atr=0;
-   if(!ReadBuf(g_atr[0],0,1,atr) || atr<=0){g_lastBlock="قيمة ATR غير جاهزة؛ لم تُغلق أي صفقة";g_lastAction="انتظار";return;}
+   if(!ReadBuf(g_atr[0],0,1,atr) || atr<=0)
+   {
+      g_lastBlock="قيمة ATR غير جاهزة؛ لم تُغلق أي صفقة";
+      g_lastAction="انتظار";
+      Print("TV26_ENTRY_BLOCK;reason=ATR_NOT_READY;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+            ";atr=",DoubleToString(atr,5));
+      return;
+   }
    ENUM_ORDER_TYPE type=(sig>0?ORDER_TYPE_BUY:ORDER_TYPE_SELL);
    double entry=(sig>0?ask:bid);
    double sl=(sig>0?entry-InpStopATR*atr:entry+InpStopATR*atr);
    double tp=(sig>0?entry+InpTargetATR*atr:entry-InpTargetATR*atr);
    int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
-   sl=NormalizeDouble(sl,digits);tp=NormalizeDouble(tp,digits);
+   sl=NormalizeDouble(sl,digits);
+   tp=NormalizeDouble(tp,digits);
    double lots=LotsByRisk(type,entry,sl);
-   if(lots<=0){g_lastBlock="حجم العقد المحسوب أقل من الحد الأدنى أو تعذر حساب المخاطرة؛ لم تُغلق أي صفقة";g_lastAction="لم يُرسل أمر";return;}
-   ulong ticket=0;ENUM_POSITION_TYPE side;
+   if(lots<=0)
+   {
+      g_lastBlock="حجم العقد المحسوب أقل من الحد الأدنى أو تعذر حساب المخاطرة؛ لم تُغلق أي صفقة";
+      g_lastAction="لم يُرسل أمر";
+      double riskBudget=AccountInfoDouble(ACCOUNT_EQUITY)*InpRiskPercent/100.0;
+      double minVolume=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+      double minLotLoss=0.0;
+      bool minLotCalculated=OrderCalcProfit(type,_Symbol,minVolume,entry,sl,minLotLoss);
+      Print("TV26_ENTRY_BLOCK;reason=MIN_VOLUME_RISK_CAP;signal=",SignalName(sig),
+            ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+            ";equity=",DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY),2),
+            ";risk_budget=",DoubleToString(riskBudget,2),
+            ";atr=",DoubleToString(atr,5),
+            ";stop_distance=",DoubleToString(MathAbs(entry-sl),5),
+            ";minimum_volume=",DoubleToString(minVolume,2),
+            ";minimum_volume_loss=",DoubleToString(MathAbs(minLotLoss),2),
+            ";min_lot_calc=",(minLotCalculated?"true":"false"),
+            ";detail=calculated risk-size below broker minimum or risk calculation failed");
+      return;
+   }
+   ulong ticket=0;
+   ENUM_POSITION_TYPE side;
    if(FindOurPosition(ticket,side))
    {
       if((sig>0 && side==POSITION_TYPE_BUY)||(sig<0 && side==POSITION_TYPE_SELL))
-      {g_lastAction="الصفقة الحالية في اتجاه الإشارة؛ لا تكرار للدخول";g_lastBlock="";return;}
-      if(!CloseTicket(ticket)){g_lastBlock="تعذر إغلاق الصفقة المعاكسة؛ راجع سجل Experts";g_lastAction="إيقاف الانعكاس";return;}
+      {
+         g_lastAction="الصفقة الحالية في اتجاه الإشارة؛ لا تكرار للدخول";
+         g_lastBlock="";
+         Print("TV26_ENTRY_BLOCK;reason=POSITION_ALREADY_SAME_SIDE;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+         return;
+      }
+      if(!CloseTicket(ticket))
+      {
+         g_lastBlock="تعذر إغلاق الصفقة المعاكسة؛ راجع سجل Experts";
+         g_lastAction="إيقاف الانعكاس";
+         Print("TV26_ENTRY_BLOCK;reason=OPPOSITE_POSITION_CLOSE_FAILED;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+         return;
+      }
    }
-   MqlTradeRequest req;MqlTradeResult res;ZeroMemory(req);ZeroMemory(res);
-   req.action=TRADE_ACTION_DEAL;req.symbol=_Symbol;req.magic=InpMagic;req.volume=lots;req.type=type;req.price=entry;
-   req.sl=sl;req.tp=tp;req.deviation=InpDeviationPoints;req.type_filling=FillMode();req.comment="TV26 all-TF strong rating";
+   MqlTradeRequest req;
+   MqlTradeResult res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action=TRADE_ACTION_DEAL;
+   req.symbol=_Symbol;
+   req.magic=InpMagic;
+   req.volume=lots;
+   req.type=type;
+   req.price=entry;
+   req.sl=sl;
+   req.tp=tp;
+   req.deviation=InpDeviationPoints;
+   req.type_filling=FillMode();
+   req.comment="TV26 all-TF strong rating";
    bool sent=OrderSend(req,res);
    if(sent && (res.retcode==TRADE_RETCODE_DONE || res.retcode==TRADE_RETCODE_DONE_PARTIAL || res.retcode==TRADE_RETCODE_PLACED))
-   {RememberSignal(sig);g_lastAction=(sig>0?"شراء":"بيع")+" نُفّذ/قُبل؛ حجم "+DoubleToString(lots,2);g_lastBlock="";Print("TV26 order accepted. retcode=",res.retcode," volume=",lots);}
+   {
+      RememberSignal(sig);
+      g_lastAction=(sig>0?"شراء":"بيع")+" نُفّذ/قُبل؛ حجم "+DoubleToString(lots,2);
+      g_lastBlock="";
+      Print("TV26_ORDER_ACCEPTED;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+            ";retcode=",res.retcode,";volume=",DoubleToString(lots,2),";entry=",DoubleToString(entry,digits),
+            ";sl=",DoubleToString(sl,digits),";tp=",DoubleToString(tp,digits));
+   }
    else
-   {g_lastAction="رفض الأمر؛ لم يُعتبر التنفيذ ناجحاً";g_lastBlock="رمز الوسيط: "+IntegerToString((int)res.retcode)+" / "+res.comment;Print("TV26 order failed. sent=",sent," retcode=",res.retcode," comment=",res.comment);}
+   {
+      g_lastAction="رفض الأمر؛ لم يُعتبر التنفيذ ناجحاً";
+      g_lastBlock="رمز الوسيط: "+IntegerToString((int)res.retcode)+" / "+res.comment;
+      Print("TV26_ORDER_REJECTED;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+            ";sent=",(sent?"true":"false"),";retcode=",res.retcode,";comment=",res.comment,
+            ";volume=",DoubleToString(lots,2),";entry=",DoubleToString(entry,digits),
+            ";sl=",DoubleToString(sl,digits),";tp=",DoubleToString(tp,digits));
+   }
 }
 int OnInit()
 {
