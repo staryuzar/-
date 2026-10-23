@@ -9,6 +9,7 @@ on:
       - ".github/workflows/goldlab-script-lint.yml"
       - ".github/workflows/goldlab-holdout-evaluation.yml"
       - ".github/workflows/goldlab-adxmax27-experiment.yml"
+      - ".github/workflows/goldlab-randomdelay-experiment.yml"
   workflow_dispatch:
 
 permissions:
@@ -34,6 +35,7 @@ jobs:
             ".github/scripts/goldlab_advisor_ordercheck_diagnostic.ps1",
             ".github/scripts/goldlab_adxmax27_experiment.ps1",
             ".github/scripts/goldlab_holdout_evaluation.ps1",
+            ".github/scripts/goldlab_randomdelay_experiment.ps1",
             ".github/scripts/goldlab_mt5_test.ps1",
             ".github/scripts/goldlab_environment_preflight.ps1"
           )
@@ -67,6 +69,8 @@ jobs:
           $holdoutWorkflow = Get-Content -LiteralPath ".github/workflows/goldlab-holdout-evaluation.yml" -Raw
           $adxExperiment = Get-Content -LiteralPath ".github/scripts/goldlab_adxmax27_experiment.ps1" -Raw
           $adxExperimentWorkflow = Get-Content -LiteralPath ".github/workflows/goldlab-adxmax27-experiment.yml" -Raw
+          $randomDelayExperiment = Get-Content -LiteralPath ".github/scripts/goldlab_randomdelay_experiment.ps1" -Raw
+          $randomDelayWorkflow = Get-Content -LiteralPath ".github/workflows/goldlab-randomdelay-experiment.yml" -Raw
           $controls = @(
             @{ Name = "development ToDate fixed at 2026.10.20"; Pass = ($diagnostic.Contains("ToDate=2026.10.20") -and -not $diagnostic.Contains("ToDate=2026.10.21")) },
             @{ Name = "exact report period guard present"; Pass = ($diagnostic.Contains('2026\.08\.05 - 2026\.10\.20') -and $diagnostic.Contains('Period:')) },
@@ -85,7 +89,10 @@ jobs:
             @{ Name = "holdout workflow pins frozen commit and source hash"; Pass = ($holdoutWorkflow.Contains("b3ff34caa837ce07e508ce9f8033123d737b7940") -and $holdoutWorkflow.Contains("149e0e84be72c92246ffca6be1a8c566d4b99645f941d12ebebc3aff0bd4755c")) },
             @{ Name = "ADX27 experiment changes only the upper ADX setting"; Pass = ($adxExperiment.Contains("InpMaxADX=27.0||27.0||1.0||27.0||N") -and $adxExperiment.Contains("InpMinADX=23.0||23.0||1.0||23.0||N") -and $tester.Contains("InpStopATR=0.45||0.45||0.05||0.45||N")) },
             @{ Name = "ADX27 experiment remains in the development window"; Pass = ($adxExperiment.Contains("FromDate=2026.08.05") -and $adxExperiment.Contains("ToDate=2026.10.20") -and -not $adxExperiment.Contains("ToDate=2026.10.24")) },
-            @{ Name = "ADX27 workflow runs only isolated dev experiment and uploads its artifact"; Pass = ($adxExperimentWorkflow.Contains("goldlab_adxmax27_experiment.ps1") -and $adxExperimentWorkflow.Contains("goldlab-adxmax27-") -and -not $adxExperimentWorkflow.Contains("HOLDOUT_RUN_TRIGGER.md")) }
+            @{ Name = "ADX27 workflow runs only isolated dev experiment and uploads its artifact"; Pass = ($adxExperimentWorkflow.Contains("goldlab_adxmax27_experiment.ps1") -and $adxExperimentWorkflow.Contains("goldlab-adxmax27-") -and -not $adxExperimentWorkflow.Contains("HOLDOUT_RUN_TRIGGER.md")) },
+            @{ Name = "Random Delay experiment pins ExecutionMode=-1 while preserving ADX25 inputs"; Pass = ($randomDelayExperiment.Contains("ExecutionMode=-1") -and $randomDelayExperiment.Contains("Random Delay") -and $randomDelayExperiment.Contains("InpMaxADX=25(?:\\.0+)?</b>")) },
+            @{ Name = "Random Delay experiment stays on the development date window"; Pass = ($randomDelayExperiment.Contains("ToDate=2026.10.20") -and -not $randomDelayExperiment.Contains("ToDate=2026.10.24")) },
+            @{ Name = "Random Delay workflow uses only its isolated runner and artifact"; Pass = ($randomDelayWorkflow.Contains("goldlab_randomdelay_experiment.ps1") -and $randomDelayWorkflow.Contains("goldlab-randomdelay-") -and -not $randomDelayWorkflow.Contains("HOLDOUT_RUN_TRIGGER.md")) }
           )
           foreach ($control in $controls) {
             if ($control.Pass) { Write-Host ("CONTROL PASS: " + $control.Name) }
