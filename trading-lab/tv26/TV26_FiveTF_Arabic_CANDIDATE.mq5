@@ -102,6 +102,45 @@ bool ReadRates(ENUM_TIMEFRAMES tf,int count,int shift,MqlRates &rates[])
    ArraySetAsSeries(rates,true);
    return CopyRates(_Symbol,tf,shift,count,rates)==count;
 }
+// Reproduce TradingView ta.stoch() -> SMA(3) -> SMA(3) explicitly.
+// This avoids relying on platform-specific iStochastic smoothing/buffer conventions.
+bool TVStochasticValues(ENUM_TIMEFRAMES tf,double &kOut,double &dOut)
+{
+   MqlRates rates[];
+   const int rangePeriod=14;
+   const int smoothK=3;
+   const int smoothD=3;
+   const int rawCount=smoothK+smoothD-2; // 5 raw %K values feed the two-stage smoothing.
+   const int need=rawCount+rangePeriod-1; // shifts 1..18, including the closed candle.
+   if(!ReadRates(tf,need,1,rates)) return false;
+   double raw[];
+   ArrayResize(raw,rawCount);
+   for(int i=0;i<rawCount;i++)
+   {
+      double highest=rates[i].high;
+      double lowest=rates[i].low;
+      for(int j=i+1;j<i+rangePeriod;j++)
+      {
+         if(rates[j].high>highest) highest=rates[j].high;
+         if(rates[j].low<lowest) lowest=rates[j].low;
+      }
+      double width=highest-lowest;
+      if(width<=0.0) return false;
+      raw[i]=100.0*(rates[i].close-lowest)/width;
+   }
+   double kSum=0.0;
+   for(int i=0;i<smoothK;i++) kSum+=raw[i];
+   kOut=kSum/smoothK;
+   double dSum=0.0;
+   for(int i=0;i<smoothD;i++)
+   {
+      double oneK=0.0;
+      for(int j=0;j<smoothK;j++) oneK+=raw[i+j];
+      dSum+=oneK/smoothK;
+   }
+   dOut=dSum/smoothD;
+   return MathIsValidNumber(kOut) && MathIsValidNumber(dOut);
+}
 double WMA_Close(ENUM_TIMEFRAMES tf,int period,int shift)
 {
    if(period<1) return EMPTY_VALUE;
@@ -261,7 +300,8 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==STOCH14)
    {
-      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],1,1,b)) return false;
+      // TradingView stochFull(14,3,3): raw %K, SMA(3) for K, then SMA(3) for D.
+      if(!TVStochasticValues(g_tfs[t],a,b)) return false;
       score=(a<20 && b<20 && a>b ? 1 : (a>80 && b>80 && a<b ? -1 : 0));
       g_diagA[t][j]=a; g_diagB[t][j]=b;
       return true;
