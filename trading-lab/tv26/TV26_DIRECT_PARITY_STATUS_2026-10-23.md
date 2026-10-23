@@ -23,19 +23,14 @@
 
 ## ما الذي أُضيف لإكمال المقارنة المباشرة؟
 
-- TradingView_Parity_Components_1TF.pine: يصدر تصويتات 26 مكونًا، وأسعار شموع الإطار المستهدف، والملخصات الثلاثة من مكتبة TechnicalRating v3 الرسمية.
+- TradingView_Parity_AllTF_Export.pine: يصدر الأطر الخمسة في CSV واحد عبر ضغط كل 26 تصويتًا بترميز base-4 دقيق. ما زالت نسخة TradingView_Parity_Components_1TF.pine متاحة للتدقيق المفرد.
 - أُضيفت أعمدة TV26.formula_total وTV26.formula_ma وTV26.formula_osc للتحقق من أن تجميعات نسخة Pine المعاد بناؤها تطابق الملخص الرسمي داخل TradingView نفسه.
 - compare_tv26_csv.py: يقارن بيانات الشموع، ودرجات الملخص، وتجميعات Pine مع المكتبة الرسمية، ثم التصويتات الـ26 مع MT5، ويخرج تقريرًا وصفوفًا تفصيلية بكل اختلاف.
-- .github/workflows/tv26-direct-tradingview-parity.yml: بعد توفير ملفات CSV الخمسة، ينزّل سجل MT5 السحابي تلقائيًا، ويشغل المقارنة للأطر الخمسة.
+- .github/workflows/tv26-direct-tradingview-parity.yml: بعد توفير ملف CSV الموحد، ينزّل سجل MT5 السحابي تلقائيًا، ويشغل المقارنة للأطر الخمسة.
 
 ## الإدخال المتبقي
 
-ضع الملفات الخمسة المصدرة من Pine في trading-lab/tv26/parity-input/ بهذه الأسماء:
-- TV26_M1.csv
-- TV26_M5.csv
-- TV26_M15.csv
-- TV26_M30.csv
-- TV26_H1.csv
+ضع ملفًا واحدًا فقط صادرًا من TradingView_Parity_AllTF_Export.pine في trading-lab/tv26/parity-input/ باسم TV26_AllTF.csv.
 
 يجب أن تصدّر البيانات من Pine نفسه بعد إضافته إلى الرسم البياني، وأن تحتوي على TV26.bar_open_time، وTV26.open/high/low/close، وTV26.total/ma/osc، وTV26.formula_total/formula_ma/formula_osc، والأعمدة الـ26 التي تبدأ بـTV26.
 
