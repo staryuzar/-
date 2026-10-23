@@ -234,7 +234,7 @@ if ($sendFailTotal -gt 0) {
 }
 $sendFailClassificationCount = $(if ($allSendFailuresVerifiedClosed) { $staleClosedRequestIds.Count } else { 0 })
 
-"OrderSend telemetry gate: PASS (calls=$sendCallTotal; accepted=$sendAcceptedTotal; failures=$sendFailTotal; duplicate copies ignored=$sendDuplicateCount)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+"OrderSend telemetry/classification gate: PASS (calls=$sendCallTotal; accepted=$sendAcceptedTotal; raw failed requests=$sendFailTotal; verified stale closed-position races=$sendFailClassificationCount; duplicate copies ignored=$sendDuplicateCount)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 
 $rawImmediateResultLines = @()
 $rawRequestResultLines = @()
