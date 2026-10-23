@@ -10,6 +10,7 @@ input double InpRiskPercent         = 0.50;
 input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
+input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
 input ENUM_TIMEFRAMES InpTF1        = PERIOD_M1;
@@ -47,6 +48,7 @@ double g_rating[N_TF];
 double g_maRating[N_TF], g_oscRating[N_TF];
 int g_ready[N_TF], g_maReady[N_TF], g_oscReady[N_TF];
 datetime g_lastM1Bar=0;
+datetime g_lastExitTime=0;
 datetime g_lastPanelUpdate=0;
 string g_lastAction="لم يُرسل أي أمر";
 string g_lastBlock="";
@@ -739,6 +741,22 @@ void TradeIfAligned()
       Print("TV26_ENTRY_BLOCK;reason=SAME_SIGNAL_LATCH;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
       return;
    }
+   if(!hasTracked && InpCooldownBarsAfterExit>0 && g_lastExitTime>0)
+   {
+      datetime allowedFrom=g_lastExitTime+(datetime)(InpCooldownBarsAfterExit*PeriodSeconds(PERIOD_M1));
+      datetime currentBar=iTime(_Symbol,PERIOD_M1,0);
+      if(currentBar>0 && currentBar<allowedFrom)
+      {
+         g_lastBlock="فترة تهدئة بعد إغلاق الصفقة";
+         g_lastAction="انتظار؛ منع إعادة الدخول خلال فترة التهدئة";
+         Print("TV26_ENTRY_BLOCK;reason=POST_EXIT_COOLDOWN;signal=",SignalName(sig),
+               ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+               ";last_exit=",TimeToString(g_lastExitTime,TIME_DATE|TIME_SECONDS),
+               ";allowed_from=",TimeToString(allowedFrom,TIME_DATE|TIME_SECONDS),
+               ";cooldown_bars=",InpCooldownBarsAfterExit);
+         return;
+      }
+   }
    if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)
    {
       g_lastBlock="حماية الحساب: التداول مسموح على الحساب التجريبي فقط";
@@ -883,6 +901,22 @@ void OnTimer()
 {
    if(!g_historyExported) ExportReferenceHistory();
    EvaluateAll();DrawPanel();ExportAuditIfNeeded();
+}
+// Detect actual position-closing deals, including broker SL/TP exits, for the optional cooldown.
+void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result)
+{
+   if(trans.type!=TRADE_TRANSACTION_DEAL_ADD || trans.deal==0) return;
+   if(!HistoryDealSelect(trans.deal)) return;
+   if(HistoryDealGetString(trans.deal,DEAL_SYMBOL)!=_Symbol) return;
+   if((ulong)HistoryDealGetInteger(trans.deal,DEAL_MAGIC)!=InpMagic) return;
+   long entryKind=HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
+   if(entryKind!=DEAL_ENTRY_OUT && entryKind!=DEAL_ENTRY_OUT_BY && entryKind!=DEAL_ENTRY_INOUT) return;
+   datetime closeTime=(datetime)HistoryDealGetInteger(trans.deal,DEAL_TIME);
+   if(closeTime>g_lastExitTime) g_lastExitTime=closeTime;
+   Print("TV26_POSITION_CLOSED;deal=",trans.deal,
+         ";time=",TimeToString(closeTime,TIME_DATE|TIME_SECONDS),
+         ";reason=",EnumToString((ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal,DEAL_REASON)),
+         ";cooldown_bars=",InpCooldownBarsAfterExit);
 }
 void OnTick()
 {
