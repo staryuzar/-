@@ -152,6 +152,7 @@ MT5 installation:
 6. Find TV26_Audit_<symbol>_<magic>.csv inside the terminal Common\Files folder after the EA runs.
 7. In TradingView Pine Editor, paste TradingView_Parity_5TF.pine to compare the 5 numeric summaries.
 8. To inspect votes for all 26 components, paste TradingView_Parity_Components_1TF.pine and choose M1/M5/M15/M30/H1 from its input. Its component vote rows are for the prior confirmed candle only.
+9. From TradingView's chart menu, export chart data to CSV. It includes the TV26.total/ma/osc ratings, TV26.bar_open_time, TV26.open/high/low/close/volume for that prior candle, and all 26 TV26 component vote columns. Align rows with the MT5 audit CSV using the same closed-candle timestamp and OHLCV.
 
 Safety and validation:
 - This package has compile proof only; no Strategy Tester or live TradingView parity result is implied.
