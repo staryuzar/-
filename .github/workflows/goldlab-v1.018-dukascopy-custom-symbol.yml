@@ -49,6 +49,8 @@ jobs:
               $ea -notmatch '(?m)^input bool\s+InpTestForceInvalidStopsOnce\s*=\s*false;' -or
               $importer -notmatch 'CustomRatesUpdate\(' -or
               $importer -notmatch 'CustomTicksReplace\(' -or
+              $importer -notmatch 'CustomSymbolSetDouble\(InpCustomSymbol,SYMBOL_POINT,0\.001\)' -or
+              $importer -notmatch 'symbol_point=' -or
               -not $script.Contains('/portable') -or
               $qualityLine -lt 0 -or $checksLine -lt 0 -or $qualityLine -ge $checksLine -or
               -not $script.Contains('$historyQuality -ne "100% real ticks"') -or
