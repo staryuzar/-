@@ -75,7 +75,11 @@ Do not enable real-account trading based on this audit alone.
 - Stochastic RSI trend and Bulls/Bears Power trend filters use the close's position relative to EMA(50), without an extra one-bar RSI-slope test or EMA-slope gate.
 - The ADX sell condition follows the current Screener help page (ADX rising); the separate Technical Ratings help page describes ADX falling for sell. This official-documentation conflict remains a live-parity check item rather than something to conceal.
 - For BBP period, the parity target is the public `TechnicalRating/3` library's 50-period component, not the standalone BBP indicator page's default parameter of 13.
-- Source changes after the initial candidate are being checked with fresh MetaEditor workflow runs; do not distribute a compiled build until the run corresponding to the latest source commit finishes successfully.
+- Latest source tree has a successful MetaEditor compile-only run: [GitHub Actions run 39947271614](https://github.com/staryuzar/-/actions/runs/39947271614), commit `684154bb7cff7c17ab501918bdd92401a5759347` (this commit updates documentation; the compiled EA code includes source commit `481247ec462d555320d28fc2bf81dcca97d071ed`). Report: 0 errors, 0 warnings; EX5 size 41,408 bytes. This proves compilation, not indicator parity or profitability.
+
+### Comparator caveat
+
+The current `TradingView_Parity_5TF.pine` file still uses `request.security(..., lookahead=barmerge.lookahead_off)` without shifting the rating expressions to the previous confirmed higher-timeframe bar. It may therefore show a developing HTF rating while MT5 reports the last closed bar. The Pine comparison panel has not yet been updated/validated for closed-bar parity; do not use it as proof of same-candle equality until this is corrected and compiled in TradingView.
 
 ## TradingView-side reference panel
 A Pine Script reference indicator was added at [TradingView_Parity_5TF.pine](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Parity_5TF.pine). It imports TradingView's public TechnicalRating v3 library and displays overall, MA and oscillator ratings for M1/M5/M15/M30/H1. It is a summary comparison aid; it does not expose all 26 component states individually.
