@@ -44,7 +44,8 @@ $auditChecks = @(
   @{ Name = "component Pine uses v3 ADX rating condition"; File = "COMPONENT_PINE"; Text = "adx > 20 and adx > adx[1] and diP < diN" },
   @{ Name = "component table fits all votes and metadata"; File = "COMPONENT_PINE"; Text = "table.new(position.top_right, 3, 31, border_width=1)" },
   @{ Name = "component Pine exports its aligned closed-bar timestamp"; File = "COMPONENT_PINE"; Text = 'plot(closedBarTime, "TV26.bar_open_time", display=display.data_window)' },
-  @{ Name = "component Pine exports individual votes for CSV comparison"; File = "COMPONENT_PINE"; Text = 'plot(rBullBear, "TV26.BullBearPower", display=display.data_window)' }
+  @{ Name = "component Pine exports individual votes for CSV comparison"; File = "COMPONENT_PINE"; Text = 'plot(rBullBear, "TV26.BullBearPower", display=display.data_window)' },
+  @{ Name = "component Pine exports same-bar closed OHLCV"; File = "COMPONENT_PINE"; Text = 'plot(closedClose, "TV26.close", display=display.data_window)' }
 )
 $auditFailures = @()
 foreach ($check in $auditChecks) {
@@ -64,11 +65,11 @@ if ($auditFailures.Count -gt 0) {
   throw ("Static parity audit failed: " + ($auditFailures -join "; "))
 }
 $componentPlotCount = [regex]::Matches($componentPineText, '(?m)^plot\(').Count
-if ($componentPlotCount -lt 30) {
-  "STATIC AUDIT FAIL: component Pine exports only $componentPlotCount plot series; expected at least 30" | Add-Content -LiteralPath $report -Encoding utf8
-  throw "Component Pine must export 3 ratings + closed-bar time + 26 component votes."
+if ($componentPlotCount -lt 35) {
+  "STATIC AUDIT FAIL: component Pine exports only $componentPlotCount plot series; expected at least 35" | Add-Content -LiteralPath $report -Encoding utf8
+  throw "Component Pine must export 3 ratings + closed-bar time + OHLCV + 26 component votes."
 }
-"STATIC AUDIT PASS: component Pine export series count = $componentPlotCount (minimum 30)" | Add-Content -LiteralPath $report -Encoding utf8
+"STATIC AUDIT PASS: component Pine export series count = $componentPlotCount (minimum 35)" | Add-Content -LiteralPath $report -Encoding utf8
 "Static regression audit: PASS ($($auditChecks.Count) checks + component export count)" | Add-Content -LiteralPath $report -Encoding utf8
 
 $uri = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
