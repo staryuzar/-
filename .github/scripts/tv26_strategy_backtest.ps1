@@ -17,6 +17,21 @@ $endDate = [datetime]::ParseExact($testTo,"yyyy.MM.dd",$culture)
 if ($endDate -le $startDate) { throw "TV26_TEST_TO must be later than TV26_TEST_FROM; ToDate is exclusive." }
 $rangeLabelStart = $startDate.ToString("yyyy-MM-dd",$culture)
 $rangeLabelEnd = $endDate.AddDays(-1).ToString("yyyy-MM-dd",$culture)
+$testRiskText = [string]$env:TV26_TEST_RISK_PERCENT
+$testStopText = [string]$env:TV26_TEST_STOP_ATR
+$testTargetText = [string]$env:TV26_TEST_TARGET_ATR
+if ([string]::IsNullOrWhiteSpace($testRiskText)) { $testRiskText = "0.50" }
+if ([string]::IsNullOrWhiteSpace($testStopText)) { $testStopText = "2.0" }
+if ([string]::IsNullOrWhiteSpace($testTargetText)) { $testTargetText = "3.0" }
+$testRisk = [decimal]::Parse($testRiskText,$culture)
+$testStop = [decimal]::Parse($testStopText,$culture)
+$testTarget = [decimal]::Parse($testTargetText,$culture)
+if ($testRisk -le 0 -or $testRisk -gt 2.0 -or $testStop -le 0 -or $testTarget -le 0) {
+  throw "Risk and ATR multipliers are invalid. Risk must be >0 and <=2; stop/target multipliers must be >0."
+}
+$testRiskText = $testRisk.ToString("0.00",$culture)
+$testStopText = $testStop.ToString("0.00",$culture)
+$testTargetText = $testTarget.ToString("0.00",$culture)
 New-Item -ItemType Directory -Path $root,$install,$reports -Force | Out-Null
 
 # Credentials exist only in the configured GitHub Actions secret.
@@ -110,10 +125,10 @@ InpEnableTrading=true||true||0||true||N
 InpDemoOnly=true||true||0||true||N
 InpTesterOnly=true||true||0||true||N
 InpMagic=26102327||26102327||1||26102327||N
-InpRiskPercent=0.50||0.50||0.10||0.50||N
+InpRiskPercent=$testRiskText||$testRiskText||0.10||$testRiskText||N
 InpATRPeriod=14||14||1||14||N
-InpStopATR=2.0||2.0||0.5||2.0||N
-InpTargetATR=3.0||3.0||0.5||3.0||N
+InpStopATR=$testStopText||$testStopText||0.5||$testStopText||N
+InpTargetATR=$testTargetText||$testTargetText||0.5||$testTargetText||N
 InpMaxSpreadPoints=100.0||100.0||10.0||100.0||N
 InpDeviationPoints=20||20||1||20||N
 InpTF1=1||1||1||1||N
@@ -162,7 +177,7 @@ UseCloud=0
 Visual=0
 "@
   [System.IO.File]::WriteAllText($config,$ini,[System.Text.UTF8Encoding]::new($false))
-  "Tester configured: M1 chart; date range $rangeLabelStart to $rangeLabelEnd; InpEnableTrading=true; InpDemoOnly=true; InpTesterOnly=true. Orders are simulated inside MT5 Strategy Tester only." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Tester configured: M1 chart; date range $rangeLabelStart to $rangeLabelEnd; risk=$testRiskText percent; SL=$testStopText ATR; TP=$testTargetText ATR; InpEnableTrading=true; InpDemoOnly=true; InpTesterOnly=true. Orders are simulated inside MT5 Strategy Tester only." | Add-Content -LiteralPath $summary -Encoding utf8
   $env:MT5_CREDENTIALS = $null
   $accountPasswordForRedaction = $accountPassword
   $accountPassword = $null
@@ -245,14 +260,17 @@ Visual=0
     '(?is)InpEnableTrading=true</b>',
     '(?is)InpDemoOnly=true</b>',
     '(?is)InpTesterOnly=true</b>',
-    '(?is)InpMagic=26102327</b>'
+    '(?is)InpMagic=26102327</b>',
+    '(?is)InpRiskPercent=' + [regex]::Escape($testRiskText) + '</b>',
+    '(?is)InpStopATR=' + [regex]::Escape($testStopText) + '</b>',
+    '(?is)InpTargetATR=' + [regex]::Escape($testTargetText) + '</b>'
   )
   foreach ($pattern in $expectedInputs) {
     if ($html -notmatch $pattern) {
       throw "Tester report does not confirm required safe backtest input pattern: $pattern"
     }
   }
-  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327)." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR)." | Add-Content -LiteralPath $summary -Encoding utf8
   function Get-TesterMetric([string]$ReportHtml,[string]$Label) {
     $pattern = '(?is)<td[^>]*>\s*' + [regex]::Escape($Label) + '\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>'
     $match = [regex]::Match($ReportHtml,$pattern)
