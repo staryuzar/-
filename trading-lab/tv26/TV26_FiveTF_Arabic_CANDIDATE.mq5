@@ -147,8 +147,8 @@ bool InitHandles()
    for(int t=0;t<N_TF;t++)
    {
       for(int j=0;j<N_RATINGS;j++) g_handles[t][j]=INVALID_HANDLE;
-      g_bulls[t]=iBullsPower(_Symbol,g_tfs[t],13);
-      g_bears[t]=iBearsPower(_Symbol,g_tfs[t],13);
+      g_bulls[t]=iBullsPower(_Symbol,g_tfs[t],50);
+      g_bears[t]=iBearsPower(_Symbol,g_tfs[t],50);
       g_atr[t]=iATR(_Symbol,g_tfs[t],InpATRPeriod);
       g_trendEMA[t]=iMA(_Symbol,g_tfs[t],13,0,MODE_EMA,PRICE_CLOSE);
       int periods[12]={10,10,20,20,30,30,50,50,100,100,200,200};
