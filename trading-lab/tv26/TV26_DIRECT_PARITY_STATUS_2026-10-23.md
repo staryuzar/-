@@ -8,8 +8,8 @@
 
 1. تجميع المستشار عبر MetaEditor السحابي نجح بلا أخطاء أو تحذيرات: https://github.com/staryuzar/-/actions/runs/39982542961
 2. اختبارات أداة المقارنة نجحت، بما فيها اختبار اكتشاف اختلاف مكوّن واحد واختبار اختلاف التوقيت: https://github.com/staryuzar/-/actions/runs/39982542836
-3. تدقيق MT5 سحابي ناجح لبيانات XAUUSD على M1/M5/M15/M30/H1: https://github.com/staryuzar/-/actions/runs/39982090545
-4. أثر بيانات التدقيق: https://github.com/staryuzar/-/actions/artifacts/12514147089
+3. تدقيق MT5 سحابي ناجح لبيانات XAUUSD على M1/M5/M15/M30/H1: https://github.com/staryuzar/-/actions/runs/39985703535
+4. أثر بيانات التدقيق: https://github.com/staryuzar/-/actions/artifacts/12516120112
 
 في التدقيق الأخير:
 - سجل MT5: 146,664 صفًا.
