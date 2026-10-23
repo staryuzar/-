@@ -30,6 +30,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $files = @(
             ".github/scripts/goldlab_advisor_ordercheck_diagnostic.ps1",
+            ".github/scripts/goldlab_holdout_evaluation.ps1",
             ".github/scripts/goldlab_mt5_test.ps1",
             ".github/scripts/goldlab_environment_preflight.ps1"
           )
@@ -59,13 +60,18 @@ jobs:
           $diagnostic = Get-Content -LiteralPath ".github/scripts/goldlab_advisor_ordercheck_diagnostic.ps1" -Raw
           $tester = Get-Content -LiteralPath ".github/scripts/goldlab_mt5_test.ps1" -Raw
           $ea = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabEA.mq5" -Raw
+          $holdout = Get-Content -LiteralPath ".github/scripts/goldlab_holdout_evaluation.ps1" -Raw
           $controls = @(
             @{ Name = "development ToDate fixed at 2026.10.20"; Pass = ($diagnostic.Contains("ToDate=2026.10.20") -and -not $diagnostic.Contains("ToDate=2026.10.21")) },
             @{ Name = "exact report period guard present"; Pass = ($diagnostic.Contains('2026\.08\.05 - 2026\.10\.20') -and $diagnostic.Contains('Period:')) },
             @{ Name = "HTML/CSV/deal/date reconciliation gate present"; Pass = ($diagnostic.Contains("MT5 HTML") -and $diagnostic.Contains("deal CSV/date-quality gate")) },
             @{ Name = "tester explicitly disables live trading"; Pass = $tester.Contains("AllowLiveTrading=0") },
             @{ Name = "EA refuses real-account execution outside tester"; Pass = $ea.Contains("accountMode==ACCOUNT_TRADE_MODE_REAL && !testerMode") },
-            @{ Name = "EA checks OrderCheck and OrderSend retcodes"; Pass = ($ea.Contains("PreflightTradeRequest(request") -and $ea.Contains("TradeRetcodeAccepted(result.retcode)")) }
+            @{ Name = "EA checks OrderCheck and OrderSend retcodes"; Pass = ($ea.Contains("PreflightTradeRequest(request") -and $ea.Contains("TradeRetcodeAccepted(result.retcode)")) },
+            @{ Name = "holdout wrapper UTC lock matches 2026-10-24T12:00:00Z"; Pass = $holdout.Contains("2026-10-24T12:00:00Z") },
+            @{ Name = "holdout wrapper pins expected EA hash"; Pass = $holdout.Contains("149e0e84be72c92246ffca6be1a8c566d4b99645f941d12ebebc3aff0bd4755c") },
+            @{ Name = "holdout report boundary uses 2026.10.21 through 2026.10.24"; Pass = ($holdout.Contains("FromDate=2026.10.21") -and $holdout.Contains("ToDate=2026.10.24")) },
+            @{ Name = "holdout CSV gate has exclusive end bound"; Pass = $holdout.Contains("2026.10.24 00:00:00") -and $holdout.Contains("Out-of-window CSV deals") }
           )
           foreach ($control in $controls) {
             if ($control.Pass) { Write-Host ("CONTROL PASS: " + $control.Name) }
