@@ -1,4 +1,4 @@
-name: GoldLab Random Delay — SLTP Race Diagnostic v1.015
+name: GoldLab Random Delay — SLTP Race Diagnostic v1.016
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
     env:
       MT5_CREDENTIALS: ${{ secrets.mt5 }}
     steps:
-      - name: Checkout isolated v1.015 diagnostic branch
+      - name: Checkout isolated v1.016 retry-buffer experiment
         uses: actions/checkout@v4
 
       - name: Parse PowerShell diagnostic before starting MT5
