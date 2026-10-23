@@ -1,0 +1,72 @@
+name: GoldLab v1.018 Pre-Development Regime Backtest — Mar 26 to Aug 4
+
+on:
+  push:
+    branches: [goldlab-v1.018-early-regime]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_sltp_early_regime_v1_018.ps1"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/workflows/goldlab-v1.018-early-regime.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-shared-headway-mt5
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  early-regime:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout frozen v1.018 candidate
+        uses: actions/checkout@v4
+
+      - name: Parse and verify early-regime harness before MT5 launch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $file = ".github/scripts/goldlab_sltp_early_regime_v1_018.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            foreach ($e in $errors) { Write-Host ("PARSE FAIL line {0}: {1}" -f $e.Extent.StartLineNumber,$e.Message) }
+            throw "Early-regime PowerShell harness parse failed; MT5 not launched."
+          }
+          $harness = Get-Content -LiteralPath $file -Raw
+          $ea = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabEA.mq5" -Raw
+          if ($ea -notmatch '(?m)^#property version\s+"1\.018"' -or
+              $ea -notmatch 'OPEN_STOP_RETRY_BUFFER_CAPPED' -or
+              -not $harness.Contains('FromDate=2026.03.26') -or
+              -not $harness.Contains('ToDate=2026.08.05') -or
+              -not $harness.Contains('InpStopRetryBufferATR=0.50') -or
+              -not $harness.Contains('InpTestForceInvalidStops=false') -or
+              -not $harness.Contains('$qaBars -lt 10000') -or
+              -not $harness.Contains('$qaTicks -lt 10000000')) {
+            throw "Early-regime harness/source mismatch or insufficient historical data-quality guards."
+          }
+          if ($harness -match '(?i)(InpTestForceInvalidStopsOnce\s*=\s*true|(?<!\w)-ForceInvalidStopsOnce(?:\s|$))') {
+            throw "Tester-only fault injection must remain disabled in this natural-execution run."
+          }
+          Write-Host ("PASS: PowerShell parsed {0} tokens; pre-development window, 10,000-bar/10M-tick gates, and injection-off checks verified." -f $tokens.Count)
+
+      - name: Compile and run pre-development regime backtest using real ticks
+        shell: pwsh
+        run: .github/scripts/goldlab_sltp_early_regime_v1_018.ps1
+
+      - name: Upload MT5 report, deal CSV, journals and reconciliation summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-v1-018-early-regime-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
