@@ -110,7 +110,7 @@ bool TVStochasticValues(ENUM_TIMEFRAMES tf,double &kOut,double &dOut)
    const int rangePeriod=14;
    const int smoothK=3;
    const int smoothD=3;
-   const int rawCount=smoothK+smoothD-2; // 5 raw %K values feed the two-stage smoothing.
+   const int rawCount=smoothK+smoothD-1; // 5 raw %K values feed the two-stage smoothing.
    const int need=rawCount+rangePeriod-1; // shifts 1..18, including the closed candle.
    if(!ReadRates(tf,need,1,rates)) return false;
    double raw[];
