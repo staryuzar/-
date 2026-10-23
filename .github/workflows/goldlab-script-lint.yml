@@ -61,7 +61,7 @@ jobs:
           $ea = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabEA.mq5" -Raw
           $controls = @(
             @{ Name = "development ToDate fixed at 2026.10.20"; Pass = ($diagnostic.Contains("ToDate=2026.10.20") -and -not $diagnostic.Contains("ToDate=2026.10.21")) },
-            @{ Name = "exact report period guard present"; Pass = ($diagnostic.Contains('2026\\.08\\.05 - 2026\\.10\\.20') -and $diagnostic.Contains('Period:')) },
+            @{ Name = "exact report period guard present"; Pass = ($diagnostic.Contains('2026\.08\.05 - 2026\.10\.20') -and $diagnostic.Contains('Period:')) },
             @{ Name = "HTML/CSV/deal/date reconciliation gate present"; Pass = ($diagnostic.Contains("MT5 HTML") -and $diagnostic.Contains("deal CSV/date-quality gate")) },
             @{ Name = "tester explicitly disables live trading"; Pass = $tester.Contains("AllowLiveTrading=0") },
             @{ Name = "EA refuses real-account execution outside tester"; Pass = $ea.Contains("accountMode==ACCOUNT_TRADE_MODE_REAL && !testerMode") },
