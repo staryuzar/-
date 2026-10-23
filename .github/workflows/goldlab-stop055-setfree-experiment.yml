@@ -1,0 +1,79 @@
+name: GoldLab Stop 0.55 ATR — SET-free controlled experiment
+
+on:
+  push:
+    branches: [goldlab-stop055-setfree-experiment]
+    paths:
+      - ".github/scripts/goldlab_stop055_setfree_experiment.ps1"
+      - ".github/scripts/goldlab_mt5_test_setfree.ps1"
+      - ".github/workflows/goldlab-stop055-setfree-experiment.yml"
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-mt5-setfree-development
+  cancel-in-progress: false
+
+jobs:
+  stop035-setfree-experiment:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated SET-free ADX 23–25 baseline control
+        uses: actions/checkout@v4
+
+      - name: Parse PowerShell and verify stop055 input/date guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $files = @(
+            ".github/scripts/goldlab_stop055_setfree_experiment.ps1",
+            ".github/scripts/goldlab_mt5_test_setfree.ps1"
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              foreach ($parseError in $parseErrors) { Write-Host ("${file}: line $($parseError.Extent.StartLineNumber): $($parseError.Message)") }
+              throw "PowerShell parse failed for $file"
+            }
+            Write-Host "PARSE PASS: $file"
+          }
+          $experiment = Get-Content -LiteralPath ".github/scripts/goldlab_stop055_setfree_experiment.ps1" -Raw
+          $runner = Get-Content -LiteralPath ".github/scripts/goldlab_mt5_test_setfree.ps1" -Raw
+          $controls = @(
+            @{ Name = "ADX max 25 and stop 0.55 are baked into temporary test copy"; Pass = $experiment.Contains("InpMaxADX              = 25.0;") },
+            @{ Name = "short-only and stop 0.55 are baked"; Pass = ($experiment.Contains("InpAllowLong            = false;") -and $experiment.Contains("InpStopATR             = 0.55;")) },
+            @{ Name = "signal candle and EMA rejection are baked"; Pass = ($experiment.Contains("InpRequireSignalCandleDirection = true;") -and $experiment.Contains("InpRequireFastEMARejection = true;")) },
+            @{ Name = "SET-free runner source override exists"; Pass = $runner.Contains("GOLDLAB_RUNTIME_EA_SOURCE") },
+            @{ Name = "all live trading disabled"; Pass = $runner.Contains("AllowLiveTrading=0") },
+            @{ Name = "test end is before holdout"; Pass = ($experiment.Contains("ToDate=2026.10.20") -and -not $experiment.Contains("ToDate=2026.10.21")) },
+            @{ Name = "wrapper explicitly omits ExpertParameters"; Pass = $experiment.Contains("ExpertParameters intentionally omitted; use runtime input defaults") }
+          )
+          $failed = $false
+          foreach ($control in $controls) {
+            if ($control.Pass) { Write-Host ("CONTROL PASS: " + $control.Name) }
+            else { Write-Host ("CONTROL FAIL: " + $control.Name); $failed = $true }
+          }
+          if ($failed) { throw "SET-free baseline input/date safety gate failed." }
+
+      - name: Compile and run MT5 using temporary input-baked EA copy
+        shell: pwsh
+        run: .github/scripts/goldlab_stop055_setfree_experiment.ps1
+
+      - name: Upload stop055 report, temporary source, logs, and deal audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-stop055-setfree-experiment-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
