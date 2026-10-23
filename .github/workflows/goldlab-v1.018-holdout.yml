@@ -1,0 +1,73 @@
+name: GoldLab v1.018 Independent Holdout Backtest — Oct 20-22
+
+on:
+  push:
+    branches: [goldlab-v1.018-holdout-smoke]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_sltp_holdout_v1_018.ps1"
+      - ".github/workflows/goldlab-v1.018-holdout.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-shared-headway-mt5
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  holdout:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated v1.018 candidate
+        uses: actions/checkout@v4
+
+      - name: Parse and verify independent holdout harness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $file = ".github/scripts/goldlab_sltp_holdout_v1_018.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            foreach ($e in $errors) { Write-Host ("PARSE FAIL line {0}: {1}" -f $e.Extent.StartLineNumber,$e.Message) }
+            throw "Holdout PowerShell harness parse failed; MT5 not launched."
+          }
+          $harness = Get-Content -LiteralPath $file -Raw
+          $ea = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabEA.mq5" -Raw
+          if ($ea -notmatch '(?m)^#property version\s+"1\.018"' -or
+              $ea -notmatch 'OPEN_STOP_RETRY_BUFFER_CAPPED' -or
+              -not $harness.Contains('FromDate=2026.10.20') -or
+              -not $harness.Contains('ToDate=2026.10.23') -or
+              -not $harness.Contains('InpStopRetryBufferATR=0.50') -or
+              -not $harness.Contains('InpTestForceInvalidStopsOnce=false') -or
+              -not $harness.Contains('2026\.10\.20 - 2026\.10\.23') -or
+              -not $harness.Contains('$qaBars -lt 600') -or
+              -not $harness.Contains('$qaTicks -lt 1000000')) {
+            throw "Holdout harness/source mismatch or incorrect time-window/data-quality guards."
+          }
+          if ($harness -match '(?i)(InpTestForceInvalidStopsOnce\s*=\s*true|(?<!\w)-ForceInvalidStopsOnce(?:\s|$))') {
+            throw "Tester-only fault injection must stay disabled in holdout evaluation."
+          }
+          Write-Host ("PASS: PowerShell parsed {0} tokens; Oct 20-22 holdout window, 600-bar/1M-tick quality gates, and injection-off guards verified." -f $tokens.Count)
+
+      - name: Compile and run independent holdout with natural execution only
+        shell: pwsh
+        run: .github/scripts/goldlab_sltp_holdout_v1_018.ps1
+
+      - name: Upload MT5 report, deal CSV, journals and reconciliation summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-v1-018-holdout-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
