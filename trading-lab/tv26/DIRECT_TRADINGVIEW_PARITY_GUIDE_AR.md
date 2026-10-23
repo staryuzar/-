@@ -18,7 +18,7 @@ GitHub يستطيع تجميع MQL5 وتشغيل Strategy Tester، لكنه لا
 1. افتح مخطط الذهب في TradingView واختر الرمز/مصدر الأسعار الأقرب إلى مصدر XAUUSD في MT5. إذا اختلف مصدر الأسعار، لا نعتبر اختلاف التصويت دليلًا على خطأ المعادلة قبل فحص OHLC.
 2. افتح Pine Editor، والصق محتوى trading-lab/tv26/TradingView_Parity_Components_1TF.pine كاملًا، ثم اختر Save وAdd to chart.
 3. اجعل قيمة إعداد «الإطار الزمني المراد تدقيقه» واحدة من: 1 أو 5 أو 15 أو 30 أو 60.
-4. من قائمة المخطط اختر Export chart data، وصدّر CSV متضمنًا أعمدة المؤشر. يفضل تصدير فترة تشمل 1–3 سبتمبر 2026 على الأقل لتتطابق مع تدقيق MT5 السحابي الافتراضي.
+4. من قائمة المخطط اختر Export chart data، وصدّر CSV متضمنًا أعمدة المؤشر. يوضح توثيق TradingView الرسمي أن التصدير يشمل مخرجات plot حتى لو ظهرت في Data Window فقط: https://www.tradingview.com/pine-script-docs/faq/indicators/ وطريقة التصدير: https://www.tradingview.com/support/solutions/43000537255-how-to-export-chart-data/. يفضّل أن تشمل الفترة 1–3 سبتمبر 2026 لتتداخل مع تدقيق MT5 السحابي الافتراضي.
 5. كرر الخطوتين 3–4 للإطارات الخمسة، وسمّ الملفات بالضبط:
    - TV26_M1.csv
    - TV26_M5.csv
