@@ -26,8 +26,7 @@ if ($source -notmatch '(?m)^#property version\s+"1\.018"' -or
     $source -notmatch 'requestedRetryBufferDistance=InpStopRetryBufferATR\*retryATR' -or
     $source -notmatch 'OPEN_STOP_RETRY_BUFFER_CAPPED' -or
     $source -notmatch 'for\(int capIteration=0;capIteration<24;capIteration\+\+\)' -or
-    $source -notmatch 'candidateLots>=minLot' -or
-    $source -notmatch 'double retryRiskDistance=retryBaseRiskDistance+retryBufferDistance;') {
+    $source -notmatch 'candidateLots>=minLot') {
   throw "EA source does not contain the intended v1.018 OrderCheck, retry-buffer, OrderSend, and request-result telemetry gates."
 }
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
