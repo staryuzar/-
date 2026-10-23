@@ -89,9 +89,9 @@ bool LoadRates(MqlRates &rates[],long &first_time,long &last_time)
       rates[n].high=h;
       rates[n].low=l;
       rates[n].close=c;
-      rates[n].tick_volume=(ulong)(vol>0 ? vol : 0);
+      rates[n].tick_volume=(vol>0 ? vol : 0);
       rates[n].spread=0;
-      rates[n].real_volume=(ulong)(vol>0 ? vol : 0);
+      rates[n].real_volume=(vol>0 ? vol : 0);
       if(first_time==0) first_time=stamp;
       last_time=stamp;
       previous=stamp;
