@@ -35,7 +35,8 @@ int g_bulls[N_TF], g_bears[N_TF], g_atr[N_TF];
 int g_scores[N_TF][N_RATINGS];
 bool g_working[N_TF][N_RATINGS];
 double g_rating[N_TF];
-int g_ready[N_TF];
+double g_maRating[N_TF], g_oscRating[N_TF];
+int g_ready[N_TF], g_maReady[N_TF], g_oscReady[N_TF];
 datetime g_lastM1Bar=0;
 datetime g_lastPanelUpdate=0;
 string g_lastAction="لم يُرسل أي أمر";
@@ -69,10 +70,10 @@ string SignalName(int s)
 string SummaryName(double r,int ready)
 {
    if(ready<N_RATINGS) return "غير مكتمل";
-   if(r>=STRONG) return "شراء قوي";
-   if(r>=0.10) return "شراء";
-   if(r<=-STRONG) return "بيع قوي";
-   if(r<=-0.10) return "بيع";
+   if(r>STRONG) return "شراء قوي";
+   if(r>0.10) return "شراء";
+   if(r< -STRONG) return "بيع قوي";
+   if(r< -0.10) return "بيع";
    return "حياد";
 }
 bool ReadBuf(int handle,int buffer,int shift,double &v)
@@ -279,14 +280,16 @@ void EvaluateAll()
 {
    for(int t=0;t<N_TF;t++)
    {
-      int sum=0; g_ready[t]=0;
+      int maSum=0,oscSum=0; g_ready[t]=0; g_maReady[t]=0; g_oscReady[t]=0;
       for(int j=0;j<N_RATINGS;j++)
       {
          int s=0; bool ok=ComputeOne(t,j,s);
          g_working[t][j]=ok; g_scores[t][j]=(ok?s:0);
-         if(ok){sum+=s;g_ready[t]++;}
+         if(ok){g_ready[t]++; if(j<15){maSum+=s;g_maReady[t]++;}else{oscSum+=s;g_oscReady[t]++;}}
       }
-      g_rating[t]=(g_ready[t]>0 ? (double)sum/(double)g_ready[t] : 0.0);
+      g_maRating[t]=(g_maReady[t]>0 ? (double)maSum/(double)g_maReady[t] : 0.0);
+      g_oscRating[t]=(g_oscReady[t]>0 ? (double)oscSum/(double)g_oscReady[t] : 0.0);
+      g_rating[t]=(g_maReady[t]==15 && g_oscReady[t]==11 ? (g_maRating[t]+g_oscRating[t])/2.0 : 0.0);
    }
 }
 int AlignedSignal()
@@ -305,9 +308,11 @@ void DrawPanel()
 {
    string p="مستشار تقييم TV26 | الذهب: "+_Symbol+"\n";
    p+="المكونات: 26 (15 متوسطاً + 11 مذبذباً) | الإطار مبني على شموع مغلقة\n";
-   p+="الإطار | الملخص | المؤشرات العاملة\n";
+   p+="الإطار | الملخص العام | المتوسطات | المذبذبات | الجاهز\n";
    for(int t=0;t<N_TF;t++)
-      p+=TFName(g_tfs[t])+" | "+SummaryName(g_rating[t],g_ready[t])+" ("+DoubleToString(g_rating[t],3)+") | "+IntegerToString(g_ready[t])+"/26\n";
+      p+=TFName(g_tfs[t])+" | "+SummaryName(g_rating[t],g_ready[t])+" ("+DoubleToString(g_rating[t],3)+") | "+
+         SummaryName(g_maRating[t],g_maReady[t])+" | "+SummaryName(g_oscRating[t],g_oscReady[t])+" | "+
+         IntegerToString(g_ready[t])+"/26\n";
    p+="\nحالة كل مؤشر في الأطر الخمسة: د1 / د5 / د15 / د30 / س1\n";
    for(int j=0;j<N_RATINGS;j++)
    {
