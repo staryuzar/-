@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from reference_tv26_formulas import KEY_TO_LABEL, TF_LABEL, compute_votes, rma, run_audit, MA_KEYS, OSC_KEYS
+from reference_tv26_formulas import KEY_TO_LABEL, TF_LABEL, compute_votes, rma, run_audit, MA_KEYS, OSC_KEYS, sign_price_level
 
 AUDIT_FIELDS = ["bar_open_time_server", "symbol", "broker_company", "broker_server", "timeframe",
                 "component", "readiness", "vote", "value_a", "value_b", "value_c", "value_d", "value_e",
@@ -40,6 +40,13 @@ def generated_ohlc(start: datetime, count: int, step: int):
 
 
 class TV26FormulaReferenceTests(unittest.TestCase):
+    def test_price_ma_comparison_suppresses_float_noise(self):
+        close = pd.Series([4399.14, 4400.00])
+        almost_equal = pd.Series([4399.139999999999, 4399.99])
+        votes = sign_price_level(close, almost_equal)
+        self.assertEqual(votes.iloc[0], 0.0)
+        self.assertEqual(votes.iloc[1], 1.0)
+
     def test_wilder_rma_uses_sma_seed_then_recursive_smoothing(self):
         result = rma(pd.Series([1.0, 2.0, 3.0, 4.0, 5.0]), 3)
         self.assertTrue(math.isnan(result.iloc[0]))
