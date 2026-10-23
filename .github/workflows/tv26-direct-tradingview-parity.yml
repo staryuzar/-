@@ -42,10 +42,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          missing=0
           for tf in M1 M5 M15 M30 H1; do
-            test -s "trading-lab/tv26/parity-input/TV26_${tf}.csv"
+            file="trading-lab/tv26/parity-input/TV26_${tf}.csv"
+            if [[ ! -s "$file" ]]; then
+              echo "::error title=Missing TradingView export::Upload $file from Pine chart-data export; see trading-lab/tv26/DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md."
+              missing=1
+            fi
           done
-          test -s trading-lab/tv26/parity-input/MT5_Audit.csv
+          if [[ ! -s trading-lab/tv26/parity-input/MT5_Audit.csv ]]; then
+            echo "::error title=Missing MT5 audit::The cloud MT5 audit artifact was not materialized."
+            missing=1
+          fi
+          if [[ "$missing" != "0" ]]; then exit 2; fi
       - name: Compare component votes and summary ratings for all five timeframes
         shell: bash
         run: |
