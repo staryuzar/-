@@ -155,3 +155,12 @@ Example (replace 3 only if MT5 server timestamps are actually UTC+3; determine t
     python trading-lab/tv26/compare_tv26_csv.py --mt5 MT5_AUDIT.csv --tv TV26_TRADINGVIEW_EXPORT.csv --timeframe M1 --mt5-utc-offset-hours 3 --min-bars 10
 
 Run separately for M5, M15, M30 and H1, with the TradingView Pine input and comparison timeframe set to the same frame. PASS is limited to the two files and timeframe tested; it does not prove profitability. Use a mismatch report to isolate the component and candle before changing any formula.
+
+
+## Verified cloud run record — 2026-10-23
+
+The first successful hosted MT5 audit and manual post-run integrity review are recorded in [TV26_CLOUD_AUDIT_2026-10-23.md](TV26_CLOUD_AUDIT_2026-10-23.md). The run itself is [GitHub Actions 39955800878](https://github.com/staryuzar/-/actions/runs/39955800878), with raw artifact [12502193295](https://github.com/staryuzar/-/actions/runs/39955800878/artifacts/12502193295). It exported 5,432 complete summary candles across the five frames and 141,232 ready component votes. Recalculation of the three summary scores from the exported component votes found zero internal arithmetic mismatches.
+
+The script validate_tv26_mt5_audit.py now independently checks CSV structure, all 26 votes per candle, readiness, timestamp format, duplicate rows, OHLC sanity, and the relationship between component votes and aggregate scores. Its tests cover complete data, a missing vote, a wrong aggregate score and an invalid vote. The cloud workflow now runs this validator and saves its Markdown/JSON findings as evidence.
+
+**Important:** the above is an MT5 data-export and internal-consistency result. No actual TradingView-export CSV was available in that run, so the status is **not yet TradingView parity** and not a profitability finding.
