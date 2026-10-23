@@ -52,7 +52,7 @@ jobs:
           $parseErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$tokens, [ref]$parseErrors) | Out-Null
           if ($parseErrors.Count -gt 0) { throw "PowerShell wrapper parse failed before MT5 launch." }
-          if ($source -notmatch '(?m)^#property version\s+"1\.017"' -or
+          if ($source -notmatch '(?m)^#property version\s+"1\.018"' -or
               $source -notmatch 'if\(InpTestForceInvalidStopsOnce && !testerMode\)' -or
               $source -notmatch 'outcome=confirmed;request_id=' -or
               -not $wrapper.Contains("ForceInvalidStopsOnce") -or
@@ -75,7 +75,7 @@ jobs:
           Write-Host "Risk-capped retry guards PASS; tester fault injection remains off by default and blocked outside Strategy Tester."
       - name: Compile and exercise one forced INVALID_STOPS retry path in MT5
         shell: pwsh
-        run: .github/scripts/goldlab_sltp_race_diagnostic.ps1 -ForceInvalidStopsOnce -RetryBufferATR 0.05
+        run: .github/scripts/goldlab_sltp_race_diagnostic.ps1 -ForceInvalidStopsOnce -RetryBufferATR 0.50
       - name: Upload MT5 report, CSV, journals, and reconciled summary even on failure
         if: always()
         uses: actions/upload-artifact@v4
