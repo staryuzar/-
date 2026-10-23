@@ -42,7 +42,9 @@ $auditChecks = @(
   @{ Name = "component Pine checks Ichimoku span at [26]"; File = "COMPONENT_PINE"; Text = "lead1[26] > lead2[26]" },
   @{ Name = "component Pine uses BBP EMA(13) source rule"; File = "COMPONENT_PINE"; Text = "float bullPower = high - ta.ema(close, 13)" },
   @{ Name = "component Pine uses v3 ADX rating condition"; File = "COMPONENT_PINE"; Text = "adx > 20 and adx > adx[1] and diP < diN" },
-  @{ Name = "component table fits all votes and metadata"; File = "COMPONENT_PINE"; Text = "table.new(position.top_right, 3, 31, border_width=1)" }
+  @{ Name = "component table fits all votes and metadata"; File = "COMPONENT_PINE"; Text = "table.new(position.top_right, 3, 31, border_width=1)" },
+  @{ Name = "component Pine exports its aligned closed-bar timestamp"; File = "COMPONENT_PINE"; Text = 'plot(closedBarTime, "TV26.bar_open_time", display=display.data_window)' },
+  @{ Name = "component Pine exports individual votes for CSV comparison"; File = "COMPONENT_PINE"; Text = 'plot(rBullBear, "TV26.BullBearPower", display=display.data_window)' }
 )
 $auditFailures = @()
 foreach ($check in $auditChecks) {
