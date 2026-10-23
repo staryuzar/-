@@ -76,7 +76,7 @@ jobs:
           $controls = @(
             @{ Name = "development ToDate fixed at 2026.10.20"; Pass = ($diagnostic.Contains("ToDate=2026.10.20") -and -not $diagnostic.Contains("ToDate=2026.10.21")) },
             @{ Name = "exact report period guard present"; Pass = ($diagnostic.Contains('2026\.08\.05 - 2026\.10\.20') -and $diagnostic.Contains('Period:')) },
-            @{ Name = "target 3.0 ATR experiment isolates target and protects date boundary"; Pass = ($target30.Contains("InpTargetATR=3.0||3.0||0.1||3.0||N") -and $target30.Contains("InpMinADX=23.0") -and $target30.Contains("InpMaxADX=25.0") -and $target30.Contains("InpStopATR=0.45") -and $target30.Contains("ToDate=2026.10.20") -and -not $target30.Contains("ToDate=2026.10.21") -and $target30.Contains("Period:</td>")) },
+            @{ Name = "target 3.0 ATR experiment isolates target and protects date boundary"; Pass = ($target30.Contains("InpTargetATR=3.0||3.0||0.1||3.0||N") -and $target30.Contains("InpMinADX=23.0") -and $target30.Contains("InpMaxADX=25.0") -and $target30.Contains('InpStopATR=0\.45</b>') -and $target30.Contains("ToDate=2026.10.20") -and -not $target30.Contains("ToDate=2026.10.21") -and $target30.Contains("Period:</td>")) },
             @{ Name = "HTML/CSV/deal/date reconciliation gate present"; Pass = ($diagnostic.Contains("MT5 HTML") -and $diagnostic.Contains("deal CSV/date-quality gate")) },
             @{ Name = "development tick-coverage thresholds are enforced"; Pass = ($diagnostic.Contains("minimum 10000") -and $diagnostic.Contains("minimum 1000000")) },
             @{ Name = "tester explicitly disables live trading"; Pass = $tester.Contains("AllowLiveTrading=0") },
