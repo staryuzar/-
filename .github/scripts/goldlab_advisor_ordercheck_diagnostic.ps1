@@ -373,4 +373,86 @@ if ($requestOtherSummary -gt 0) {
 }
 "Request-result correlation gate: PASS (matched nonzero IDs=$matchedRequestIds; verified zero-ID signature fallbacks=$matchedZeroIdFallback; callbacks=$requestCallbackSummary; signature mismatches=0; other retcodes=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 
+# Reconcile the HTML report with the deal-level CSV; requests/callbacks are not trade counts.
+$qaFailures = [System.Collections.Generic.List[string]]::new()
+$qaReportPath = Join-Path $reports "GoldLab_ordercheck_adx25_min23_stop045_2026-08-05_to-2026-10-20.htm"
+$qaCsvDir = Join-Path $reports "trade-audit"
+$qaCsvFiles = @()
+if (Test-Path -LiteralPath $qaCsvDir) { $qaCsvFiles = @(Get-ChildItem -LiteralPath $qaCsvDir -Filter "*.csv" -File -ErrorAction SilentlyContinue) }
+$qaPeriod = ""; $qaQuality = ""; $qaNet = [double]::NaN; $qaTrades = -1; $qaDeals = -1
+$qaRows = @(); $qaCsvNet = [double]::NaN; $qaOpens = 0; $qaExits = 0; $qaDateViolations = 0
+if (!(Test-Path -LiteralPath $qaReportPath)) {
+  $qaFailures.Add("Expected MT5 report is missing.")
+} else {
+  $qaHtml = Get-Content -LiteralPath $qaReportPath -Raw
+  $m = [regex]::Match($qaHtml,'(?is)Period:</td>\s*<td[^>]*><b>\s*M5\s*\((\d{4}\.\d{2}\.\d{2})\s*-\s*(\d{4}\.\d{2}\.\d{2})\)\s*</b>')
+  if ($m.Success) {
+    $qaPeriod = "M5 ($($m.Groups[1].Value) - $($m.Groups[2].Value))"
+    if ($m.Groups[1].Value -ne "2026.08.05" -or $m.Groups[2].Value -ne "2026.10.20") { $qaFailures.Add("Unexpected MT5 report period: $qaPeriod") }
+  } else { $qaFailures.Add("Could not parse MT5 report period.") }
+  $m = [regex]::Match($qaHtml,'(?is)History Quality:</td>\s*<td[^>]*><b>\s*([^<]+?)\s*</b>')
+  if ($m.Success) { $qaQuality = $m.Groups[1].Value.Trim() }
+  if ($qaQuality -ne "100% real ticks") { $qaFailures.Add("Expected 100% real ticks, report shows '$qaQuality'.") }
+  $m = [regex]::Match($qaHtml,'(?is)Total Net Profit:</td>\s*<td[^>]*><b>\s*(-?[\d,]+(?:\.\d+)?)\s*</b>')
+  if ($m.Success) { $qaNet = [double]::Parse($m.Groups[1].Value.Replace(",",""),[Globalization.CultureInfo]::InvariantCulture) } else { $qaFailures.Add("Could not parse Total Net Profit.") }
+  $m = [regex]::Match($qaHtml,'(?is)Total Trades:</td>\s*<td[^>]*><b>\s*(\d+)\s*</b>')
+  if ($m.Success) { $qaTrades = [int]$m.Groups[1].Value } else { $qaFailures.Add("Could not parse Total Trades.") }
+  $m = [regex]::Match($qaHtml,'(?is)Total Deals:</td>\s*<td[^>]*><b>\s*(\d+)\s*</b>')
+  if ($m.Success) { $qaDeals = [int]$m.Groups[1].Value } else { $qaFailures.Add("Could not parse Total Deals.") }
+}
+if ($qaCsvFiles.Count -ne 1) {
+  $qaFailures.Add("Expected exactly one deal CSV, found $($qaCsvFiles.Count).")
+} else {
+  try { $qaRows = @(Import-Csv -LiteralPath $qaCsvFiles[0].FullName -ErrorAction Stop) } catch { $qaFailures.Add("Could not parse deal CSV: $($_.Exception.Message)") }
+  if ($qaRows.Count -eq 0) { $qaFailures.Add("Deal CSV is empty.") }
+  $qaIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+  $qaCsvNet = 0.0
+  $qaStart = [datetime]::ParseExact("2026.08.05 00:00:00","yyyy.MM.dd HH:mm:ss",[Globalization.CultureInfo]::InvariantCulture)
+  # MT5 ToDate is exclusive; reject even a single deal at or after 2026-10-20 00:00.
+  $qaEnd = [datetime]::ParseExact("2026.10.20 00:00:00","yyyy.MM.dd HH:mm:ss",[Globalization.CultureInfo]::InvariantCulture)
+  foreach ($row in $qaRows) {
+    if ([string]::IsNullOrWhiteSpace([string]$row.deal) -or [string]::IsNullOrWhiteSpace([string]$row.time)) {
+      $qaFailures.Add("Deal row is missing deal ID or timestamp."); continue
+    }
+    if (!$qaIds.Add([string]$row.deal)) { $qaFailures.Add("Duplicate deal ID $($row.deal).") }
+    if ([string]$row.symbol -ne "XAUUSD") { $qaFailures.Add("Unexpected symbol in deal CSV: $($row.symbol).") }
+    try {
+      $dt = [datetime]::ParseExact([string]$row.time,"yyyy.MM.dd HH:mm:ss",[Globalization.CultureInfo]::InvariantCulture)
+      if ($dt -lt $qaStart -or $dt -ge $qaEnd) { $qaDateViolations++; $qaFailures.Add("Deal timestamp outside permitted interval: $($row.time).") }
+    } catch { $qaFailures.Add("Invalid deal timestamp: $($row.time).") }
+    if ([string]$row.entry -eq "0") { $qaOpens++ }
+    if ([string]$row.entry -eq "1") { $qaExits++ }
+    try {
+      $qaCsvNet += [double]::Parse([string]$row.profit,[Globalization.CultureInfo]::InvariantCulture)
+      $qaCsvNet += [double]::Parse([string]$row.commission,[Globalization.CultureInfo]::InvariantCulture)
+      $qaCsvNet += [double]::Parse([string]$row.swap,[Globalization.CultureInfo]::InvariantCulture)
+    } catch { $qaFailures.Add("Invalid profit/commission/swap on deal $($row.deal).") }
+  }
+  if ($qaDeals -ge 0 -and $qaRows.Count -ne $qaDeals) { $qaFailures.Add("CSV rows $($qaRows.Count) != MT5 Total Deals $qaDeals.") }
+  if ($qaIds.Count -ne $qaRows.Count) { $qaFailures.Add("CSV deal IDs are not unique.") }
+  # GoldLab v1.014 closes each position in full; one entry and one full exit per completed trade.
+  if ($qaTrades -ge 0 -and ($qaOpens -ne $qaTrades -or $qaExits -ne $qaTrades)) { $qaFailures.Add("CSV open/exit counts ($qaOpens/$qaExits) do not match MT5 Total Trades $qaTrades.") }
+  if (![double]::IsNaN($qaNet) -and [Math]::Abs([Math]::Round($qaCsvNet,2)-[Math]::Round($qaNet,2)) -gt 0.05) { $qaFailures.Add("CSV net ($([Math]::Round($qaCsvNet,2))) != MT5 net ($([Math]::Round($qaNet,2))).") }
+}
+@(
+  "",
+  "## MT5 HTML ↔ deal CSV/date-quality gate",
+  "Period: $qaPeriod",
+  "History Quality: $qaQuality",
+  "MT5 Total Trades: $qaTrades",
+  "MT5 Total Deals: $qaDeals",
+  "CSV rows: $($qaRows.Count)",
+  "Unique deal IDs: $($qaIds.Count)",
+  "CSV entries/exits: $qaOpens/$qaExits",
+  "MT5 net profit: $qaNet",
+  "CSV sum(profit+commission+swap): $([Math]::Round($qaCsvNet,2))",
+  "Out-of-window CSV deals: $qaDateViolations",
+  "Gate failures: $($qaFailures.Count)"
+) | Add-Content -LiteralPath $summaryPath -Encoding utf8
+if ($qaFailures.Count -gt 0) {
+  $qaFailures | ForEach-Object { "FAIL: $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+  throw "MT5 HTML/CSV/date reconciliation gate failed; see run-summary.txt."
+}
+"MT5 HTML/CSV/date reconciliation gate: PASS." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+
 Get-Content -LiteralPath $summaryPath
