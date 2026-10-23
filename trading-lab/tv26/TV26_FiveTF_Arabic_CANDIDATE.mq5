@@ -165,7 +165,7 @@ bool InitHandles()
       g_handles[t][ICHIMOKU_BASE]=iIchimoku(_Symbol,g_tfs[t],9,26,52);
       g_handles[t][RSI14]=iRSI(_Symbol,g_tfs[t],14,PRICE_CLOSE);
       g_handles[t][STOCH14]=iStochastic(_Symbol,g_tfs[t],14,3,3,MODE_SMA,STO_LOWHIGH);
-      g_handles[t][CCI20]=iCCI(_Symbol,g_tfs[t],20,PRICE_TYPICAL);
+      g_handles[t][CCI20]=iCCI(_Symbol,g_tfs[t],20,PRICE_CLOSE);
       g_handles[t][ADX14]=iADX(_Symbol,g_tfs[t],14);
       g_handles[t][AO]=iAO(_Symbol,g_tfs[t]);
       // TradingView Momentum is close minus close[10]; compute it manually below.
