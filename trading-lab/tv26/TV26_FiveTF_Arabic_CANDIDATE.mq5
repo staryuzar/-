@@ -427,15 +427,9 @@ void TradeIfAligned()
    if(ask<=0 || bid<=0 || point<=0){g_lastBlock="السعر غير متاح";return;}
    double spread=(ask-bid)/point;
    if(spread>InpMaxSpreadPoints){g_lastBlock="السبريد أعلى من الحد: "+DoubleToString(spread,1);g_lastAction="انتظار";return;}
-   ulong ticket=0;ENUM_POSITION_TYPE side;
-   if(FindOurPosition(ticket,side))
-   {
-      if((sig>0 && side==POSITION_TYPE_BUY)||(sig<0 && side==POSITION_TYPE_SELL))
-      {g_lastAction="الصفقة الحالية في اتجاه الإشارة؛ لا تكرار للدخول";return;}
-      if(!CloseTicket(ticket)){g_lastBlock="تعذر إغلاق الصفقة المعاكسة؛ راجع سجل Experts";g_lastAction="إيقاف الانعكاس";return;}
-   }
+   // Validate ATR, stops and volume before closing any opposite position.
    double atr=0;
-   if(!ReadBuf(g_atr[0],0,1,atr) || atr<=0){g_lastBlock="قيمة ATR غير جاهزة";return;}
+   if(!ReadBuf(g_atr[0],0,1,atr) || atr<=0){g_lastBlock="قيمة ATR غير جاهزة؛ لم تُغلق أي صفقة";g_lastAction="انتظار";return;}
    ENUM_ORDER_TYPE type=(sig>0?ORDER_TYPE_BUY:ORDER_TYPE_SELL);
    double entry=(sig>0?ask:bid);
    double sl=(sig>0?entry-InpStopATR*atr:entry+InpStopATR*atr);
@@ -443,7 +437,14 @@ void TradeIfAligned()
    int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
    sl=NormalizeDouble(sl,digits);tp=NormalizeDouble(tp,digits);
    double lots=LotsByRisk(type,entry,sl);
-   if(lots<=0){g_lastBlock="حجم العقد المحسوب أقل من الحد الأدنى أو تعذر حساب المخاطرة";g_lastAction="لم يُرسل أمر";return;}
+   if(lots<=0){g_lastBlock="حجم العقد المحسوب أقل من الحد الأدنى أو تعذر حساب المخاطرة؛ لم تُغلق أي صفقة";g_lastAction="لم يُرسل أمر";return;}
+   ulong ticket=0;ENUM_POSITION_TYPE side;
+   if(FindOurPosition(ticket,side))
+   {
+      if((sig>0 && side==POSITION_TYPE_BUY)||(sig<0 && side==POSITION_TYPE_SELL))
+      {g_lastAction="الصفقة الحالية في اتجاه الإشارة؛ لا تكرار للدخول";g_lastBlock="";return;}
+      if(!CloseTicket(ticket)){g_lastBlock="تعذر إغلاق الصفقة المعاكسة؛ راجع سجل Experts";g_lastAction="إيقاف الانعكاس";return;}
+   }
    MqlTradeRequest req;MqlTradeResult res;ZeroMemory(req);ZeroMemory(res);
    req.action=TRADE_ACTION_DEAL;req.symbol=_Symbol;req.magic=InpMagic;req.volume=lots;req.type=type;req.price=entry;
    req.sl=sl;req.tp=tp;req.deviation=InpDeviationPoints;req.type_filling=FillMode();req.comment="TV26 all-TF strong rating";
