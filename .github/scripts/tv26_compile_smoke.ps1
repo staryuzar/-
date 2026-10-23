@@ -63,7 +63,7 @@ foreach ($check in $auditChecks) {
 if ($auditFailures.Count -gt 0) {
   throw ("Static parity audit failed: " + ($auditFailures -join "; "))
 }
-$componentPlotCount = [regex]::Matches($componentPineText, '(?m)^plot\\(').Count
+$componentPlotCount = [regex]::Matches($componentPineText, '(?m)^plot\(').Count
 if ($componentPlotCount -lt 30) {
   "STATIC AUDIT FAIL: component Pine exports only $componentPlotCount plot series; expected at least 30" | Add-Content -LiteralPath $report -Encoding utf8
   throw "Component Pine must export 3 ratings + closed-bar time + 26 component votes."
