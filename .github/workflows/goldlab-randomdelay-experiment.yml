@@ -1,0 +1,41 @@
+name: GoldLab Execution Robustness — Random Delay
+
+on:
+  push:
+    branches: [goldlab-request-result-candidate]
+    paths:
+      - ".github/scripts/goldlab_randomdelay_experiment.ps1"
+      - ".github/workflows/goldlab-randomdelay-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-randomdelay-development-only
+  cancel-in-progress: false
+
+jobs:
+  random-delay:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated candidate
+        uses: actions/checkout@v4
+
+      - name: Run unchanged ADX25 strategy under MT5 Random Delay
+        shell: pwsh
+        run: .github/scripts/goldlab_randomdelay_experiment.ps1
+
+      - name: Upload random-delay report, deal CSV, logs, and telemetry
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-randomdelay-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
