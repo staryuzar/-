@@ -39,7 +39,7 @@ $content = Get-Content -LiteralPath $runnerPath -Raw
 $writeCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
 $writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + $retryBufferRow + [Environment]::NewLine + "InpTestForceInvalidStopsOnce=$forceInjectionValue||false||0||true||N"
 $replacements = @(
-  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
+  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-09-01 through 2026-09-03 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; Random Delay ExecutionMode=-1 diagnostic)"),
   @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Execution robustness experiment: frozen ADX25 baseline rules; short-only; candle direction and fast EMA rejection enabled; Model 4 real ticks; Random Delay ExecutionMode=-1. The one-off invalid-stop retry uses an extra buffer of $retryBufferText ATR, with volume recalculated to preserve the risk budget."),
   @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min23OrderCheckStop045_RANDOM_DELAY.set"),
@@ -47,8 +47,8 @@ $replacements = @(
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=25.0||25.0||1.0||25.0||N"),
   @("InpWriteTradeCSV=true||false||0||true||N", $writeCsvReplacement),
   @("ADX 18-40, long entries disabled", "ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true"),
-  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop045_randomdelay_2026-08-05_to_2026-10-20"),
-  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx25_min23_stop045_slptrace_2026-08-05_to-2026-10-20.htm")
+  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop045_randomdelay_2026-09-01_to_2026-09-04"),
+  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx25_min23_stop045_slptrace_2026-09-01_to-2026-09-04.htm")
 )
 foreach ($pair in $replacements) {
   if (!$content.Contains($pair[0])) { throw "Exact generic-runner replacement marker is missing: $($pair[0])" }
@@ -56,15 +56,15 @@ foreach ($pair in $replacements) {
 }
 $content = [regex]::Replace($content, '(?m)^ExecutionMode=0\r?$', 'ExecutionMode=-1')
 $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
-$content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
-$content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.20')
+$content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.09.01')
+$content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.09.04')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
-$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=__BUFFER_EXPECTED__</b>'') -and ($html -match ''(?is)InpTestForceInvalidStopsOnce=__FORCE_EXPECTED__</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
+$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=__BUFFER_EXPECTED__</b>'') -and ($html -match ''(?is)InpTestForceInvalidStopsOnce=__FORCE_EXPECTED__</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.09\.01 - 2026\.09\.04\)</b>'')'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
 $newChecks = $newChecks.Replace("__FORCE_EXPECTED__", $forceInjectionValue)
 $newChecks = $newChecks.Replace("__BUFFER_EXPECTED__", [regex]::Escape($retryBufferText))
 $content = $content.Replace($oldMax, $newChecks)
-$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (ADX25 baseline rules confirmed; one-retry buffer=$retryBufferText ATR; Model 4 real ticks; ExecutionMode=-1 Random Delay; period ends 2026-10-20)")
+$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (ADX25 baseline rules confirmed; one-retry buffer=$retryBufferText ATR; Model 4 real ticks; ExecutionMode=-1 Random Delay; period ends 2026-09-03 (MT5 ToDate=2026-09-04 is exclusive))")
 
 $checks = @(
   ($content -match 'InpMinADX=23\.0'),
@@ -75,16 +75,16 @@ $checks = @(
   ($content -match ("InpTestForceInvalidStopsOnce=" + $forceInjectionValue + "\|\|false\|\|0\|\|true\|\|N")),
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^ExecutionMode=-1\r?$'),
-  ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
-  ($content -match '(?m)^ToDate=2026\.10\.20\r?$'),
-  ($content -match 'GoldLab_ordercheck_adx25_min23_stop045_slptrace_2026-08-05_to-2026-10-20'),
-  ($content -match '2026\.10\.20'),
+  ($content -match '(?m)^FromDate=2026\.09\.01\r?$'),
+  ($content -match '(?m)^ToDate=2026\.09\.04\r?$'),
+  ($content -match 'GoldLab_ordercheck_adx25_min23_stop045_slptrace_2026-09-01_to-2026-09-04'),
+  ($content -match '2026\.09\.04'),
   ($content -match 'Random Delay ExecutionMode=-1 diagnostic'),
   ($content.Contains("extra buffer of $retryBufferText ATR")),
   ($content.Contains("one-retry buffer=$retryBufferText ATR"))
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=$retryBufferText","InpTestForceInvalidStopsOnce=$forceInjectionValue","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label","dynamic extra-buffer label","dynamic retry-buffer verification label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=$retryBufferText","InpTestForceInvalidStopsOnce=$forceInjectionValue","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.09.01","ToDate=2026.09.04","report basename","OrderCheck period guard","Random Delay execution label","dynamic extra-buffer label","dynamic retry-buffer verification label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
@@ -94,7 +94,7 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
   "OrderCheck execution-safety diagnostic",
   "EA source SHA-256: $sourceHash",
   "EA version: 1.017",
-  "Period: 2026-08-05 through 2026-10-20",
+  "Period: 2026-09-01 through 2026-09-03 (three full trading dates; MT5 ToDate 2026.09.04 is exclusive)",
   "Model: 4 — every tick based on real ticks",
   ("Execution: Random Delay (ExecutionMode=-1); frozen ADX25 baseline; retry-only buffer=$retryBufferText ATR. " + $(if($ForceInvalidStopsOnce){"TEST MODE: inject one invalid stop after OrderCheck, Tester only."}else{"Natural execution mode; no stop injection."})),
   "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true; retry-only buffer=$retryBufferText ATR.",
@@ -622,7 +622,7 @@ if ($requestResultFailedOpenRetryLines.Count -gt 0) {
 
 # Reconcile the HTML report with the deal-level CSV; requests/callbacks are not trade counts.
 $qaFailures = [System.Collections.Generic.List[string]]::new()
-$qaReportPath = Join-Path $reports "GoldLab_ordercheck_adx25_min23_stop045_slptrace_2026-08-05_to-2026-10-20.htm"
+$qaReportPath = Join-Path $reports "GoldLab_ordercheck_adx25_min23_stop045_slptrace_2026-09-01_to-2026-09-04.htm"
 $qaCsvDir = Join-Path $reports "trade-audit"
 $qaCsvFiles = @()
 if (Test-Path -LiteralPath $qaCsvDir) { $qaCsvFiles = @(Get-ChildItem -LiteralPath $qaCsvDir -Filter "*.csv" -File -ErrorAction SilentlyContinue) }
@@ -636,7 +636,7 @@ if (!(Test-Path -LiteralPath $qaReportPath)) {
   $m = [regex]::Match($qaHtml,'(?is)Period:</td>\s*<td[^>]*><b>\s*M5\s*\((\d{4}\.\d{2}\.\d{2})\s*-\s*(\d{4}\.\d{2}\.\d{2})\)\s*</b>')
   if ($m.Success) {
     $qaPeriod = "M5 ($($m.Groups[1].Value) - $($m.Groups[2].Value))"
-    if ($m.Groups[1].Value -ne "2026.08.05" -or $m.Groups[2].Value -ne "2026.10.20") { $qaFailures.Add("Unexpected MT5 report period: $qaPeriod") }
+    if ($m.Groups[1].Value -ne "2026.09.01" -or $m.Groups[2].Value -ne "2026.09.04") { $qaFailures.Add("Unexpected MT5 report period: $qaPeriod") }
   } else { $qaFailures.Add("Could not parse MT5 report period.") }
   $m = [regex]::Match($qaHtml,'(?is)History Quality:</td>\s*<td[^>]*><b>\s*([^<]+?)\s*</b>')
   if ($m.Success) { $qaQuality = $m.Groups[1].Value.Trim() }
@@ -660,9 +660,9 @@ if ($qaCsvFiles.Count -ne 1) {
   try { $qaRows = @(Import-Csv -LiteralPath $qaCsvFiles[0].FullName -ErrorAction Stop) } catch { $qaFailures.Add("Could not parse deal CSV: $($_.Exception.Message)") }
   if ($qaRows.Count -eq 0) { $qaFailures.Add("Deal CSV is empty.") }
   $qaCsvNet = 0.0
-  $qaStart = [datetime]::ParseExact("2026.08.05 00:00:00","yyyy.MM.dd HH:mm:ss",[Globalization.CultureInfo]::InvariantCulture)
-  # MT5 ToDate is exclusive; reject even a single deal at or after 2026-10-20 00:00.
-  $qaEnd = [datetime]::ParseExact("2026.10.20 00:00:00","yyyy.MM.dd HH:mm:ss",[Globalization.CultureInfo]::InvariantCulture)
+  $qaStart = [datetime]::ParseExact("2026.09.01 00:00:00","yyyy.MM.dd HH:mm:ss",[Globalization.CultureInfo]::InvariantCulture)
+  # MT5 ToDate is exclusive; reject even a single deal at or after 2026-09-03 00:00.
+  $qaEnd = [datetime]::ParseExact("2026.09.04 00:00:00","yyyy.MM.dd HH:mm:ss",[Globalization.CultureInfo]::InvariantCulture)
   foreach ($row in $qaRows) {
     if ([string]::IsNullOrWhiteSpace([string]$row.deal) -or [string]::IsNullOrWhiteSpace([string]$row.time)) {
       $qaFailures.Add("Deal row is missing deal ID or timestamp."); continue
