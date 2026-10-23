@@ -32,15 +32,15 @@ $writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSig
 $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; OrderCheck diagnostic)"),
-  @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Parameter experiment: risk=0.50%, stop=0.60 ATR, max spread=100 points, ADX=23-25, long entries disabled, candle-direction and EMA rejection enabled. Real-tick demo/tester diagnostic only."),
-  @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min23OrderCheckStop060.set"),
-  @("InpMinADX=18.0||18.0||1.0||18.0||N", "InpMinADX=23.0||23.0||1.0||23.0||N"),
+  @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Parameter experiment: risk=0.50%, stop=0.60 ATR, max spread=100 points, ADX=24-25, long entries disabled, candle-direction and EMA rejection enabled. Real-tick demo/tester diagnostic only."),
+  @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min24OrderCheckStop060.set"),
+  @("InpMinADX=18.0||18.0||1.0||18.0||N", "InpMinADX=24.0||24.0||1.0||24.0||N"),
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=25.0||25.0||1.0||25.0||N"),
   @("InpStopATR=0.45||0.45||0.05||0.45||N", "InpStopATR=0.60||0.60||0.05||0.60||N"),
   @("InpWriteTradeCSV=true||false||0||true||N", $writeCsvReplacement),
-  @("ADX 18-40, long entries disabled", "ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true"),
-  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop060_2026-08-05_to_2026-10-20"),
-  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx25_min23_stop060_2026-08-05_to-2026-10-20.htm")
+  @("ADX 18-40, long entries disabled", "ADX 24-25, long entries disabled, candle direction=true, fast EMA rejection=true"),
+  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min24_stop060_2026-08-05_to_2026-10-20"),
+  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx25_min24_stop060_2026-08-05_to-2026-10-20.htm")
 )
 foreach ($pair in $replacements) {
   if (!$content.Contains($pair[0])) { throw "Exact generic-runner replacement marker is missing: $($pair[0])" }
@@ -50,17 +50,17 @@ $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
 $content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
 $content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.20')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
-$newChecks = '($html.Contains(''InpRiskPercent=0.5</b>'') -and $html.Contains(''InpStopATR=0.60</b>'') -and $html.Contains(''InpMaxSpreadPoints=100.0</b>'') -and $html.Contains(''InpAllowLong=false</b>'') -and $html.Contains(''InpMinADX=23.0</b>'') -and $html.Contains(''InpMaxADX=25.0</b>'') -and $html.Contains(''InpRequireSignalCandleDirection=true</b>'') -and $html.Contains(''InpRequireFastEMARejection=true</b>'') -and $html.Contains(''<b>M5 (2026.08.05 - 2026.10.20)</b>''))'
+$newChecks = '($html.Contains(''InpRiskPercent=0.5</b>'') -and $html.Contains(''InpStopATR=0.60</b>'') -and $html.Contains(''InpMaxSpreadPoints=100.0</b>'') -and $html.Contains(''InpAllowLong=false</b>'') -and $html.Contains(''InpMinADX=24.0</b>'') -and $html.Contains(''InpMaxADX=25.0</b>'') -and $html.Contains(''InpRequireSignalCandleDirection=true</b>'') -and $html.Contains(''InpRequireFastEMARejection=true</b>'') -and $html.Contains(''<b>M5 (2026.08.05 - 2026.10.20)</b>''))'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
 $content = $content.Replace($oldMax, $newChecks)
 $oldLabel = 'stop=0.45 ATR, max spread=100 points, ADX 18-40, long entries disabled'
-$newLabel = 'stop=0.60 ATR, max spread=100 points, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true'
+$newLabel = 'stop=0.60 ATR, max spread=100 points, ADX 24-25, long entries disabled, candle direction=true, fast EMA rejection=true'
 if (!$content.Contains($oldLabel)) { throw "Tester parameter summary label marker missing." }
 $content = $content.Replace($oldLabel, $newLabel)
-$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input + date verification: PASS (risk=0.5, stop=0.60 ATR, max spread=100, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true, report period ends 2026-10-20)")
+$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input + date verification: PASS (risk=0.5, stop=0.60 ATR, max spread=100, ADX 24-25, long entries disabled, candle direction=true, fast EMA rejection=true, report period ends 2026-10-20)")
 
 $checks = @(
-  ($content -match 'InpMinADX=23\.0'),
+  ($content -match 'InpMinADX=24\.0'),
   ($content -match 'InpStopATR=0\.60'),
   ($content -match 'InpMaxADX=25\.0'),
   ($content -match 'InpRequireSignalCandleDirection=true'),
@@ -71,12 +71,12 @@ $checks = @(
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
   ($content -match '(?m)^ToDate=2026\.10\.20\r?$'),
-  ($content -match 'GoldLab_ordercheck_adx25_min23_stop060_2026-08-05_to-2026-10-20'),
+  ($content -match 'GoldLab_ordercheck_adx25_min24_stop060_2026-08-05_to-2026-10-20'),
   ($content -match '2026\.10\.20'),
   ($content -match 'OrderCheck diagnostic')
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpStopATR=0.60","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","OrderCheck diagnostic label")
+  $checkNames = @("InpMinADX=24.0","InpStopATR=0.60","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","OrderCheck diagnostic label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
@@ -88,7 +88,7 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
   "EA version: 1.014",
   "Period: 2026-08-05 through 2026-10-20",
   "Model: 4 — every tick based on real ticks",
-  "Expected inputs: risk=0.50%; stop=0.60 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true.",
+  "Expected inputs: risk=0.50%; stop=0.60 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=24-25; short-only; candle direction=true; EMA rejection=true.",
   "OrderCheck preflight, immediate OrderSend results, and TRADE_TRANSACTION_REQUEST replies are logged separately. This is diagnostics only; deal history remains the execution audit.",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath (Join-Path $PWD "goldlab-ordercheck-preflight.txt") -Encoding utf8
@@ -384,7 +384,7 @@ if ($requestOtherSummary -gt 0) {
 
 # Reconcile the HTML report with the deal-level CSV; requests/callbacks are not trade counts.
 $qaFailures = [System.Collections.Generic.List[string]]::new()
-$qaReportPath = Join-Path $reports "GoldLab_ordercheck_adx25_min23_stop060_2026-08-05_to-2026-10-20.htm"
+$qaReportPath = Join-Path $reports "GoldLab_ordercheck_adx25_min24_stop060_2026-08-05_to-2026-10-20.htm"
 $qaCsvDir = Join-Path $reports "trade-audit"
 $qaCsvFiles = @()
 if (Test-Path -LiteralPath $qaCsvDir) { $qaCsvFiles = @(Get-ChildItem -LiteralPath $qaCsvDir -Filter "*.csv" -File -ErrorAction SilentlyContinue) }
