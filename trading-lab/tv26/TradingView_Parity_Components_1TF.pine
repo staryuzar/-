@@ -1,0 +1,176 @@
+// This is a diagnostic reimplementation of the published TechnicalRating v3 rating expressions.
+// © TradingView source-expression reference (MPL-2.0): https://www.tradingview.com/script/jDWyb5PG-TechnicalRating/
+// Reference source snapshot inspected: https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts
+//@version=6
+import TradingView/ta/9 as tvta
+
+indicator("TV26 — تدقيق المكونات الـ26", overlay=false, precision=3)
+
+f_calcRating(float src, bool bullCond, bool bearCond) =>
+    na(src) ? na : bullCond ? 1.0 : bearCond ? -1.0 : 0.0
+
+f_calcRatingMA(float ma, float src) =>
+    math.sign(src - ma)
+
+f_ratingName(float rating) =>
+    na(rating) ? "غير متاح" :
+     rating > 0.5 ? "شراء قوي" :
+     rating > 0.1 ? "شراء" :
+     rating < -0.5 ? "بيع قوي" :
+     rating < -0.1 ? "بيع" : "حياد"
+
+f_voteName(float rating) =>
+    na(rating) ? "غير متاح" :
+     rating > 0 ? "شراء (+1)" :
+     rating < 0 ? "بيع (-1)" : "حياد (0)"
+
+f_voteText(float rating) =>
+    na(rating) ? "—" : str.tostring(rating, "#.0")
+
+// Return order: total, MA, oscillators, then all 26 component votes in TechnicalRating v3 order.
+f_components() =>
+    [con, base, lead1, lead2, chikou] = tvta.ichimoku()
+    [kStoch, dStoch] = tvta.stochFull(14, 3, 3)
+    [kStochRsi, dStochRsi] = tvta.stochRsi(14, 14, 3, 3)
+    [diP, diN, adx] = ta.dmi(14, 14)
+    [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+    float bullPower = high - ta.ema(close, 13)
+    float bearPower = low - ta.ema(close, 13)
+    float rsi = ta.rsi(close, 14)
+    float cci = ta.cci(close, 20)
+    float mom = ta.mom(close, 10)
+    float priceAvg = ta.ema(close, 50)
+    bool downTrend = close < priceAvg
+    bool upTrend = close > priceAvg
+    float uo = tvta.uo(7, 14, 28)
+    float wr = tvta.wpr(14)
+    float ao = tvta.ao()
+
+    float rSma10 = f_calcRatingMA(ta.sma(close, 10), close)
+    float rSma20 = f_calcRatingMA(ta.sma(close, 20), close)
+    float rSma30 = f_calcRatingMA(ta.sma(close, 30), close)
+    float rSma50 = f_calcRatingMA(ta.sma(close, 50), close)
+    float rSma100 = f_calcRatingMA(ta.sma(close, 100), close)
+    float rSma200 = f_calcRatingMA(ta.sma(close, 200), close)
+    float rEma10 = f_calcRatingMA(ta.ema(close, 10), close)
+    float rEma20 = f_calcRatingMA(ta.ema(close, 20), close)
+    float rEma30 = f_calcRatingMA(ta.ema(close, 30), close)
+    float rEma50 = f_calcRatingMA(ta.ema(close, 50), close)
+    float rEma100 = f_calcRatingMA(ta.ema(close, 100), close)
+    float rEma200 = f_calcRatingMA(ta.ema(close, 200), close)
+    float rHull9 = f_calcRatingMA(ta.hma(close, 9), close)
+    float rVwma20 = f_calcRatingMA(ta.vwma(close, 20), close)
+    float rIchimoku = f_calcRating(lead2,
+         lead1[26] > lead2[26] and base > lead1[26] and con > base and close > con,
+         lead1[26] < lead2[26] and base < lead1[26] and con < base and close < con)
+
+    array<float> maRatings = array.from(
+         rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+         rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+         rHull9, rVwma20, rIchimoku)
+    float ratingMA = array.avg(maRatings)
+
+    float rRsi = f_calcRating(rsi[1], rsi < 30 and rsi[1] < rsi, rsi > 70 and rsi[1] > rsi)
+    float rStoch = f_calcRating(dStoch[1],
+         kStoch < 20 and dStoch < 20 and kStoch > dStoch,
+         kStoch > 80 and dStoch > 80 and kStoch < dStoch)
+    float rCci = f_calcRating(cci[1], cci < -100 and cci > cci[1], cci > 100 and cci < cci[1])
+    float rAdx = f_calcRating(adx,
+         adx > 20 and adx > adx[1] and diP > diN,
+         adx > 20 and adx > adx[1] and diP < diN)
+    float rAo = f_calcRating(ao[1],
+         ta.crossover(ao, 0) or (ao > 0 and ao[1] > 0 and ao > ao[1] and ao[2] > ao[1]),
+         ta.crossunder(ao, 0) or (ao < 0 and ao[1] < 0 and ao < ao[1] and ao[2] < ao[1]))
+    float rMomentum = f_calcRating(mom[1], mom > mom[1], mom < mom[1])
+    float rMacd = f_calcRating(macdSignal, macdLine > macdSignal, macdLine < macdSignal)
+    float rStochRsi = f_calcRating(priceAvg,
+         downTrend and kStochRsi < 20 and dStochRsi < 20 and kStochRsi > dStochRsi,
+         upTrend and kStochRsi > 80 and dStochRsi > 80 and kStochRsi < dStochRsi)
+    float rWilliams = f_calcRating(wr[1], wr < -80 and wr > wr[1], wr > -20 and wr < wr[1])
+    float rBullBear = f_calcRating(priceAvg,
+         upTrend and bearPower < 0 and bearPower > bearPower[1],
+         downTrend and bullPower > 0 and bullPower < bullPower[1])
+    float rUo = f_calcRating(uo, uo > 70, uo < 30)
+
+    array<float> oscRatings = array.from(
+         rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+         rStochRsi, rWilliams, rBullBear, rUo)
+    float ratingOther = array.avg(oscRatings)
+    float total = nz(ratingMA, 0) + nz(ratingOther, 0)
+    float ratingTotal = switch
+        not na(ratingMA) and not na(ratingOther) => total / 2
+        not na(ratingMA) or not na(ratingOther) => total
+        => na
+
+    [ratingTotal, ratingMA, ratingOther,
+     rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+     rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+     rHull9, rVwma20, rIchimoku,
+     rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+     rStochRsi, rWilliams, rBullBear, rUo]
+
+// Shift every field once inside the selected timeframe to use the same prior closed candle as MT5.
+f_confirmed() =>
+    [ratingTotal, ratingMA, ratingOther,
+     rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+     rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+     rHull9, rVwma20, rIchimoku,
+     rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+     rStochRsi, rWilliams, rBullBear, rUo] = f_components()
+    [ratingTotal[1], ratingMA[1], ratingOther[1],
+     rSma10[1], rSma20[1], rSma30[1], rSma50[1], rSma100[1], rSma200[1],
+     rEma10[1], rEma20[1], rEma30[1], rEma50[1], rEma100[1], rEma200[1],
+     rHull9[1], rVwma20[1], rIchimoku[1],
+     rRsi[1], rStoch[1], rCci[1], rAdx[1], rAo[1], rMomentum[1], rMacd[1],
+     rStochRsi[1], rWilliams[1], rBullBear[1], rUo[1]]
+
+tf = input.timeframe("1", "الإطار الزمني المراد تدقيقه")
+[totalRating, ratingMA, ratingOther,
+ rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+ rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+ rHull9, rVwma20, rIchimoku,
+ rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+ rStochRsi, rWilliams, rBullBear, rUo] = request.security(
+     syminfo.tickerid, tf, f_confirmed(),
+     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+closedBarTime = request.security(syminfo.tickerid, tf, time[1],
+     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+
+var table t = table.new(position.top_right, 3, 30, border_width=1)
+if barstate.islast
+    table.cell(t, 0, 0, "المكوّن / الملخص", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
+    table.cell(t, 1, 0, "التصنيف", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
+    table.cell(t, 2, 0, "التصويت", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
+    table.cell(t, 0, 1, "الملخص العام", text_size=size.tiny)
+    table.cell(t, 1, 1, f_ratingName(totalRating), text_size=size.tiny)
+    table.cell(t, 2, 1, f_voteText(totalRating), text_size=size.tiny)
+    table.cell(t, 0, 2, "المتوسطات (15)", text_size=size.tiny)
+    table.cell(t, 1, 2, f_ratingName(ratingMA), text_size=size.tiny)
+    table.cell(t, 2, 2, f_voteText(ratingMA), text_size=size.tiny)
+    table.cell(t, 0, 3, "المذبذبات (11)", text_size=size.tiny)
+    table.cell(t, 1, 3, f_ratingName(ratingOther), text_size=size.tiny)
+    table.cell(t, 2, 3, f_voteText(ratingOther), text_size=size.tiny)
+
+    string[] names = array.from(
+         "SMA 10", "SMA 20", "SMA 30", "SMA 50", "SMA 100", "SMA 200",
+         "EMA 10", "EMA 20", "EMA 30", "EMA 50", "EMA 100", "EMA 200",
+         "Hull MA 9", "VWMA 20", "Ichimoku",
+         "RSI 14", "Stochastic 14/3/3", "CCI 20", "ADX 14/14", "Awesome Oscillator",
+         "Momentum 10", "MACD 12/26/9", "Stochastic RSI", "Williams %R 14",
+         "Bulls/Bears Power 13", "Ultimate Oscillator")
+    float[] votes = array.from(
+         rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
+         rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
+         rHull9, rVwma20, rIchimoku,
+         rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
+         rStochRsi, rWilliams, rBullBear, rUo)
+    table.cell(t, 0, 29, "شمعة مغلقة", text_size=size.tiny)
+    table.cell(t, 1, 29, str.format_time(closedBarTime, "yyyy-MM-dd HH:mm", syminfo.timezone), text_size=size.tiny)
+    table.cell(t, 2, 29, tf, text_size=size.tiny)
+    for i = 0 to array.size(names) - 1
+        float v = array.get(votes, i)
+        table.cell(t, 0, i + 4, array.get(names, i), text_size=size.tiny)
+        table.cell(t, 1, i + 4, f_voteName(v), text_size=size.tiny)
+        table.cell(t, 2, i + 4, f_voteText(v), text_size=size.tiny)
+
+plot(totalRating, "الملخص العام", display=display.data_window)
