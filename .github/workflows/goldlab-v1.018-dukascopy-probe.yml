@@ -1,0 +1,109 @@
+name: GoldLab External Tick-Data Probe — Dukascopy XAUUSD
+
+on:
+  push:
+    branches: [goldlab-v1.018-dukascopy-probe]
+    paths:
+      - ".github/workflows/goldlab-v1.018-dukascopy-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  one-day-tick-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download one day of independent XAUUSD tick history
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dukascopy-tick-probe
+          npx --yes dukascopy-node@latest \
+            -i xauusd -from 2026-03-26 -to 2026-03-27 \
+            -t tick -f csv -dir ./dukascopy-tick-probe \
+            -bs 4 -bp 1000 -r 2 -rp 1000 --retry-on-empty
+
+      - name: Validate timestamps, bid/ask fields and tick ordering
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, json, math
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          files = sorted(Path("dukascopy-tick-probe").rglob("*.csv"))
+          if not files:
+              raise SystemExit("FAIL: no Dukascopy CSV output found")
+          total = 0
+          first_ms = last_ms = None
+          min_bid = min_ask = float("inf")
+          max_bid = max_ask = 0.0
+          max_spread = 0.0
+          nonmonotonic = bad_quotes = 0
+          for path in files:
+              with path.open("r", newline="", encoding="utf-8-sig") as stream:
+                  reader = csv.DictReader(stream)
+                  if not reader.fieldnames:
+                      raise SystemExit(f"FAIL: missing CSV header in {path}")
+                  keys = {x.strip().lower(): x for x in reader.fieldnames}
+                  needed = ("timestamp", "bidprice", "askprice")
+                  if any(k not in keys for k in needed):
+                      raise SystemExit(f"FAIL: unexpected tick columns in {path}: {reader.fieldnames}")
+                  previous = None
+                  for row in reader:
+                      try:
+                          ts = int(float(row[keys["timestamp"]]))
+                          bid = float(row[keys["bidprice"]])
+                          ask = float(row[keys["askprice"]])
+                      except (TypeError, ValueError):
+                          bad_quotes += 1
+                          continue
+                      if ts <= 0 or not math.isfinite(bid) or not math.isfinite(ask) or bid <= 0 or ask < bid:
+                          bad_quotes += 1
+                          continue
+                      if previous is not None and ts < previous:
+                          nonmonotonic += 1
+                      previous = ts
+                      first_ms = ts if first_ms is None else min(first_ms, ts)
+                      last_ms = ts if last_ms is None else max(last_ms, ts)
+                      min_bid, max_bid = min(min_bid, bid), max(max_bid, bid)
+                      min_ask, max_ask = min(min_ask, ask), max(max_ask, ask)
+                      max_spread = max(max_spread, ask-bid)
+                      total += 1
+          if total < 1000:
+              raise SystemExit(f"FAIL: only {total} valid ticks; minimum 1000")
+          if bad_quotes or nonmonotonic:
+              raise SystemExit(f"FAIL: invalid_quotes={bad_quotes}, nonmonotonic_rows={nonmonotonic}")
+          summary = {
+              "source": "Dukascopy tick archive via dukascopy-node",
+              "instrument": "XAUUSD",
+              "requested_utc": "2026-03-26 through 2026-03-27 (to-date boundary may be exclusive)",
+              "csv_files": len(files),
+              "valid_ticks": total,
+              "first_utc": datetime.fromtimestamp(first_ms/1000,timezone.utc).isoformat(),
+              "last_utc": datetime.fromtimestamp(last_ms/1000,timezone.utc).isoformat(),
+              "bid_min": min_bid, "bid_max": max_bid,
+              "ask_min": min_ask, "ask_max": max_ask,
+              "max_observed_spread": max_spread,
+              "invalid_quotes": bad_quotes, "out_of_order_rows": nonmonotonic,
+          }
+          Path("dukascopy-tick-probe/validation-summary.json").write_text(
+              json.dumps(summary, indent=2), encoding="utf-8"
+          )
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload the one-day sample and validation summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-dukascopy-xauusd-tick-probe-${{ github.run_id }}
+          path: dukascopy-tick-probe/
+          if-no-files-found: warn
+          retention-days: 14
