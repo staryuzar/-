@@ -41,6 +41,7 @@ datetime g_lastAuditBar[N_TF];
 datetime g_auditAttemptBar[N_TF];
 int g_auditAttempts[N_TF];
 string g_auditFile="";
+bool g_historyExported=false;
 double g_rating[N_TF];
 double g_maRating[N_TF], g_oscRating[N_TF];
 int g_ready[N_TF], g_maReady[N_TF], g_oscReady[N_TF];
@@ -567,6 +568,65 @@ void ExportAuditIfNeeded()
 {
    for(int t=0;t<N_TF;t++) ExportAuditForTF(t);
 }
+// Export pre-test OHLCV history for formula-level audits on every timeframe.
+// This is market data only; it contains no account credentials or order data.
+bool ExportReferenceHistory()
+{
+   if(g_historyExported) return true;
+   const int historyBars=1600;
+   for(int t=0;t<N_TF;t++)
+   {
+      MqlRates check[];
+      ArraySetAsSeries(check,true);
+      int copied=CopyRates(_Symbol,g_tfs[t],1,historyBars,check);
+      if(copied<historyBars)
+      {
+         Print("TV26 reference history not ready for ",TFName(g_tfs[t]),
+               "; copied ",copied," of ",historyBars," bars. Will retry.");
+         return false;
+      }
+   }
+   string fileName="TV26_OHLC_History_"+_Symbol+".csv";
+   int fh=FileOpen(fileName,FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI,',',CP_UTF8);
+   if(fh==INVALID_HANDLE)
+   {
+      Print("TV26 reference history FileOpen failed: ",GetLastError());
+      return false;
+   }
+   FileWrite(fh,"timeframe","bar_open_time_server","symbol","broker_company","broker_server",
+             "candle_open","candle_high","candle_low","candle_close","tick_volume");
+   string company=AccountInfoString(ACCOUNT_COMPANY);
+   string server=AccountInfoString(ACCOUNT_SERVER);
+   for(int t=0;t<N_TF;t++)
+   {
+      MqlRates rates[];
+      ArraySetAsSeries(rates,true);
+      int copied=CopyRates(_Symbol,g_tfs[t],1,historyBars,rates);
+      if(copied<historyBars)
+      {
+         FileClose(fh);
+         FileDelete(fileName,FILE_COMMON);
+         Print("TV26 reference history copy changed during export for ",TFName(g_tfs[t]),
+               "; copied ",copied," of ",historyBars," bars. Will retry.");
+         return false;
+      }
+      // Array is marked as series (index 0 = most recent), write oldest to newest.
+      for(int i=copied-1;i>=0;i--)
+      {
+         string ts=TimeToString(rates[i].time,TIME_DATE|TIME_MINUTES);
+         FileWrite(fh,TFName(g_tfs[t]),ts,_Symbol,company,server,
+                   AuditValue(rates[i].open),AuditValue(rates[i].high),
+                   AuditValue(rates[i].low),AuditValue(rates[i].close),
+                   IntegerToString((long)rates[i].tick_volume));
+      }
+   }
+   FileFlush(fh);
+   FileClose(fh);
+   g_historyExported=true;
+   Print("TV26 reference history export OK: ",fileName,
+         "; frames=",N_TF,"; bars per frame=",historyBars);
+   return true;
+}
 bool IsNewM1Bar()
 {
    datetime now=iTime(_Symbol,PERIOD_M1,0);
@@ -694,6 +754,7 @@ int OnInit()
    if(InpRiskPercent<=0 || InpStopATR<=0 || InpTargetATR<=0){Print("TV26: إعدادات المخاطرة غير صالحة");return INIT_PARAMETERS_INCORRECT;}
    InitHandles();
    g_auditFile="TV26_Audit_"+_Symbol+"_"+IntegerToString((int)InpMagic)+".csv";
+   ExportReferenceHistory();
    g_signalGV="TV26_LastSignal_"+_Symbol+"_"+IntegerToString((int)InpMagic);
    if(GlobalVariableCheck(g_signalGV)) g_lastExecutedSignal=(int)GlobalVariableGet(g_signalGV);
    EventSetTimer(2);
@@ -706,6 +767,7 @@ void OnDeinit(const int reason)
 }
 void OnTimer()
 {
+   if(!g_historyExported) ExportReferenceHistory();
    EvaluateAll();DrawPanel();ExportAuditIfNeeded();
 }
 void OnTick()
