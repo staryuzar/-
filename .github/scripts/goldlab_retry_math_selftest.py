@@ -197,7 +197,7 @@ class RetryMathTests(unittest.TestCase):
         ea_path = root / "trading-lab" / "gold-xauusd" / "GoldLabEA.mq5"
         self.assertTrue(ea_path.is_file(), f"EA source missing: {ea_path}")
         source = ea_path.read_text(encoding="utf-8", errors="strict")
-        self.assertRegex(source, r'(?m)^#property version\s+"1\.017"\s*$')
+        self.assertRegex(source, r'(?m)^#property version\s+"1\.018"\s*$')
         self.assertIn("input double           InpStopRetryBufferATR   = 0.50;", source)
         self.assertIn("input bool             InpTestForceInvalidStopsOnce = false;", source)
         self.assertIn("if(InpTestForceInvalidStopsOnce && !testerMode)", source)
