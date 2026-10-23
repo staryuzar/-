@@ -1,5 +1,5 @@
-# Controlled one-variable experiment: InpStopATR=0.35 versus the validated 0.45 ATR control.
-# All other strategy inputs remain unchanged; development-only window ends 2026-10-20.
+# Controlled one-variable experiment: stop 0.35 ATR vs validated 0.45 ATR baseline.
+# ADX remains 23-25; date window ends 2026-10-20; protected holdout is not tested.
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $runnerPath = ".github/scripts/goldlab_mt5_test_setfree.ps1"
@@ -56,14 +56,15 @@ $writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSig
 $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; OrderCheck diagnostic)"),
-  @("Parameter experiment: risk=0.50%, stop=0.35 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Parameter experiment: risk=0.50%, stop=0.35 ATR, max spread=100 points, ADX=23-25, long entries disabled, candle-direction and EMA rejection enabled. Real-tick demo/tester diagnostic only."),
-  @("GoldLabShortOnlyADX40Stop035.set", "GoldLabADX25Min23OrderCheckStop035.set"),
+  @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Parameter experiment: risk=0.50%, stop=0.35 ATR, max spread=100 points, ADX=23-25, long entries disabled, candle-direction and EMA rejection enabled. Real-tick demo/tester diagnostic only."),
+  @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min23OrderCheckStop035.set"),
   @("InpMinADX=18.0||18.0||1.0||18.0||N", "InpMinADX=23.0||23.0||1.0||23.0||N"),
   @("InpMaxADX=40.0||40.0||1.0||40.0||N", "InpMaxADX=25.0||25.0||1.0||25.0||N"),
+  @("InpStopATR=0.45||0.45||0.05||0.45||N", "InpStopATR=0.35||0.35||0.05||0.35||N"),
   @("InpWriteTradeCSV=true||false||0||true||N", $writeCsvReplacement),
   @("ADX 18-40, long entries disabled", "ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true"),
-  @("GoldLab_shortonly_adx40_stop035_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop035_2026-08-05_to_2026-10-20"),
-  @("GoldLab_spreadsafe_stop035_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx25_min23_stop035_2026-08-05_to-2026-10-20.htm")
+  @("GoldLab_shortonly_adx40_stop045_2026-09-01_to_2026-10-19", "GoldLab_ordercheck_adx25_min23_stop035_2026-08-05_to_2026-10-20"),
+  @("GoldLab_spreadsafe_stop045_diagnostic_2026-09-01_to_2026-10-19.htm", "GoldLab_ordercheck_adx25_min23_stop035_2026-08-05_to-2026-10-20.htm")
 )
 foreach ($pair in $replacements) {
   if (!$content.Contains($pair[0])) { throw "Exact generic-runner replacement marker is missing: $($pair[0])" }
@@ -79,22 +80,23 @@ $content = $content.Replace($oldMax, $newChecks)
 $expertParametersMarker = 'ExpertParameters=$setName'
 if (!$content.Contains($expertParametersMarker)) { throw "ExpertParameters line marker missing for set-free test." }
 $content = $content.Replace($expertParametersMarker, '; ExpertParameters intentionally omitted; use runtime input defaults')
-$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.35 ATR, max spread=100, max ADX=40, long entries disabled)", "Input + date verification: PASS (risk=0.5, stop=0.35 ATR, max spread=100, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true, report period ends 2026-10-20)")
+$content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input + date verification: PASS (risk=0.5, stop=0.35 ATR, max spread=100, ADX 23-25, long entries disabled, candle direction=true, fast EMA rejection=true, report period ends 2026-10-20)")
 
 $checks = @(
   ($content -match 'InpMinADX=23\.0'),
   ($content -match 'InpMaxADX=25.0'),
+  ($content -match 'InpStopATR=0.35'),
   ($content -match 'InpRequireSignalCandleDirection=true'),
   ($content -match 'InpRequireFastEMARejection=true'),
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
   ($content -match '(?m)^ToDate=2026\.10\.20\r?$'),
-  ($content -match 'GoldLab_ordercheck_adx25_min23_stop035_2026-08-05_to-2026-10-20'),
+  ($content -match 'GoldLab_ordercheck_adx25_min23_stop045_2026-08-05_to-2026-10-20'),
   ($content -match '2026\.10\.20'),
   ($content -match 'OrderCheck diagnostic')
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","OrderCheck diagnostic label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpStopATR=0.35","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","Model=4","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","OrderCheck diagnostic label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
