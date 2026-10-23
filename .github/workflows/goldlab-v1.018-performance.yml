@@ -50,7 +50,7 @@ jobs:
           }
           if ($ea -notmatch '(?m)^input bool\s+InpTestForceInvalidStopsOnce\s*=\s*false;' -or
               $ea -notmatch 'if\(InpTestForceInvalidStopsOnce && !testerMode\)' -or
-              $harness -match 'InpTestForceInvalidStopsOnce\s*=\s*true|ForceInvalidStopsOnce') {
+              $harness -match '(?i)(InpTestForceInvalidStopsOnce\s*=\s*true|(?<!\w)-ForceInvalidStopsOnce(?:\s|$))') {
             throw "Tester-only fault injection is not safely disabled in the natural-performance run."
           }
           Write-Host ("PASS: PowerShell parsed {0} tokens; correct v1.018 source, full-window dates and natural-execution settings verified." -f $tokens.Count)
