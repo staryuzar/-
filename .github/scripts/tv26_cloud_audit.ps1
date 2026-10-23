@@ -198,6 +198,12 @@ Visual=0
   Copy-Item -LiteralPath $audit.FullName -Destination $auditOut -Force
   "Audit CSV bytes: $((Get-Item $auditOut).Length)" | Add-Content -LiteralPath $summary -Encoding utf8
   "Audit CSV SHA-256: $((Get-FileHash -LiteralPath $auditOut -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
+  $history = Get-ChildItem -Path (Join-Path $env:APPDATA "MetaQuotes\Terminal") -Filter "TV26_OHLC_History_XAUUSD.csv" -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if (!$history) { throw "Required OHLCV warmup history CSV was not exported." }
+  $historyOut = Join-Path $reports "TV26_OHLC_History_XAUUSD.csv"
+  Copy-Item -LiteralPath $history.FullName -Destination $historyOut -Force
+  "Reference OHLCV CSV bytes: $((Get-Item $historyOut).Length)" | Add-Content -LiteralPath $summary -Encoding utf8
+  "Reference OHLCV SHA-256: $((Get-FileHash -LiteralPath $historyOut -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
   $rows = @(Import-Csv -LiteralPath $auditOut)
   $summaryRows = @($rows | Where-Object { $_.component -eq "SUMMARY" })
   if ($summaryRows.Count -lt 1000) { throw "Coverage gate failed: fewer than 1000 summary rows across the timeframes." }
