@@ -171,6 +171,27 @@ class RetryMathTests(unittest.TestCase):
         ):
             self.assertIn("reason=" + reason, ea)
 
+    def test_retry_outcome_log_shapes_preserve_the_original_trigger_id(self) -> None:
+        patterns = (
+            (
+                re.compile(r"GoldLab\\|OPEN_STOP_RETRY_SUCCESS\\|[^|]+\\|trigger_request_id=(\\d+);outcome=recovered;"),
+                "GoldLab|OPEN_STOP_RETRY_SUCCESS|XAUUSD|trigger_request_id=223;outcome=recovered;retcode=10009",
+            ),
+            (
+                re.compile(r"GoldLab\\|OPEN_STOP_RETRY_ABORT\\|[^|]+\\|trigger_request_id=(\\d+);outcome=safe_no_retry_send;reason=[^;]+"),
+                "GoldLab|OPEN_STOP_RETRY_ABORT|XAUUSD|trigger_request_id=223;outcome=safe_no_retry_send;reason=volume_below_minimum;risk_budget=2.58",
+            ),
+            (
+                re.compile(r"GoldLab\\|OPEN_STOP_RETRY_FAIL\\|[^|]+\\|trigger_request_id=(\\d+);outcome=retry_send_rejected;retcode=\\d+"),
+                "GoldLab|OPEN_STOP_RETRY_FAIL|XAUUSD|trigger_request_id=223;outcome=retry_send_rejected;retcode=10016",
+            ),
+        )
+        for pattern, line in patterns:
+            with self.subTest(line=line):
+                match = pattern.search(line)
+                self.assertIsNotNone(match)
+                self.assertEqual(match.group(1), "223")
+
     def test_ea_uses_buffer_only_inside_invalid_stops_retry_path(self) -> None:
         root = Path(REPO_ROOT_ARG).resolve() if REPO_ROOT_ARG else Path(__file__).resolve().parents[2]
         ea_path = root / "trading-lab" / "gold-xauusd" / "GoldLabEA.mq5"
