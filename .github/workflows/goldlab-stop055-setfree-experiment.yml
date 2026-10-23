@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: goldlab-mt5-setfree-development
+  group: goldlab-stop055-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
