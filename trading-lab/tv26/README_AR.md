@@ -164,3 +164,14 @@ The first successful hosted MT5 audit and manual post-run integrity review are r
 The script validate_tv26_mt5_audit.py now independently checks CSV structure, all 26 votes per candle, readiness, timestamp format, duplicate rows, OHLC sanity, and the relationship between component votes and aggregate scores. Its tests cover complete data, a missing vote, a wrong aggregate score and an invalid vote. The cloud workflow now runs this validator and saves its Markdown/JSON findings as evidence.
 
 **Important:** the above is an MT5 data-export and internal-consistency result. No actual TradingView-export CSV was available in that run, so the status is **not yet TradingView parity** and not a profitability finding.
+
+
+## فحص مستقل لقواعد التصويت الـ26 على الأطر الخمسة
+
+أضيفت أداة مستقلة تعيد تنفيذ صيغ المؤشرات المنشورة بدل الاكتفاء بالتحقق من أن المجاميع الحسابية تساوي متوسط التصويتات. الأداة هي reference_tv26_formulas.py وتعالج ملف OHLCV التمهيدي مع سجل MT5 ثم تقارن كل تصويت على كل شمعة في M1 وM5 وM15 وM30 وH1.
+
+التقرير التفصيلي لآخر تحليل على بيانات الاختبار محفوظ في [TV26_FORMULA_AUDIT_2026-10-23.md](TV26_FORMULA_AUDIT_2026-10-23.md). جرى فحص **141,232 تصويتًا** عبر **5,432 شمعة ملخص**: صفر اختلافات وصفر قيم مفقودة في الأطر الخمسة، مع تطابق OHLC للشموع المتداخلة بين ملف التهيئة والسجل. مرجع تشغيل MT5 والملفات الخام: [GitHub Actions 39961042587](https://github.com/staryuzar/-/actions/runs/39961042587).
+
+سير العمل [TV26 headless cloud MT5 indicator audit](https://github.com/staryuzar/-/actions/workflows/tv26-cloud-audit.yml) يشغّل الآن هذه الخطوات آليًا: تثبيت الاعتماديات، تشغيل MT5 على Windows السحابي مع تعطيل التداول، التحقق من بنية السجل والدرجات العامة، ثم مقارنة الصيغ على التصويتات الـ26. يُفترض أن يحمل الأثر الناتج تقرير سلامة CSV وتقرير مطابقة الصيغ وملفات التفاصيل بصيغ Markdown وJSON وCSV.
+
+**حدود الاستنتاج:** هذه نتيجة مطابقة لقواعد TradingView المنشورة مع تصويت MT5 على شموع Headway-Demo. ليست تصديرًا مباشرًا من مخطط TradingView الحي، ولا إثباتًا للربحية أو لأداء Real Ticks. عند توفر تصدير Pine فعلي من TradingView، تبقى أداة compare_tv26_csv.py مطلوبة للتحقق من الشمعة ومزود البيانات والتوقيت ثم مقارنة كل مكوّن مباشرة.
