@@ -20,8 +20,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: goldlab-mt5-ema-holdout-${{ github.ref }}
-  cancel-in-progress: true
+  group: goldlab-shared-headway-mt5
+  queue: max
+  cancel-in-progress: false
 
 jobs:
   unseen-historical-holdout:
