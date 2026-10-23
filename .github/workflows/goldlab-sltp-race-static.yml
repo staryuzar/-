@@ -45,7 +45,7 @@ jobs:
             @{ Name = "same-window real-tick Random Delay mode"; Pass = ($wrapper.Contains("ExecutionMode=-1") -and $wrapper.Contains("Model=4") -and $wrapper.Contains("ToDate=2026.10.20")) },
             @{ Name = "stale-position failures correlated by request_id"; Pass = ($wrapper.Contains("failedModifyRequestIds") -and $wrapper.Contains("staleClosedRequestIds") -and $wrapper.Contains("request_id=")) },
             @{ Name = "still-open failures remain a hard rejection"; Pass = ($wrapper.Contains("stillOpenFailureRequestIds.Count -eq 0") -and $wrapper.Contains("reject robustness run")) },
-            @{ Name = "raw failed calls remain counted as failures"; Pass = ($wrapper.Contains("raw failed requests=$sendFailTotal") -and $wrapper.Contains("Failed requests remain counted as failures")) },
+            @{ Name = "raw failed calls remain counted and are never relabelled accepted"; Pass = ($wrapper.Contains("raw failed requests=$sendFailTotal") -and $wrapper.Contains("Raw OrderSend failures: $sendFailTotal") -and $wrapper.Contains("none is relabelled accepted")) },
             @{ Name = "bounded open retry triggers only for invalid stops"; Pass = ($ea.Contains("if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)") -and $ea.Contains("RecordOrderSendTelemetry(\"open-retryable-stop-reject\"")) },
             @{ Name = "retry requires a fresh valid quote and spread guard"; Pass = ($ea.Contains("SymbolInfoTick(_Symbol,tick)") -and $ea.Contains("retrySpreadPoints>InpMaxSpreadPoints")) },
             @{ Name = "retry recalculates volume against revised stop risk"; Pass = ($ea.Contains("LotsForRisk(type,retryEntry,retrySL)") -and $ea.Contains("broker minimum")) },
