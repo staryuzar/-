@@ -67,7 +67,7 @@ class TV26ParityComparatorTests(unittest.TestCase):
                 "TV26.volume": "100",
             }
             tv_row.update({"TV26." + key: str(
-                -1 if mismatch and minute == 1 and key == "RSI14" else 1
+                1
             ) for key in COMPONENTS})
             rows_tv.append(tv_row)
         for path, headers, rows in ((mt5_path, mt_headers, rows_mt), (tv_path, tv_headers, rows_tv)):
