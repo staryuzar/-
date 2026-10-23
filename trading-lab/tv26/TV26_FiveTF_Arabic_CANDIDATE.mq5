@@ -240,7 +240,7 @@ bool ComputeOne(int t,int j,int &score)
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],1,1,b) || !ReadBuf(g_handles[t][j],2,1,c)) return false;
       double prevADX=0;
       if(!ReadBuf(g_handles[t][j],0,2,prevADX)) return false;
-      score=(a>20 && b>c && a>prevADX ? 1 : (a>20 && b<c && a<prevADX ? -1 : 0)); return true;
+      score=(a>20 && b>c && a>prevADX ? 1 : (a>20 && b<c && a>prevADX ? -1 : 0)); return true;
    }
    if(j==AO)
    {
@@ -276,7 +276,12 @@ bool ComputeOne(int t,int j,int &score)
       double k0=(raw[0]+raw[1]+raw[2])/3.0, k1=(raw[1]+raw[2]+raw[3])/3.0;
       double k2=(raw[2]+raw[3]+raw[4])/3.0;
       double d0=(k0+k1+k2)/3.0;
-      bool downtrend=(rsi[0]<rsi[1]), uptrend=(rsi[0]>rsi[1]);
+      // Technical Ratings trend filter: close relative to EMA(50), not the one-bar RSI slope.
+      double trendClose[]; ArraySetAsSeries(trendClose,true);
+      double emaTrend=0;
+      if(CopyClose(_Symbol,g_tfs[t],1,1,trendClose)!=1 ||
+         !ReadBuf(g_trendEMA[t],0,1,emaTrend)) return false;
+      bool downtrend=(trendClose[0]<emaTrend), uptrend=(trendClose[0]>emaTrend);
       score=(downtrend && k0<20 && d0<20 && k0>d0 ? 1 :
              (uptrend && k0>80 && d0>80 && k0<d0 ? -1 : 0));
       return true;
@@ -288,13 +293,14 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==BULL_BEAR_POWER)
    {
-      double bullPrev=0,bearNow=0,bearPrev=0,emaNow=0,emaPrev=0;
+      double bullPrev=0,bearNow=0,bearPrev=0,emaNow=0;
       if(!ReadBuf(g_bulls[t],0,1,a) || !ReadBuf(g_bulls[t],0,2,bullPrev) ||
          !ReadBuf(g_bears[t],0,1,bearNow) || !ReadBuf(g_bears[t],0,2,bearPrev) ||
-         !ReadBuf(g_trendEMA[t],0,1,emaNow) || !ReadBuf(g_trendEMA[t],0,2,emaPrev)) return false;
+         !ReadBuf(g_trendEMA[t],0,1,emaNow)) return false;
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
-      bool uptrend=(cc[0]>emaNow && emaNow>emaPrev), downtrend=(cc[0]<emaNow && emaNow<emaPrev);
+      // Trend is the close's position relative to EMA(50); no extra EMA-slope gate.
+      bool uptrend=(cc[0]>emaNow), downtrend=(cc[0]<emaNow);
       score=(uptrend && bearNow<0 && bearNow>bearPrev ? 1 :
              (downtrend && a>0 && a<bullPrev ? -1 : 0)); return true;
    }
