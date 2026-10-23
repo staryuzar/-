@@ -136,7 +136,7 @@ tf = input.timeframe("1", "الإطار الزمني المراد تدقيقه")
 closedBarTime = request.security(syminfo.tickerid, tf, time[1],
      gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
 
-var table t = table.new(position.top_right, 3, 30, border_width=1)
+var table t = table.new(position.top_right, 3, 31, border_width=1)
 if barstate.islast
     table.cell(t, 0, 0, "المكوّن / الملخص", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
     table.cell(t, 1, 0, "التصنيف", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
@@ -164,9 +164,9 @@ if barstate.islast
          rHull9, rVwma20, rIchimoku,
          rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
          rStochRsi, rWilliams, rBullBear, rUo)
-    table.cell(t, 0, 29, "شمعة مغلقة", text_size=size.tiny)
-    table.cell(t, 1, 29, str.format_time(closedBarTime, "yyyy-MM-dd HH:mm", syminfo.timezone), text_size=size.tiny)
-    table.cell(t, 2, 29, tf, text_size=size.tiny)
+    table.cell(t, 0, 30, "شمعة مغلقة", text_size=size.tiny)
+    table.cell(t, 1, 30, str.format_time(closedBarTime, "yyyy-MM-dd HH:mm", syminfo.timezone), text_size=size.tiny)
+    table.cell(t, 2, 30, tf, text_size=size.tiny)
     for i = 0 to array.size(names) - 1
         float v = array.get(votes, i)
         table.cell(t, 0, i + 4, array.get(names, i), text_size=size.tiny)
