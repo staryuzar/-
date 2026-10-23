@@ -63,7 +63,13 @@ foreach ($check in $auditChecks) {
 if ($auditFailures.Count -gt 0) {
   throw ("Static parity audit failed: " + ($auditFailures -join "; "))
 }
-"Static regression audit: PASS ($($auditChecks.Count) checks)" | Add-Content -LiteralPath $report -Encoding utf8
+$componentPlotCount = [regex]::Matches($componentPineText, '(?m)^plot\\(').Count
+if ($componentPlotCount -lt 30) {
+  "STATIC AUDIT FAIL: component Pine exports only $componentPlotCount plot series; expected at least 30" | Add-Content -LiteralPath $report -Encoding utf8
+  throw "Component Pine must export 3 ratings + closed-bar time + 26 component votes."
+}
+"STATIC AUDIT PASS: component Pine export series count = $componentPlotCount (minimum 30)" | Add-Content -LiteralPath $report -Encoding utf8
+"Static regression audit: PASS ($($auditChecks.Count) checks + component export count)" | Add-Content -LiteralPath $report -Encoding utf8
 
 $uri = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
 Invoke-WebRequest -Uri $uri -OutFile $installer -UseBasicParsing
