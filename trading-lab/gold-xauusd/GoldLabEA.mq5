@@ -1,6 +1,6 @@
 #property strict
-#property version   "1.014"
-#property description "GoldLab XAUUSD research candidate; demo/backtest only"
+#property version   "1.015"
+#property description "GoldLab XAUUSD race-diagnostic candidate; demo/backtest only"
 
 
 
@@ -201,6 +201,46 @@ bool ModifyPositionSLTP(const ulong ticket,const double sl,const double tp)
    lastTradeRetcode=result.retcode;
    bool accepted=(sent && result.retcode==TRADE_RETCODE_DONE);
    RecordOrderSendTelemetry("modify-sltp",sent,result,accepted,errorCode);
+   // Diagnostic-only: distinguish an invalid SL/TP while a position remains open
+   // from a Random Delay race where that position has closed before the response.
+   // The original failed request remains recorded as failed in OrderSend telemetry.
+   if(!accepted)
+   {
+      bool stillOpen=PositionSelectByTicket(ticket);
+      double postBid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+      double postAsk=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+      long stopsPoints=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+      long freezePoints=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL);
+      double postSL=0.0,postTP=0.0,postOpen=0.0;
+      int postSide=-1;
+      if(stillOpen)
+      {
+         postSL=PositionGetDouble(POSITION_SL);
+         postTP=PositionGetDouble(POSITION_TP);
+         postOpen=PositionGetDouble(POSITION_PRICE_OPEN);
+         postSide=(int)PositionGetInteger(POSITION_TYPE);
+      }
+      string classification=(stillOpen ? "position_still_open" : "closed_before_response");
+      Print("GoldLab|SLTP_MODIFY_STATE|",_Symbol,
+            "|request_id=",(string)result.request_id,
+            ";ticket=",(string)ticket,
+            ";position_exists_after=",(stillOpen ? "true" : "false"),
+            ";classification=",classification,
+            ";sent=",(sent ? "true" : "false"),
+            ";accepted=",(accepted ? "true" : "false"),
+            ";retcode=",IntegerToString((int)result.retcode),
+            ";last_error=",IntegerToString(errorCode),
+            ";requested_sl=",DoubleToString(sl,_Digits),
+            ";requested_tp=",DoubleToString(tp,_Digits),
+            ";current_bid=",DoubleToString(postBid,_Digits),
+            ";current_ask=",DoubleToString(postAsk,_Digits),
+            ";stops_level_points=",IntegerToString((int)stopsPoints),
+            ";freeze_level_points=",IntegerToString((int)freezePoints),
+            ";position_side=",IntegerToString(postSide),
+            ";position_open=",DoubleToString(postOpen,_Digits),
+            ";position_sl_after=",DoubleToString(postSL,_Digits),
+            ";position_tp_after=",DoubleToString(postTP,_Digits));
+   }
    return accepted;
 }
 
@@ -347,7 +387,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.014; adds request-result correlation telemetry only; strategy/risk rules unchanged; blocks live execution on real accounts while permitting Strategy Tester.");
+   LogEvent("INIT","Research candidate v1.015; adds SL/TP failure-state diagnostics only; strategy/risk rules unchanged; blocks live execution on real accounts while permitting Strategy Tester.");
    return INIT_SUCCEEDED;
 }
 
