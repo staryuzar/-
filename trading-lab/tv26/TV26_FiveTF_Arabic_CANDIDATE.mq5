@@ -97,6 +97,15 @@ bool ReadBuf(int handle,int buffer,int shift,double &v)
    if(CopyBuffer(handle,buffer,shift,1,a)!=1) return false;
    v=a[0]; return MathIsValidNumber(v) && v!=EMPTY_VALUE;
 }
+// Ignore binary floating-point noise when a close equals a moving-average value.
+int TVComparePriceLevel(double source,double level)
+{
+   double tick=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+   double epsilon=MathMax(MathAbs(tick)*1.0e-7,1.0e-12);
+   double difference=source-level;
+   if(MathAbs(difference)<=epsilon) return 0;
+   return difference>0.0 ? 1 : -1;
+}
 bool ReadRates(ENUM_TIMEFRAMES tf,int count,int shift,MqlRates &rates[])
 {
    ArraySetAsSeries(rates,true);
@@ -258,7 +267,7 @@ bool ComputeOne(int t,int j,int &score)
       if(!ReadBuf(g_handles[t][j],0,1,a)) return false;
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
-      score=(cc[0]>a ? 1 : (cc[0]<a ? -1 : 0));
+      score=TVComparePriceLevel(cc[0],a);
       g_diagA[t][j]=a; g_diagB[t][j]=cc[0];
       return true;
    }
@@ -287,7 +296,7 @@ bool ComputeOne(int t,int j,int &score)
       if(a==EMPTY_VALUE || !MathIsValidNumber(a)) return false;
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
-      score=(cc[0]>a ? 1 : (cc[0]<a ? -1 : 0));
+      score=TVComparePriceLevel(cc[0],a);
       g_diagA[t][j]=a; g_diagB[t][j]=cc[0];
       return true;
    }
