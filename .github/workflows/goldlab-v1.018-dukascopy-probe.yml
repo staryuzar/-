@@ -41,6 +41,7 @@ jobs:
           if not files:
               raise SystemExit("FAIL: no Dukascopy CSV output found")
           total = 0
+          hours_with_ticks = set()
           first_ms = last_ms = None
           min_bid = min_ask = float("inf")
           max_bid = max_ask = 0.0
@@ -72,14 +73,21 @@ jobs:
                       previous = ts
                       first_ms = ts if first_ms is None else min(first_ms, ts)
                       last_ms = ts if last_ms is None else max(last_ms, ts)
+                      hours_with_ticks.add(datetime.fromtimestamp(ts/1000, timezone.utc).hour)
                       min_bid, max_bid = min(min_bid, bid), max(max_bid, bid)
                       min_ask, max_ask = min(min_ask, ask), max(max_ask, ask)
                       max_spread = max(max_spread, ask-bid)
                       total += 1
+          missing_hours = sorted(set(range(24)) - hours_with_ticks)
+          span_hours = (last_ms-first_ms)/3_600_000 if first_ms is not None and last_ms is not None else 0
           if total < 1000:
               raise SystemExit(f"FAIL: only {total} valid ticks; minimum 1000")
           if bad_quotes or nonmonotonic:
               raise SystemExit(f"FAIL: invalid_quotes={bad_quotes}, nonmonotonic_rows={nonmonotonic}")
+          # The XAUUSD daily maintenance break commonly creates an empty 21:00 UTC hourly artifact.
+          # Do not silently accept other missing hours as a complete day.
+          if missing_hours != [21] or span_hours < 22:
+              raise SystemExit(f"FAIL: incomplete UTC-hour coverage; missing_hours={missing_hours}, span_hours={span_hours:.2f}")
           summary = {
               "source": "Dukascopy tick archive via dukascopy-node",
               "instrument": "XAUUSD",
@@ -91,6 +99,9 @@ jobs:
               "bid_min": min_bid, "bid_max": max_bid,
               "ask_min": min_ask, "ask_max": max_ask,
               "max_observed_spread": max_spread,
+              "utc_hours_with_ticks": sorted(hours_with_ticks),
+              "missing_utc_hours": missing_hours,
+              "span_hours": round(span_hours, 3),
               "invalid_quotes": bad_quotes, "out_of_order_rows": nonmonotonic,
           }
           Path("dukascopy-tick-probe/validation-summary.json").write_text(
