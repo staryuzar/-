@@ -31,5 +31,9 @@ This is **not yet a verified bit-for-bit reproduction** of TradingView's proprie
 5. Verify no trades occur with missing indicators, mixed timeframe ratings, real account under demo-only mode, or excessive spread.
 6. Only after those gates, consider a demo forward test. Do not infer profitability from compilation or signal parity.
 
-## Status at creation
-Candidate source added to branch `tv26-five-timeframes-arabic-candidate`. Static review only so far. MetaEditor compilation, Strategy Tester, TradingView parity, and profitability are **not yet verified**.
+## Status — 2026-10-23
+- MetaEditor compile: **PASS**, GitHub Actions run [39945310172](https://github.com/staryuzar/-/actions/runs/39945310172), commit `4c16432130ab30893f8ea935113e6431e13819e5`.
+- Compiler result: **0 errors, 0 warnings**; generated EX5 size 36,602 bytes. Report artifact: [12498126118](https://github.com/staryuzar/-/actions/runs/39945310172/artifacts/12498126118).
+- First compile attempt exposed an unnecessary include dependency (`Trade/Trade.mqh`) and a version metadata warning; both were fixed, and the next compile passed.
+- The official installer returned exit code 1, but MetaEditor was present and the compile evidence was independently read from the artifact. This is recorded as an installer quirk, not as a compile failure.
+- **Not yet tested:** live chart rendering of Arabic text, indicator-by-indicator parity against TradingView, Strategy Tester, multi-period performance, order execution in a demo tester, and profitability. Compilation only proves the source compiles.
