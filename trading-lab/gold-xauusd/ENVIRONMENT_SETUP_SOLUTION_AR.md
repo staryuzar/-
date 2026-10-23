@@ -66,3 +66,11 @@
 
 - **فحص نحوي مستقل للبرامج النصية:** التشغيل `39876790304` نجح وفحص محلّل PowerShell للملفات الثلاثة `goldlab_advisor_ordercheck_diagnostic.ps1`, `goldlab_mt5_test.ps1`, و`goldlab_environment_preflight.ps1`، ومرّت جميعها دون أخطاء نحوية. [نتيجة الفحص](https://github.com/staryuzar/-/actions/runs/39876790304).
 - يجري الآن تشغيل الاختبار نفسه مع بوابة مصالحة HTML↔CSV التي تتحقق من عدد الصفقات/deals، وربح CSV مقابل تقرير MT5، وتواريخ كل صفقة، وجودة ticks؛ لا نعتمد هذه الإضافة قبل نجاح تشغيلها على GitHub.
+
+
+## متابعة التطوير والبحث على YouTube — 2026-10-23
+- أضيف سجل بحث جديد: [YOUTUBE_RESEARCH_ADX30_EXPERIMENT_AR.md](https://github.com/staryuzar/-/blob/goldlab-adx27-setfree-experiment/trading-lab/gold-xauusd/YOUTUBE_RESEARCH_ADX30_EXPERIMENT_AR.md). يتضمن دروس Strategy Tester، فيديو MetaQuotes الرسمي عن تحسين المستشار عبر MQL5 Cloud Network، والتوثيق الفني الذي يشرح real ticks ونتيجة OrderSend.
+- تجربة حد ADX=30 على النافذة 2026-08-05 إلى 2026-10-20 مرفوضة تطويرياً: -1.59 USD، PF 0.99، تراجع حقوق ملكية 9.29%، 88 صفقة مقابل خط أساس ADX=25 الذي حقق +20.76 USD وPF 1.47 وتراجع 3.59% على نفس النافذة. هذه مقارنة على فترة تطوير واحدة لا تثبت الأداء المستقبلي.
+- تجربة ADX=27 الأولى تجميعها نجح، لكن التقرير أظهر M0/1970 و0 Bars و0 Ticks و0 صفقات، وسجل MT5 قال إن تنزيل التاريخ أُلغي. تم رفضها كاختبار غير مكتمل.
+- لتجنب الاعتماد على ملف `.set` وحده، أعددت فرع `goldlab-adx27-setfree-experiment` يولّد نسخة MQL5 مؤقتة تبقي منطق المستشار كما هو وتخبز قيم المدخلات الخاصة بالتجربة فقط، ويترك `ExpertParameters` خارج ملف تشغيل MT5. أعددت أيضاً فرع تحكم `goldlab-adx25-setfree-control` لاختبار خط الأساس بالطريقة نفسها.
+- التشغيل [39881447464](https://github.com/staryuzar/-/actions/runs/39881447464) الخاص بـ ADX=27 اجتاز الفحص الثابت، ثم كان في خطوة اختبار MT5 عند آخر مراجعة. تشغيل تحكم ADX=25 [39881675394](https://github.com/staryuzar/-/actions/runs/39881675394) في قائمة الانتظار بسبب قفل التسلسل المشترك. لا توجد نتيجة مقبولة بعد لهذين التشغيلين؛ يجب انتظار نتائج HTML/CSV وسجلات MT5، لا الاكتفاء بحالة التجميع.
