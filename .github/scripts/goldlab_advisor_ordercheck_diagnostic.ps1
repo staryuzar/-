@@ -381,6 +381,7 @@ $qaCsvFiles = @()
 if (Test-Path -LiteralPath $qaCsvDir) { $qaCsvFiles = @(Get-ChildItem -LiteralPath $qaCsvDir -Filter "*.csv" -File -ErrorAction SilentlyContinue) }
 $qaPeriod = ""; $qaQuality = ""; $qaNet = [double]::NaN; $qaTrades = -1; $qaDeals = -1
 $qaRows = @(); $qaCsvNet = [double]::NaN; $qaOpens = 0; $qaExits = 0; $qaDateViolations = 0
+$qaIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 if (!(Test-Path -LiteralPath $qaReportPath)) {
   $qaFailures.Add("Expected MT5 report is missing.")
 } else {
@@ -405,7 +406,6 @@ if ($qaCsvFiles.Count -ne 1) {
 } else {
   try { $qaRows = @(Import-Csv -LiteralPath $qaCsvFiles[0].FullName -ErrorAction Stop) } catch { $qaFailures.Add("Could not parse deal CSV: $($_.Exception.Message)") }
   if ($qaRows.Count -eq 0) { $qaFailures.Add("Deal CSV is empty.") }
-  $qaIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
   $qaCsvNet = 0.0
   $qaStart = [datetime]::ParseExact("2026.08.05 00:00:00","yyyy.MM.dd HH:mm:ss",[Globalization.CultureInfo]::InvariantCulture)
   # MT5 ToDate is exclusive; reject even a single deal at or after 2026-10-20 00:00.
