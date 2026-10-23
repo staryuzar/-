@@ -1,0 +1,39 @@
+name: TV26 headless cloud MT5 indicator audit
+
+on:
+  push:
+    branches:
+      - tv26-five-timeframes-arabic-candidate
+    paths:
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+      - ".github/scripts/tv26_cloud_audit.ps1"
+      - ".github/workflows/tv26-cloud-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-cloud-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+      - name: Run isolated MT5 Strategy Tester audit (trading disabled)
+        shell: pwsh
+        run: ./.github/scripts/tv26_cloud_audit.ps1
+      - name: Upload cloud audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-cloud-audit-${{ github.run_id }}
+          path: tv26-cloud-results/
+          if-no-files-found: warn
+          retention-days: 30
