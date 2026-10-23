@@ -39,6 +39,11 @@
 - بوابة طلبات التداول كذلك نجحت: 699 OrderCheck ناجحاً، و699 OrderSend مقبولاً، و699 callback مقبولاً، دون عدم تطابق أو retcodes غير مقبولة.
 - هذه الجولة تستخدم الفترة `M5 (2026.08.05 - 2026.10.20)` (النهاية غير مشمولة وفق آلية MT5)، فلا تدخل أيام 21–23 أكتوبر المحمية.
 
+## آخر تحقق فعلي قبل فترة الحجز
+- اختبار MT5 [39878677693](https://github.com/staryuzar/-/actions/runs/39878677693) نجح مع بوابة تغطية البيانات الجديدة: `14,820` شمعة و`31,440,931` tick، جودة `100% real ticks`، 33 صفقة/66 deal، صافي +20.76 دولار متطابق بين HTML وCSV، وصفر صفقات خارج فترة التطوير.
+- الفحص الثابت الأخير [39879026088](https://github.com/staryuzar/-/actions/runs/39879026088) نجح: تحليل 4 ملفات PowerShell، وجميع ضوابط الفترة وبيانات التاريخ والتداول الحي وبصمة المصدر والقفل لمرة واحدة، مع فحص تحويل holdout الذي ينتهي قبل تشغيل MT5.
+- سير عمل التقييم المحمي موجود في [.github/workflows/goldlab-holdout-evaluation.yml](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/.github/workflows/goldlab-holdout-evaluation.yml). لم يتم إنشاء `HOLDOUT_RUN_TRIGGER.md` ولم يُستهلك القفل بعد. لا تبدأ نافذة 21–23 أكتوبر قبل 2026-10-24 12:00 UTC.
+
 ## تحقق حيّ من GitHub بتاريخ 2026-10-23
 - **Environment Preflight:** التشغيل `39874355973` انتهى بنجاح على Windows Server 2022؛ عُثر على MT5 Terminal وMetaEditor build `5.0.0.6281`، ونجح تجميع EA دخاني مستقل بنتيجة `0 errors, 0 warnings`. Artifact: [التشغيل ونتيجته](https://github.com/staryuzar/-/actions/runs/39874355973).
 - **Strategy Tester:** التشغيل `39874581680` انتهى بنجاح على Windows، وتقرير HTML يؤكد الفترة `M5 (2026.08.05 - 2026.10.20)`، وليس فترة الحجز. Artifact: [تقرير الاختبار وسجلات MT5](https://github.com/staryuzar/-/actions/runs/39874581680).
