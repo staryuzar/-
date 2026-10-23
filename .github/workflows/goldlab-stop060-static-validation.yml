@@ -42,7 +42,7 @@ jobs:
             @{ Name = "Stop input is changed to exactly 0.60 ATR"; Pass = ($script.Contains("InpStopATR=0.60||0.60||0.05||0.60||N") -and $script.Contains("InpStopATR=0.60</b>")) },
             @{ Name = "Other trend filter remains ADX 23-25"; Pass = ($script.Contains("InpMinADX=23.0||23.0||1.0||23.0||N") -and $script.Contains("InpMaxADX=25.0||25.0||1.0||25.0||N")) },
             @{ Name = "Window is development-only ending 2026.10.20"; Pass = ($script.Contains("ToDate=2026.10.20") -and -not $script.Contains("ToDate=2026.10.21") -and $script.Contains("2026.08.05 - 2026.10.20")) },
-@{ Name = "Exact report period is verified"; Pass = ($script.Contains("Period:</td>") -and $script.Contains("M5 (2026.08.05 - 2026.10.20)")) },
+            @{ Name = "Exact report period is verified"; Pass = ($script.Contains("Period:</td>") -and $script.Contains("M5 (2026.08.05 - 2026.10.20)")) },
             @{ Name = "Live trading remains disabled"; Pass = $runner.Contains("AllowLiveTrading=0") },
             @{ Name = "CSV, report, and date reconciliation gate remains required"; Pass = ($script.Contains("deal CSV/date-quality gate") -and $script.Contains("Out-of-window CSV deals")) }
           )
