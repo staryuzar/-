@@ -200,10 +200,15 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==ICHIMOKU_BASE)
    {
-      if(!ReadBuf(g_handles[t][j],1,1,a)) return false;
+      double conversion=0, base=0, spanA=0, spanB=0;
+      if(!ReadBuf(g_handles[t][j],0,1,conversion) || !ReadBuf(g_handles[t][j],1,1,base) ||
+         !ReadBuf(g_handles[t][j],2,1,spanA) || !ReadBuf(g_handles[t][j],3,1,spanB)) return false;
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
-      score=(cc[0]>a ? 1 : (cc[0]<a ? -1 : 0)); return true;
+      if(spanA>spanB && base>spanA && conversion>base && cc[0]>conversion) score=1;
+      else if(spanA<spanB && base<spanA && conversion<base && cc[0]<conversion) score=-1;
+      else score=0;
+      return true;
    }
    if(j==VWMA20 || j==HULL9)
    {
@@ -215,33 +220,39 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==RSI14)
    {
-      if(!ReadBuf(g_handles[t][j],0,1,a)) return false;
-      score=(a<30 ? 1 : (a>70 ? -1 : 0)); return true;
+      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
+      score=(a<30 && a>b ? 1 : (a>70 && a<b ? -1 : 0)); return true;
    }
    if(j==STOCH14)
    {
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],1,1,b)) return false;
-      score=(a<20 && b<20 ? 1 : (a>80 && b>80 ? -1 : 0)); return true;
+      score=(a<20 && b<20 && a>b ? 1 : (a>80 && b>80 && a<b ? -1 : 0)); return true;
    }
    if(j==CCI20)
    {
-      if(!ReadBuf(g_handles[t][j],0,1,a)) return false;
-      score=(a<-100 ? 1 : (a>100 ? -1 : 0)); return true;
+      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
+      score=(a<-100 && a>b ? 1 : (a>100 && a<b ? -1 : 0)); return true;
    }
    if(j==ADX14)
    {
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],1,1,b) || !ReadBuf(g_handles[t][j],2,1,c)) return false;
-      score=(a>=20 ? (b>c ? 1 : (c>b ? -1 : 0)) : 0); return true;
+      double prevADX=0;
+      if(!ReadBuf(g_handles[t][j],0,2,prevADX)) return false;
+      score=(a>20 && b>c && a>prevADX ? 1 : (a>20 && b<c && a<prevADX ? -1 : 0)); return true;
    }
    if(j==AO)
    {
-      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
-      score=(a>0 && a>b ? 1 : (a<0 && a<b ? -1 : 0)); return true;
+      double prev2=0;
+      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b) || !ReadBuf(g_handles[t][j],0,3,prev2)) return false;
+      bool buyCross=(a>0 && b<=0), sellCross=(a<0 && b>=0);
+      bool buySaucer=(a>0 && b>0 && a>b && b<prev2);
+      bool sellSaucer=(a<0 && b<0 && a<b && b>prev2);
+      score=(buyCross || buySaucer ? 1 : (sellCross || sellSaucer ? -1 : 0)); return true;
    }
    if(j==MOMENTUM10)
    {
-      if(!ReadBuf(g_handles[t][j],0,1,a)) return false;
-      score=(a>100 ? 1 : (a<100 ? -1 : 0)); return true;
+      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
+      score=(a>b ? 1 : (a<b ? -1 : 0)); return true;
    }
    if(j==MACD)
    {
@@ -260,8 +271,8 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==WILLIAMS_R)
    {
-      if(!ReadBuf(g_handles[t][j],0,1,a)) return false;
-      score=(a<-80 ? 1 : (a>-20 ? -1 : 0)); return true;
+      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
+      score=(a<-80 && a>b ? 1 : (a>-20 && a<b ? -1 : 0)); return true;
    }
    if(j==BULL_BEAR_POWER)
    {
@@ -272,7 +283,7 @@ bool ComputeOne(int t,int j,int &score)
    if(j==ULTIMATE_OSC)
    {
       a=UltimateValue(g_tfs[t]); if(a==EMPTY_VALUE || !MathIsValidNumber(a)) return false;
-      score=(a<30 ? 1 : (a>70 ? -1 : 0)); return true;
+      score=(a>70 ? 1 : (a<30 ? -1 : 0)); return true;
    }
    return false;
 }
