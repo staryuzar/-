@@ -1,0 +1,33 @@
+name: GoldLab Retry Math Self-Test (offline)
+
+on:
+  push:
+    branches: [goldlab-sltp-race-diagnostic]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_retry_math_selftest.py"
+      - ".github/workflows/goldlab-retry-math-selftest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-retry-math-selftest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  retry-math-selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout isolated retry-buffer candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate retry distance, lot sizing, spread guard, and EA source contract
+        run: python .github/scripts/goldlab_retry_math_selftest.py
