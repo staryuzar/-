@@ -131,3 +131,27 @@ Use it to identify which component disagrees, not as a claim that the EA has alr
 
 The GitHub workflow has static regression checks for the MQL5 source and key expressions in both Pine scripts. It does not compile Pine and cannot access the user's private TradingView session.
 The current GitHub Windows workflow uses MetaEditor only. A successful workflow run is source-compile evidence, not proof of indicator parity, and it cannot inspect the user's private TradingView chart.
+
+
+## Headless cloud audit — MT5 without using the local PC
+
+The workflow [TV26 headless cloud MT5 indicator audit](https://github.com/staryuzar/-/actions/workflows/tv26-cloud-audit.yml) runs MT5 Strategy Tester on a GitHub-hosted Windows runner. The EA input InpEnableTrading=false and tester setting AllowLiveTrading=0 are used deliberately: this run exports indicator diagnostics, not orders.
+
+The diagnostic window is **2026-09-01 through 2026-09-03 inclusive**, on XAUUSD/M1 with rating frames M1/M5/M15/M30/H1. The tester uses **1-minute OHLC model**, not real ticks. It downloads the official MT5 installer, compiles the checked-out EA, runs the tester, and attempts to export TV26_Audit_XAUUSD_26102326.csv and a run summary as a GitHub Actions artifact. The repository's mt5 Actions secret supplies the account connection; the password/configuration file is not included in artifacts. If the secret is missing or tester history/audit output is unavailable, the workflow must be treated as failed/incomplete.
+
+### What this cloud test proves — and does not prove
+
+- It can produce the EA's actual MT5 indicator diagnostics on a hosted Windows runner without launching the user's local MT5.
+- It is **not** a live TradingView comparison: GitHub Actions cannot execute a private TradingView chart or compile the user's Pine script. The audit CSV is MT5-side evidence only.
+- It is **not** a profitability test. Trading is explicitly disabled, and the model is 1-minute OHLC rather than real ticks.
+- A numerical parity claim requires a TradingView component-export CSV from the same symbol/provider and candle timestamps, then a successful report from the comparator below.
+
+### Compare the two CSVs when a TradingView export is available
+
+The comparator is compare_tv26_csv.py. It aligns the prior closed candle by timestamp (using the explicit MT5 server UTC offset), checks OHLC consistency, compares overall/MA/oscillator ratings, and compares all 26 component votes. It writes a Markdown summary and a row-by-row CSV. Unmatched candles and missing component values cannot silently pass.
+
+Example (replace 3 only if MT5 server timestamps are actually UTC+3; determine the broker server offset rather than assuming Yemen local time equals broker server time):
+
+    python trading-lab/tv26/compare_tv26_csv.py --mt5 MT5_AUDIT.csv --tv TV26_TRADINGVIEW_EXPORT.csv --timeframe M1 --mt5-utc-offset-hours 3 --min-bars 10
+
+Run separately for M5, M15, M30 and H1, with the TradingView Pine input and comparison timeframe set to the same frame. PASS is limited to the two files and timeframe tested; it does not prove profitability. Use a mismatch report to isolate the component and candle before changing any formula.
