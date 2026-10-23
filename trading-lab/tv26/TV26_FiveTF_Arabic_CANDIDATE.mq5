@@ -178,7 +178,8 @@ bool InitHandles()
       g_handles[t][RSI14]=iRSI(_Symbol,g_tfs[t],14,PRICE_CLOSE);
       g_handles[t][STOCH14]=iStochastic(_Symbol,g_tfs[t],14,3,3,MODE_SMA,STO_LOWHIGH);
       g_handles[t][CCI20]=iCCI(_Symbol,g_tfs[t],20,PRICE_CLOSE);
-      g_handles[t][ADX14]=iADX(_Symbol,g_tfs[t],14);
+      // Use Wilder smoothing to match TradingView ta.dmi(14,14); iADX() uses a different smoothing algorithm.
+      g_handles[t][ADX14]=iADXWilder(_Symbol,g_tfs[t],14);
       g_handles[t][AO]=iAO(_Symbol,g_tfs[t]);
       // TradingView Momentum is close minus close[10]; compute it manually below.
       // MACD is calculated from EMA(12), EMA(26), then EMA(9) below to match Pine.
@@ -226,9 +227,12 @@ bool ComputeOne(int t,int j,int &score)
    {
       double conversion=0, base=0, spanA=0, spanB=0;
       // TechnicalRating v3 compares lead spans at [26], but current Tenkan/Kijun.
-      // The evaluated bar is shift 1, so lead spans must be read at shift 1+26=27.
+      // MT5 iIchimoku applies a forward plot shift to Senkou buffers 2/3, which is
+      // already reflected by CopyBuffer indexing. Requesting shift 27 double-shifts
+      // the series (verified against exported OHLC: it selected the TV span from 52 bars back).
+      // Shift 1 gives the Pine span value [26] for the last closed bar.
       if(!ReadBuf(g_handles[t][j],0,1,conversion) || !ReadBuf(g_handles[t][j],1,1,base) ||
-         !ReadBuf(g_handles[t][j],2,27,spanA) || !ReadBuf(g_handles[t][j],3,27,spanB)) return false;
+         !ReadBuf(g_handles[t][j],2,1,spanA) || !ReadBuf(g_handles[t][j],3,1,spanB)) return false;
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
       if(spanA>spanB && base>spanA && conversion>base && cc[0]>conversion) score=1;
