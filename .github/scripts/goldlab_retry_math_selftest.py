@@ -213,7 +213,7 @@ class RetryMathTests(unittest.TestCase):
         self.assertIn("request.sl=plannedSL;", source)
         self.assertIn("request.tp=plannedTP;", source)
         self.assertRegex(source, r"stopDistance=MathMax\(InpStopATR\*atr,minStop\+2\.0\*_Point\)")
-        self.assertEqual(source.count("if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)"), 1)
+        self.assertEqual(source.count("if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)"), 2)
 
 
 if __name__ == "__main__":
