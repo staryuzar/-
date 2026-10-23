@@ -323,10 +323,16 @@ void EvaluateAll()
 }
 int AlignedSignal()
 {
-   if(g_ready[0]!=N_RATINGS || g_ready[1]!=N_RATINGS || g_ready[2]!=N_RATINGS ||
-      g_ready[3]!=N_RATINGS || g_ready[4]!=N_RATINGS) return 0;
-   for(int t=0;t<N_TF;t++) if(g_rating[t]<STRONG) { bool allSell=true; for(int k=0;k<N_TF;k++) if(g_rating[k]>-STRONG) allSell=false; return (allSell?-1:0); }
-   return 1;
+   bool allStrongBuy=true, allStrongSell=true;
+   for(int t=0;t<N_TF;t++)
+   {
+      if(g_ready[t]!=N_RATINGS || g_maReady[t]!=15 || g_oscReady[t]!=11) return 0;
+      if(g_rating[t]<=STRONG) allStrongBuy=false;
+      if(g_rating[t]>=-STRONG) allStrongSell=false;
+   }
+   if(allStrongBuy) return 1;
+   if(allStrongSell) return -1;
+   return 0;
 }
 string DetailSignal(int t,int j)
 {
