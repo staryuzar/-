@@ -6,7 +6,7 @@ on:
       mt5_audit_run_id:
         description: 'GitHub Actions run ID that contains the cloud MT5 audit artifact'
         required: true
-        default: '39977549957'
+        default: '39982090545'
         type: string
       mt5_utc_offset_hours:
         description: 'MT5 broker server offset from UTC, e.g. UTC+3 = 3'
