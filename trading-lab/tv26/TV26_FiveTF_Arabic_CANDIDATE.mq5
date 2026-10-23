@@ -195,7 +195,6 @@ bool ComputeOne(int t,int j,int &score)
    if(j<=EMA200)
    {
       if(!ReadBuf(g_handles[t][j],0,1,a)) return false;
-      if(!ReadBuf(iMA(_Symbol,g_tfs[t],1,0,MODE_SMA,PRICE_CLOSE),0,1,close)) {}
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
       score=(cc[0]>a ? 1 : (cc[0]<a ? -1 : 0)); return true;
