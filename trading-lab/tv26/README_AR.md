@@ -117,4 +117,15 @@ A Pine Script reference indicator was added at [TradingView_Parity_5TF.pine](htt
 
 To use it: open TradingView with the intended XAUUSD data provider, set the chart to **M1**, open Pine Editor, paste the file contents from GitHub, save, and add it to the chart. Compare the three numeric ratings against MT5 for each timeframe at the same candle timestamp (convert timezone labels as needed). If TradingView rejects the script, fix the reported Pine error before comparing; GitHub Actions checks only MQL5, not Pine compilation.
 
+### Component-by-component Pine audit
+
+A second Pine diagnostic was added: [TradingView_Parity_Components_1TF.pine](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Parity_Components_1TF.pine). It reproduces the published v3 component rating expressions, shows the three numeric summary ratings plus all 26 individual votes, and offsets the values to the prior confirmed candle in the selected timeframe.
+
+Use it to identify which component disagrees, not as a claim that the EA has already matched live TradingView values:
+1. Open TradingView on the same XAUUSD provider or symbol you plan to compare with MT5.
+2. Open Pine Editor, paste the entire component audit script from the link, save, and add it to the chart.
+3. Select the timeframe to audit (M1, M5, M15, M30 or H1) in the script settings.
+4. Compare the row votes to the EA's CSV for the same broker/server, OHLC values and closed-candle timestamp. The audit script uses the imported `TradingView/ta/9` library; it has **not** been compiled in TradingView itself yet. If Pine Editor reports an error, correct that before relying on its output.
+
+The GitHub workflow has static regression checks for the MQL5 source and key expressions in both Pine scripts. It does not compile Pine and cannot access the user's private TradingView session.
 The current GitHub Windows workflow uses MetaEditor only. A successful workflow run is source-compile evidence, not proof of indicator parity, and it cannot inspect the user's private TradingView chart.
