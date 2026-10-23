@@ -26,10 +26,10 @@ GitHub يستطيع تجميع MQL5 وتشغيل Strategy Tester، لكنه لا
    - TV26_M30.csv
    - TV26_H1.csv
 
-يجب أن تتضمن الملفات أعمدة مثل TV26.bar_open_time وTV26.open وTV26.high وTV26.low وTV26.close وTV26.SMA10 ... TV26.UltimateOscillator. إذا كانت أعمدة TV26.* غير موجودة، فهذا ليس تصديرًا صحيحًا للمؤشر.
+يجب أن تتضمن الملفات أعمدة مثل TV26.bar_open_time وTV26.open وTV26.high وTV26.low وTV26.close وTV26.total وTV26.ma وTV26.osc وTV26.formula_total وTV26.formula_ma وTV26.formula_osc وTV26.SMA10 ... TV26.UltimateOscillator. إذا كانت أعمدة TV26.* غير موجودة، فهذا ليس تصديرًا صحيحًا للمؤشر.
 
 ## ملف MT5 يأتي من المختبر السحابي تلقائيًا
-سير العمل ينزّل ملف تدقيق MT5 من أثر GitHub Actions المحدد في مدخل mt5_audit_run_id؛ لا تحتاج إلى تنزيله أو رفعه يدويًا. الافتراضي هو تشغيل المختبر السحابي 39977549957، الذي يغطي 1–3 سبتمبر 2026. إذا أنشأنا تشغيل تدقيق أحدث، غيّر رقم التشغيل في شاشة Run workflow.
+سير العمل ينزّل ملف تدقيق MT5 من أثر GitHub Actions المحدد في مدخل mt5_audit_run_id؛ لا تحتاج إلى تنزيله أو رفعه يدويًا. الافتراضي هو تشغيل المختبر السحابي 39982090545، الذي يغطي 1–3 سبتمبر 2026. إذا أنشأنا تشغيل تدقيق أحدث، غيّر رقم التشغيل في شاشة Run workflow.
 
 ## إدخال ملفات المطابقة إلى GitHub
 في الفرع tv26-five-timeframes-arabic-candidate أنشئ المجلد trading-lab/tv26/parity-input/ وارفع ملفات TradingView الخمسة فقط داخله: TV26_M1.csv وTV26_M5.csv وTV26_M15.csv وTV26_M30.csv وTV26_H1.csv. لا ترفع MT5_Audit.csv؛ سيُنزّل تلقائيًا من أثر المختبر.
