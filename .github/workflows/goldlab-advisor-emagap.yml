@@ -12,7 +12,8 @@ permissions:
 
 # Serialize the paired experiment with other Advisor v2 runs using the same tester credentials/data runner.
 concurrency:
-  group: goldlab-advisor-stop070-${{ github.ref }}
+  group: goldlab-shared-headway-mt5
+  queue: max
   cancel-in-progress: false
 
 jobs:
