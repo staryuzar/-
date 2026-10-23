@@ -79,3 +79,12 @@ jobs:
           }
           if ($failed) { throw "PowerShell parsing or holdout/live-trading static controls failed." }
           Write-Host "GoldLab syntax and safety gate: PASS. No MT5 installation, account login, or strategy test executed."
+
+      - name: Validate protected holdout transformation without launching MT5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:GOLDLAB_PREFLIGHT_ONLY = "true"
+          . .github/scripts/goldlab_holdout_evaluation.ps1
+          Write-Host "Holdout transform preflight passed without running Strategy Tester."
+
