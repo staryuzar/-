@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.005"
+#property version   "1.006"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -46,6 +46,8 @@ datetime g_lastM1Bar=0;
 datetime g_lastPanelUpdate=0;
 string g_lastAction="لم يُرسل أي أمر";
 string g_lastBlock="";
+int g_lastExecutedSignal=0;
+string g_signalGV="";
 
 string g_names[N_RATINGS]={
  "متوسط بسيط 10","متوسط أسي 10","متوسط بسيط 20","متوسط أسي 20",
@@ -520,7 +522,10 @@ bool CloseTicket(ulong ticket)
    req.price=(req.type==ORDER_TYPE_BUY?SymbolInfoDouble(_Symbol,SYMBOL_ASK):SymbolInfoDouble(_Symbol,SYMBOL_BID));
    req.deviation=InpDeviationPoints;req.type_filling=ORDER_FILLING_IOC;req.comment="TV26 close opposite";
    bool sent=OrderSend(req,res);
-   return sent && (res.retcode==TRADE_RETCODE_DONE || res.retcode==TRADE_RETCODE_DONE_PARTIAL);
+   if(!sent || (res.retcode!=TRADE_RETCODE_DONE && res.retcode!=TRADE_RETCODE_DONE_PARTIAL))
+      return false;
+   // A partial-close retcode is not a successful reversal if the old position remains.
+   return !PositionSelectByTicket(ticket);
 }
 double NormalizeLots(double lots)
 {
@@ -543,11 +548,37 @@ ENUM_ORDER_TYPE_FILLING FillMode()
    if((f & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK) return ORDER_FILLING_FOK;
    return ORDER_FILLING_IOC;
 }
+void RememberSignal(int sig)
+{
+   g_lastExecutedSignal=sig;
+   if(g_signalGV!="") GlobalVariableSet(g_signalGV,(double)sig);
+}
 void TradeIfAligned()
 {
    int sig=AlignedSignal();
-   if(sig==0){g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";return;}
+   if(sig==0)
+   {
+      RememberSignal(0); // Re-arm after the five-timeframe consensus is no longer strong.
+      g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";
+      return;
+   }
    if(!InpEnableTrading){g_lastAction=(sig>0?"إشارة شراء قوي متوافقة":"إشارة بيع قوي متوافقة")+"؛ التنفيذ معطّل";return;}
+
+   ulong trackedTicket=0;
+   ENUM_POSITION_TYPE trackedSide;
+   bool hasTracked=FindOurPosition(trackedTicket,trackedSide);
+   if(hasTracked && ((sig>0 && trackedSide==POSITION_TYPE_BUY) || (sig<0 && trackedSide==POSITION_TYPE_SELL)))
+   {
+      RememberSignal(sig);
+      g_lastAction="الصفقة الحالية في اتجاه الإشارة؛ لا تكرار للدخول";
+      g_lastBlock="";
+      return;
+   }
+   if(!hasTracked && sig==g_lastExecutedSignal)
+   {
+      g_lastAction="انتظار؛ أُنفذت إشارة بهذا الاتجاه سابقاً، ولن تتكرر حتى تتغير حالة التوافق";
+      return;
+   }
    if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)
    {g_lastBlock="حماية الحساب: التداول مسموح على الحساب التجريبي فقط";g_lastAction="لم يُرسل أمر";return;}
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK),bid=SymbolInfoDouble(_Symbol,SYMBOL_BID),point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
@@ -577,7 +608,7 @@ void TradeIfAligned()
    req.sl=sl;req.tp=tp;req.deviation=InpDeviationPoints;req.type_filling=FillMode();req.comment="TV26 all-TF strong rating";
    bool sent=OrderSend(req,res);
    if(sent && (res.retcode==TRADE_RETCODE_DONE || res.retcode==TRADE_RETCODE_DONE_PARTIAL || res.retcode==TRADE_RETCODE_PLACED))
-   {g_lastAction=(sig>0?"شراء":"بيع")+" نُفّذ/قُبل؛ حجم "+DoubleToString(lots,2);g_lastBlock="";Print("TV26 order accepted. retcode=",res.retcode," volume=",lots);}
+   {RememberSignal(sig);g_lastAction=(sig>0?"شراء":"بيع")+" نُفّذ/قُبل؛ حجم "+DoubleToString(lots,2);g_lastBlock="";Print("TV26 order accepted. retcode=",res.retcode," volume=",lots);}
    else
    {g_lastAction="رفض الأمر؛ لم يُعتبر التنفيذ ناجحاً";g_lastBlock="رمز الوسيط: "+IntegerToString((int)res.retcode)+" / "+res.comment;Print("TV26 order failed. sent=",sent," retcode=",res.retcode," comment=",res.comment);}
 }
@@ -589,6 +620,8 @@ int OnInit()
    if(InpRiskPercent<=0 || InpStopATR<=0 || InpTargetATR<=0){Print("TV26: إعدادات المخاطرة غير صالحة");return INIT_PARAMETERS_INCORRECT;}
    InitHandles();
    g_auditFile="TV26_Audit_"+_Symbol+"_"+IntegerToString((int)InpMagic)+".csv";
+   g_signalGV="TV26_LastSignal_"+_Symbol+"_"+IntegerToString((int)InpMagic);
+   if(GlobalVariableCheck(g_signalGV)) g_lastExecutedSignal=(int)GlobalVariableGet(g_signalGV);
    EventSetTimer(2);
    Print("TV26 Arabic candidate initialized. This is a research candidate; validate in MetaEditor and Strategy Tester before use.");
    return INIT_SUCCEEDED;
