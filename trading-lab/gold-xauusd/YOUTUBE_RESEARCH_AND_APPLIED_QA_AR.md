@@ -98,6 +98,8 @@
 - اختبار التطوير الحقيقي الأحدث [39878677693](https://github.com/staryuzar/-/actions/runs/39878677693) مرّ مع بوابة تغطية التاريخ الجديدة: 14,820 شمعة، 31,440,931 tick، جودة 100% real ticks، تطابق 66 سجل deal، +20.76 دولار مطابق للتقرير وCSV، وصفر سجل خارج الفترة. هذه نتيجة تطوير وليست تقييم holdout.
 
 ## إعداد اختبار مستقل محمي — دون تشغيله مبكراً
+- مرجع التجهيز غير القابل للالتباس محفوظ في [GOLDLAB_V1014_HOLDOUT_BASELINE.json](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/trading-lab/gold-xauusd/GOLDLAB_V1014_HOLDOUT_BASELINE.json): commit النسخة المجمدة، بصمة المصدر، جميع مدخلات EA، نافذة الاختبار، ومقاييس التطوير.
+- **قيد معروف لا نخفيه:** ملف MT5 INI الحالي يستخدم `ExecutionMode=0` (No delay)، أي لا يحاكي تأخر الشبكة. أبقينا ذلك كما هو في holdout حتى لا نغيّر شروط المقارنة بعد التجميد. يوضح دليل MetaTrader الرسمي أن تأخير التنفيذ يمكن محاكاته، وأن وضع No Delay ينفذ الأوامر بالسعر المطلوب دون requote؛ لذلك لا نعتبر هذه الجولة اختبار تنفيذ واقعي بالكامل. [المرجع الرسمي](https://www.metatrader5.com/en/terminal/help/algotrading/testing). بعد استهلاك holdout، يكون اختبار الإعداد ذاته مع Random Delay تجربة منفصلة، ولا يعاد استخدام holdout لتقييمها.
 
 - أُضيف سير عمل منفصل: [GoldLab Protected Holdout — One-Time Evaluation](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/.github/workflows/goldlab-holdout-evaluation.yml).
 - يستخدم هذا المسار مصدر المستشار المجمد عند commit `b3ff34caa837ce07e508ce9f8033123d737b7940`، ويتحقق من بصمة مصدر EA المتوقعة `149e0e84be72c92246ffca6be1a8c566d4b99645f941d12ebebc3aff0bd4755c`. إعدادات الاختبار ثابتة على نسخة فحص ADX 23-25، short-only، مخاطرة 0.50%، وقف 0.45 ATR، هدف 2.4 ATR، و trailing 1.4 ATR.
