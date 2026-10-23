@@ -1,6 +1,6 @@
 #property strict
-#property version   "1.017"
-#property description "GoldLab XAUUSD race-diagnostic candidate; demo/backtest only"
+#property version   "1.018"
+#property description "GoldLab XAUUSD risk-capped retry-buffer candidate; tester/demo only"
 
 
 
@@ -21,7 +21,7 @@ input bool             InpAllowLong            = true;
 input double           InpMaxSpreadPoints      = 100.0;
 input int              InpATRPeriod           = 14;
 input double           InpStopATR             = 1.8;
-input double           InpStopRetryBufferATR   = 0.50; // Extra ATR cushion on one INVALID_STOPS retry only.
+input double           InpStopRetryBufferATR   = 0.50; // Maximum extra ATR cushion; reduced if needed to preserve risk budget.
 input bool             InpTestForceInvalidStopsOnce = false; // Tester-only fault injection; MUST stay false outside controlled tests.
 input double           InpTargetATR           = 2.4;
 input double           InpTrailATR             = 1.4;
@@ -234,16 +234,57 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
 
       // Extra cushion is applied only to the one retry. LotsForRisk recalculates volume against the widened stop.
       double retryBaseRiskDistance=MathMax(originalRiskDistance,spread+minStopDistance+2.0*tickSize);
-      double retryBufferDistance=InpStopRetryBufferATR*retryATR;
+      double requestedRetryBufferDistance=InpStopRetryBufferATR*retryATR;
+      double retryBufferDistance=requestedRetryBufferDistance;
       double retryRiskDistance=retryBaseRiskDistance+retryBufferDistance;
       double retryEntry=(type==ORDER_TYPE_BUY ? tick.ask : tick.bid);
       double retrySL=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry-retryRiskDistance : retryEntry+retryRiskDistance);
       double retryTP=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry+targetDistance : retryEntry-targetDistance);
       double retryLots=LotsForRisk(type,retryEntry,retrySL);
-      if(retryLots<=0.0)
+      double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+      bool retryBufferCapped=false;
+
+      // Treat the configured ATR buffer as a maximum. If it makes even the broker-minimum
+      // lot unaffordable, binary-search the largest smaller buffer that still respects the
+      // cash risk budget. The final rounded stop and lots are recalculated before OrderCheck.
+      if(retryLots<minLot && retryBufferDistance>0.0)
+      {
+         double zeroBufferSL=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry-retryBaseRiskDistance : retryEntry+retryBaseRiskDistance);
+         double zeroBufferLots=LotsForRisk(type,retryEntry,zeroBufferSL);
+         if(zeroBufferLots>=minLot)
+         {
+            double affordableBuffer=0.0;
+            double unaffordableBuffer=retryBufferDistance;
+            for(int capIteration=0;capIteration<24;capIteration++)
+            {
+               double candidateBuffer=(affordableBuffer+unaffordableBuffer)*0.5;
+               double candidateRiskDistance=retryBaseRiskDistance+candidateBuffer;
+               double candidateSL=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry-candidateRiskDistance : retryEntry+candidateRiskDistance);
+               double candidateLots=LotsForRisk(type,retryEntry,candidateSL);
+               if(candidateLots>=minLot)
+                  affordableBuffer=candidateBuffer;
+               else
+                  unaffordableBuffer=candidateBuffer;
+            }
+            retryBufferDistance=affordableBuffer;
+            retryRiskDistance=retryBaseRiskDistance+retryBufferDistance;
+            retrySL=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry-retryRiskDistance : retryEntry+retryRiskDistance);
+            retryLots=LotsForRisk(type,retryEntry,retrySL);
+            retryBufferCapped=(retryLots>=minLot && retryBufferDistance+tickSize*0.5<requestedRetryBufferDistance);
+            if(retryBufferCapped)
+               LogEvent("OPEN_STOP_RETRY_BUFFER_CAPPED","trigger_request_id="+(string)retryTriggerRequestId+
+                        ";requested_buffer_atr="+DoubleToString(InpStopRetryBufferATR,2)+
+                        ";effective_buffer_atr="+DoubleToString(retryBufferDistance/retryATR,4)+
+                        ";requested_buffer_distance="+DoubleToString(requestedRetryBufferDistance,_Digits)+
+                        ";effective_buffer_distance="+DoubleToString(retryBufferDistance,_Digits)+
+                        ";min_lot="+DoubleToString(minLot,2)+";"+RiskRejectDetail(type,retryEntry,retrySL));
+         }
+      }
+
+      if(retryLots<minLot || retryLots<=0.0)
       {
          orderSendOpenStopRetryFailedCount++;
-         LogEvent("OPEN_STOP_RETRY_ABORT","trigger_request_id="+(string)retryTriggerRequestId+";outcome=safe_no_retry_send;reason=volume_below_minimum;"+RiskRejectDetail(type,retryEntry,retrySL));
+         LogEvent("OPEN_STOP_RETRY_ABORT","trigger_request_id="+(string)retryTriggerRequestId+";outcome=safe_no_retry_send;reason=volume_below_minimum;requested_buffer_atr="+DoubleToString(InpStopRetryBufferATR,2)+";effective_buffer_distance="+DoubleToString(retryBufferDistance,_Digits)+";"+RiskRejectDetail(type,retryEntry,retrySL));
          return false;
       }
 
@@ -277,8 +318,10 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
                    ";tp="+DoubleToString(retryTP,_Digits)+
                    ";original_risk_distance="+DoubleToString(originalRiskDistance,_Digits)+
                    ";base_risk_distance="+DoubleToString(retryBaseRiskDistance,_Digits)+
-                   ";retry_buffer_atr="+DoubleToString(InpStopRetryBufferATR,2)+
+                   ";retry_buffer_requested_atr="+DoubleToString(InpStopRetryBufferATR,2)+
+                   ";retry_buffer_effective_atr="+DoubleToString(retryBufferDistance/retryATR,4)+
                    ";retry_atr="+DoubleToString(retryATR,_Digits)+
+                   ";retry_buffer_requested_distance="+DoubleToString(requestedRetryBufferDistance,_Digits)+
                    ";retry_buffer_distance="+DoubleToString(retryBufferDistance,_Digits)+
                    ";retry_risk_distance="+DoubleToString(retryRiskDistance,_Digits)+
                    ";stops_level_points="+DoubleToString(stopsLevelPoints,1)+
@@ -297,9 +340,11 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
                 ";tp="+DoubleToString(retryTP,_Digits)+
                 ";original_risk_distance="+DoubleToString(originalRiskDistance,_Digits)+
                 ";base_risk_distance="+DoubleToString(retryBaseRiskDistance,_Digits)+
-                ";retry_buffer_atr="+DoubleToString(InpStopRetryBufferATR,2)+
+                ";retry_buffer_requested_atr="+DoubleToString(InpStopRetryBufferATR,2)+
+                   ";retry_buffer_effective_atr="+DoubleToString(retryBufferDistance/retryATR,4)+
                 ";retry_atr="+DoubleToString(retryATR,_Digits)+
-                ";retry_buffer_distance="+DoubleToString(retryBufferDistance,_Digits)+
+                ";retry_buffer_requested_distance="+DoubleToString(requestedRetryBufferDistance,_Digits)+
+                   ";retry_buffer_distance="+DoubleToString(retryBufferDistance,_Digits)+
                 ";retry_risk_distance="+DoubleToString(retryRiskDistance,_Digits)+
                 ";stops_level_points="+DoubleToString(stopsLevelPoints,1)+
                 ";freeze_level_points="+DoubleToString(freezeLevelPoints,1)+
