@@ -2,7 +2,7 @@ name: GoldLab ADX 23–27 — Controlled Experiment
 
 on:
   push:
-    branches: [goldlab-adx27-experiment]
+    branches: [goldlab-adx27-experiment, goldlab-adx27-telemetry-breakdown-candidate]
     paths:
       - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_adx27_experiment.ps1"
