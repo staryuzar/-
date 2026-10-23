@@ -270,7 +270,7 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
             retryRiskDistance=retryBaseRiskDistance+retryBufferDistance;
             retrySL=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry-retryRiskDistance : retryEntry+retryRiskDistance);
             retryLots=LotsForRisk(type,retryEntry,retrySL);
-            retryBufferCapped=(retryLots>=minLot && retryBufferDistance+tickSize*0.5<requestedRetryBufferDistance);
+            retryBufferCapped=(retryLots>=minLot && retryBufferDistance+1.0e-9<requestedRetryBufferDistance);
             if(retryBufferCapped)
                LogEvent("OPEN_STOP_RETRY_BUFFER_CAPPED","trigger_request_id="+(string)retryTriggerRequestId+
                         ";requested_buffer_atr="+DoubleToString(InpStopRetryBufferATR,2)+
