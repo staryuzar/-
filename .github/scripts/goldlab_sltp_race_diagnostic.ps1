@@ -183,58 +183,106 @@ if ($sendCallTotal -lt 1) { throw "No OrderSend call observed; result telemetry 
 if (($sendAcceptedTotal + $sendFailTotal) -ne $sendCallTotal) { throw "OrderSend summary counts do not reconcile; inspect tester telemetry." }
 $evidenceFiles = @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".txt",".log") })
 $failedModifyRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$retryableOpenRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $staleClosedRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $stillOpenFailureRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-$unclassifiableSendFailures = 0
+$seenFailedSendSequences = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$unclassifiableSendFailureSequences = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$recoverySummaryPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$recoverySummaryLines = @()
+$recoveryStaleModifyCount = -1
+$openStopRetryAttempts = -1
+$openStopRetryRecovered = -1
+$openStopRetryFailed = -1
 foreach ($file in $evidenceFiles) {
   foreach ($line in (Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue)) {
-    if ($line -match 'GoldLab\|ORDER_SEND_RESULT\|[^|]+\|seq=\d+;context=([^;]+);sent=false;accepted=false;request_id=(\d+);') {
-      $ctx = [string]$Matches[1]; $rid = [string]$Matches[2]
-      if ($ctx -eq "modify-sltp" -and $rid -ne "0") { [void]$failedModifyRequestIds.Add($rid) }
-      else { $unclassifiableSendFailures++ }
+    if ($line -match 'GoldLab\|ORDER_SEND_RESULT\|[^|]+\|seq=(\d+);context=([^;]+);sent=(true|false);accepted=false;request_id=(\d+);retcode=(\d+);') {
+      $seq = [string]$Matches[1]
+      $ctx = [string]$Matches[2]
+      $rid = [string]$Matches[3]
+      $retcode = [int]$Matches[4]
+      if ($seenFailedSendSequences.Add($seq)) {
+        if ($ctx -eq "modify-sltp" -and $rid -ne "0" -and $retcode -eq 3) {
+          [void]$failedModifyRequestIds.Add($rid)
+        } elseif ($ctx -eq "open-retryable-stop-reject" -and $rid -ne "0" -and $retcode -eq 10016) {
+          # First invalid-stop response remains a failed request even if one bounded retry later succeeds.
+          [void]$retryableOpenRequestIds.Add($rid)
+        } else {
+          [void]$unclassifiableSendFailureSequences.Add($seq)
+        }
+      }
     }
-    if ($line -match 'GoldLab\|SLTP_MODIFY_STATE\|[^|]+\|request_id=(\d+);ticket=\d+;position_exists_after=false;classification=closed_before_response;') {
+    if ($line -match 'GoldLab\|SLTP_MODIFY_STATE\|[^|]+\|request_id=(\d+);ticket=\d+;position_exists_after=false;classification=closed_before_response;sent=false;accepted=false;retcode=3;last_error=4756;') {
       [void]$staleClosedRequestIds.Add([string]$Matches[1])
     }
     if ($line -match 'GoldLab\|SLTP_MODIFY_STATE\|[^|]+\|request_id=(\d+);ticket=\d+;position_exists_after=true;classification=position_still_open;') {
       [void]$stillOpenFailureRequestIds.Add([string]$Matches[1])
     }
+    if ($line -match 'GoldLab\|ORDER_SEND_RECOVERY_SUMMARY\|') {
+      $marker = "GoldLab|ORDER_SEND_RECOVERY_SUMMARY|"
+      $markerIndex = $line.IndexOf($marker,[System.StringComparison]::Ordinal)
+      if ($markerIndex -lt 0) { throw "Malformed ORDER_SEND_RECOVERY_SUMMARY record." }
+      $payload = $line.Substring($markerIndex + $marker.Length).Trim()
+      if ($payload -notmatch '^[^|]+\|stale_modify=(\d+);open_stop_retry_attempts=(\d+);open_stop_retry_recovered=(\d+);open_stop_retry_failed=(\d+);deinit_reason=\d+$') {
+        throw "Unexpected ORDER_SEND_RECOVERY_SUMMARY payload: $payload"
+      }
+      if ($recoverySummaryPayloads.Add($payload)) {
+        $recoverySummaryLines += $line
+        $recoveryStaleModifyCount = [int]$Matches[1]
+        $openStopRetryAttempts = [int]$Matches[2]
+        $openStopRetryRecovered = [int]$Matches[3]
+        $openStopRetryFailed = [int]$Matches[4]
+      }
+    }
   }
 }
-$allSendFailuresVerifiedClosed = (
+if ($recoverySummaryPayloads.Count -ne 1) {
+  throw "Expected exactly one unique ORDER_SEND_RECOVERY_SUMMARY; got $($recoverySummaryPayloads.Count)."
+}
+$staleModifySummaryMatches = ($recoveryStaleModifyCount -eq $staleClosedRequestIds.Count)
+$openRetrySummaryMatches = ($openStopRetryAttempts -eq $retryableOpenRequestIds.Count)
+$openRetryFullyRecovered = ($openStopRetryRecovered -eq $retryableOpenRequestIds.Count -and $openStopRetryFailed -eq 0)
+$allSendFailuresClassified = (
   $sendFailTotal -gt 0 -and
-  $unclassifiableSendFailures -eq 0 -and
-  $failedModifyRequestIds.Count -eq $sendFailTotal -and
-  $staleClosedRequestIds.Count -eq $sendFailTotal -and
-  $stillOpenFailureRequestIds.Count -eq 0
+  $unclassifiableSendFailureSequences.Count -eq 0 -and
+  ($failedModifyRequestIds.Count + $retryableOpenRequestIds.Count) -eq $sendFailTotal -and
+  $failedModifyRequestIds.Count -eq $staleClosedRequestIds.Count -and
+  $stillOpenFailureRequestIds.Count -eq 0 -and
+  $staleModifySummaryMatches -and
+  $openRetrySummaryMatches -and
+  $openRetryFullyRecovered
 )
 if ($sendFailTotal -gt 0) {
   foreach ($rid in $failedModifyRequestIds) {
-    if (!$staleClosedRequestIds.Contains($rid)) { $allSendFailuresVerifiedClosed = $false }
+    if (!$staleClosedRequestIds.Contains($rid)) { $allSendFailuresClassified = $false }
   }
-  if (!$allSendFailuresVerifiedClosed) {
+  if (!$allSendFailuresClassified) {
     @(
       "OrderSend failure classification: FAIL",
-      "OrderSend failures: $sendFailTotal",
-      "Unique failed modify-SLTP request IDs: $($failedModifyRequestIds.Count)",
-      "Verified position-closed-after-response IDs: $($staleClosedRequestIds.Count)",
-      "Still-open failure IDs: $($stillOpenFailureRequestIds.Count)",
-      "Unclassifiable failures: $unclassifiableSendFailures"
+      "Raw OrderSend failures: $sendFailTotal",
+      "Failed modify-SLTP request IDs: $($failedModifyRequestIds.Count)",
+      "Verified local stale-close modifications: $($staleClosedRequestIds.Count)",
+      "Retryable INVALID_STOPS first attempts: $($retryableOpenRequestIds.Count)",
+      "Open-stop retries attempted/recovered/failed: $openStopRetryAttempts/$openStopRetryRecovered/$openStopRetryFailed",
+      "Recovery summary stale-modify count: $recoveryStaleModifyCount",
+      "Still-open modify failure IDs: $($stillOpenFailureRequestIds.Count)",
+      "Unclassifiable unique OrderSend failure sequences: $($unclassifiableSendFailureSequences.Count)",
+      "OrderSend summary failure count: $sendFailTotal"
     ) | Add-Content -LiteralPath $summaryPath -Encoding utf8
-    throw "OrderSend failures were not all proven to be stale SLTP requests for positions that no longer existed; reject robustness run."
+    throw "OrderSend failures include an unresolved request, an unrecovered invalid-stop retry, or a stale-close mismatch; reject robustness run."
   }
   @(
-    "OrderSend failure classification: PASS — stale closed-position race only",
-    "Failed requests remain counted as failures; they are NOT relabeled accepted.",
-    "Failed modify-SLTP requests: $sendFailTotal",
-    "Matched request IDs with post-response position absent: $($staleClosedRequestIds.Count)",
-    "Still-open failure IDs: 0",
-    "All failed modifications are correlated with a position that had already closed by the time the result was observed."
+    "OrderSend failure classification: PASS — all raw failures are explained, none is relabelled accepted",
+    "Raw OrderSend failures: $sendFailTotal",
+    "Failed modify-SLTP requests with position already closed: $($failedModifyRequestIds.Count)",
+    "Retryable invalid-stop first attempts: $($retryableOpenRequestIds.Count)",
+    "Bounded open-stop retries attempted/recovered/failed: $openStopRetryAttempts/$openStopRetryRecovered/$openStopRetryFailed",
+    "Verified stale-close modifications remain failed; recovered entry retries remain raw failed attempts but were followed by one accepted retry.",
+    "Still-open modify failure IDs: 0; unexplained failure sequences: 0"
   ) | Add-Content -LiteralPath $summaryPath -Encoding utf8
 }
-$sendFailClassificationCount = $(if ($allSendFailuresVerifiedClosed) { $staleClosedRequestIds.Count } else { 0 })
-
-"OrderSend telemetry/classification gate: PASS (calls=$sendCallTotal; accepted=$sendAcceptedTotal; raw failed requests=$sendFailTotal; verified stale closed-position races=$sendFailClassificationCount; duplicate copies ignored=$sendDuplicateCount)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+$sendFailClassificationCount = $failedModifyRequestIds.Count + $openStopRetryRecovered
+"OrderSend telemetry/classification gate: PASS (calls=$sendCallTotal; accepted=$sendAcceptedTotal; raw failed requests=$sendFailTotal; verified stale-close races=$($failedModifyRequestIds.Count); recovered invalid-stop attempts=$openStopRetryRecovered; unresolved failures=0; duplicate summary copies ignored=$sendDuplicateCount)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 
 $rawImmediateResultLines = @()
 $rawRequestResultLines = @()
