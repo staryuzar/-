@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.004"
+#property version   "1.005"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -411,7 +411,7 @@ string DetailSignal(int t,int j)
 void DrawPanel()
 {
    string p="مستشار تقييم TV26 | الذهب: "+_Symbol+"\n";
-   p+="المكونات: 26 (15 متوسطاً + 11 مذبذباً) | الإطار مبني على شموع مغلقة\n";
+   p+="المكونات: 26 (15 متوسطاً + 11 مذبذباً) | الإطار مبني على شموع مغلقة\n";   p+="ملف التدقيق: Common\\Files\\"+g_auditFile+" (CSV)\n";
    p+="افتتاح الشمعة المغلقة (خادم MT5) | الإطار | الملخص العام | المتوسطات | المذبذبات | الجاهز\n";
    for(int t=0;t<N_TF;t++)
    {
@@ -454,20 +454,34 @@ void ExportAuditForTF(int t)
       return;
    }
    if(FileSize(fh)==0)
-      FileWrite(fh,"bar_open_time_server","symbol","timeframe","component","readiness","vote","value_a","value_b","value_c","value_d","value_e");
+      FileWrite(fh,"bar_open_time_server","symbol","broker_company","broker_server","timeframe","component","readiness","vote",
+                "value_a","value_b","value_c","value_d","value_e","candle_open","candle_high","candle_low","candle_close","tick_volume");
    FileSeek(fh,0,SEEK_END);
    string ts=TimeToString(closedBar,TIME_DATE|TIME_MINUTES);
+   string company=AccountInfoString(ACCOUNT_COMPANY);
+   string server=AccountInfoString(ACCOUNT_SERVER);
    string summaryReady=(g_ready[t]==N_RATINGS && g_maReady[t]==15 && g_oscReady[t]==11 ? "OK" : "INCOMPLETE");
-   FileWrite(fh,ts,_Symbol,TFName(g_tfs[t]),"SUMMARY",summaryReady,"",
-             AuditValue(g_rating[t]),AuditValue(g_maRating[t]),AuditValue(g_oscRating[t]),
-             IntegerToString(g_ready[t]),IntegerToString(g_maReady[t])+"/"+IntegerToString(g_oscReady[t]));
+   string allValue=(summaryReady=="OK" ? AuditValue(g_rating[t]) : "");
+   string maValue=(g_maReady[t]==15 ? AuditValue(g_maRating[t]) : "");
+   string oscValue=(g_oscReady[t]==11 ? AuditValue(g_oscRating[t]) : "");
+   MqlRates closedRates[];
+   bool haveRates=ReadRates(g_tfs[t],1,1,closedRates);
+   string candleOpen=(haveRates ? AuditValue(closedRates[0].open) : "");
+   string candleHigh=(haveRates ? AuditValue(closedRates[0].high) : "");
+   string candleLow=(haveRates ? AuditValue(closedRates[0].low) : "");
+   string candleClose=(haveRates ? AuditValue(closedRates[0].close) : "");
+   string tickVolume=(haveRates ? IntegerToString(closedRates[0].tick_volume) : "");
+   FileWrite(fh,ts,_Symbol,company,server,TFName(g_tfs[t]),"SUMMARY",summaryReady,"",
+             allValue,maValue,oscValue,IntegerToString(g_ready[t]),
+             IntegerToString(g_maReady[t])+"/15;"+IntegerToString(g_oscReady[t])+"/11",
+             candleOpen,candleHigh,candleLow,candleClose,tickVolume);
    for(int j=0;j<N_RATINGS;j++)
    {
       string ready=(g_working[t][j] ? "OK" : "NOT_READY");
       string vote=(g_working[t][j] ? IntegerToString(g_scores[t][j]) : "");
-      FileWrite(fh,ts,_Symbol,TFName(g_tfs[t]),g_names[j],ready,vote,
+      FileWrite(fh,ts,_Symbol,company,server,TFName(g_tfs[t]),g_names[j],ready,vote,
                 AuditValue(g_diagA[t][j]),AuditValue(g_diagB[t][j]),AuditValue(g_diagC[t][j]),
-                AuditValue(g_diagD[t][j]),AuditValue(g_diagE[t][j]));
+                AuditValue(g_diagD[t][j]),AuditValue(g_diagE[t][j]),"","","","","");
    }
    FileFlush(fh);
    FileClose(fh);
