@@ -645,7 +645,10 @@ if (!(Test-Path -LiteralPath $qaReportPath)) {
   if ($m.Success) { $qaBars = [int64]::Parse($m.Groups[1].Value.Replace(",",""),[Globalization.CultureInfo]::InvariantCulture) } else { $qaFailures.Add("Could not parse Bars from MT5 HTML.") }
   $m = [regex]::Match($qaHtml,'(?is)Ticks:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
   if ($m.Success) { $qaTicks = [int64]::Parse($m.Groups[1].Value.Replace(",",""),[Globalization.CultureInfo]::InvariantCulture) } else { $qaFailures.Add("Could not parse Ticks from MT5 HTML.") }
-  if ($qaBars -lt 10000) { $qaFailures.Add("Insufficient development-window coverage: Bars=$qaBars, minimum 10000.") }
+  # This branch is an isolated three-day execution-fault diagnostic, not a long-window performance test.
+  # 600 M5 bars is a practical minimum for this short window; the separate full-window workflow keeps its 10000-bar gate.
+  $qaMinimumBars = 600
+  if ($qaBars -lt $qaMinimumBars) { $qaFailures.Add("Insufficient short-window execution coverage: Bars=$qaBars, minimum $qaMinimumBars.") }
   if ($qaTicks -lt 1000000) { $qaFailures.Add("Insufficient development-window tick coverage: Ticks=$qaTicks, minimum 1000000.") }
   $m = [regex]::Match($qaHtml,'(?is)Total Net Profit:</td>\s*<td[^>]*><b>\s*(-?[\d,]+(?:\.\d+)?)\s*</b>')
   if ($m.Success) { $qaNet = [double]::Parse($m.Groups[1].Value.Replace(",",""),[Globalization.CultureInfo]::InvariantCulture) } else { $qaFailures.Add("Could not parse Total Net Profit.") }
@@ -692,7 +695,7 @@ if ($qaCsvFiles.Count -ne 1) {
   "## MT5 HTML ↔ deal CSV/date-quality gate",
   "Period: $qaPeriod",
   "History Quality: $qaQuality",
-  "MT5 Bars: $qaBars (minimum 10000)",
+  "MT5 Bars: $qaBars (minimum $qaMinimumBars; three-day execution diagnostic)",
   "MT5 Ticks: $qaTicks (minimum 1000000)",
   "MT5 Total Trades: $qaTrades",
   "MT5 Total Deals: $qaDeals",
@@ -730,6 +733,10 @@ if ($ForceInvalidStopsOnce) {
     }
   }
   if ($terminalOutcomes.Count -ne 1) { throw "Injected request $triggerId must have exactly one terminal retry outcome; observed $($terminalOutcomes.Count)." }
-  "Forced INVALID_STOPS path gate: PASS (injected request_id=$triggerId; terminal outcome=$(@($terminalOutcomes)[0]); tester-only; duplicate journal copies ignored)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+  $finalRetryOutcome = @($terminalOutcomes)[0]
+  if ($ForceInvalidStopsOnce -and $RetryBufferATR -eq 0.0 -and $finalRetryOutcome -ne "recovered") {
+    throw "Zero-buffer recovery acceptance requires outcome=recovered for trigger $triggerId; observed $finalRetryOutcome."
+  }
+  "Forced INVALID_STOPS path gate: PASS (injected request_id=$triggerId; terminal outcome=$finalRetryOutcome; tester-only; duplicate journal copies ignored)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 }
 Get-Content -LiteralPath $summaryPath
