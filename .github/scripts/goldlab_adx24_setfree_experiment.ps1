@@ -1,3 +1,5 @@
+# Controlled parameter experiment: only InpMaxADX changes versus the SET-free ADX23-25 control.
+# Fixed window: 2026-08-05 through 2026-10-20; never tests the protected holdout.
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $runnerPath = ".github/scripts/goldlab_mt5_test_setfree.ps1"
