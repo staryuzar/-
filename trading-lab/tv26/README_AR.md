@@ -47,7 +47,7 @@ The first audit found material divergences from TradingView's published Technica
 - Ultimate Oscillator direction was reversed in the initial candidate; it is corrected to Buy above 70 and Sell below 30.
 - Momentum now compares its current value with its previous value rather than comparing to the fixed level 100.
 - RSI, Stochastic, CCI, ADX, AO, Williams %R and Ichimoku now include more of the published directional/turning conditions.
-- Stochastic RSI and Bull/Bear Power logic were revised; Bull/Bear Power now uses the 50-period configuration listed by the current public TechnicalRating library.
+- Stochastic RSI was implemented using RSI(14), Stochastic(14), %K smoothing 3 and %D smoothing 3. The exact v3 source snapshot shows Bull/Bear Power uses EMA(13), while its overview text lists a different period; the EA follows the source code.
 
 Reference: TradingView Help Center, Technical Ratings: https://www.tradingview.com/support/solutions/43000614331-technical-ratings/
 Reference: current public TechnicalRating library description, updated 2024-11-29: https://www.tradingview.com/script/jDWyb5PG-TechnicalRating/
@@ -56,7 +56,7 @@ Reference: current public TechnicalRating library description, updated 2024-11-2
 - Exact current-library internals for Stochastic RSI, Bull/Bear Power, Ichimoku span alignment, and Hull MA must still be compared against the reference implementation.
 - TradingView and MT5 feeds can differ in OHLC, tick volume, session boundaries, and indicator initialization; the comparison must use the same symbol/provider and closed-bar timestamp.
 - No live TradingView values or user chart screenshots were available during this source audit. Therefore no claim of same-moment equality is made yet.
-- Updated EA source compile: **PASS**, GitHub Actions run [39945996760](https://github.com/staryuzar/-/actions/runs/39945996760), source commit `43c169ec291e9216030ebf31e799ceae8f463309`. Compiler report: **0 errors, 0 warnings**, EX5 size 38,670 bytes. Artifact: [12498386430](https://github.com/staryuzar/-/actions/runs/39945996760/artifacts/12498386430). The later commits only add the TradingView reference script and documentation; the EA source itself is unchanged after this successful compile.
+- Historical intermediate compile: **PASS**, run [39945996760](https://github.com/staryuzar/-/actions/runs/39945996760), source commit `43c169ec291e9216030ebf31e799ceae8f463309`. This build record is retained for audit history only; the latest source has since received multiple formula, diagnostic and safety updates. See the version and build evidence in the Latest candidate note below.
 
 ### Live comparison protocol
 For each of M1, M5, M15, M30 and H1, capture the same closed candle timestamp and record:
@@ -76,7 +76,7 @@ Do not enable real-account trading based on this audit alone.
 - Stochastic RSI trend and Bulls/Bears Power trend filters use the close's position relative to EMA(50), without an extra one-bar RSI-slope test or EMA-slope gate.
 - The EA now follows the v3 source expression for ADX: buy when +DI > −DI and ADX > 20 while rising; sell when +DI < −DI and ADX > 20 while also rising. This conflicts with the general Technical Ratings Help Center wording for ADX sell (falling ADX), so exact live value comparison remains essential.
 - The EA follows the frozen TechnicalRating v3 source expression: Bull Power = high − EMA(close,13); Bear Power = low − EMA(close,13). This differs from the library overview text that lists period 50. Source mirror inspected: [Tealstreet/tealchart official TradingView library-source snapshot](https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts).
-- The MQL5 source was advanced to **version 1.007** in commit `9b82c33467ac6fba46e7fcd8f320497ff4c5d979`. This version corrects Bull/Bear Power to EMA(13), aligns the two Ichimoku leading spans to the v3 source's `[26]` references (for a closed shift-1 candle this uses buffer shift 27), and restores the v3 ADX sell condition (ADX rising). Its corresponding MetaEditor run is [39950822191](https://github.com/staryuzar/-/actions/runs/39950822191); check that run's final conclusion and artifact before distributing a 1.007 package. Prior version 1.006 passed with 0 errors and 0 warnings. Compilation does not establish numerical parity or profitability.
+- The MQL5 source is now **version 1.008**, source commit `449bda0e64a89b5f85f6e9ed965c5c7184c83b96`. MetaEditor compile-only run [39951075793](https://github.com/staryuzar/-/actions/runs/39951075793) passed with **0 errors, 0 warnings** and generated EX5 size **50,248 bytes**. Its latest diagnostic correction also stores EMA(50) in the Bulls/Bears row's `value_e`, so the trend filter can be audited separately from the candle close. This is compile evidence only, not a Strategy Tester result or proof of numerical parity/profitability.
 
 
 
@@ -91,13 +91,22 @@ Columns:
 - `value_a` through `value_e`: raw indicator values used by the vote. Their exact meanings vary by component; see below.
 - `candle_open`, `candle_high`, `candle_low`, `candle_close`, `tick_volume`: feed context to compare with the same TradingView candle.
 
-Raw-value mapping: MA rows store (MA, close); Ichimoku stores (conversion line, base line, Span A[26], Span B[26], close); VWMA/Hull store (average, close); RSI/CCI/Williams store (current, previous); Stochastic stores (K,D); ADX stores (ADX,+DI,-DI,previous ADX); AO stores (current, previous, two-bars-back); Momentum stores (current Momentum, previous Momentum, close, close[10]); MACD stores (MACD line, signal, EMA12, EMA26); Stochastic RSI stores (K,D,close,EMA50); Bulls/Bears stores (bull current,bull previous,bear current,bear previous,close); Ultimate Oscillator stores its value. Summary rows contain overall/MA/oscillator ratings (blank if incomplete), readiness counts and OHLCV.
+Raw-value mapping: MA rows store (MA, close); Ichimoku stores (conversion line, base line, Span A[26], Span B[26], close); VWMA/Hull store (average, close); RSI/CCI/Williams store (current, previous); Stochastic stores (K,D); ADX stores (ADX,+DI,-DI,previous ADX); AO stores (current, previous, two-bars-back); Momentum stores (current Momentum, previous Momentum, close, close[10]); MACD stores (MACD line, signal, EMA12, EMA26); Stochastic RSI stores (K,D,close,EMA50); Bulls/Bears stores (bull current,bull previous,bear current,bear previous,EMA50 trend filter; candle_close is in the OHLC columns); Ultimate Oscillator stores its value. Summary rows contain overall/MA/oscillator ratings (blank if incomplete), readiness counts and OHLCV.
 
 ### Entry/reversal safety — v1.006
 
 - Last executed strong-direction state is persisted in a terminal Global Variable per symbol + magic number.
 - After a same-direction position exits, the EA will not reopen the same strong signal repeatedly until consensus ceases to be strong.
 - A reversal is not treated as complete after a partial close while the old position ticket still exists.
+
+### Exact v3-source corrections — 1.007+
+
+The inspected TechnicalRating v3 source snapshot makes the following conditions explicit:
+- Ichimoku evaluates the current conversion/base lines and close, but compares leading spans at `[26]`. With MT5 evaluating closed candle shift 1, the EA reads those raw span buffers at shift 27.
+- ADX buy requires +DI > −DI and ADX > 20 with ADX rising; the v3 source also requires ADX rising for sell when +DI < −DI. This is not the same as the general Help Center's sell wording, so the implementation follows v3 source behavior and flags the documentation conflict rather than mixing the two rule sets.
+- Bull/Bear Power is calculated as high − EMA(close,13) and low − EMA(close,13). The library overview text's parameter summary differs from the actual v3 source expression; the EA follows the source expression.
+
+The inspected source snapshot is in [Tealstreet/tealchart](https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts), which embeds the TradingView library text. It is a source mirror, not the TradingView website itself.
 
 ### Comparator status
 
