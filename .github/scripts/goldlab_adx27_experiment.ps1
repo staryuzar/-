@@ -129,6 +129,55 @@ if ($validHtml -match '(?is)M0\s*\(1970\.01\.01\s*-\s*1970\.01\.01\)' -or
     $validHtml -notmatch '(?is)Bars:</td>\s*<td[^>]*><b>[1-9][0-9,]*</b>') {
   throw "MT5 report lacks a valid date range, nonzero bars/ticks, or 100% real-tick history; reject the run as infrastructure-incomplete."
 }
+# Report quality alone is not sufficient: verify the tester agent's tick-history journal.
+$tickLogFiles = @(Get-ChildItem -LiteralPath (Join-Path $reports "logs") -Filter "*.txt" -File -ErrorAction SilentlyContinue)
+$tickJournal = ($tickLogFiles | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue }) -join "`n"
+$realTickStarts = [regex]::Matches($tickJournal, '(?i)real ticks begin from\s+(\d{4}\.\d{2}\.\d{2})')
+if ($realTickStarts.Count -eq 0) { throw "Tester journal does not confirm the start date of real ticks; reject data provenance." }
+$earliestRealTick = [datetime]::ParseExact($realTickStarts[0].Groups[1].Value, "yyyy.MM.dd", [Globalization.CultureInfo]::InvariantCulture)
+$requiredStart = [datetime]::ParseExact("2026.08.05", "yyyy.MM.dd", [Globalization.CultureInfo]::InvariantCulture)
+if ($earliestRealTick -gt $requiredStart) { throw "Real ticks begin after the test start date; this window is not fully supported by real-tick history." }
+$syncRanges = [regex]::Matches($tickJournal, '(?i)history ticks synchronized from\s+(\d{4}\.\d{2}\.\d{2})\s+to\s+(\d{4}\.\d{2}\.\d{2})')
+$syncCoversWindow = $false
+foreach ($sync in $syncRanges) {
+  $syncStart = [datetime]::ParseExact($sync.Groups[1].Value, "yyyy.MM.dd", [Globalization.CultureInfo]::InvariantCulture)
+  $syncEnd = [datetime]::ParseExact($sync.Groups[2].Value, "yyyy.MM.dd", [Globalization.CultureInfo]::InvariantCulture)
+  $requiredEnd = [datetime]::ParseExact("2026.10.19", "yyyy.MM.dd", [Globalization.CultureInfo]::InvariantCulture)
+  if ($syncStart -le $requiredStart -and $syncEnd -ge $requiredEnd) { $syncCoversWindow = $true; break }
+}
+if (-not $syncCoversWindow) { throw "Tester agent did not confirm tick synchronization across the full development window." }
+$tickQualitySummaries = @([regex]::Matches($tickJournal, '(?im)XAUUSD\s*:\s*[^\r\n]*real ticks (?:absent|discarded) for \d+ minutes of \d+ total minute bars[^\r\n]*') | ForEach-Object { $_.Value.Trim() } | Sort-Object -Unique)
+$absentMinutes = 0
+$discardedMinutes = 0
+$totalMinuteBars = 0
+foreach ($tickLine in $tickQualitySummaries) {
+  if ($tickLine -match '(?i)real ticks absent for (\d+) minutes of (\d+) total minute bars') {
+    $absentMinutes = [Math]::Max($absentMinutes, [int]$Matches[1])
+    $totalMinuteBars = [Math]::Max($totalMinuteBars, [int]$Matches[2])
+  }
+  if ($tickLine -match '(?i)real ticks discarded for (\d+) minutes of (\d+) total minute bars') {
+    $discardedMinutes = [Math]::Max($discardedMinutes, [int]$Matches[1])
+    $totalMinuteBars = [Math]::Max($totalMinuteBars, [int]$Matches[2])
+  }
+}
+$generatedMinutes = $absentMinutes + $discardedMinutes
+if ($totalMinuteBars -gt 0) {
+  $acceptedMinutePct = [Math]::Round(100.0 * (1.0 - ($generatedMinutes / [double]$totalMinuteBars)), 3)
+} elseif ($generatedMinutes -eq 0) {
+  $acceptedMinutePct = 100.0
+} else {
+  throw "Tick journal reported missing/discarded minutes without a usable denominator."
+}
+if ($acceptedMinutePct -lt 99.0) { throw "Only $acceptedMinutePct% of tested minutes were accepted real ticks; this experiment is rejected for comparison." }
+@(
+  "Tick journal provenance: PASS",
+  "Real ticks begin from: $($earliestRealTick.ToString('yyyy-MM-dd'))",
+  "Tick synchronization covers 2026-08-05 through 2026-10-19: PASS",
+  "Journal missing minutes: $absentMinutes",
+  "Journal discarded minutes: $discardedMinutes",
+  "Journal-derived accepted real-tick minutes: $acceptedMinutePct%"
+) | Add-Content -LiteralPath (Join-Path $reports "run-summary.txt") -Encoding utf8
+
 $rawSummaryLines = @()
 foreach ($file in @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".txt",".log") })) {
   $rawSummaryLines += @(Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue | Where-Object { $_ -match 'GoldLab\|ORDER_CHECK_SUMMARY\|' })
