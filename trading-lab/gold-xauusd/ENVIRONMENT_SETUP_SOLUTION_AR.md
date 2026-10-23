@@ -40,6 +40,8 @@
 - هذه الجولة تستخدم الفترة `M5 (2026.08.05 - 2026.10.20)` (النهاية غير مشمولة وفق آلية MT5)، فلا تدخل أيام 21–23 أكتوبر المحمية.
 
 ## آخر تحقق فعلي قبل فترة الحجز
+- إعداد النسخة المستقلة محفوظ في [GOLDLAB_V1014_HOLDOUT_BASELINE.json](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/trading-lab/gold-xauusd/GOLDLAB_V1014_HOLDOUT_BASELINE.json). يتضمن بصمة EA ومعلمات التقييم ونهاية الفترة الحصرية وسياسة القفل لمرة واحدة.
+- قيد مثبت في الإعداد: `ExecutionMode=0` لا يحاكي تأخير الشبكة؛ يحتفظ holdout بهذا الإعداد الثابت للمقارنة مع نافذة التطوير، لذلك لا نعرضه كاختبار تداول واقعي كامل. يمكن اختبار Random Delay كتجربة مستقلة بعد استهلاك holdout، وليس على نافذة الحجز نفسها.
 - اختبار MT5 [39878677693](https://github.com/staryuzar/-/actions/runs/39878677693) نجح مع بوابة تغطية البيانات الجديدة: `14,820` شمعة و`31,440,931` tick، جودة `100% real ticks`، 33 صفقة/66 deal، صافي +20.76 دولار متطابق بين HTML وCSV، وصفر صفقات خارج فترة التطوير.
 - الفحص الثابت الأخير [39879026088](https://github.com/staryuzar/-/actions/runs/39879026088) نجح: تحليل 4 ملفات PowerShell، وجميع ضوابط الفترة وبيانات التاريخ والتداول الحي وبصمة المصدر والقفل لمرة واحدة، مع فحص تحويل holdout الذي ينتهي قبل تشغيل MT5.
 - سير عمل التقييم المحمي موجود في [.github/workflows/goldlab-holdout-evaluation.yml](https://github.com/staryuzar/-/blob/goldlab-request-result-candidate/.github/workflows/goldlab-holdout-evaluation.yml). لم يتم إنشاء `HOLDOUT_RUN_TRIGGER.md` ولم يُستهلك القفل بعد. لا تبدأ نافذة 21–23 أكتوبر قبل 2026-10-24 12:00 UTC.
