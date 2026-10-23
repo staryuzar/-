@@ -69,10 +69,13 @@ Do not enable real-account trading based on this audit alone.
 
 ## Latest candidate note — 2026-10-23
 
-- The EA's Arabic panel now displays the numeric values for the overall, MA, and oscillator ratings, in addition to their category labels.
-- It prints the timestamp of each timeframe's last closed MT5 candle (broker/server time) to make comparisons with TradingView use the same bar.
-- The latest source display change is commit `e9b80a62cb7e9b767f58d51a665779e46d99ddc2`. Its MetaEditor workflow result must be checked before distributing that source as a compiled build.
-- For the BBP period, the parity target is the public `TechnicalRating/3` library's 50-period component, not the standalone BBP indicator's default parameter. Keep those two contexts distinct.
+- The EA's Arabic panel displays numeric values for overall, MA and oscillator ratings, labels each rating as complete/incomplete, reports readiness as total/26 plus MA/15 and oscillator/11, and prints the last-closed candle timestamp in MT5 server time. An incomplete group shows “—” instead of a misleading partial score.
+- Momentum is calculated as `close - close[10]` and the current Momentum value is compared with its previous value; this avoids MT5 `iMomentum`'s ratio-style scaling.
+- CCI uses `close` as its input to match the reference formula, rather than MT5 `PRICE_TYPICAL`.
+- Stochastic RSI trend and Bulls/Bears Power trend filters use the close's position relative to EMA(50), without an extra one-bar RSI-slope test or EMA-slope gate.
+- The ADX sell condition follows the current Screener help page (ADX rising); the separate Technical Ratings help page describes ADX falling for sell. This official-documentation conflict remains a live-parity check item rather than something to conceal.
+- For BBP period, the parity target is the public `TechnicalRating/3` library's 50-period component, not the standalone BBP indicator page's default parameter of 13.
+- Source changes after the initial candidate are being checked with fresh MetaEditor workflow runs; do not distribute a compiled build until the run corresponding to the latest source commit finishes successfully.
 
 ## TradingView-side reference panel
 A Pine Script reference indicator was added at [TradingView_Parity_5TF.pine](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Parity_5TF.pine). It imports TradingView's public TechnicalRating v3 library and displays overall, MA and oscillator ratings for M1/M5/M15/M30/H1. It is a summary comparison aid; it does not expose all 26 component states individually.
