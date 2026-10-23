@@ -401,7 +401,6 @@ foreach ($line in $uniqueRequestResultLines) {
       $requestResultOtherRetcodeLines += $line
     }
   }
-  }
 }
 
 $seenRequestSummaryPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
