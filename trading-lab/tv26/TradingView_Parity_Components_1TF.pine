@@ -3,6 +3,7 @@
 // Reference source snapshot inspected: https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts
 //@version=6
 import TradingView/ta/9 as tvta
+import TradingView/TechnicalRating/3 as tvRating
 
 indicator("TV26 — تدقيق المكونات الـ26", overlay=false, precision=3)
 
@@ -124,14 +125,24 @@ f_confirmed() =>
      rRsi[1], rStoch[1], rCci[1], rAdx[1], rAo[1], rMomentum[1], rMacd[1],
      rStochRsi[1], rWilliams[1], rBullBear[1], rUo[1]]
 
+// Authoritative aggregate benchmark: use TradingView's own TechnicalRating v3 library.
+f_library_ratings_confirmed() =>
+    [totalRating, oscillatorRating, maRating] = tvRating.calcRatingAll()
+    [totalRating[1], maRating[1], oscillatorRating[1]]
+
 tf = input.timeframe("1", "الإطار الزمني المراد تدقيقه")
-[totalRating, ratingMA, ratingOther,
+[formulaTotal, formulaMA, formulaOther,
  rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
  rEma10, rEma20, rEma30, rEma50, rEma100, rEma200,
  rHull9, rVwma20, rIchimoku,
  rRsi, rStoch, rCci, rAdx, rAo, rMomentum, rMacd,
  rStochRsi, rWilliams, rBullBear, rUo] = request.security(
      syminfo.tickerid, tf, f_confirmed(),
+     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+
+// These three series come directly from TradingView's published TechnicalRating v3 library.
+[totalRating, ratingMA, ratingOther] = request.security(
+     syminfo.tickerid, tf, f_library_ratings_confirmed(),
      gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
 closedBarTime = request.security(syminfo.tickerid, tf, time[1],
      gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
