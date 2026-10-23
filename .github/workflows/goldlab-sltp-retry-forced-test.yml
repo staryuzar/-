@@ -8,15 +8,14 @@ on:
       - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_sltp_race_diagnostic.ps1"
       - ".github/scripts/goldlab_mt5_test.ps1"
-      - ".github/scripts/goldlab_retry_math_selftest.py"
-      - ".github/workflows/goldlab-sltp-retry-forced-test.yml"
 
 permissions:
   contents: read
 
 concurrency:
   group: goldlab-shared-headway-mt5
-  cancel-in-progress: true
+  queue: max
+  cancel-in-progress: false
 
 jobs:
   math-and-source-contract:
