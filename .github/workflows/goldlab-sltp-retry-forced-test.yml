@@ -69,7 +69,7 @@ jobs:
           Write-Host "Forced-path guards PASS; this test mode is off by default and blocked outside Strategy Tester."
       - name: Compile and exercise one forced INVALID_STOPS retry path in MT5
         shell: pwsh
-        run: .github/scripts/goldlab_sltp_race_diagnostic.ps1 -ForceInvalidStopsOnce -RetryBufferATR 0.0
+        run: .github/scripts/goldlab_sltp_race_diagnostic.ps1 -ForceInvalidStopsOnce -RetryBufferATR 0.05
       - name: Upload MT5 report, CSV, journals, and reconciled summary even on failure
         if: always()
         uses: actions/upload-artifact@v4

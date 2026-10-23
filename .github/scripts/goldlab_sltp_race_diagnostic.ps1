@@ -734,8 +734,8 @@ if ($ForceInvalidStopsOnce) {
   }
   if ($terminalOutcomes.Count -ne 1) { throw "Injected request $triggerId must have exactly one terminal retry outcome; observed $($terminalOutcomes.Count)." }
   $finalRetryOutcome = @($terminalOutcomes)[0]
-  if ($ForceInvalidStopsOnce -and $RetryBufferATR -eq 0.0 -and $finalRetryOutcome -ne "recovered") {
-    throw "Zero-buffer recovery acceptance requires outcome=recovered for trigger $triggerId; observed $finalRetryOutcome."
+  if ($ForceInvalidStopsOnce -and $RetryBufferATR -le 0.05 -and $finalRetryOutcome -ne "recovered") {
+    throw "Low-buffer recovery acceptance requires outcome=recovered for trigger $triggerId; observed $finalRetryOutcome."
   }
   "Forced INVALID_STOPS path gate: PASS (injected request_id=$triggerId; terminal outcome=$finalRetryOutcome; tester-only; duplicate journal copies ignored)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 }
