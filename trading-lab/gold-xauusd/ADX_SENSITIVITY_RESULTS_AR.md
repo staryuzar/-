@@ -82,3 +82,34 @@
 - شغّلنا اختبار Random Delay نفسه مرة ثانية بعد توحيد طابور الجلسات، وظهر الفشل مرة أخرى: [Run 39890683297](https://github.com/staryuzar/-/actions/runs/39890683297). النتيجة المالية: +20.29 USD، PF 1.49، أقصى تراجع حقوق ملكية 3.55%، 32 صفقة (7 رابحة)، و100% real ticks؛ لكن بوابة التنفيذ فشلت لأن **6 طلبات OrderSend** فشلت، جميعها في سياق تعديل SL/TP، `retcode=3` و`last_error=4756`. هذا تكرار للمشكلة في الجولة السابقة التي سجلت 7 حالات، وليس برهاناً أن الاستراتيجية سليمة في وضع التأخير.
 - تشغيل OrderCheck الطبيعي بعد إضافة حارس التاريخ/البيانات اجتاز الاختبار الحي: [Run 39890903201](https://github.com/staryuzar/-/actions/runs/39890903201). التقرير الفعلي يثبت M5 من 2026-08-05 إلى 2026-10-20، 100% real ticks، 14,820 شمعة، 31,440,931 tick، 33 صفقة، +20.76 USD، PF 1.47، تراجع ملكية 3.59%، ومطابقة CSV/HTML مع صفر صفقات خارج الفترة. لهذا أصبح لدينا اختبار حي ناجح للحارس نفسه، وليس مجرد فحص نحوي.
 - إن فشل Random Delay يتكرر قبل أن نضيف بيانات حالة المركز، فلن نخفّض بوابة القبول أو نعتبر `OrderSend` الفاشل نجاحاً. يحتوي فرع `goldlab-sltp-race-diagnostic` على مستشار v1.015 يكتب `SLTP_MODIFY_STATE` بعد الفشل، ويتحقق من وجود المركز بعد الرد. اجتاز الفحص الثابت [Run 39892062360](https://github.com/staryuzar/-/actions/runs/39892062360)؛ الاختبار الحي ما زال بانتظار دوره في طابور MT5، فلا توجد نتيجة نهائية بعد.
+
+
+## تكرار المقارنة بعد إضافة حارس البيانات والتزامن
+
+هذه الجولات الحديثة أُنجزت بعد توحيد قفل جلسة MT5 وإضافة رفض التقرير الخالي من البيانات:
+
+| التجربة | تشغيل حديث | البيانات | صافي الربح | معامل الربح | أقصى تراجع حقوق الملكية | عدد الصفقات | فحوص OrderCheck / OrderSend |
+|---|---|---|---:|---:|---:|---:|---:|
+| ADX 23–27 | [39890927351](https://github.com/staryuzar/-/actions/runs/39890927351) | 100% real-tick minutes من سجل المزامنة؛ 14,820 شمعة و31,440,931 tick | -0.62 USD | 0.99 | 6.22% | 59 (14 رابحة / 45 خاسرة) | 1,040 ناجح / صفر فشل |
+| ADX 23–30 | [39890935359](https://github.com/staryuzar/-/actions/runs/39890935359) | 100% real-tick minutes من سجل المزامنة؛ 14,820 شمعة و31,440,931 tick | -1.59 USD | 0.99 | 9.29% | 88 (20 رابحة / 68 خاسرة) | 1,628 ناجح / صفر فشل |
+
+في التشغيلين، تطابقت نتائج HTML وCSV: عدد الصفقات/الخروج، صافي الربح، وهوية كل صفقة، مع صفر صفقات خارج الفترة. وتطابقت طلبات OrderSend الفورية مع callbacks عبر 1,039 أو 1,627 معرّفاً غير صفرياً، إضافة إلى fallback واحد مبرر لـ `request_id=0`، بلا اختلافات في التوقيع. هذه الأدلة تؤكد سلامة جمع النتائج، ولا تحوّل الأداء السلبي إلى نتيجة جيدة.
+
+## ملاحظة جديدة عن مصداقية Real Ticks
+
+مقال MQL5 المنشور في 19 أكتوبر 2026 يوضح تجريبياً أن `History Quality = 100% real ticks` في HTML لا يثبت وحده أن كل دقيقة استخدمت ticks فعلية: قد يبلغ التقرير 100% بينما سجل الاختبار يكشف دقائق جرى التخلص من ticksها أو استُخدمت لها ticks مولّدة. لذلك نعامل عدد الدقائق المستخرجة من سجل MT5 ومجموع دقائق البيانات المفقودة/المرفوضة كشرط مستقل، ولا نعتمد على نسبة HTML منفردة. المرجع: https://www.mql5.com/en/articles/24562
+
+الاختباران المقبولان أعلاه سجل كل منهما: `Journal missing minutes: 0`, `Journal discarded minutes: 0`, و`Journal-derived accepted real-tick minutes: 100%`، ولذلك تغطية ticks في هذه النافذة موثقة من التقرير والسجل معاً، لا من وسم الجودة وحده.
+
+## المراجع التعليمية
+
+- YouTube — [Sending Order in MQL5 using MqlTradeResult and MqlTradeRequest](https://www.youtube.com/watch?v=oTihO60HX48): الطلب، النتيجة، وقراءة استجابة التداول.
+- YouTube — [How to use the MT5 Strategy Tester](https://www.youtube.com/watch?v=MMYwKGAoiYE): إعداد الاختبار ومدخلاته وقراءة النتائج.
+- YouTube — [Running your first Backtest](https://www.youtube.com/watch?v=6KSgHWoIIrM): آلية الاختبار الأول.
+- توثيق MQL5 — [Stress testing in Random Delay mode](https://www.mql5.com/en/articles/586): ضرورة التحقق من أخطاء التعامل مع طلبات التداول عند تأخر التنفيذ.
+- توثيق MQL5 — [MqlTradeResult](https://www.mql5.com/en/docs/constants/structures/mqltraderesult) و[OnTradeTransaction](https://www.mql5.com/en/book/automation/experts/experts_ontradetransaction): استعمال `request_id` لربط الطلب بنتيجته، وتحليل حقول الطلب/النتيجة فقط عند `TRADE_TRANSACTION_REQUEST`.
+
+## حالة الاختبارات التالية
+
+- [Target 3.0 ATR — Run 39891241729](https://github.com/staryuzar/-/actions/runs/39891241729): كان لا يزال قيد التشغيل بعد نجاح Checkout وبدء خطوة MT5 في آخر فحص.
+- [Random Delay SLTP v1.015 — Run 39891967455](https://github.com/staryuzar/-/actions/runs/39891967455) و[Run 39892054318](https://github.com/staryuzar/-/actions/runs/39892054318): في طابور القفل المشترك؛ لا توجد نتائج أداء معتمدة لهما حتى اكتمال MT5 وقراءة artifacts.
