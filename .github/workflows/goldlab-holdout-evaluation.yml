@@ -11,7 +11,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: goldlab-protected-holdout-one-time
+  group: goldlab-shared-headway-mt5
+  queue: max
   cancel-in-progress: false
 
 jobs:
