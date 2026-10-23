@@ -6,7 +6,7 @@ A research candidate for XAUUSD in MT5. It calculates 26 Technical-Ratings-style
 ## 26 components
 **Moving-average group (15):** SMA/EMA 10, 20, 30, 50, 100, 200; Ichimoku Kijun/base line; VWMA 20; Hull MA 9.
 
-**Oscillator group (11):** RSI 14, Stochastic 14/3/3, CCI 20, ADX 14 with +DI/-DI, Awesome Oscillator, Momentum 10, MACD 12/26/9, Stochastic RSI (derived), Williams %R 14, Bulls/Bears Power (50 EMA for TechnicalRating v3 parity; the standalone indicator page defaults to 13), Ultimate Oscillator (7/14/28).
+**Oscillator group (11):** RSI 14, Stochastic 14/3/3, CCI 20, ADX 14 with +DI/-DI, Awesome Oscillator, Momentum 10, MACD 12/26/9, Stochastic RSI (derived), Williams %R 14, Bulls/Bears Power (EMA(13) as used by TechnicalRating v3 source), Ultimate Oscillator (7/14/28).
 
 Each component returns +1 buy, 0 neutral, or -1 sell. The aggregate is the average of valid component scores. It is explicitly marked **غير مكتمل** and trading is blocked unless all 26 components are ready on every configured timeframe.
 
@@ -21,7 +21,7 @@ Each component returns +1 buy, 0 neutral, or -1 sell. The aggregate is the avera
 - Spread cap defaults to 100 points. Order return codes are checked and logged.
 
 ## Important fidelity limits
-This is **not yet a verified bit-for-bit reproduction** of TradingView's proprietary/platform implementation. It is an explicit MQL5 implementation of the 26 familiar component families and a transparent rating framework. Some rating rules (especially Stochastic RSI, Hull MA, Bulls/Bears Power, and Ultimate Oscillator) may differ from TradingView's current source code or data provider. No parity percentage or profitability is claimed.
+This is a source-audited MQL5 implementation of the 26 components in the published TechnicalRating v3 logic, but **not yet verified as a bit-for-bit numerical reproduction** against live TradingView values. The public v3 source snapshot reviewed for this candidate shows an important discrepancy from the library overview/help summary: it calculates Bull/Bear Power using EMA(13), and its sell ADX condition requires ADX to be rising. The EA follows the v3 source expressions on these points. Feed differences, EMA/RMA initialization, platform arithmetic and Pine compilation/behavior still require measured same-bar comparison; no parity percentage or profitability is claimed.
 
 ## Acceptance sequence
 1. Compile this exact source in MetaEditor and record compiler output.
@@ -74,9 +74,9 @@ Do not enable real-account trading based on this audit alone.
 - CCI uses `close` as its input to match the reference formula, rather than MT5 `PRICE_TYPICAL`.
 - MACD is now computed as EMA(12) − EMA(26), with an EMA(9) signal line over the MACD series. This avoids relying on MT5's built-in MACD signal averaging, which differs from Pine's default EMA signal line.
 - Stochastic RSI trend and Bulls/Bears Power trend filters use the close's position relative to EMA(50), without an extra one-bar RSI-slope test or EMA-slope gate.
-- The EA uses the official Technical Ratings Help Center condition for ADX sell: +DI < -DI, ADX > 20, and ADX falling versus the previous closed bar. The library page says v3 aligned to Screener methods, but its web description does not disclose every internal condition; verify exact live values.
-- For BBP period, the parity target is the public `TechnicalRating/3` library's 50-period component, not the standalone BBP indicator page's default parameter of 13.
-- Current EA source is version **1.006**, commit `9bded515c66912e04bed6c25702cfb38b7c3f92f`. MetaEditor compile-only verification: [GitHub Actions run 39950166955](https://github.com/staryuzar/-/actions/runs/39950166955), **0 errors, 0 warnings**, EX5 size **50,830 bytes**. The full build package contains the compiled EX5, the exact MQL5 source, Pine comparator, README and install manifest. Compilation does not establish indicator parity or profitability.
+- The EA now follows the v3 source expression for ADX: buy when +DI > −DI and ADX > 20 while rising; sell when +DI < −DI and ADX > 20 while also rising. This conflicts with the general Technical Ratings Help Center wording for ADX sell (falling ADX), so exact live value comparison remains essential.
+- The EA follows the frozen TechnicalRating v3 source expression: Bull Power = high − EMA(close,13); Bear Power = low − EMA(close,13). This differs from the library overview text that lists period 50. Source mirror inspected: [Tealstreet/tealchart official TradingView library-source snapshot](https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts).
+- The MQL5 source was advanced to **version 1.007** in commit `9b82c33467ac6fba46e7fcd8f320497ff4c5d979`. This version corrects Bull/Bear Power to EMA(13), aligns the two Ichimoku leading spans to the v3 source's `[26]` references (for a closed shift-1 candle this uses buffer shift 27), and restores the v3 ADX sell condition (ADX rising). Its corresponding MetaEditor run is [39950822191](https://github.com/staryuzar/-/actions/runs/39950822191); check that run's final conclusion and artifact before distributing a 1.007 package. Prior version 1.006 passed with 0 errors and 0 warnings. Compilation does not establish numerical parity or profitability.
 
 
 
@@ -91,7 +91,7 @@ Columns:
 - `value_a` through `value_e`: raw indicator values used by the vote. Their exact meanings vary by component; see below.
 - `candle_open`, `candle_high`, `candle_low`, `candle_close`, `tick_volume`: feed context to compare with the same TradingView candle.
 
-Raw-value mapping: MA rows store (MA, close); Ichimoku stores (conversion line, base line, Span A, Span B, close); VWMA/Hull store (average, close); RSI/CCI/Williams store (current, previous); Stochastic stores (K,D); ADX stores (ADX,+DI,-DI,previous ADX); AO stores (current, previous, two-bars-back); Momentum stores (current Momentum, previous Momentum, close, close[10]); MACD stores (MACD line, signal, EMA12, EMA26); Stochastic RSI stores (K,D,close,EMA50); Bulls/Bears stores (bull current,bull previous,bear current,bear previous,close); Ultimate Oscillator stores its value. Summary rows contain overall/MA/oscillator ratings (blank if incomplete), readiness counts and OHLCV.
+Raw-value mapping: MA rows store (MA, close); Ichimoku stores (conversion line, base line, Span A[26], Span B[26], close); VWMA/Hull store (average, close); RSI/CCI/Williams store (current, previous); Stochastic stores (K,D); ADX stores (ADX,+DI,-DI,previous ADX); AO stores (current, previous, two-bars-back); Momentum stores (current Momentum, previous Momentum, close, close[10]); MACD stores (MACD line, signal, EMA12, EMA26); Stochastic RSI stores (K,D,close,EMA50); Bulls/Bears stores (bull current,bull previous,bear current,bear previous,close); Ultimate Oscillator stores its value. Summary rows contain overall/MA/oscillator ratings (blank if incomplete), readiness counts and OHLCV.
 
 ### Entry/reversal safety — v1.006
 
