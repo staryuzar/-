@@ -54,7 +54,7 @@ class TV26AllTFPineContractTests(unittest.TestCase):
 
     def test_missing_vote_uses_reserved_base4_digit(self):
         self.assertIn("float digit = na(v) ? 3.0 : v + 1.0", self.source)
-        self.assertIn("out.append(\\\"\\\" if digit == 3 else str(digit - 1))",
+        self.assertIn('out.append("" if digit == 3 else str(digit - 1))',
                       (ROOT / "split_tv26_alltf_export.py").read_text(encoding="utf-8"))
 
 
