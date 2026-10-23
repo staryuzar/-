@@ -368,12 +368,15 @@ def make_report(r: dict[str, Any], mt5_path: str | Path, tv_path: str | Path) ->
 | شموع الملخص غير المكتملة | {r['incomplete_mt5_summary_bars']} |
 | درجات الملخص المقارنة | {r['summary_values_checked']} |
 | اختلافات درجات الملخص | {r['summary_mismatches']} |
+| قيم معايرة تجميعات Pine مقابل المكتبة الرسمية | {r['formula_calibration_values_checked']} |
+| اختلافات المعايرة | {r['formula_calibration_mismatches']} |
 | أصوات المكونات المقارنة | {r['component_votes_checked']} |
 | اختلافات أصوات المكونات | {r['component_vote_mismatches']} |
 | قيم مكونات غير متاحة | {r['component_values_missing']} |
 | اختلاف الحجم — معلومة فقط | {r['volume_mismatches_info_only']} |
 | أكبر فرق سعري | {r['max_absolute_price_delta']:.10g} |
 | أكبر فرق في درجة الملخص | {r['max_absolute_summary_rating_delta']:.10g} |
+| أكبر فرق بين تجميع Pine والمكتبة الرسمية | {r['max_absolute_pine_formula_calibration_delta']:.10g} |
 
 ## شروط النجاح
 
