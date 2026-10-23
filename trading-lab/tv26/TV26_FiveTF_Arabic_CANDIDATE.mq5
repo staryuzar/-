@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.008"
+#property version   "1.009"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -38,6 +38,8 @@ bool g_working[N_TF][N_RATINGS];
 double g_diagA[N_TF][N_RATINGS],g_diagB[N_TF][N_RATINGS],g_diagC[N_TF][N_RATINGS];
 double g_diagD[N_TF][N_RATINGS],g_diagE[N_TF][N_RATINGS];
 datetime g_lastAuditBar[N_TF];
+datetime g_auditAttemptBar[N_TF];
+int g_auditAttempts[N_TF];
 string g_auditFile="";
 double g_rating[N_TF];
 double g_maRating[N_TF], g_oscRating[N_TF];
@@ -453,6 +455,21 @@ void ExportAuditForTF(int t)
 {
    datetime closedBar=iTime(_Symbol,g_tfs[t],1);
    if(closedBar<=0 || closedBar==g_lastAuditBar[t]) return;
+
+   // Indicator history may arrive asynchronously at startup. Retry this exact candle
+   // until every component is ready, up to 10 timer attempts (about 20 seconds).
+   if(g_auditAttemptBar[t]!=closedBar)
+   {
+      g_auditAttemptBar[t]=closedBar;
+      g_auditAttempts[t]=0;
+   }
+   bool allReady=(g_ready[t]==N_RATINGS && g_maReady[t]==15 && g_oscReady[t]==11);
+   if(!allReady)
+   {
+      g_auditAttempts[t]++;
+      if(g_auditAttempts[t]<10) return;
+   }
+
    int fh=FileOpen(g_auditFile,FILE_READ|FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_SHARE_READ|FILE_ANSI,',',CP_UTF8);
    if(fh==INVALID_HANDLE)
    {
