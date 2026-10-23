@@ -1,0 +1,198 @@
+name: GoldLab v1.018 — Five-Day Independent XAUUSD Tick Sample
+
+on:
+  push:
+    branches: [goldlab-v1.018-multiday-dukascopy-probe]
+    paths:
+      - ".github/workflows/goldlab-v1.018-dukascopy-multiday-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  collect-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download five consecutive trading dates of Dukascopy XAUUSD ticks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p external-ticks
+          npx --yes dukascopy-node@latest \
+            -i xauusd -from 2026-03-23 -to 2026-03-28 \
+            -t tick -f csv -dir ./external-ticks \
+            -bs 4 -bp 1000 -r 3 -rp 1000 --retry-on-empty --no-fail-after-retries
+
+      - name: Download M1 warm-up bars from the same independent source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dukascopy-warmup
+          npx --yes dukascopy-node@latest \
+            -i xauusd -from 2026-02-20 -to 2026-03-23 \
+            -t m1 -f csv -dir ./dukascopy-warmup -v \
+            -bs 4 -bp 1000 -r 3 -rp 1000 --retry-on-empty --no-fail-after-retries
+
+      - name: Validate ticks, M1 warm-up, UTC coverage and spreads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, json, math, re
+          from collections import Counter
+          from datetime import datetime, timezone, date
+          from pathlib import Path
+
+          def as_utc(value):
+              value = str(value).strip()
+              if re.fullmatch(r"\d+", value):
+                  stamp = int(value)
+                  if stamp > 10**12:
+                      stamp //= 1000
+                  return datetime.fromtimestamp(stamp, tz=timezone.utc)
+              parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+              if parsed.tzinfo is None:
+                  parsed = parsed.replace(tzinfo=timezone.utc)
+              return parsed.astimezone(timezone.utc)
+
+          def one_csv(directory, label):
+              files = sorted(Path(directory).rglob("*.csv"))
+              if len(files) != 1:
+                  raise SystemExit(f"FAIL: expected one {label} CSV, got {len(files)}")
+              return files[0]
+
+          tick_path = one_csv("external-ticks", "tick")
+          m1_path = one_csv("dukascopy-warmup", "M1")
+          expected_days = [date(2026, 3, d) for d in range(23, 28)]
+          per_day = Counter()
+          rows = invalid = out_of_range = nonmonotonic = 0
+          prev_ms = None
+          first_tick = last_tick = None
+          min_bid = min_ask = math.inf
+          max_bid = max_ask = -math.inf
+          spread_sum = spread_min = math.inf
+          spread_max = -math.inf
+          spread_over_1 = spread_over_2 = 0
+
+          with tick_path.open(newline="", encoding="utf-8-sig") as f:
+              reader = csv.DictReader(f)
+              columns = {x.lower(): x for x in (reader.fieldnames or [])}
+              for key in ("timestamp", "askprice", "bidprice"):
+                  if key not in columns:
+                      raise SystemExit(f"FAIL: tick CSV missing {key}; fields={reader.fieldnames}")
+              for row in reader:
+                  rows += 1
+                  try:
+                      dt = as_utc(row[columns["timestamp"]])
+                      ask = float(row[columns["askprice"]])
+                      bid = float(row[columns["bidprice"]])
+                  except Exception:
+                      invalid += 1
+                      continue
+                  ms = int(dt.timestamp() * 1000)
+                  if not math.isfinite(ask) or not math.isfinite(bid) or bid <= 0 or ask < bid:
+                      invalid += 1
+                      continue
+                  if prev_ms is not None and ms < prev_ms:
+                      nonmonotonic += 1
+                  prev_ms = ms
+                  if not (datetime(2026,3,23,tzinfo=timezone.utc) <= dt < datetime(2026,3,28,tzinfo=timezone.utc)):
+                      out_of_range += 1
+                  first_tick = dt if first_tick is None else first_tick
+                  last_tick = dt
+                  per_day[dt.date().isoformat()] += 1
+                  spread = ask - bid
+                  spread_sum = spread_sum if math.isfinite(spread_sum) else 0.0
+                  spread_sum += spread
+                  spread_min = min(spread_min, spread)
+                  spread_max = max(spread_max, spread)
+                  spread_over_1 += int(spread > 1.0)
+                  spread_over_2 += int(spread > 2.0)
+                  min_bid, max_bid = min(min_bid, bid), max(max_bid, bid)
+                  min_ask, max_ask = min(min_ask, ask), max(max_ask, ask)
+
+          missing = [d.isoformat() for d in expected_days if per_day[d.isoformat()] < 50000]
+          mean_spread = spread_sum / rows if rows else math.nan
+          if rows < 1_500_000:
+              raise SystemExit(f"FAIL: {rows} ticks; need >=1,500,000 over five dates")
+          if invalid or nonmonotonic or out_of_range or missing:
+              raise SystemExit(f"FAIL: invalid={invalid}, nonmonotonic={nonmonotonic}, out_of_range={out_of_range}, thin_dates={missing}")
+          if first_tick is None or last_tick is None or first_tick.date() != date(2026,3,23) or last_tick.date() != date(2026,3,27):
+              raise SystemExit(f"FAIL: range did not cover all five UTC dates: {first_tick} -> {last_tick}")
+
+          m1_rows = m1_bad = 0
+          previous_rate = None
+          first_rate = last_rate = None
+          with m1_path.open(newline="", encoding="utf-8-sig") as f:
+              reader = csv.DictReader(f)
+              columns = {x.lower(): x for x in (reader.fieldnames or [])}
+              for key in ("timestamp", "open", "high", "low", "close"):
+                  if key not in columns:
+                      raise SystemExit(f"FAIL: M1 CSV missing {key}; fields={reader.fieldnames}")
+              for row in reader:
+                  m1_rows += 1
+                  try:
+                      dt = as_utc(row[columns["timestamp"]])
+                      op, hi, lo, cl = [float(row[columns[k]]) for k in ("open","high","low","close")]
+                      if any(not math.isfinite(x) or x <= 0 for x in (op,hi,lo,cl)):
+                          raise ValueError("invalid OHLC")
+                      if hi < max(op,cl,lo) or lo > min(op,cl,hi):
+                          raise ValueError("invalid OHLC envelope")
+                      if previous_rate is not None and dt <= previous_rate:
+                          raise ValueError("nonascending timestamps")
+                      previous_rate = dt
+                      first_rate = dt if first_rate is None else first_rate
+                      last_rate = dt
+                  except Exception:
+                      m1_bad += 1
+          if m1_rows < 20000 or m1_bad:
+              raise SystemExit(f"FAIL: M1 rows={m1_rows}, invalid={m1_bad}; need >=20,000 valid bars")
+          if first_rate is None or last_rate is None or first_rate.date() > date(2026,2,20) or last_rate.date() < date(2026,3,20):
+              raise SystemExit(f"FAIL: warm-up range is inadequate: {first_rate} -> {last_rate}")
+
+          summary = {
+              "status": "PASS",
+              "source": "Dukascopy XAUUSD; independent of Headway broker history",
+              "tick_file": tick_path.name,
+              "tick_rows": rows,
+              "tick_invalid_rows": invalid,
+              "tick_nonmonotonic_rows": nonmonotonic,
+              "tick_out_of_window_rows": out_of_range,
+              "tick_first_utc": first_tick.isoformat(),
+              "tick_last_utc": last_tick.isoformat(),
+              "tick_counts_by_utc_date": dict(sorted(per_day.items())),
+              "bid_min": min_bid, "bid_max": max_bid,
+              "ask_min": min_ask, "ask_max": max_ask,
+              "spread_min": spread_min, "spread_mean": mean_spread, "spread_max": spread_max,
+              "spread_over_1_00_count": spread_over_1,
+              "spread_over_2_00_count": spread_over_2,
+              "m1_file": m1_path.name,
+              "m1_rows": m1_rows, "m1_invalid_rows": m1_bad,
+              "m1_first_utc": first_rate.isoformat(), "m1_last_utc": last_rate.isoformat(),
+              "note": "Data validation only; not a broker execution or profitability test."
+          }
+          Path("external-ticks/validation-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+          Path("dukascopy-warmup/validation-summary.json").write_text(json.dumps({
+              "status":"PASS","rows":m1_rows,"invalid_rows":m1_bad,
+              "first_utc":first_rate.isoformat(),"last_utc":last_rate.isoformat(),
+              "source":"Dukascopy XAUUSD M1"
+          }, indent=2), encoding="utf-8")
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload validated five-day tick sample and warm-up rates
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-dukascopy-xauusd-multiday-${{ github.run_id }}
+          path: |
+            external-ticks/
+            dukascopy-warmup/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
