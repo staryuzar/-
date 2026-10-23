@@ -151,6 +151,8 @@
 - توثيق `OrderCheck` يصرّح بأن نجاح الفحص الأولي لا يضمن نجاح التنفيذ اللاحق؛ يجب أن تبقى نتيجة `OrderSend` ورمزها وسجل الصفقات ونتائج `OnTradeTransaction` منفصلة ومصالحة: https://www.mql5.com/en/docs/trading/ordercheck
 - لذلك نستخدم هذه الجولة بالدرجة الأولى لإثبات سلامة التعامل مع رفض الوقف تحت تأخير التنفيذ، لا لإثبات ربحية المستشار. أي ارتفاع في الربح لا يعوض إخفاق مصالحة الطلبات، وأي رفض آمن بسبب حجم العقد الأدنى يُعد حفاظًا على قيد المخاطرة لكنه ليس تعافيًا ناجحًا.
 
+- توثيق MetaQuotes يحدد `TRADE_RETCODE_INVALID_STOPS` بالرمز 10016. كما يوضح أن `MqlTradeResult.request_id` يربط الطلب باستجابة `TRADE_TRANSACTION_REQUEST`، بينما لا يضمن ترتيب وصول كل أحداث `OnTradeTransaction`; لذلك تُستخدم هوية الطلب نفسها بدل الاعتماد على ترتيب السطور أو افتراض أن كل طلب يساوي حدثًا واحدًا: https://www.mql5.com/en/docs/constants/errorswarnings/enum_trade_return_codes وhttps://www.mql5.com/en/docs/constants/structures/mqltraderesult وhttps://www.mql5.com/en/docs/event_handlers/ontradetransaction
+
 ### الخطوة التالية بعد إغلاق تشغيل #39906404273
 1. تثبيت نتيجة الترجمة وتحقق المدخلات وبيانات التاريخ وHTML/CSV.
 2. التحقق من أن كل طلب أصلي برمز `INVALID_STOPS` ارتبط بواحدة فقط من الحالات النهائية: `OPEN_STOP_RETRY_SUCCESS`، أو `OPEN_STOP_RETRY_ABORT` قبل الإرسال الثاني، أو `OPEN_STOP_RETRY_FAIL` بعد الإرسال الثاني.
