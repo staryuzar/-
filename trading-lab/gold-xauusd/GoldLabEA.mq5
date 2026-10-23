@@ -1,6 +1,6 @@
 #property strict
-#property version   "1.015"
-#property description "GoldLab XAUUSD race-diagnostic candidate; demo/backtest only"
+#property version   "1.016"
+#property description "GoldLab XAUUSD request-state diagnostic candidate; demo/backtest only"
 
 
 
@@ -154,6 +154,52 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
    lastTradeRetcode=result.retcode;
    bool accepted=(sent && TradeRetcodeAccepted(result.retcode));
    RecordOrderSendTelemetry("open",sent,result,accepted,errorCode);
+   // Diagnostic-only: a market request can pass preflight but its protective
+   // levels can become invalid by execution time under Random Delay. Record
+   // submitted prices and the response-time quote/stop constraints; do not retry.
+   if(!accepted)
+   {
+      double postBid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+      double postAsk=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+      double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
+      double tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+      long stopsPoints=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+      long freezePoints=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL);
+      double slDistancePoints=0.0,tpDistancePoints=0.0;
+      if(point>0.0)
+      {
+         if(type==ORDER_TYPE_BUY)
+         {
+            slDistancePoints=(postBid-sl)/point;
+            tpDistancePoints=(tp-postAsk)/point;
+         }
+         else
+         {
+            slDistancePoints=(sl-postAsk)/point;
+            tpDistancePoints=(postBid-tp)/point;
+         }
+      }
+      Print("GoldLab|OPEN_REQUEST_STATE|",_Symbol,
+            "|request_id=",(string)result.request_id,
+            ";order_type=",IntegerToString((int)type),
+            ";sent=",(sent ? "true" : "false"),
+            ";accepted=",(accepted ? "true" : "false"),
+            ";retcode=",IntegerToString((int)result.retcode),
+            ";last_error=",IntegerToString(errorCode),
+            ";volume=",DoubleToString(lots,2),
+            ";submitted_price=",DoubleToString(request.price,_Digits),
+            ";submitted_sl=",DoubleToString(sl,_Digits),
+            ";submitted_tp=",DoubleToString(tp,_Digits),
+            ";current_bid=",DoubleToString(postBid,_Digits),
+            ";current_ask=",DoubleToString(postAsk,_Digits),
+            ";current_spread_points=",DoubleToString((point>0.0 ? (postAsk-postBid)/point : 0.0),1),
+            ";sl_distance_points_at_response=",DoubleToString(slDistancePoints,1),
+            ";tp_distance_points_at_response=",DoubleToString(tpDistancePoints,1),
+            ";required_stops_points=",IntegerToString((int)stopsPoints),
+            ";freeze_level_points=",IntegerToString((int)freezePoints),
+            ";tick_size=",DoubleToString(tickSize,_Digits),
+            ";comment=",result.comment);
+   }
    return accepted;
 }
 bool ClosePositionByTicket(const ulong ticket)
@@ -387,7 +433,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.015; adds SL/TP failure-state diagnostics only; strategy/risk rules unchanged; blocks live execution on real accounts while permitting Strategy Tester.");
+   LogEvent("INIT","Research candidate v1.016; adds failed-entry request-state diagnostics to v1.015 logging; strategy/risk rules unchanged; blocks live execution on real accounts while permitting Strategy Tester.");
    return INIT_SUCCEEDED;
 }
 
