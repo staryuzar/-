@@ -1,4 +1,4 @@
-param([switch]$ForceInvalidStopsOnce)
+param([switch]$ForceInvalidStopsOnce,[double]$RetryBufferATR=0.50)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $runnerPath = ".github/scripts/goldlab_mt5_test.ps1"
@@ -7,6 +7,9 @@ if (!(Test-Path -LiteralPath $runnerPath)) { throw "Generic MT5 runner is missin
 if (!(Test-Path -LiteralPath $eaPath)) { throw "GoldLabEA source is missing." }
 
 $forceInjectionValue = if ($ForceInvalidStopsOnce) { "true" } else { "false" }
+if ([double]::IsNaN($RetryBufferATR) -or [double]::IsInfinity($RetryBufferATR) -or $RetryBufferATR -lt 0.0 -or $RetryBufferATR -gt 2.0) { throw "RetryBufferATR must be finite and between 0.0 and 2.0." }
+$retryBufferText = $RetryBufferATR.ToString("0.00",[Globalization.CultureInfo]::InvariantCulture)
+$retryBufferRow = "InpStopRetryBufferATR=$retryBufferText||$retryBufferText||0.05||$retryBufferText||N"
 $source = Get-Content -LiteralPath $eaPath -Raw
 if ($source -notmatch '(?m)^#property version\s+"1\.017"' -or
     $source -notmatch 'PreflightTradeRequest\(request,"open"\)' -or
@@ -34,7 +37,7 @@ $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLower
 $content = Get-Content -LiteralPath $runnerPath -Raw
 
 $writeCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
-$writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + "InpStopRetryBufferATR=0.50||0.50||0.05||0.50||N" + [Environment]::NewLine + "InpTestForceInvalidStopsOnce=$forceInjectionValue||false||0||true||N"
+$writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + $retryBufferRow + [Environment]::NewLine + "InpTestForceInvalidStopsOnce=$forceInjectionValue||false||0||true||N"
 $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; Random Delay ExecutionMode=-1 diagnostic)"),
@@ -56,9 +59,10 @@ $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
 $content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
 $content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.20')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
-$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=0\.5(?:0+)?</b>'') -and ($html -match ''(?is)InpTestForceInvalidStopsOnce=__FORCE_EXPECTED__</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
+$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=__BUFFER_EXPECTED__</b>'') -and ($html -match ''(?is)InpTestForceInvalidStopsOnce=__FORCE_EXPECTED__</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
 $newChecks = $newChecks.Replace("__FORCE_EXPECTED__", $forceInjectionValue)
+$newChecks = $newChecks.Replace("__BUFFER_EXPECTED__", [regex]::Escape($retryBufferText))
 $content = $content.Replace($oldMax, $newChecks)
 $content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (ADX25 baseline rules confirmed; retry-only stop buffer=0.50 ATR; Model 4 real ticks; ExecutionMode=-1 Random Delay; period ends 2026-10-20)")
 
@@ -67,7 +71,7 @@ $checks = @(
   ($content -match 'InpMaxADX=25\.0'),
   ($content -match 'InpRequireSignalCandleDirection=true'),
   ($content -match 'InpRequireFastEMARejection=true'),
-  ($content -match 'InpStopRetryBufferATR=0.50'),
+  ($content -match ("InpStopRetryBufferATR=" + [regex]::Escape($retryBufferText))),
   ($content -match ("InpTestForceInvalidStopsOnce=" + $forceInjectionValue + "\|\|false\|\|0\|\|true\|\|N")),
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^ExecutionMode=-1\r?$'),
@@ -78,7 +82,7 @@ $checks = @(
   ($content -match 'Random Delay ExecutionMode=-1 diagnostic')
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=0.50","InpTestForceInvalidStopsOnce=$forceInjectionValue","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=$retryBufferText","InpTestForceInvalidStopsOnce=$forceInjectionValue","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
@@ -90,8 +94,8 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
   "EA version: 1.017",
   "Period: 2026-08-05 through 2026-10-20",
   "Model: 4 — every tick based on real ticks",
-  ("Execution: Random Delay (ExecutionMode=-1); frozen ADX25 baseline; retry-only buffer=0.50 ATR. " + $(if($ForceInvalidStopsOnce){"TEST MODE: inject one invalid stop after OrderCheck, Tester only."}else{"Natural execution mode; no stop injection."})),
-  "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true; retry-only buffer=0.50 ATR.",
+  ("Execution: Random Delay (ExecutionMode=-1); frozen ADX25 baseline; retry-only buffer=$retryBufferText ATR. " + $(if($ForceInvalidStopsOnce){"TEST MODE: inject one invalid stop after OrderCheck, Tester only."}else{"Natural execution mode; no stop injection."})),
+  "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true; retry-only buffer=$retryBufferText ATR.",
   "OrderCheck preflight, immediate OrderSend results, and TRADE_TRANSACTION_REQUEST replies are logged separately. This is diagnostics only; deal history remains the execution audit.",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath (Join-Path $PWD "goldlab-ordercheck-preflight.txt") -Encoding utf8
