@@ -1,4 +1,4 @@
-"""Offline contract/math tests for GoldLab v1.016 retry-only ATR cushion.
+"""Offline contract/math tests for GoldLab v1.017 tester-only forced invalid-stop injection.
 
 These tests do NOT emulate MT5 or prove OrderSend execution. They validate the
 risk-distance and volume-normalization math and statically inspect the EA source.
@@ -197,13 +197,21 @@ class RetryMathTests(unittest.TestCase):
         ea_path = root / "trading-lab" / "gold-xauusd" / "GoldLabEA.mq5"
         self.assertTrue(ea_path.is_file(), f"EA source missing: {ea_path}")
         source = ea_path.read_text(encoding="utf-8", errors="strict")
-        self.assertRegex(source, r'(?m)^#property version\s+"1\.016"\s*$')
+        self.assertRegex(source, r'(?m)^#property version\s+"1\.017"\s*$')
         self.assertIn("input double           InpStopRetryBufferATR   = 0.50;", source)
+        self.assertIn("input bool             InpTestForceInvalidStopsOnce = false;", source)
+        self.assertIn("if(InpTestForceInvalidStopsOnce && !testerMode)", source)
+        self.assertIn("(bool)MQLInfoInteger(MQL_TESTER)", source)
+        self.assertIn('outcome=confirmed;request_id=', source)
         self.assertIn("if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)", source)
         self.assertIn("double retryBufferDistance=InpStopRetryBufferATR*retryATR;", source)
         self.assertIn("double retryRiskDistance=retryBaseRiskDistance+retryBufferDistance;", source)
         self.assertIn("LotsForRisk(type,retryEntry,retrySL)", source)
         self.assertIn('PreflightTradeRequest(request,"open-retry")', source)
+        self.assertLess(source.index('PreflightTradeRequest(request,"open")'), source.index('request.sl=request.price;'))
+        self.assertLess(source.index('request.sl=request.price;'), source.index('bool sent=OrderSend(request,result);'))
+        self.assertIn("request.sl=plannedSL;", source)
+        self.assertIn("request.tp=plannedTP;", source)
         self.assertRegex(source, r"stopDistance=MathMax\(InpStopATR\*atr,minStop\+2\.0\*_Point\)")
         self.assertEqual(source.count("if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)"), 1)
 
