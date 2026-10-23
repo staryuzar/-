@@ -35,7 +35,7 @@ $content = Get-Content -LiteralPath $runnerPath -Raw
 
 $writeCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
 $writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + "InpStopRetryBufferATR=0.50||0.50||0.05||0.50||N" + [Environment]::NewLine + "InpTestForceInvalidStopsOnce=false||false||0||true||N"
-if ($writeCsvReplacement -notmatch 'InpTestForceInvalidStopsOnce=false\\|\\|false\\|\\|0\\|\\|true\\|\\|N') {
+if ($writeCsvReplacement -notmatch 'InpTestForceInvalidStopsOnce=false\|\|false\|\|0\|\|true\|\|N') {
   throw "Natural-performance tester parameters must explicitly set InpTestForceInvalidStopsOnce=false."
 }
 $replacements = @(
