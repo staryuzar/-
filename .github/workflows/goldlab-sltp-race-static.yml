@@ -1,0 +1,57 @@
+name: GoldLab SLTP Race Diagnostic — Static Validation
+
+on:
+  push:
+    branches: [goldlab-sltp-race-diagnostic]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_sltp_race_diagnostic.ps1"
+      - ".github/workflows/goldlab-sltp-race-static.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-sltp-race-static
+  cancel-in-progress: true
+
+jobs:
+  parse-and-controls:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - name: Checkout isolated diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Parse diagnostic wrapper and verify safe experiment controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $scriptPath = ".github/scripts/goldlab_sltp_race_diagnostic.ps1"
+          $sourcePath = "trading-lab/gold-xauusd/GoldLabEA.mq5"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $scriptPath).Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            foreach ($e in $errors) { Write-Host ("line {0}: {1}" -f $e.Extent.StartLineNumber, $e.Message) }
+            throw "SLTP race diagnostic wrapper has PowerShell parse errors."
+          }
+          $wrapper = Get-Content -LiteralPath $scriptPath -Raw
+          $ea = Get-Content -LiteralPath $sourcePath -Raw
+          $controls = @(
+            @{ Name = "EA version 1.015"; Pass = $ea.Contains('#property version   "1.015"') },
+            @{ Name = "SLTP post-response state telemetry in EA"; Pass = $ea.Contains("SLTP_MODIFY_STATE") },
+            @{ Name = "same-window real-tick Random Delay mode"; Pass = ($wrapper.Contains("ExecutionMode=-1") -and $wrapper.Contains("Model=4") -and $wrapper.Contains("ToDate=2026.10.20")) },
+            @{ Name = "stale-position failures correlated by request_id"; Pass = ($wrapper.Contains("failedModifyRequestIds") -and $wrapper.Contains("staleClosedRequestIds") -and $wrapper.Contains("request_id=")) },
+            @{ Name = "still-open failures remain a hard rejection"; Pass = ($wrapper.Contains("stillOpenFailureRequestIds.Count -eq 0") -and $wrapper.Contains("reject robustness run")) },
+            @{ Name = "raw failed calls remain counted as failures"; Pass = ($wrapper.Contains("raw failed requests=$sendFailTotal") -and $wrapper.Contains("Failed requests remain counted as failures")) },
+            @{ Name = "development-only interval is enforced"; Pass = ($wrapper.Contains("ToDate=2026.10.20") -and -not $wrapper.Contains("ToDate=2026.10.21")) }
+          )
+          $bad = $false
+          foreach ($control in $controls) {
+            if ($control.Pass) { Write-Host ("CONTROL PASS: " + $control.Name) }
+            else { Write-Host ("CONTROL FAIL: " + $control.Name); $bad = $true }
+          }
+          if ($bad) { throw "SLTP race static controls failed." }
+          Write-Host "SLTP race PowerShell parse and static controls: PASS. No MT5 test was executed."
