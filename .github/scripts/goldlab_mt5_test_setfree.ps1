@@ -137,7 +137,7 @@ AllowDllImport=0
 
 [Tester]
 Expert=GoldLab\GoldLabEA.ex5
-; ExpertParameters intentionally omitted; inputs are baked into the isolated test source
+ExpertParameters=$setName
 Symbol=XAUUSD
 Period=M5
 Model=1
