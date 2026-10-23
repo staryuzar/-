@@ -11,14 +11,14 @@ if ([double]::IsNaN($RetryBufferATR) -or [double]::IsInfinity($RetryBufferATR) -
 $retryBufferText = $RetryBufferATR.ToString("0.00",[Globalization.CultureInfo]::InvariantCulture)
 $retryBufferRow = "InpStopRetryBufferATR=$retryBufferText||0.00||0.05||2.00||N"
 $source = Get-Content -LiteralPath $eaPath -Raw
-if ($source -notmatch '(?m)^#property version\s+"1\.017"' -or
+if ($source -notmatch '(?m)^#property version\s+"1\.018"' -or
     $source -notmatch 'PreflightTradeRequest\(request,"open"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"close"\)' -or
     $source -notmatch 'PreflightTradeRequest\(request,"modify-sltp"\)' -or
     $source -notmatch 'ORDER_CHECK_SUMMARY' -or
     $source -notmatch 'if\(!ok\s*\|\|\s*check\.retcode\s*!=\s*0\)' -or
     $source -notmatch 'call_ok=' -or
-    $source -notmatch 'Research candidate v1\.017;' -or
+    $source -notmatch 'Research candidate v1\.018;' -or
     $source -notmatch 'RecordOrderSendTelemetry\(' -or
     $source -notmatch 'ORDER_SEND_FAIL' -or
     $source -notmatch 'ORDER_SEND_SUMMARY' -or
@@ -31,7 +31,7 @@ if ($source -notmatch '(?m)^#property version\s+"1\.017"' -or
     $source -notmatch 'input bool\s+InpTestForceInvalidStopsOnce\s*=\s*false;' -or
     $source -notmatch 'InpTestForceInvalidStopsOnce && !testerMode' -or
     $source -notmatch 'outcome=confirmed;request_id=') {
-  throw "EA source does not contain the intended v1.017 tester-only forced INVALID_STOPS, OrderCheck, retry-buffer, OrderSend, and request-result telemetry gates."
+  throw "EA source does not contain the intended v1.018 risk-capped tester-only retry, OrderCheck, OrderSend, and request-result telemetry gates."
 }
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $content = Get-Content -LiteralPath $runnerPath -Raw
@@ -93,7 +93,7 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
 @(
   "OrderCheck execution-safety diagnostic",
   "EA source SHA-256: $sourceHash",
-  "EA version: 1.017",
+  "EA version: 1.018",
   "Period: 2026-09-01 through 2026-09-03 (three full trading dates; MT5 ToDate 2026.09.04 is exclusive)",
   "Model: 4 — every tick based on real ticks",
   ("Execution: Random Delay (ExecutionMode=-1); frozen ADX25 baseline; retry-only buffer=$retryBufferText ATR. " + $(if($ForceInvalidStopsOnce){"TEST MODE: inject one invalid stop after OrderCheck, Tester only."}else{"Natural execution mode; no stop injection."})),
@@ -734,8 +734,8 @@ if ($ForceInvalidStopsOnce) {
   }
   if ($terminalOutcomes.Count -ne 1) { throw "Injected request $triggerId must have exactly one terminal retry outcome; observed $($terminalOutcomes.Count)." }
   $finalRetryOutcome = @($terminalOutcomes)[0]
-  if ($ForceInvalidStopsOnce -and $RetryBufferATR -le 0.05 -and $finalRetryOutcome -ne "recovered") {
-    throw "Low-buffer recovery acceptance requires outcome=recovered for trigger $triggerId; observed $finalRetryOutcome."
+  if ($ForceInvalidStopsOnce -and $finalRetryOutcome -ne "recovered") {
+    throw "Risk-capped buffer acceptance requires outcome=recovered for trigger $triggerId; observed $finalRetryOutcome."
   }
   "Forced INVALID_STOPS path gate: PASS (injected request_id=$triggerId; terminal outcome=$finalRetryOutcome; tester-only; duplicate journal copies ignored)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 }
