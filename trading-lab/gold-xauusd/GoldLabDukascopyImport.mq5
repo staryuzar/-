@@ -312,7 +312,7 @@ void OnStart()
               ";ask_min="+DoubleToString(minAsk,3)+";ask_max="+DoubleToString(maxAsk,3));
 
    ResetLastError();
-   int imported=CustomTicksReplace(InpCustomSymbol,firstMs,lastMs,ticks,(uint)count);
+   int imported=CustomTicksReplace(InpCustomSymbol,firstMs,lastMs+1,ticks,(uint)count);
    if(imported!=(int)count)
    {
       ResultLine("CUSTOM_TICKS_REPLACE_FAILED;expected="+IntegerToString(count)+";actual="+IntegerToString(imported)+";error="+IntegerToString(GetLastError()));
