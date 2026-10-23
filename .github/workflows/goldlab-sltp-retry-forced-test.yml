@@ -3,7 +3,7 @@ name: GoldLab Forced INVALID_STOPS Retry Path — v1.017
 
 on:
   push:
-    branches: [goldlab-sltp-retry-forced-test]
+    branches: [goldlab-sltp-retry-forced-test, goldlab-sltp-buffer-grid]
     paths:
       - "trading-lab/gold-xauusd/GoldLabEA.mq5"
       - ".github/scripts/goldlab_sltp_race_diagnostic.ps1"
