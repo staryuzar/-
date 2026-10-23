@@ -199,7 +199,13 @@ Visual=0
   Copy-Item -LiteralPath $audit.FullName -Destination $auditOut -Force
   "Audit CSV bytes: $((Get-Item $auditOut).Length)" | Add-Content -LiteralPath $summary -Encoding utf8
   "Audit CSV SHA-256: $((Get-FileHash -LiteralPath $auditOut -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
-  $history = Get-ChildItem -Path (Join-Path $env:APPDATA "MetaQuotes\Terminal") -Filter "TV26_OHLC_History_XAUUSD.csv" -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  $historyCandidates = @()
+  foreach ($historyRoot in @($install,(Join-Path $env:APPDATA "MetaQuotes\Terminal"),(Join-Path $env:LOCALAPPDATA "MetaQuotes\Terminal"))) {
+    if (Test-Path $historyRoot) {
+      $historyCandidates += @(Get-ChildItem -LiteralPath $historyRoot -Filter "TV26_OHLC_History_XAUUSD.csv" -File -Recurse -ErrorAction SilentlyContinue)
+    }
+  }
+  $history = $historyCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
   if (!$history) { throw "Required OHLCV warmup history CSV was not exported." }
   $historyOut = Join-Path $reports "TV26_OHLC_History_XAUUSD.csv"
   Copy-Item -LiteralPath $history.FullName -Destination $historyOut -Force
