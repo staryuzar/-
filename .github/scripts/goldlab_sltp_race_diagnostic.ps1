@@ -199,13 +199,14 @@ foreach ($file in $evidenceFiles) {
     if ($line -match 'GoldLab\|ORDER_SEND_RESULT\|[^|]+\|seq=(\d+);context=([^;]+);sent=(true|false);accepted=false;request_id=(\d+);retcode=(\d+);') {
       $seq = [string]$Matches[1]
       $ctx = [string]$Matches[2]
-      $rid = [string]$Matches[3]
-      $retcode = [int]$Matches[4]
+      $sentFlag = [string]$Matches[3]
+      $rid = [string]$Matches[4]
+      $retcode = [int]$Matches[5]
       if ($seenFailedSendSequences.Add($seq)) {
-        if ($ctx -eq "modify-sltp" -and $rid -ne "0" -and $retcode -eq 3) {
+        if ($ctx -eq "modify-sltp" -and $sentFlag -eq "false" -and $rid -ne "0" -and $retcode -eq 3) {
           [void]$failedModifyRequestIds.Add($rid)
         } elseif ($ctx -eq "open-retryable-stop-reject" -and $rid -ne "0" -and $retcode -eq 10016) {
-          # First invalid-stop response remains a failed request even if one bounded retry later succeeds.
+          # First invalid-stop response remains failed, even when a bounded retry follows.
           [void]$retryableOpenRequestIds.Add($rid)
         } else {
           [void]$unclassifiableSendFailureSequences.Add($seq)
@@ -373,6 +374,7 @@ $requestResultSignatures = @{}
 $requestResultZeroSignatures = @()
 $requestResultOtherRetcodeLines = @()
 $requestResultStaleClosureLines = @()
+$requestResultRecoveredOpenRetryLines = @()
 foreach ($line in $uniqueRequestResultLines) {
   $markerIndex = $line.IndexOf("GoldLab|ORDER_REQUEST_RESULT|", [System.StringComparison]::Ordinal)
   $payload = $line.Substring($markerIndex + "GoldLab|ORDER_REQUEST_RESULT|".Length)
