@@ -28,6 +28,22 @@ jobs:
       - name: Checkout isolated v1.015 diagnostic branch
         uses: actions/checkout@v4
 
+      - name: Parse PowerShell diagnostic before starting MT5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $file = ".github/scripts/goldlab_sltp_race_diagnostic.ps1"
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            foreach ($parseError in $parseErrors) {
+              Write-Host ("PARSE FAIL line {0}: {1}" -f $parseError.Extent.StartLineNumber, $parseError.Message)
+            }
+            throw "SLTP race diagnostic has PowerShell parse errors; MT5 was not launched."
+          }
+          Write-Host ("PARSE PASS: {0} tokens; MT5 may launch." -f $tokens.Count)
+
       - name: Compile and run identical-input Random Delay test
         shell: pwsh
         run: .github/scripts/goldlab_sltp_race_diagnostic.ps1
