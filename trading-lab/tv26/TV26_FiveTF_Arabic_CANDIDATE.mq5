@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.006"
+#property version   "1.007"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -159,8 +159,9 @@ bool InitHandles()
    for(int t=0;t<N_TF;t++)
    {
       for(int j=0;j<N_RATINGS;j++) g_handles[t][j]=INVALID_HANDLE;
-      g_bulls[t]=iBullsPower(_Symbol,g_tfs[t],50);
-      g_bears[t]=iBearsPower(_Symbol,g_tfs[t],50);
+      // TechnicalRating v3 source computes Bulls/Bears Power with EMA(13).
+      g_bulls[t]=iBullsPower(_Symbol,g_tfs[t],13);
+      g_bears[t]=iBearsPower(_Symbol,g_tfs[t],13);
       g_atr[t]=iATR(_Symbol,g_tfs[t],InpATRPeriod);
       g_trendEMA[t]=iMA(_Symbol,g_tfs[t],50,0,MODE_EMA,PRICE_CLOSE);
       g_macdFast[t]=iMA(_Symbol,g_tfs[t],12,0,MODE_EMA,PRICE_CLOSE);
@@ -222,8 +223,10 @@ bool ComputeOne(int t,int j,int &score)
    if(j==ICHIMOKU_BASE)
    {
       double conversion=0, base=0, spanA=0, spanB=0;
+      // TechnicalRating v3 compares lead spans at [26], but current Tenkan/Kijun.
+      // The evaluated bar is shift 1, so lead spans must be read at shift 1+26=27.
       if(!ReadBuf(g_handles[t][j],0,1,conversion) || !ReadBuf(g_handles[t][j],1,1,base) ||
-         !ReadBuf(g_handles[t][j],2,1,spanA) || !ReadBuf(g_handles[t][j],3,1,spanB)) return false;
+         !ReadBuf(g_handles[t][j],2,27,spanA) || !ReadBuf(g_handles[t][j],3,27,spanB)) return false;
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
       if(spanA>spanB && base>spanA && conversion>base && cc[0]>conversion) score=1;
@@ -269,7 +272,8 @@ bool ComputeOne(int t,int j,int &score)
       if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],1,1,b) || !ReadBuf(g_handles[t][j],2,1,c)) return false;
       double prevADX=0;
       if(!ReadBuf(g_handles[t][j],0,2,prevADX)) return false;
-      score=(a>20 && b>c && a>prevADX ? 1 : (a>20 && b<c && a<prevADX ? -1 : 0));
+      // Exact TechnicalRating v3 source uses rising ADX for both directions.
+      score=(a>20 && b>c && a>prevADX ? 1 : (a>20 && b<c && a>prevADX ? -1 : 0));
       g_diagA[t][j]=a; g_diagB[t][j]=b; g_diagC[t][j]=c; g_diagD[t][j]=prevADX;
       return true;
    }
@@ -357,7 +361,7 @@ bool ComputeOne(int t,int j,int &score)
          !ReadBuf(g_trendEMA[t],0,1,emaNow)) return false;
       double cc[]; ArraySetAsSeries(cc,true);
       if(CopyClose(_Symbol,g_tfs[t],1,1,cc)!=1) return false;
-      // Trend is the close's position relative to EMA(50); no extra EMA-slope gate.
+      // TechnicalRating v3: BBP(13), while trend gating uses close versus EMA(50).
       bool uptrend=(cc[0]>emaNow), downtrend=(cc[0]<emaNow);
       score=(uptrend && bearNow<0 && bearNow>bearPrev ? 1 :
              (downtrend && a>0 && a<bullPrev ? -1 : 0));
