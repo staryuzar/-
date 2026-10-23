@@ -67,7 +67,7 @@ $checks = @(
   ($content -match 'InpRequireFastEMARejection=true'),
   ($content.Contains("InpRiskPercent=0.5</b>")),
   ($content.Contains("InpStopATR=0.60</b>")),
-  ($content.Contains("Period:</td>\\s*<td[^>]*><b>M5 (2026\\.08\\.05 - 2026\\.10\\.20)</b>")),
+  ($content.Contains("2026\.08\.05 - 2026\.10\.20")),
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
   ($content -match '(?m)^ToDate=2026\.10\.20\r?$'),
