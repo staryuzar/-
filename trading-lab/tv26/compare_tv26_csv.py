@@ -162,6 +162,11 @@ def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
     for col in ("TV26.total", "TV26.ma", "TV26.osc", "TV26.open", "TV26.high",
                 "TV26.low", "TV26.close"):
         find_col(th, col)
+    formula_pairs = {"overall": ("TV26.formula_total", "TV26.total"),
+                     "moving_averages": ("TV26.formula_ma", "TV26.ma"),
+                     "oscillators": ("TV26.formula_osc", "TV26.osc")}
+    for formula_col, _ in formula_pairs.values():
+        find_col(th, formula_col)
     tv_vol_col = find_col(th, "TV26.volume", required=False)
     symbol_col = find_col(mh, "symbol", required=False)
 
@@ -200,12 +205,14 @@ def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
         "price_values_checked": 0, "price_mismatches": 0,
         "volume_mismatches_info_only": 0, "complete_mt5_summary_bars": 0,
         "incomplete_mt5_summary_bars": 0, "summary_values_checked": 0,
-        "summary_mismatches": 0, "component_votes_checked": 0,
+        "summary_mismatches": 0, "formula_calibration_values_checked": 0,
+        "formula_calibration_mismatches": 0, "component_votes_checked": 0,
         "component_vote_mismatches": 0, "component_values_missing": 0,
     }
     details: list[dict[str, str]] = []
     max_price_delta = 0.0
     max_rating_delta = 0.0
+    max_formula_calibration_delta = 0.0
 
     def add_detail(bar: str, component: str, check: str, left: Any, right: Any,
                    delta: float | None, ok: bool | None, note: str = "") -> None:
@@ -247,6 +254,24 @@ def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
                     counts["summary_mismatches"] += 1
                 add_detail(bar, name, "summary_rating", left, right, delta, ok,
                            f"tolerance={rating_tolerance:g}")
+
+        # Compare reconstructed aggregate ratings with TradingView's own official library.
+        for formula_name, (formula_col, official_col) in formula_pairs.items():
+            formula_value = as_number(lookup(tr_row, th, formula_col))
+            official_value = as_number(lookup(tr_row, th, official_col))
+            delta = abs(formula_value - official_value) if formula_value is not None and official_value is not None else None
+            if delta is None:
+                counts["formula_calibration_mismatches"] += 1
+                add_detail(bar, "PINE_FORMULA_" + formula_name, "official_library_calibration",
+                           formula_value, official_value, None, False, "Missing formula or official rating")
+                continue
+            counts["formula_calibration_values_checked"] += 1
+            max_formula_calibration_delta = max(max_formula_calibration_delta, delta)
+            ok = delta <= rating_tolerance
+            if not ok:
+                counts["formula_calibration_mismatches"] += 1
+            add_detail(bar, "PINE_FORMULA_" + formula_name, "official_library_calibration",
+                       formula_value, official_value, delta, ok, f"tolerance={rating_tolerance:g}")
 
         for label, mt_col, tv_col in PRICE:
             left = as_number(block.get("SUMMARY", {}).get(mc[mt_col], ""))
@@ -301,6 +326,7 @@ def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
         "all_required_values_present": complete,
         "ohlc_matches": counts["price_mismatches"] == 0,
         "summary_ratings_match": counts["summary_mismatches"] == 0,
+        "pine_component_aggregates_match_official_library": counts["formula_calibration_values_checked"] > 0 and counts["formula_calibration_mismatches"] == 0,
         "all_26_component_votes_match": counts["component_vote_mismatches"] == 0,
     }
     result = {
@@ -310,6 +336,7 @@ def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
         "price_tolerance": price_tolerance, "rating_tolerance": rating_tolerance,
         "max_absolute_price_delta": max_price_delta,
         "max_absolute_summary_rating_delta": max_rating_delta,
+        "max_absolute_pine_formula_calibration_delta": max_formula_calibration_delta,
         **counts, "pass_requirements": requirements,
     }
     report = make_report(result, mt5_path, tv_path)
