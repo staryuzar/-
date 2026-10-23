@@ -312,7 +312,8 @@ bool ComputeOne(int t,int j,int &score)
    {
       // TradingView stochFull(14,3,3): raw %K, SMA(3) for K, then SMA(3) for D.
       if(!TVStochasticValues(g_tfs[t],a,b)) return false;
-      score=(a<20 && b<20 && a>b ? 1 : (a>80 && b>80 && a<b ? -1 : 0));
+      const double kdEpsilon=1.0e-10; // Avoid spurious votes from floating-point noise at K==D.
+      score=(a<20 && b<20 && a>b+kdEpsilon ? 1 : (a>80 && b>80 && a<b-kdEpsilon ? -1 : 0));
       g_diagA[t][j]=a; g_diagB[t][j]=b;
       return true;
    }
@@ -397,8 +398,9 @@ bool ComputeOne(int t,int j,int &score)
       if(CopyClose(_Symbol,g_tfs[t],1,1,trendClose)!=1 ||
          !ReadBuf(g_trendEMA[t],0,1,emaTrend)) return false;
       bool downtrend=(trendClose[0]<emaTrend), uptrend=(trendClose[0]>emaTrend);
-      score=(downtrend && k0<20 && d0<20 && k0>d0 ? 1 :
-             (uptrend && k0>80 && d0>80 && k0<d0 ? -1 : 0));
+      const double kdEpsilon=1.0e-10; // Treat mathematically equal K/D as neutral.
+      score=(downtrend && k0<20 && d0<20 && k0>d0+kdEpsilon ? 1 :
+             (uptrend && k0>80 && d0>80 && k0<d0-kdEpsilon ? -1 : 0));
       g_diagA[t][j]=k0; g_diagB[t][j]=d0; g_diagC[t][j]=trendClose[0]; g_diagD[t][j]=emaTrend;
       return true;
    }
