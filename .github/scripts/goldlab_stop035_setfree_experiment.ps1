@@ -91,7 +91,7 @@ $checks = @(
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
   ($content -match '(?m)^ToDate=2026\.10\.20\r?$'),
-  ($content -match 'GoldLab_ordercheck_adx25_min23_stop045_2026-08-05_to-2026-10-20'),
+  ($content -match 'GoldLab_ordercheck_adx25_min23_stop035_2026-08-05_to-2026-10-20'),
   ($content -match '2026\.10\.20'),
   ($content -match 'OrderCheck diagnostic')
 )
