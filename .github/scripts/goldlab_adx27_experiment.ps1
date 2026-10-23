@@ -303,6 +303,60 @@ foreach ($line in $rawImmediateResultLines) {
     $uniqueImmediateResultLines += $line
   }
 }
+# Count unique immediate responses by request context. This is execution telemetry, not a trade count.
+$sendContextStats = @{
+  open = @{ calls=0; sentTrue=0; sentFalse=0; accepted=0; notAccepted=0 }
+  close = @{ calls=0; sentTrue=0; sentFalse=0; accepted=0; notAccepted=0 }
+  'modify-sltp' = @{ calls=0; sentTrue=0; sentFalse=0; accepted=0; notAccepted=0 }
+}
+$unknownSendContexts = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($line in $uniqueImmediateResultLines) {
+  $marker = "GoldLab|ORDER_SEND_RESULT|"
+  $markerIndex = $line.IndexOf($marker, [System.StringComparison]::Ordinal)
+  if ($markerIndex -lt 0) { throw "Malformed ORDER_SEND_RESULT while grouping by context." }
+  $payload = $line.Substring($markerIndex + $marker.Length).Trim()
+  if ($payload -notmatch '^[^|]+\|seq=\d+;context=([^;]+);sent=(true|false);accepted=(true|false);') {
+    throw "Cannot parse request context from ORDER_SEND_RESULT: $payload"
+  }
+  $context = [string]$Matches[1]
+  $sent = ($Matches[2] -eq "true")
+  $accepted = ($Matches[3] -eq "true")
+  if (!$sendContextStats.ContainsKey($context)) {
+    [void]$unknownSendContexts.Add($context)
+    continue
+  }
+  $sendContextStats[$context].calls++
+  if ($sent) { $sendContextStats[$context].sentTrue++ } else { $sendContextStats[$context].sentFalse++ }
+  if ($accepted) { $sendContextStats[$context].accepted++ } else { $sendContextStats[$context].notAccepted++ }
+}
+if ($unknownSendContexts.Count -gt 0) {
+  throw "Unknown OrderSend context(s) found; telemetry breakdown is incomplete: $([string]::Join(',', $unknownSendContexts))"
+}
+$contextCallTotal = 0
+foreach ($context in @("open","close","modify-sltp")) {
+  $stats = $sendContextStats[$context]
+  $contextCallTotal += $stats.calls
+  if (($stats.sentTrue + $stats.sentFalse) -ne $stats.calls -or
+      ($stats.accepted + $stats.notAccepted) -ne $stats.calls) {
+    throw "OrderSend context counters do not reconcile for context=$context."
+  }
+}
+if ($contextCallTotal -ne $uniqueImmediateResultLines.Count) {
+  throw "Context breakdown calls ($contextCallTotal) do not equal unique ORDER_SEND_RESULT records ($($uniqueImmediateResultLines.Count))."
+}
+@(
+  "",
+  "## OrderSend outcomes by context (unique immediate results)",
+  "These counts are requests, not deals or trades.",
+  "Total context records: $contextCallTotal",
+  "Context counts:"
+) | Add-Content -LiteralPath $summaryPath -Encoding utf8
+foreach ($context in @("open","close","modify-sltp")) {
+  $stats = $sendContextStats[$context]
+  "$($context): calls=$($stats.calls);send_true=$($stats.sentTrue);send_false=$($stats.sentFalse);accepted_retcode=$($stats.accepted);not_accepted=$($stats.notAccepted)" | Add-Content -LiteralPath $summaryPath -Encoding utf8
+}
+"Context reconciliation gate: PASS (context calls=$contextCallTotal; unknown contexts=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+
 $sendResultDuplicateCount = $rawImmediateResultLines.Count - $uniqueImmediateResultLines.Count
 $sendResultIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $sendResultZeroIds = 0
