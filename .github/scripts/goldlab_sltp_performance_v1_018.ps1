@@ -35,6 +35,9 @@ $content = Get-Content -LiteralPath $runnerPath -Raw
 
 $writeCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
 $writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + "InpStopRetryBufferATR=0.50||0.50||0.05||0.50||N" + [Environment]::NewLine + "InpTestForceInvalidStopsOnce=false||false||0||true||N"
+if ($writeCsvReplacement -notmatch 'InpTestForceInvalidStopsOnce=false\\|\\|false\\|\\|0\\|\\|true\\|\\|N') {
+  throw "Natural-performance tester parameters must explicitly set InpTestForceInvalidStopsOnce=false."
+}
 $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; Random Delay ExecutionMode=-1 diagnostic)"),
