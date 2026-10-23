@@ -4,6 +4,7 @@
 
 input bool   InpEnableTrading       = true;
 input bool   InpDemoOnly            = true;
+input bool   InpTesterOnly          = false; // When true, refuse execution outside MT5 Strategy Tester.
 input ulong  InpMagic               = 26102326;
 input double InpRiskPercent         = 0.50;
 input int    InpATRPeriod           = 14;
@@ -691,6 +692,12 @@ void RememberSignal(int sig)
 }
 void TradeIfAligned()
 {
+   if(InpTesterOnly && !MQLInfoInteger(MQL_TESTER))
+   {
+      g_lastBlock="وضع الاختبار فقط مفعّل؛ التشغيل خارج Strategy Tester ممنوع";
+      g_lastAction="لم يُرسل أمر خارج الاختبار";
+      return;
+   }
    int sig=AlignedSignal();
    if(sig==0)
    {
