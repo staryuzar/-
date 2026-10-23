@@ -15,8 +15,7 @@ permissions:
 
 concurrency:
   group: goldlab-shared-headway-mt5
-  queue: max
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   sltp-race-diagnostic:
