@@ -1,4 +1,5 @@
 name: GoldLab Forced INVALID_STOPS Retry Path — v1.017
+# Dedicated tester-only fault-injection run; never a strategy performance benchmark.
 
 on:
   push:
