@@ -1,4 +1,4 @@
-"""Offline contract/math tests for GoldLab v1.017 tester-only forced invalid-stop injection.
+"""Offline contract/math tests for GoldLab v1.018 risk-capped tester-only retry.
 
 These tests do NOT emulate MT5 or prove OrderSend execution. They validate the
 risk-distance and volume-normalization math and statically inspect the EA source.
@@ -204,7 +204,15 @@ class RetryMathTests(unittest.TestCase):
         self.assertIn("(bool)MQLInfoInteger(MQL_TESTER)", source)
         self.assertIn('outcome=confirmed;request_id=', source)
         self.assertIn("if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)", source)
-        self.assertIn("double retryBufferDistance=InpStopRetryBufferATR*retryATR;", source)
+        self.assertIn("double requestedRetryBufferDistance=InpStopRetryBufferATR*retryATR;", source)
+        self.assertIn("double retryBufferDistance=requestedRetryBufferDistance;", source)
+        self.assertIn("for(int capIteration=0;capIteration<24;capIteration++)", source)
+        self.assertIn("double candidateLots=LotsForRisk(type,retryEntry,candidateSL);", source)
+        self.assertIn("if(candidateLots>=minLot)", source)
+        self.assertIn('LogEvent("OPEN_STOP_RETRY_BUFFER_CAPPED"', source)
+        self.assertIn("requested_buffer_atr=", source)
+        self.assertIn("effective_buffer_atr=", source)
+        self.assertIn("retryBufferCapped=(retryLots>=minLot", source)
         self.assertIn("double retryRiskDistance=retryBaseRiskDistance+retryBufferDistance;", source)
         self.assertIn("LotsForRisk(type,retryEntry,retrySL)", source)
         self.assertIn('PreflightTradeRequest(request,"open-retry")', source)
