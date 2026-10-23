@@ -49,6 +49,7 @@ jobs:
           if (!(Test-Path -LiteralPath $triggerPath) -or (Get-Content -LiteralPath $triggerPath -Raw).Trim() -ne "RUN_GOLDLAB_HOLDOUT_V1") {
             throw "The explicit holdout trigger token is missing or invalid."
           }
+          if ([string]::IsNullOrWhiteSpace([string]$env:MT5_CREDENTIALS)) { throw "GitHub Actions MT5 secret is absent; holdout was not consumed." }
           $lockPath = "trading-lab/gold-xauusd/HOLDOUT_CONSUMED.json"
           if (Test-Path -LiteralPath $lockPath) { throw "Holdout is already consumed. Do not rerun or tune on this window." }
 
