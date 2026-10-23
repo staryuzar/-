@@ -160,9 +160,27 @@ Visual=0
   $env:MT5_CREDENTIALS = $null
   $accountPasswordForConfig = $null
   $terminalProc = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", "/config:$config") -WorkingDirectory $install -PassThru
-  if (!$terminalProc.WaitForExit(300000)) {
-    Stop-Process -Id $terminalProc.Id -Force -ErrorAction SilentlyContinue
-    throw "Isolated forced-path Strategy Tester run exceeded 5 minutes; no completed result accepted."
+  if (!$terminalProc.WaitForExit(900000)) {
+    "Tester terminal timeout after 15 minutes; this run is invalid and no trading result is accepted." | Add-Content -LiteralPath $summary -Encoding utf8
+    $timeoutLogPaths = @()
+    foreach ($candidateDir in @((Join-Path $install "Logs"),(Join-Path $install "MQL5\Logs"),(Join-Path $install "Tester"))) {
+      if (Test-Path -LiteralPath $candidateDir) {
+        $timeoutLogPaths += @(Get-ChildItem -LiteralPath $candidateDir -File -Recurse -ErrorAction SilentlyContinue |
+          Where-Object { $_.Extension -ieq ".log" } |
+          Sort-Object LastWriteTime -Descending |
+          Select-Object -First 12)
+      }
+    }
+    foreach ($timeoutLog in @($timeoutLogPaths | Sort-Object LastWriteTime -Descending | Select-Object -Unique -First 12)) {
+      ("--- TIMEOUT LOG: " + $timeoutLog.FullName + " | " + $timeoutLog.LastWriteTimeUtc.ToString("o") + " ---") | Add-Content -LiteralPath $summary -Encoding utf8
+      Get-Content -LiteralPath $timeoutLog.FullName -Tail 80 -ErrorAction SilentlyContinue | Add-Content -LiteralPath $summary -Encoding utf8
+    }
+    try {
+      & "$env:SystemRoot\System32\taskkill.exe" /PID $terminalProc.Id /T /F 2>&1 | Add-Content -LiteralPath $summary -Encoding utf8
+    } catch {
+      ("Timeout cleanup warning: " + $_.Exception.Message) | Add-Content -LiteralPath $summary -Encoding utf8
+    }
+    throw "Isolated forced-path Strategy Tester run exceeded 15 minutes; no completed result accepted; available terminal logs were appended to run-summary.txt."
   }
   $possibleReports = @(
     (Join-Path $install ($reportRelative + ".htm")),
