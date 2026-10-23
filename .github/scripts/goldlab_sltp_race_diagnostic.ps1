@@ -184,6 +184,7 @@ if (($sendAcceptedTotal + $sendFailTotal) -ne $sendCallTotal) { throw "OrderSend
 $evidenceFiles = @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".txt",".log") })
 $failedModifyRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $retryableOpenRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$failedOpenRetryRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $staleClosedRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $stillOpenFailureRequestIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $seenFailedSendSequences = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
@@ -206,8 +207,11 @@ foreach ($file in $evidenceFiles) {
         if ($ctx -eq "modify-sltp" -and $sentFlag -eq "false" -and $rid -ne "0" -and $retcode -eq 3) {
           [void]$failedModifyRequestIds.Add($rid)
         } elseif ($ctx -eq "open-retryable-stop-reject" -and $rid -ne "0" -and $retcode -eq 10016) {
-          # First invalid-stop response remains failed, even when a bounded retry follows.
+          # Original invalid-stop attempt remains a raw failure whether retry recovers or is safely refused.
           [void]$retryableOpenRequestIds.Add($rid)
+        } elseif ($ctx -eq "open-retry" -and $rid -ne "0" -and $retcode -eq 10016 -and $line -match ';order=0;deal=0;') {
+          # Bounded retry itself got INVALID_STOPS and produced no order/deal: a safe refusal, not a fill.
+          [void]$failedOpenRetryRequestIds.Add($rid)
         } else {
           [void]$unclassifiableSendFailureSequences.Add($seq)
         }
@@ -374,7 +378,8 @@ $requestResultSignatures = @{}
 $requestResultZeroSignatures = @()
 $requestResultOtherRetcodeLines = @()
 $requestResultStaleClosureLines = @()
-$requestResultRecoveredOpenRetryLines = @()
+$requestResultOpenRetryTriggerLines = @()
+$requestResultFailedOpenRetryLines = @()
 foreach ($line in $uniqueRequestResultLines) {
   $markerIndex = $line.IndexOf("GoldLab|ORDER_REQUEST_RESULT|", [System.StringComparison]::Ordinal)
   $payload = $line.Substring($markerIndex + "GoldLab|ORDER_REQUEST_RESULT|".Length)
@@ -394,9 +399,12 @@ foreach ($line in $uniqueRequestResultLines) {
   if ($payload -match ';accepted_by_retcode=false;') {
     if ($rid -ne "0" -and $staleClosedRequestIds.Contains($rid)) {
       $requestResultStaleClosureLines += $line
-    } elseif ($rid -ne "0" -and $retryableOpenRequestIds.Contains($rid) -and $requestResultRetcode -eq 10016 -and $openStopRetryRecovered -eq $retryableOpenRequestIds.Count -and $openStopRetryFailed -eq 0) {
-      # Keep the original server rejection visible; classify it as recovered only when the separate retry is accepted.
-      $requestResultRecoveredOpenRetryLines += $line
+    } elseif ($rid -ne "0" -and $retryableOpenRequestIds.Contains($rid) -and $requestResultRetcode -eq 10016 -and ($openStopRetryRecovered + $openStopRetryFailed) -eq $openStopRetryAttempts) {
+      # Keep the original rejection visible; the next bounded attempt may recover or be safely refused.
+      $requestResultOpenRetryTriggerLines += $line
+    } elseif ($rid -ne "0" -and $failedOpenRetryRequestIds.Contains($rid) -and $requestResultRetcode -eq 10016) {
+      # The retry itself was refused with INVALID_STOPS; retain this failed callback separately.
+      $requestResultFailedOpenRetryLines += $line
     } else {
       $requestResultOtherRetcodeLines += $line
     }
@@ -436,7 +444,8 @@ $matchedRequestIds = 0
 $unmatchedSendIds = @()
 $unmatchedReplyIds = @()
 $verifiedLocalStaleNoReplyIds = @()
-$verifiedLocalRecoveredOpenRetryNoReplyIds = @()
+$verifiedLocalOpenRetryTriggerNoReplyIds = @()
+$verifiedLocalFailedOpenRetryNoReplyIds = @()
 $signatureMismatches = @()
 foreach ($id in $sendResultIds) {
   if ($requestResultIds.Contains($id)) {
@@ -445,9 +454,12 @@ foreach ($id in $sendResultIds) {
   } elseif (($sendResultSentById.ContainsKey($id)) -and (-not [bool]$sendResultSentById[$id]) -and $staleClosedRequestIds.Contains($id)) {
     # A local SLTP failure is correlated only when a separate state log proves the position had closed.
     $verifiedLocalStaleNoReplyIds += $id
-  } elseif (($sendResultSentById.ContainsKey($id)) -and (-not [bool]$sendResultSentById[$id]) -and $retryableOpenRequestIds.Contains($id) -and $openStopRetryRecovered -eq $retryableOpenRequestIds.Count -and $openStopRetryFailed -eq 0) {
-    # A local invalid-stop rejection has no server callback; classify it only when the bounded retry was accepted.
-    $verifiedLocalRecoveredOpenRetryNoReplyIds += $id
+  } elseif (($sendResultSentById.ContainsKey($id)) -and (-not [bool]$sendResultSentById[$id]) -and $failedOpenRetryRequestIds.Contains($id)) {
+    # Retry itself was locally rejected, with no order/deal: no server callback is expected.
+    $verifiedLocalFailedOpenRetryNoReplyIds += $id
+  } elseif (($sendResultSentById.ContainsKey($id)) -and (-not [bool]$sendResultSentById[$id]) -and $retryableOpenRequestIds.Contains($id) -and ($openStopRetryRecovered + $openStopRetryFailed) -eq $openStopRetryAttempts) {
+    # Original invalid-stop request may fail locally; correlate only if the summary accounts for its one bounded retry.
+    $verifiedLocalOpenRetryTriggerNoReplyIds += $id
   } else {
     $unmatchedSendIds += $id
   }
@@ -487,7 +499,8 @@ if ($sendResultZeroSentCount -eq 1) {
   "Request-result signature mismatches: $($signatureMismatches.Count)",
   "Immediate request IDs without matching callback: $($unmatchedSendIds.Count)",
   "Verified sent=false stale-close requests without server callback: $($verifiedLocalStaleNoReplyIds.Count)",
-  "Verified sent=false recovered open-stop retries without server callback: $($verifiedLocalRecoveredOpenRetryNoReplyIds.Count)",
+  "Verified sent=false original invalid-stop triggers without callback: $($verifiedLocalOpenRetryTriggerNoReplyIds.Count)",
+  "Verified sent=false failed bounded retries without callback: $($verifiedLocalFailedOpenRetryNoReplyIds.Count)",
   "Callback request IDs without matching immediate result: $($unmatchedReplyIds.Count)",
   "Callback summary: callbacks=$requestCallbackSummary; accepted_by_retcode=$requestAcceptedSummary; other_retcode=$requestOtherSummary",
   "Unique ORDER_REQUEST_SUMMARY record:"
@@ -509,7 +522,7 @@ if ($signatureMismatches.Count -gt 0) {
 if ($unmatchedSendIds.Count -gt 0 -or $unmatchedReplyIds.Count -gt 0) {
   throw "Request ID correlation mismatch: inspect unmatched IDs in run-summary.txt."
 }
-$rawNonAcceptedCallbackCount = $requestResultOtherRetcodeLines.Count + $requestResultStaleClosureLines.Count + $requestResultRecoveredOpenRetryLines.Count
+$rawNonAcceptedCallbackCount = $requestResultOtherRetcodeLines.Count + $requestResultStaleClosureLines.Count + $requestResultOpenRetryTriggerLines.Count + $requestResultFailedOpenRetryLines.Count
 if ($requestOtherSummary -ne $rawNonAcceptedCallbackCount) {
   throw "Raw other-retcode summary ($requestOtherSummary) does not reconcile with recorded callback lines ($rawNonAcceptedCallbackCount)."
 }
@@ -517,22 +530,36 @@ $verifiedStaleCloseTotal = $requestResultStaleClosureLines.Count + $verifiedLoca
 if ($verifiedStaleCloseTotal -ne $failedModifyRequestIds.Count) {
   throw "Verified stale-close server callbacks ($($requestResultStaleClosureLines.Count)) plus local sent=false/no-callback races ($($verifiedLocalStaleNoReplyIds.Count)) do not match failed modify requests ($($failedModifyRequestIds.Count))."
 }
-$verifiedOpenRetryTotal = $requestResultRecoveredOpenRetryLines.Count + $verifiedLocalRecoveredOpenRetryNoReplyIds.Count
-if ($verifiedOpenRetryTotal -ne $retryableOpenRequestIds.Count -or $openStopRetryRecovered -ne $retryableOpenRequestIds.Count -or $openStopRetryFailed -ne 0) {
-  throw "Invalid-stop retry correlation ($verifiedOpenRetryTotal) or recovery counters do not reconcile with original requests ($($retryableOpenRequestIds.Count))."
+$verifiedOpenRetryTriggerTotal = $requestResultOpenRetryTriggerLines.Count + $verifiedLocalOpenRetryTriggerNoReplyIds.Count
+if ($verifiedOpenRetryTriggerTotal -ne $retryableOpenRequestIds.Count) {
+  throw "Original INVALID_STOPS triggers observed ($verifiedOpenRetryTriggerTotal) do not match identified trigger requests ($($retryableOpenRequestIds.Count))."
 }
-if ($requestOtherSummary -gt ($requestResultStaleClosureLines.Count + $requestResultRecoveredOpenRetryLines.Count)) {
-  throw "$($requestOtherSummary - $requestResultStaleClosureLines.Count - $requestResultRecoveredOpenRetryLines.Count) callback(s) were not verified as stale-close races or recovered INVALID_STOPS retries."
+if ($openStopRetryAttempts -ne $retryableOpenRequestIds.Count -or ($openStopRetryRecovered + $openStopRetryFailed) -ne $openStopRetryAttempts) {
+  throw "Retry attempts/recovered/failed counters do not reconcile with original invalid-stop triggers."
+}
+if ($failedOpenRetryRequestIds.Count -ne $openStopRetryFailed) {
+  throw "Safely refused retry IDs ($($failedOpenRetryRequestIds.Count)) do not match retry-failed counter ($openStopRetryFailed)."
+}
+$verifiedFailedOpenRetryTotal = $requestResultFailedOpenRetryLines.Count + $verifiedLocalFailedOpenRetryNoReplyIds.Count
+if ($verifiedFailedOpenRetryTotal -ne $failedOpenRetryRequestIds.Count) {
+  throw "Failed retry server callbacks ($($requestResultFailedOpenRetryLines.Count)) plus local no-callback failures ($($verifiedLocalFailedOpenRetryNoReplyIds.Count)) do not reconcile with failed retry IDs ($($failedOpenRetryRequestIds.Count))."
+}
+if ($requestOtherSummary -gt ($requestResultStaleClosureLines.Count + $requestResultOpenRetryTriggerLines.Count + $requestResultFailedOpenRetryLines.Count)) {
+  throw "$($requestOtherSummary - $requestResultStaleClosureLines.Count - $requestResultOpenRetryTriggerLines.Count - $requestResultFailedOpenRetryLines.Count) callback(s) were not verified as stale-close races or explicitly accounted invalid-stop trigger/retry responses."
 }
 if ($requestResultStaleClosureLines.Count -gt 0) {
   "Callbacks classified as stale closed-position races (retcode remains non-accepted):" | Add-Content -LiteralPath $summaryPath -Encoding utf8
   $requestResultStaleClosureLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
 }
-if ($requestResultRecoveredOpenRetryLines.Count -gt 0) {
-  "Server INVALID_STOPS callbacks classified as recovered only after an accepted bounded retry:" | Add-Content -LiteralPath $summaryPath -Encoding utf8
-  $requestResultRecoveredOpenRetryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+if ($requestResultOpenRetryTriggerLines.Count -gt 0) {
+  "Original server INVALID_STOPS trigger callbacks (each followed by one bounded retry):" | Add-Content -LiteralPath $summaryPath -Encoding utf8
+  $requestResultOpenRetryTriggerLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
 }
-"Request-result correlation gate: PASS (matched nonzero server IDs=$matchedRequestIds; zero-ID fallback=$matchedZeroIdFallback; server callbacks=$requestCallbackSummary; local stale-close no-callback=$($verifiedLocalStaleNoReplyIds.Count); recovered invalid-stop retry no-callback=$($verifiedLocalRecoveredOpenRetryNoReplyIds.Count); recovered invalid-stop callbacks=$($requestResultRecoveredOpenRetryLines.Count); unresolved correlation mismatches=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
+if ($requestResultFailedOpenRetryLines.Count -gt 0) {
+  "Bounded retry server INVALID_STOPS rejections (safe refusal, not a successful retry):" | Add-Content -LiteralPath $summaryPath -Encoding utf8
+  $requestResultFailedOpenRetryLines | ForEach-Object { "- $_" | Add-Content -LiteralPath $summaryPath -Encoding utf8 }
+}
+"Request-result correlation gate: PASS (matched nonzero server IDs=$matchedRequestIds; zero-ID fallback=$matchedZeroIdFallback; server callbacks=$requestCallbackSummary; local stale-close no-callback=$($verifiedLocalStaleNoReplyIds.Count); original invalid-stop triggers without callback=$($verifiedLocalOpenRetryTriggerNoReplyIds.Count); failed retry without callback=$($verifiedLocalFailedOpenRetryNoReplyIds.Count); trigger callbacks=$($requestResultOpenRetryTriggerLines.Count); failed retry callbacks=$($requestResultFailedOpenRetryLines.Count); unresolved correlation mismatches=0)." | Add-Content -LiteralPath $summaryPath -Encoding utf8
 
 # Reconcile the HTML report with the deal-level CSV; requests/callbacks are not trade counts.
 $qaFailures = [System.Collections.Generic.List[string]]::new()
