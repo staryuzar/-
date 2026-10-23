@@ -1,0 +1,29 @@
+name: TV26 parity comparator tests
+
+on:
+  push:
+    branches:
+      - tv26-five-timeframes-arabic-candidate
+    paths:
+      - "trading-lab/tv26/**"
+      - ".github/workflows/tv26-parity-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  comparator-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check Python syntax
+        run: python -m py_compile trading-lab/tv26/compare_tv26_csv.py trading-lab/tv26/tests/test_compare_tv26_csv.py
+      - name: Run deterministic parity tests
+        run: python -m unittest discover -s trading-lab/tv26/tests -v
