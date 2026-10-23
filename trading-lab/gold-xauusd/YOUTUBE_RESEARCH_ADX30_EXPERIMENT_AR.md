@@ -127,7 +127,7 @@
 ## تحديث دراسة MQL5: المخاطرة وحجم الصفقة ووقف ATR — 2026-10-23
 
 ### المواد التي روجعت
-- **YouTube: Dynamic position sizing in mql5 | MT5 programming**، فيديو Toby عن تحويل المستشار من حجم ثابت إلى مخاطرة نقدية/نسبية ثم اختبار النتيجة: https://www.youtube.com/watch?v=V3XjH1K7m3Y . رابط الفيديو نفسه مستشهد به في سلسلة دروس MetaQuotes على المنتدى: https://www.mql5.com/en/forum/447439/page5. لا أزعم مشاهدة الفيديو كاملاً هنا؛ استخدمت العنوان والوصف/التفريغ المتاح بالصفحة.
+- **YouTube: Dynamic position sizing in mql5 | MT5 programming**، فيديو Toby عن تحويل المستشار من حجم ثابت إلى مخاطرة نقدية/نسبية ثم اختبار النتيجة: https://www.youtube.com/watch?v=-xoD_tHpIq0 . رابط الفيديو نفسه مستشهد به في سلسلة دروس MetaQuotes على المنتدى: https://www.mql5.com/en/forum/447439/page5. لا أزعم مشاهدة الفيديو كاملاً هنا؛ استخدمت العنوان والوصف/التفريغ المتاح بالصفحة.
 - **MQL5 Article, Part 1: From Fragile Script to Working EA** (4 أغسطس 2026): https://www.mql5.com/en/articles/23429. ركز على معالجة الإشارة مرة واحدة لكل شمعة مكتملة، تمييز صفقات المستشار بالـ Magic Number، وقف متكيف مع ATR، والتحقق من البيانات وأخطاء التنفيذ.
 - **MQL5 Article, Part 2: Risk Management and Dynamic Lot Sizing** (9 سبتمبر 2026): https://www.mql5.com/en/articles/23638. يوصي بتحديد الحجم من نسبة المخاطرة والمسافة الفعلية للوقف، وفحص حدود الوسيط وأحجام العقود، ثم اختبار هل الخسارة عند ضرب الوقف قريبة من ميزانية المخاطرة المخططة.
 - توثيق OrderSend الرسمي: https://www.mql5.com/en/docs/trading/ordersend. نجاح إرسال الطلب لا يكفي وحده؛ يجب تدقيق retcode والتسوية في سجل الصفقات.
