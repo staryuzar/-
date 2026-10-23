@@ -7,6 +7,16 @@ $installer = Join-Path $root "mt5setup.exe"
 $source = Join-Path $PWD "trading-lab\tv26\TV26_FiveTF_Arabic_CANDIDATE.mq5"
 $config = Join-Path $root "tv26-backtest.ini"
 $summary = Join-Path $reports "strategy-backtest-summary.txt"
+$testFrom = [string]$env:TV26_TEST_FROM
+$testTo = [string]$env:TV26_TEST_TO
+if ([string]::IsNullOrWhiteSpace($testFrom)) { $testFrom = "2026.09.01" }
+if ([string]::IsNullOrWhiteSpace($testTo)) { $testTo = "2026.09.04" }
+$culture = [Globalization.CultureInfo]::InvariantCulture
+$startDate = [datetime]::ParseExact($testFrom,"yyyy.MM.dd",$culture)
+$endDate = [datetime]::ParseExact($testTo,"yyyy.MM.dd",$culture)
+if ($endDate -le $startDate) { throw "TV26_TEST_TO must be later than TV26_TEST_FROM; ToDate is exclusive." }
+$rangeLabelStart = $startDate.ToString("yyyy-MM-dd",$culture)
+$rangeLabelEnd = $endDate.AddDays(-1).ToString("yyyy-MM-dd",$culture)
 New-Item -ItemType Directory -Path $root,$install,$reports -Force | Out-Null
 
 # Credentials exist only in the configured GitHub Actions secret.
@@ -52,9 +62,9 @@ $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $nu
 @(
   "TV26 Strategy Tester backtest; simulated trades are allowed only inside this isolated tester run. InpTesterOnly=true blocks execution outside Strategy Tester.",
   "Symbol XAUUSD, tester timeframe M1, ratings M1/M5/M15/M30/H1.",
-  "Range 2026-09-01 to 2026-09-03 inclusive; MT5 Tester ToDate=2026.09.04.",
+  "Range $rangeLabelStart to $rangeLabelEnd inclusive; MT5 Tester ToDate=$testTo (exclusive end date).",
   "Model 1 (1-minute OHLC), deposit 500 USD, leverage 1:1000.",
-  "This is a preliminary 3-day strategy simulation. It is not a live account run, and it does not prove future profitability.",
+  "This is a preliminary historical strategy simulation. It is not a live account run, and it does not prove future profitability.",
   "UTC start: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath $summary -Encoding utf8
 
@@ -113,7 +123,7 @@ InpTF4=30||30||1||30||N
 InpTF5=16385||16385||1||16385||N
 "@
   [System.IO.File]::WriteAllText((Join-Path $setDir $setName),$setContent,[System.Text.UTF8Encoding]::new($false))
-  $reportBase = "TV26_StrategyBacktest_2026-09-01_to_2026-09-03"
+  $reportBase = "TV26_StrategyBacktest_{0}_to_{1}" -f $rangeLabelStart,$rangeLabelEnd
   $ini = @"
 [Common]
 Login=$accountLogin
@@ -137,8 +147,8 @@ Period=M1
 Model=1
 ExecutionMode=0
 Optimization=0
-FromDate=2026.09.01
-ToDate=2026.09.04
+FromDate=$testFrom
+ToDate=$testTo
 ForwardMode=0
 Deposit=500
 Currency=USD
@@ -152,7 +162,7 @@ UseCloud=0
 Visual=0
 "@
   [System.IO.File]::WriteAllText($config,$ini,[System.Text.UTF8Encoding]::new($false))
-  "Tester configured: M1 chart; 3-day data window; InpEnableTrading=true; InpDemoOnly=true; InpTesterOnly=true. Orders are simulated inside MT5 Strategy Tester only." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Tester configured: M1 chart; date range $rangeLabelStart to $rangeLabelEnd; InpEnableTrading=true; InpDemoOnly=true; InpTesterOnly=true. Orders are simulated inside MT5 Strategy Tester only." | Add-Content -LiteralPath $summary -Encoding utf8
   $env:MT5_CREDENTIALS = $null
   $accountPasswordForRedaction = $accountPassword
   $accountPassword = $null
@@ -259,7 +269,7 @@ Visual=0
   $tradeCount = 0
   if ($tradesRaw -match '^\d+') { $tradeCount = [int]$matches[0] }
   if ($tradeCount -eq 0) {
-    "Trade assessment: NO_TRADES in this 3-day sample. The run is a valid result but cannot establish strategy quality." | Add-Content -LiteralPath $summary -Encoding utf8
+    "Trade assessment: NO_TRADES in this date range. The run is a valid result but cannot establish strategy quality." | Add-Content -LiteralPath $summary -Encoding utf8
   } else {
     "Trade assessment: $tradeCount simulated trades. Review profit, drawdown, win/loss distribution and tester logs; a positive net profit alone is not a pass." | Add-Content -LiteralPath $summary -Encoding utf8
   }
