@@ -67,9 +67,9 @@ string SignalName(int s)
    if(s<0) return "بيع";
    return "حياد";
 }
-string SummaryName(double r,int ready)
+string SummaryName(double r,int ready,int expected)
 {
-   if(ready<N_RATINGS) return "غير مكتمل";
+   if(expected<=0 || ready<expected) return "غير مكتمل";
    if(r>STRONG) return "شراء قوي";
    if(r>0.10) return "شراء";
    if(r< -STRONG) return "بيع قوي";
@@ -345,8 +345,8 @@ void DrawPanel()
    p+="المكونات: 26 (15 متوسطاً + 11 مذبذباً) | الإطار مبني على شموع مغلقة\n";
    p+="الإطار | الملخص العام | المتوسطات | المذبذبات | الجاهز\n";
    for(int t=0;t<N_TF;t++)
-      p+=TFName(g_tfs[t])+" | "+SummaryName(g_rating[t],g_ready[t])+" ("+DoubleToString(g_rating[t],3)+") | "+
-         SummaryName(g_maRating[t],g_maReady[t])+" | "+SummaryName(g_oscRating[t],g_oscReady[t])+" | "+
+      p+=TFName(g_tfs[t])+" | "+SummaryName(g_rating[t],g_ready[t],N_RATINGS)+" ("+DoubleToString(g_rating[t],3)+") | "+
+         SummaryName(g_maRating[t],g_maReady[t],15)+" | "+SummaryName(g_oscRating[t],g_oscReady[t],11)+" | "+
          IntegerToString(g_ready[t])+"/26\n";
    p+="\nحالة كل مؤشر في الأطر الخمسة: د1 / د5 / د15 / د30 / س1\n";
    for(int j=0;j<N_RATINGS;j++)
