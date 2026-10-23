@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.015"
+#property version   "1.016"
 #property description "GoldLab XAUUSD race-diagnostic candidate; demo/backtest only"
 
 
@@ -21,6 +21,7 @@ input bool             InpAllowLong            = true;
 input double           InpMaxSpreadPoints      = 100.0;
 input int              InpATRPeriod           = 14;
 input double           InpStopATR             = 1.8;
+input double           InpStopRetryBufferATR   = 0.50; // Extra ATR cushion on one INVALID_STOPS retry only.
 input double           InpTargetATR           = 2.4;
 input double           InpTrailATR             = 1.4;
 input bool             InpCloseOnOpposite     = true;
@@ -182,8 +183,23 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
       double originalRiskDistance=MathAbs(request.price-request.sl);
       double targetDistance=MathAbs(request.tp-request.price);
       double spread=tick.ask-tick.bid;
-      double minStopDistance=(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
-      double retryRiskDistance=MathMax(originalRiskDistance,spread+minStopDistance+2.0*_Point);
+      double stopsLevelPoints=(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+      double freezeLevelPoints=(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL);
+      double minStopDistance=stopsLevelPoints*_Point;
+      double tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+      if(tickSize<=0.0) tickSize=_Point;
+      double retryATR=0.0;
+      if(!ReadValue(hATR,0,1,retryATR) || retryATR<=0.0)
+      {
+         orderSendOpenStopRetryFailedCount++;
+         LogEvent("OPEN_STOP_RETRY_ABORT","ATR unavailable;retry buffer cannot be sized safely");
+         return false;
+      }
+
+      // Extra cushion is applied only to the one retry. LotsForRisk recalculates volume against the widened stop.
+      double retryBaseRiskDistance=MathMax(originalRiskDistance,spread+minStopDistance+2.0*tickSize);
+      double retryBufferDistance=InpStopRetryBufferATR*retryATR;
+      double retryRiskDistance=retryBaseRiskDistance+retryBufferDistance;
       double retryEntry=(type==ORDER_TYPE_BUY ? tick.ask : tick.bid);
       double retrySL=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry-retryRiskDistance : retryEntry+retryRiskDistance);
       double retryTP=RoundToTick(type==ORDER_TYPE_BUY ? retryEntry+targetDistance : retryEntry-targetDistance);
@@ -217,17 +233,43 @@ bool SendMarketOrder(const ENUM_ORDER_TYPE type,const double lots,const double s
       {
          orderSendOpenStopRetryRecoveredCount++;
          LogEvent("OPEN_STOP_RETRY_SUCCESS","retcode="+IntegerToString((int)result.retcode)+
-                  ";lots="+DoubleToString(retryLots,2)+
-                  ";sl="+DoubleToString(retrySL,_Digits)+
-                  ";tp="+DoubleToString(retryTP,_Digits)+
-                  ";spread_points="+DoubleToString(retrySpreadPoints,1));
-         return true;
+                   ";lots="+DoubleToString(retryLots,2)+
+                   ";entry="+DoubleToString(retryEntry,_Digits)+
+                   ";bid="+DoubleToString(tick.bid,_Digits)+
+                   ";ask="+DoubleToString(tick.ask,_Digits)+
+                   ";sl="+DoubleToString(retrySL,_Digits)+
+                   ";tp="+DoubleToString(retryTP,_Digits)+
+                   ";original_risk_distance="+DoubleToString(originalRiskDistance,_Digits)+
+                   ";base_risk_distance="+DoubleToString(retryBaseRiskDistance,_Digits)+
+                   ";retry_buffer_atr="+DoubleToString(InpStopRetryBufferATR,2)+
+                   ";retry_atr="+DoubleToString(retryATR,_Digits)+
+                   ";retry_buffer_distance="+DoubleToString(retryBufferDistance,_Digits)+
+                   ";retry_risk_distance="+DoubleToString(retryRiskDistance,_Digits)+
+                   ";stops_level_points="+DoubleToString(stopsLevelPoints,1)+
+                   ";freeze_level_points="+DoubleToString(freezeLevelPoints,1)+
+                   ";tick_size="+DoubleToString(tickSize,_Digits)+
+                   ";spread_points="+DoubleToString(retrySpreadPoints,1));
+          return true;
       }
       orderSendOpenStopRetryFailedCount++;
       LogEvent("OPEN_STOP_RETRY_FAIL","retcode="+IntegerToString((int)result.retcode)+
-               ";comment="+result.comment+
-               ";spread_points="+DoubleToString(retrySpreadPoints,1));
-      return false;
+                ";comment="+result.comment+
+                ";entry="+DoubleToString(retryEntry,_Digits)+
+                ";bid="+DoubleToString(tick.bid,_Digits)+
+                ";ask="+DoubleToString(tick.ask,_Digits)+
+                ";sl="+DoubleToString(retrySL,_Digits)+
+                ";tp="+DoubleToString(retryTP,_Digits)+
+                ";original_risk_distance="+DoubleToString(originalRiskDistance,_Digits)+
+                ";base_risk_distance="+DoubleToString(retryBaseRiskDistance,_Digits)+
+                ";retry_buffer_atr="+DoubleToString(InpStopRetryBufferATR,2)+
+                ";retry_atr="+DoubleToString(retryATR,_Digits)+
+                ";retry_buffer_distance="+DoubleToString(retryBufferDistance,_Digits)+
+                ";retry_risk_distance="+DoubleToString(retryRiskDistance,_Digits)+
+                ";stops_level_points="+DoubleToString(stopsLevelPoints,1)+
+                ";freeze_level_points="+DoubleToString(freezeLevelPoints,1)+
+                ";tick_size="+DoubleToString(tickSize,_Digits)+
+                ";spread_points="+DoubleToString(retrySpreadPoints,1));
+       return false;
    }
 
    RecordOrderSendTelemetry("open",sent,result,accepted,errorCode);
@@ -443,7 +485,8 @@ int OnInit()
 
    if(InpRiskPercent<=0.0 || InpRiskPercent>2.0 || InpFastEMA<2 || InpSlowEMA<=InpFastEMA ||
       InpBiasFastEMA<2 || InpBiasSlowEMA<=InpBiasFastEMA || InpStopATR<=0.0 ||
-      InpTargetATR<=0.0 || InpATRPeriod<2 || InpRSIPeriod<2 || InpADXPeriod<2 ||
+       InpStopRetryBufferATR<0.0 || InpStopRetryBufferATR>2.0 ||
+             InpTargetATR<=0.0 || InpATRPeriod<2 || InpRSIPeriod<2 || InpADXPeriod<2 ||
       InpMinADX<=0.0 || InpMaxADX<InpMinADX || InpMaxSpreadPoints<=0.0)
    {
       Print("GoldLab: invalid input parameters.");
@@ -465,7 +508,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   LogEvent("INIT","Research candidate v1.015; adds SL/TP failure-state diagnostics only; strategy/risk rules unchanged; blocks live execution on real accounts while permitting Strategy Tester.");
+   LogEvent("INIT","Research candidate v1.016; bounded INVALID_STOPS retry uses a disclosed ATR cushion and risk-sized volume; all other strategy rules unchanged; blocks live execution on real accounts while permitting Strategy Tester.");
    return INIT_SUCCEEDED;
 }
 
