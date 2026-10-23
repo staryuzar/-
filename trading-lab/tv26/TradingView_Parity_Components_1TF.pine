@@ -199,6 +199,10 @@ if barstate.islast
 plot(totalRating, "TV26.total", display=display.data_window)
 plot(ratingMA, "TV26.ma", display=display.data_window)
 plot(ratingOther, "TV26.osc", display=display.data_window)
+// Cross-check our reimplemented 26-component aggregates against the official library ratings above.
+plot(formulaTotal, "TV26.formula_total", display=display.data_window)
+plot(formulaMA, "TV26.formula_ma", display=display.data_window)
+plot(formulaOther, "TV26.formula_osc", display=display.data_window)
 plot(closedBarTime, "TV26.bar_open_time", display=display.data_window)
 plot(closedOpen, "TV26.open", display=display.data_window)
 plot(closedHigh, "TV26.high", display=display.data_window)
