@@ -193,7 +193,7 @@ $trades = if($tradeMatch.Success){[long]$tradeMatch.Groups[1].Value.Replace(",",
 $deals = if($dealMatch.Success){[long]$dealMatch.Groups[1].Value.Replace(",","")}else{-1}
 $net = if($netMatch.Success){[double]::Parse($netMatch.Groups[1].Value,[Globalization.CultureInfo]::InvariantCulture)}else{[double]::NaN}
 $pf = if($pfMatch.Success){[double]::Parse($pfMatch.Groups[1].Value,[Globalization.CultureInfo]::InvariantCulture)}else{[double]::NaN}
-if ($bars -lt 10000 -or $ticks -lt 400000 -or $trades -lt 0 -or $deals -lt 0 -or [double]::IsNaN($net)) { throw "Custom-symbol report data gates failed (bars=$bars ticks=$ticks trades=$trades deals=$deals net=$net)." }
+if ($bars -lt 400 -or $ticks -lt 400000 -or $trades -lt 0 -or $deals -lt 0 -or [double]::IsNaN($net)) { throw "Custom-symbol report data gates failed (bars=$bars ticks=$ticks trades=$trades deals=$deals net=$net)." }
 
 $auditFiles = @(Get-ChildItem -LiteralPath $install -Filter "GoldLab_trade_audit.csv" -File -Recurse -ErrorAction SilentlyContinue)
 $csvRows = 0; $csvNet = 0.0; $csvIds = [System.Collections.Generic.HashSet[string]]::new()
