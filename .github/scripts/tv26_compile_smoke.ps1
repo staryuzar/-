@@ -34,6 +34,7 @@ $auditChecks = @(
   @{ Name = "demo-only trade guard"; File = "EA"; Text = "if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)" },
   @{ Name = "same-signal re-entry latch"; File = "EA"; Text = "sig==g_lastExecutedSignal" },
   @{ Name = "closed-candle component audit export"; File = "EA"; Text = "void ExportAuditIfNeeded()" },
+  @{ Name = "audit retries incomplete bars"; File = "EA"; Text = "g_auditAttempts[t]<10" },
   @{ Name = "Pine uses TechnicalRating v3"; File = "PINE"; Text = "import TradingView/TechnicalRating/3 as tvRating" },
   @{ Name = "Pine outputs prior confirmed rating bar"; File = "PINE"; Text = "[totalRating[1], maRating[1], oscillatorRating[1]]" },
   @{ Name = "Pine shifts values before lookahead_on"; File = "PINE"; Text = "lookahead=barmerge.lookahead_on" },
