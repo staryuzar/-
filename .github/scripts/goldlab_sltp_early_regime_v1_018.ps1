@@ -38,7 +38,7 @@ if ($writeCsvReplacement -notmatch 'InpTestForceInvalidStopsOnce=false\|\|false\
   throw "Natural-performance tester parameters must explicitly set InpTestForceInvalidStopsOnce=false."
 }
 $replacements = @(
-  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-03-26 through 2026-08-05 (pre-development regime robustness check; short-only; short-only)"),
+  @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-03-26 through 2026-08-05 (pre-development regime robustness check; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; Random Delay ExecutionMode=-1 diagnostic)"),
   @("Parameter experiment: risk=0.50%, stop=0.45 ATR, max spread=100 points, max ADX=40, long entries disabled for one-sided diagnostic. OHLC only, not production validation.", "Execution robustness experiment: frozen ADX25 baseline rules; short-only; candle direction and fast EMA rejection enabled; Model 4 real ticks; Random Delay ExecutionMode=-1. The one-off invalid-stop retry requests up to 0.50 ATR extra cushion; v1.018 caps it to the largest affordable value that preserves the cash risk budget."),
   @("GoldLabShortOnlyADX40Stop045.set", "GoldLabADX25Min23OrderCheckStop045_RANDOM_DELAY.set"),
@@ -58,7 +58,7 @@ $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
 $content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.03.26')
 $content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.08.05')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
-$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=0\.5(?:0+)?</b>'') -and ($html -match ''(?is)InpTestForceInvalidStopsOnce=false</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026.03.26 - 2026.08.05\)</b>'')'
+$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=0\.5(?:0+)?</b>'') -and ($html -match ''(?is)InpTestForceInvalidStopsOnce=false</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.03\.26 - 2026\.08\.05\)</b>'')'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
 $content = $content.Replace($oldMax, $newChecks)
 $content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (ADX25 baseline rules confirmed; requested retry-buffer maximum=0.50 ATR (effective cushion is risk-capped on retry); Model 4 real ticks; ExecutionMode=-1 Random Delay; period ends 2026-08-05)")
@@ -630,7 +630,7 @@ if (!(Test-Path -LiteralPath $qaReportPath)) {
   $m = [regex]::Match($qaHtml,'(?is)Ticks:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
   if ($m.Success) { $qaTicks = [int64]::Parse($m.Groups[1].Value.Replace(",",""),[Globalization.CultureInfo]::InvariantCulture) } else { $qaFailures.Add("Could not parse Ticks from MT5 HTML.") }
   if ($qaBars -lt 10000) { $qaFailures.Add("Insufficient pre-development-regime-window coverage: Bars=$qaBars, minimum 10000.") }
-  if ($qaTicks -lt 1000000) { $qaFailures.Add("Insufficient pre-development-regime-window tick coverage: Ticks=$qaTicks, minimum 1000000.") }
+  if ($qaTicks -lt 10000000) { $qaFailures.Add("Insufficient pre-development-regime-window tick coverage: Ticks=$qaTicks, minimum 10000000.") }
   $m = [regex]::Match($qaHtml,'(?is)Total Net Profit:</td>\s*<td[^>]*><b>\s*(-?[\d,]+(?:\.\d+)?)\s*</b>')
   if ($m.Success) { $qaNet = [double]::Parse($m.Groups[1].Value.Replace(",",""),[Globalization.CultureInfo]::InvariantCulture) } else { $qaFailures.Add("Could not parse Total Net Profit.") }
   $m = [regex]::Match($qaHtml,'(?is)Total Trades:</td>\s*<td[^>]*><b>\s*(\d+)\s*</b>')
@@ -677,7 +677,7 @@ if ($qaCsvFiles.Count -ne 1) {
   "Period: $qaPeriod",
   "History Quality: $qaQuality",
   "MT5 Bars: $qaBars (minimum 10000)",
-  "MT5 Ticks: $qaTicks (minimum 1000000)",
+  "MT5 Ticks: $qaTicks (minimum 10000000)",
   "MT5 Total Trades: $qaTrades",
   "MT5 Total Deals: $qaDeals",
   "CSV rows: $($qaRows.Count)",
