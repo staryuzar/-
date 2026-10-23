@@ -32,6 +32,7 @@ enum RatingIndex
 ENUM_TIMEFRAMES g_tfs[N_TF];
 int g_handles[N_TF][N_RATINGS];
 int g_bulls[N_TF], g_bears[N_TF], g_atr[N_TF], g_trendEMA[N_TF];
+int g_macdFast[N_TF], g_macdSlow[N_TF];
 int g_scores[N_TF][N_RATINGS];
 bool g_working[N_TF][N_RATINGS];
 double g_rating[N_TF];
@@ -156,6 +157,8 @@ bool InitHandles()
       g_bears[t]=iBearsPower(_Symbol,g_tfs[t],50);
       g_atr[t]=iATR(_Symbol,g_tfs[t],InpATRPeriod);
       g_trendEMA[t]=iMA(_Symbol,g_tfs[t],50,0,MODE_EMA,PRICE_CLOSE);
+      g_macdFast[t]=iMA(_Symbol,g_tfs[t],12,0,MODE_EMA,PRICE_CLOSE);
+      g_macdSlow[t]=iMA(_Symbol,g_tfs[t],26,0,MODE_EMA,PRICE_CLOSE);
       int periods[12]={10,10,20,20,30,30,50,50,100,100,200,200};
       for(int j=0;j<12;j++)
       {
@@ -169,13 +172,14 @@ bool InitHandles()
       g_handles[t][ADX14]=iADX(_Symbol,g_tfs[t],14);
       g_handles[t][AO]=iAO(_Symbol,g_tfs[t]);
       // TradingView Momentum is close minus close[10]; compute it manually below.
-      g_handles[t][MACD]=iMACD(_Symbol,g_tfs[t],12,26,9,PRICE_CLOSE);
+      // MACD is calculated from EMA(12), EMA(26), then EMA(9) below to match Pine.
       g_handles[t][WILLIAMS_R]=iWPR(_Symbol,g_tfs[t],14);
-      if(g_bulls[t]==INVALID_HANDLE || g_bears[t]==INVALID_HANDLE || g_atr[t]==INVALID_HANDLE)
+      if(g_bulls[t]==INVALID_HANDLE || g_bears[t]==INVALID_HANDLE || g_atr[t]==INVALID_HANDLE ||
+         g_trendEMA[t]==INVALID_HANDLE || g_macdFast[t]==INVALID_HANDLE || g_macdSlow[t]==INVALID_HANDLE)
          Print("TV26 init: handle auxiliary failed for ",TFName(g_tfs[t]));
       for(int j=0;j<N_RATINGS;j++)
       {
-         if(j==VWMA20 || j==HULL9 || j==MOMENTUM10 || j==STOCH_RSI || j==BULL_BEAR_POWER || j==ULTIMATE_OSC) continue;
+         if(j==VWMA20 || j==HULL9 || j==MOMENTUM10 || j==MACD || j==STOCH_RSI || j==BULL_BEAR_POWER || j==ULTIMATE_OSC) continue;
          if(g_handles[t][j]==INVALID_HANDLE)
             Print("TV26 init: handle failed: ",g_names[j]," / ",TFName(g_tfs[t]));
       }
@@ -192,6 +196,8 @@ void ReleaseHandles()
       if(g_trendEMA[t]!=INVALID_HANDLE) IndicatorRelease(g_trendEMA[t]);
       if(g_bears[t]!=INVALID_HANDLE) IndicatorRelease(g_bears[t]);
       if(g_atr[t]!=INVALID_HANDLE) IndicatorRelease(g_atr[t]);
+      if(g_macdFast[t]!=INVALID_HANDLE) IndicatorRelease(g_macdFast[t]);
+      if(g_macdSlow[t]!=INVALID_HANDLE) IndicatorRelease(g_macdSlow[t]);
    }
 }
 bool ComputeOne(int t,int j,int &score)
@@ -268,8 +274,23 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==MACD)
    {
-      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],1,1,b)) return false;
-      score=(a>b ? 1 : (a<b ? -1 : 0)); return true;
+      // TradingView ta.macd(): EMA(12)-EMA(26), with EMA(9) of that MACD as signal.
+      const int count=300;
+      double fastValues[],slowValues[];
+      ArraySetAsSeries(fastValues,true);
+      ArraySetAsSeries(slowValues,true);
+      if(CopyBuffer(g_macdFast[t],0,1,count,fastValues)!=count ||
+         CopyBuffer(g_macdSlow[t],0,1,count,slowValues)!=count) return false;
+      double macdValues[];
+      ArrayResize(macdValues,count);
+      ArraySetAsSeries(macdValues,true);
+      for(int i=0;i<count;i++) macdValues[i]=fastValues[i]-slowValues[i];
+      double signal=macdValues[count-1];
+      const double alpha=2.0/(9.0+1.0);
+      for(int i=count-2;i>=0;i--) signal=alpha*macdValues[i]+(1.0-alpha)*signal;
+      a=macdValues[0]; b=signal;
+      score=(a>b ? 1 : (a<b ? -1 : 0));
+      return true;
    }
    if(j==STOCH_RSI)
    {
