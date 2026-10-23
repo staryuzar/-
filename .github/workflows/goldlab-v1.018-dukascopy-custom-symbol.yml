@@ -28,6 +28,35 @@ jobs:
       - name: Checkout isolated candidate
         uses: actions/checkout@v4
 
+      - name: Parse and verify import harness before downloads
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $file = ".github/scripts/goldlab_dukascopy_custom_symbol_test.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            foreach ($e in $errors) { Write-Host ("PARSE FAIL line {0}: {1}" -f $e.Extent.StartLineNumber,$e.Message) }
+            throw "Custom-symbol PowerShell harness does not parse; no data download or MT5 launch."
+          }
+          $script = Get-Content -LiteralPath $file -Raw
+          $ea = Get-Content -LiteralPath "trading-lab/gold-xauusd/GoldLabEA.mq5" -Raw
+          $importer = Get-Content -LiteralPath "trading-lab/gold-xauusd/DukascopyCustomSymbolImport.mq5" -Raw
+          $qualityLine = $script.IndexOf('$qualityMatch = [regex]::Match')
+          $checksLine = $script.IndexOf('$checks = @(')
+          if ($ea -notmatch '(?m)^#property version\s+"1\.018"' -or
+              $ea -notmatch '(?m)^input bool\s+InpTestForceInvalidStopsOnce\s*=\s*false;' -or
+              $importer -notmatch 'CustomRatesUpdate\(' -or
+              $importer -notmatch 'CustomTicksReplace\(' -or
+              -not $script.Contains('/portable') -or
+              $qualityLine -lt 0 -or $checksLine -lt 0 -or $qualityLine -ge $checksLine -or
+              -not $script.Contains('$historyQuality -ne "100% real ticks"') -or
+              $script -match 'InpTestForceInvalidStopsOnce\s*=\s*true') {
+            throw "Custom symbol v1.018, portable data path, import, quality gate, or injection-off preflight failed."
+          }
+          Write-Host ("PASS: parsed {0} tokens; external rates/tick import, portable path, report-quality gate, injection disabled verified." -f $tokens.Count)
+
       - name: Download the validated independent XAUUSD tick sample
         uses: actions/download-artifact@v4
         with:
