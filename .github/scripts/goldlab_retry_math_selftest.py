@@ -65,6 +65,25 @@ def spread_allows_retry(spread_points: float, max_spread_points: float) -> bool:
     )
 
 
+def retry_outcomes_valid(
+    trigger_ids: list[str],
+    recovered_ids: set[str],
+    safe_aborted_ids: set[str],
+    rejected_ids: set[str],
+) -> bool:
+    """Require exactly one terminal outcome for every original invalid-stop trigger."""
+    triggers = set(trigger_ids)
+    if len(triggers) != len(trigger_ids):
+        return False
+    outcomes = (recovered_ids, safe_aborted_ids, rejected_ids)
+    if any(not outcome.issubset(triggers) for outcome in outcomes):
+        return False
+    if (recovered_ids & safe_aborted_ids) or (recovered_ids & rejected_ids) or (safe_aborted_ids & rejected_ids):
+        return False
+    observed = recovered_ids | safe_aborted_ids | rejected_ids
+    return observed == triggers
+
+
 class RetryMathTests(unittest.TestCase):
     def test_original_risk_distance_is_never_shrunk(self) -> None:
         base, buffer, total = retry_risk_distance(1.20, 0.10, 0.05, 0.01, 2.00, 0.50)
@@ -114,6 +133,43 @@ class RetryMathTests(unittest.TestCase):
             with self.subTest(atr=atr, buffer=buffer):
                 with self.assertRaises(ValueError):
                     retry_risk_distance(0.5, 0.1, 0.0, 0.01, atr, buffer)
+
+    def test_safe_pre_send_abort_counts_as_a_terminal_failure_outcome(self) -> None:
+        self.assertTrue(retry_outcomes_valid(["223"], set(), {"223"}, set()))
+
+    def test_each_trigger_must_have_exactly_one_terminal_outcome(self) -> None:
+        self.assertTrue(
+            retry_outcomes_valid(
+                ["101", "202", "303"],
+                {"101"},
+                {"202"},
+                {"303"},
+            )
+        )
+        self.assertFalse(retry_outcomes_valid(["101"], {"101"}, {"101"}, set()))
+        self.assertFalse(retry_outcomes_valid(["101"], set(), set(), set()))
+        self.assertFalse(retry_outcomes_valid(["101"], set(), {"999"}, set()))
+        self.assertFalse(retry_outcomes_valid(["101", "101"], set(), {"101"}, set()))
+
+    def test_ea_logs_retry_outcomes_against_original_trigger_id(self) -> None:
+        root = Path(REPO_ROOT_ARG).resolve() if REPO_ROOT_ARG else Path(__file__).resolve().parents[2]
+        ea = (root / "trading-lab" / "gold-xauusd" / "GoldLabEA.mq5").read_text(encoding="utf-8", errors="strict")
+        harness = (root / ".github" / "scripts" / "goldlab_sltp_race_diagnostic.ps1").read_text(encoding="utf-8", errors="strict")
+        self.assertIn("ulong retryTriggerRequestId=result.request_id;", ea)
+        self.assertIn('outcome=safe_no_retry_send', ea)
+        self.assertIn('outcome=recovered', ea)
+        self.assertIn('outcome=retry_send_rejected', ea)
+        self.assertIn("$safeAbortedOpenRequestIds", harness)
+        self.assertIn("$recoveredOpenRequestIds", harness)
+        self.assertIn("$rejectedOpenRetryTriggerRequestIds", harness)
+        for reason in (
+            "fresh_quote_unavailable",
+            "spread_guard_exceeded",
+            "atr_unavailable",
+            "volume_below_minimum",
+            "retry_ordercheck_failed",
+        ):
+            self.assertIn("reason=" + reason, ea)
 
     def test_ea_uses_buffer_only_inside_invalid_stops_retry_path(self) -> None:
         root = Path(REPO_ROOT_ARG).resolve() if REPO_ROOT_ARG else Path(__file__).resolve().parents[2]
