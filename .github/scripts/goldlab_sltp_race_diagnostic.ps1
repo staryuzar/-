@@ -380,6 +380,7 @@ foreach ($line in $uniqueRequestResultLines) {
   $payload = $line.Substring($markerIndex + "GoldLab|ORDER_REQUEST_RESULT|".Length)
   if ($payload -match '^[^|]+\|request_id=(\d+);action=[^;]+;type=[^;]+;magic=\d+;retcode=(\d+);accepted_by_retcode=(true|false);comment=.*?;order=(\d+);deal=(\d+);volume=([\d.]+);price=([\d.]+);retcode_external=(-?\d+)$') {
     $rid = [string]$Matches[1]
+    $requestResultRetcode = [int]$Matches[2]
     $signature = "$($Matches[2])|$($Matches[4])|$($Matches[5])|$($Matches[6])|$($Matches[7])"
     if ($rid -eq "0") {
       $requestResultZeroIds++
@@ -393,9 +394,13 @@ foreach ($line in $uniqueRequestResultLines) {
   if ($payload -match ';accepted_by_retcode=false;') {
     if ($rid -ne "0" -and $staleClosedRequestIds.Contains($rid)) {
       $requestResultStaleClosureLines += $line
+    } elseif ($rid -ne "0" -and $retryableOpenRequestIds.Contains($rid) -and $requestResultRetcode -eq 10016 -and $openStopRetryRecovered -eq $retryableOpenRequestIds.Count -and $openStopRetryFailed -eq 0) {
+      # Keep the original server rejection visible; classify it as recovered only when the separate retry is accepted.
+      $requestResultRecoveredOpenRetryLines += $line
     } else {
       $requestResultOtherRetcodeLines += $line
     }
+  }
   }
 }
 
