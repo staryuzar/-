@@ -46,6 +46,12 @@ jobs:
             @{ Name = "stale-position failures correlated by request_id"; Pass = ($wrapper.Contains("failedModifyRequestIds") -and $wrapper.Contains("staleClosedRequestIds") -and $wrapper.Contains("request_id=")) },
             @{ Name = "still-open failures remain a hard rejection"; Pass = ($wrapper.Contains("stillOpenFailureRequestIds.Count -eq 0") -and $wrapper.Contains("reject robustness run")) },
             @{ Name = "raw failed calls remain counted as failures"; Pass = ($wrapper.Contains("raw failed requests=$sendFailTotal") -and $wrapper.Contains("Failed requests remain counted as failures")) },
+            @{ Name = "bounded open retry triggers only for invalid stops"; Pass = ($ea.Contains("if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)") -and $ea.Contains("RecordOrderSendTelemetry(\"open-retryable-stop-reject\"")) },
+            @{ Name = "retry requires a fresh valid quote and spread guard"; Pass = ($ea.Contains("SymbolInfoTick(_Symbol,tick)") -and $ea.Contains("retrySpreadPoints>InpMaxSpreadPoints")) },
+            @{ Name = "retry recalculates volume against revised stop risk"; Pass = ($ea.Contains("LotsForRisk(type,retryEntry,retrySL)") -and $ea.Contains("broker minimum")) },
+            @{ Name = "retry passes OrderCheck again before second send"; Pass = ($ea.Contains("PreflightTradeRequest(request,\"open-retry\")") -and $ea.Contains("RecordOrderSendTelemetry(\"open-retry\"")) },
+            @{ Name = "retry counters are emitted in final recovery summary"; Pass = ($ea.Contains("open_stop_retry_attempts=") -and $ea.Contains("open_stop_retry_recovered=") -and $ea.Contains("open_stop_retry_failed=")) },
+            @{ Name = "harness treats original rejection as a failure and gates retry recovery"; Pass = ($wrapper.Contains("retryableOpenRequestIds") -and $wrapper.Contains("openRetryFullyRecovered") -and $wrapper.Contains("unclassifiableSendFailureSequences")) },
             @{ Name = "development-only interval is enforced"; Pass = ($wrapper.Contains("ToDate=2026.10.20") -and -not $wrapper.Contains("ToDate=2026.10.21")) }
           )
           $bad = $false
