@@ -218,8 +218,12 @@ $report = Get-ChildItem -LiteralPath $install -Filter "GoldLab_Dukascopy_customs
 if (!$report) { $report = Get-ChildItem -LiteralPath $install -Filter "GoldLab_Dukascopy_customsymbol_2026-03-26.html" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
 if (!$report) { Save-MT5Diagnostics; throw "No custom-symbol Strategy Tester HTML report was produced; sanitized terminal logs were captured." }
 $reportOut = Join-Path $reports "GoldLab_Dukascopy_customsymbol_2026-03-26.htm"
-Copy-Item -LiteralPath $report.FullName -Destination $reportOut -Force
-$html = Get-Content -LiteralPath $reportOut -Raw
+$html = Get-Content -LiteralPath $report.FullName -Raw
+$html = $html -replace [regex]::Escape($accountLogin), "[ACCOUNT REDACTED]"
+$html = $html -replace [regex]::Escape($accountServer), "[SERVER REDACTED]"
+$html = $html -replace [regex]::Escape($accountPassword), "[PASSWORD REDACTED]"
+[System.IO.File]::WriteAllText($reportOut,$html,[System.Text.UTF8Encoding]::new($false))
+$qualityMatch = [regex]::Match($html,'(?is)History Quality:</td>\s*<td[^>]*><b>\s*([^<]+?)\s*</b>')
 $checks = @(
   ($html -match '(?is)Symbol:</td>\s*<td[^>]*><b>XAUUSD_DUKA</b>'),
   ($html -match '(?is)InpMaxSpreadPoints=1000(?:\.0+)?</b>'),
@@ -230,7 +234,6 @@ $checks = @(
 )
 if ($checks -contains $false) { throw "Tester report failed custom-symbol/input/date verification." }
 $barMatch = [regex]::Match($html,'(?is)Bars:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
-$qualityMatch = [regex]::Match($html,'(?is)History Quality:</td>\s*<td[^>]*><b>\s*([^<]+?)\s*</b>')
 $tickMatch = [regex]::Match($html,'(?is)Ticks:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
 $tradeMatch = [regex]::Match($html,'(?is)Total Trades:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
 $dealMatch = [regex]::Match($html,'(?is)Total Deals:</td>\s*<td[^>]*><b>\s*([\d,]+)\s*</b>')
