@@ -28,7 +28,7 @@ $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLower
 
 # Build a disposable, set-free EA copy: keep all strategy logic identical and bake only the test inputs
 # into the input defaults. This avoids relying on ExpertParameters=.set for this diagnostic.
-$runtimeSourceDir = Join-Path $PWD "goldlab-results\\test-source"
+$runtimeSourceDir = Join-Path $PWD "goldlab-results\test-source"
 New-Item -ItemType Directory -Path $runtimeSourceDir -Force | Out-Null
 $runtimeSourcePath = Join-Path $runtimeSourceDir "GoldLabEA.mq5"
 $runtimeSource = $source
