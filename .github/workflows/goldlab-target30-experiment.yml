@@ -1,0 +1,44 @@
+name: GoldLab Target 3.0 ATR — Controlled Experiment
+
+on:
+  push:
+    branches: [goldlab-target30-experiment]
+    paths:
+      - "trading-lab/gold-xauusd/GoldLabEA.mq5"
+      - ".github/scripts/goldlab_target30_experiment.ps1"
+      - ".github/scripts/goldlab_mt5_test.ps1"
+      - ".github/workflows/goldlab-target30-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldlab-shared-headway-mt5
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  target30-experiment:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+    steps:
+      - name: Checkout isolated target 3.0 ATR experiment
+        uses: actions/checkout@v4
+
+      - name: Compile and run MT5 real-tick diagnostic
+        shell: pwsh
+        run: .github/scripts/goldlab_target30_experiment.ps1
+
+      - name: Upload report, logs, and deal audit even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldlab-target30-${{ github.run_id }}
+          path: |
+            goldlab-results/
+            goldlab-ordercheck-preflight.txt
+          if-no-files-found: warn
+          retention-days: 90
