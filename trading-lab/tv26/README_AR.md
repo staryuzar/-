@@ -69,14 +69,14 @@ Do not enable real-account trading based on this audit alone.
 
 ## Latest candidate note — 2026-10-23
 
-- The EA's Arabic panel displays numeric values for overall, MA and oscillator ratings, labels each rating as complete/incomplete, reports readiness as total/26 plus MA/15 and oscillator/11, and prints the last-closed candle timestamp in MT5 server time. An incomplete group shows “—” instead of a misleading partial score.
+- The EA's Arabic panel displays numeric values for overall, MA and oscillator ratings; labels each rating as complete/incomplete; reports readiness as total/26 plus MA/15 and oscillator/11; and prints the opening time of the last closed candle in MT5 server time. An incomplete group shows “—” instead of a misleading partial score.
 - Momentum is calculated as `close - close[10]` and the current Momentum value is compared with its previous value; this avoids MT5 `iMomentum`'s ratio-style scaling.
 - CCI uses `close` as its input to match the reference formula, rather than MT5 `PRICE_TYPICAL`.
 - MACD is now computed as EMA(12) − EMA(26), with an EMA(9) signal line over the MACD series. This avoids relying on MT5's built-in MACD signal averaging, which differs from Pine's default EMA signal line.
 - Stochastic RSI trend and Bulls/Bears Power trend filters use the close's position relative to EMA(50), without an extra one-bar RSI-slope test or EMA-slope gate.
 - The ADX sell condition follows the current Screener help page (ADX rising); the separate Technical Ratings help page describes ADX falling for sell. This official-documentation conflict remains a live-parity check item rather than something to conceal.
 - For BBP period, the parity target is the public `TechnicalRating/3` library's 50-period component, not the standalone BBP indicator page's default parameter of 13.
-- Source commit `b184ad8975160291d6a6f4ffa42a9c597042a144` bumps the EA version to 1.002 and includes custom Pine-style MACD calculations. The matching MetaEditor workflow should be treated as the build proof for this exact commit; prior source commit `481247ec462d555320d28fc2bf81dcca97d071ed` passed with 0 errors, 0 warnings and EX5 size 41,408 bytes. Compilation does not establish indicator parity or profitability.
+- Current source is version **1.002**, commit `2553e8cc9ee0485bce8b4e754420f4c533f6fd04`. Its exact MetaEditor build passed in [GitHub Actions run 39948065799](https://github.com/staryuzar/-/actions/runs/39948065799): **0 errors, 0 warnings**, EX5 size **41,886 bytes**. Artifact report: [tv26-metaeditor-compile-report](https://github.com/staryuzar/-/actions/runs/39948065799/artifacts/12498324569). Installer exit code was 1, but MetaEditor was present and completed the compile successfully. Compilation does not establish indicator parity or profitability.
 
 ### Comparator caveat
 
