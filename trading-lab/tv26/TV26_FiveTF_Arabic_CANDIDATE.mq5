@@ -190,8 +190,7 @@ void ReleaseHandles()
 bool ComputeOne(int t,int j,int &score)
 {
    score=0;
-   double a=0,b=0,c=0,close=0;
-   MqlRates rr[];
+   double a=0,b=0,c=0;
    if(j<=EMA200)
    {
       if(!ReadBuf(g_handles[t][j],0,1,a)) return false;
