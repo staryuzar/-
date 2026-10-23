@@ -84,8 +84,51 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath (Join-Path $PWD "goldlab-ordercheck-preflight.txt") -Encoding utf8
 
-& $runtimeRunner
 $reports = Join-Path $PWD "goldlab-results"
+$maxTesterAttempts = 2
+$testerSucceeded = $false
+for ($attempt = 1; $attempt -le $maxTesterAttempts; $attempt++) {
+  try {
+    Write-Host ("MT5 tester attempt {0}/{1}" -f $attempt, $maxTesterAttempts)
+    & $runtimeRunner
+    $testerSucceeded = $true
+    break
+  } catch {
+    $reportCandidates = @(Get-ChildItem -LiteralPath $reports -Filter "*.htm*" -File -ErrorAction SilentlyContinue)
+    $invalidDateReport = $false
+    foreach ($candidate in $reportCandidates) {
+      $candidateHtml = Get-Content -LiteralPath $candidate.FullName -Raw -ErrorAction SilentlyContinue
+      if ($candidateHtml -match '(?is)M0\s*\(1970\.01\.01\s*-\s*1970\.01\.01\)') { $invalidDateReport = $true }
+    }
+    $logText = ""
+    foreach ($logFile in @(Get-ChildItem -LiteralPath (Join-Path $reports "logs") -Filter "*.txt" -File -ErrorAction SilentlyContinue)) {
+      $logText += Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue
+    }
+    $historyInterrupted = $logText -match '(?i)preliminary downloading of history ticks canceled|no history data, stop testing'
+    if ($attempt -lt $maxTesterAttempts -and ($invalidDateReport -or $historyInterrupted)) {
+      Write-Warning "MT5 returned an invalid zero-history report; retrying once using the same frozen inputs and development dates. This run will not be counted as a strategy result."
+      if (Test-Path $reports) { Remove-Item -LiteralPath $reports -Recurse -Force }
+      New-Item -ItemType Directory -Path $reports -Force | Out-Null
+      $installReportDir = Join-Path $env:RUNNER_TEMP "goldlab-mt5\terminal\goldlab-results"
+      if (Test-Path $installReportDir) {
+        Get-ChildItem -LiteralPath $installReportDir -Filter "GoldLab_ordercheck_adx27_min23_stop045_2026-08-05_to-2026-10-20.htm*" -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+      }
+      Start-Sleep -Seconds 5
+      continue
+    }
+    throw
+  }
+}
+if (-not $testerSucceeded) { throw "MT5 tester did not complete successfully after bounded retry." }
+$validReport = Get-ChildItem -LiteralPath $reports -Filter "GoldLab_ordercheck_adx27_min23_stop045_2026-08-05_to-2026-10-20.htm" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $validReport) { throw "A completed, named ADX27 report is required; result rejected." }
+$validHtml = Get-Content -LiteralPath $validReport.FullName -Raw
+if ($validHtml -match '(?is)M0\s*\(1970\.01\.01\s*-\s*1970\.01\.01\)' -or
+    $validHtml -notmatch '(?is)History Quality:</td>\s*<td[^>]*><b>100% real ticks</b>' -or
+    $validHtml -notmatch '(?is)Ticks:</td>\s*<td[^>]*><b>[1-9][0-9,]*</b>' -or
+    $validHtml -notmatch '(?is)Bars:</td>\s*<td[^>]*><b>[1-9][0-9,]*</b>') {
+  throw "MT5 report lacks a valid date range, nonzero bars/ticks, or 100% real-tick history; reject the run as infrastructure-incomplete."
+}
 $rawSummaryLines = @()
 foreach ($file in @(Get-ChildItem -LiteralPath $reports -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".txt",".log") })) {
   $rawSummaryLines += @(Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue | Where-Object { $_ -match 'GoldLab\|ORDER_CHECK_SUMMARY\|' })
