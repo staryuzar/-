@@ -1,4 +1,4 @@
-# TV26 Five-Timeframe Arabic EA — Candidate 0.100
+# TV26 Five-Timeframe Arabic EA — Candidate 1.008
 
 ## Purpose
 A research candidate for XAUUSD in MT5. It calculates 26 Technical-Ratings-style components on five configurable timeframes (defaults M1/M5/M15/M30/H1), shows each component's signal and readiness in Arabic, and displays the aggregate rating and operational count for each timeframe.
