@@ -40,7 +40,7 @@ jobs:
           $wrapper = Get-Content -LiteralPath $scriptPath -Raw
           $ea = Get-Content -LiteralPath $sourcePath -Raw
           $controls = @(
-            @{ Name = "EA version 1.015"; Pass = $ea.Contains('#property version   "1.015"') },
+            @{ Name = "EA version 1.016"; Pass = $ea.Contains('#property version   "1.016"') },
             @{ Name = "SLTP post-response state telemetry in EA"; Pass = $ea.Contains("SLTP_MODIFY_STATE") },
             @{ Name = "same-window real-tick Random Delay mode"; Pass = ($wrapper.Contains("ExecutionMode=-1") -and $wrapper.Contains("Model=4") -and $wrapper.Contains("ToDate=2026.10.20")) },
             @{ Name = "stale-position failures correlated by request_id"; Pass = ($wrapper.Contains("failedModifyRequestIds") -and $wrapper.Contains("staleClosedRequestIds") -and $wrapper.Contains("request_id=")) },
@@ -51,6 +51,10 @@ jobs:
             @{ Name = "retry recalculates volume against revised stop risk"; Pass = ($ea.Contains("LotsForRisk(type,retryEntry,retrySL)") -and $ea.Contains("broker minimum")) },
             @{ Name = "retry passes OrderCheck again before second send"; Pass = ($ea.Contains('PreflightTradeRequest(request,"open-retry")') -and $ea.Contains('RecordOrderSendTelemetry("open-retry"')) },
             @{ Name = "retry counters are emitted in final recovery summary"; Pass = ($ea.Contains("open_stop_retry_attempts=") -and $ea.Contains("open_stop_retry_recovered=") -and $ea.Contains("open_stop_retry_failed=")) },
+            @{ Name = "retry-only ATR buffer is bounded and has 0.50 ATR default"; Pass = ($ea.Contains("InpStopRetryBufferATR   = 0.50") -and $ea.Contains("InpStopRetryBufferATR<0.0 || InpStopRetryBufferATR>2.0")) },
+            @{ Name = "ATR buffer is applied only to the invalid-stop retry and volume is recalculated"; Pass = ($ea.Contains("if(!accepted && result.retcode==TRADE_RETCODE_INVALID_STOPS)") -and $ea.Contains("retryBufferDistance=InpStopRetryBufferATR*retryATR") -and $ea.Contains("retryRiskDistance=retryBaseRiskDistance+retryBufferDistance") -and $ea.Contains("LotsForRisk(type,retryEntry,retrySL)")) },
+            @{ Name = "retry emits fresh-quote and stop-distance diagnostics"; Pass = ($ea.Contains("retry_buffer_distance=") -and $ea.Contains("retry_risk_distance=") -and $ea.Contains("stops_level_points=") -and $ea.Contains("freeze_level_points=")) },
+            @{ Name = "random-delay set and report assert retry-only buffer"; Pass = ($wrapper.Contains("InpStopRetryBufferATR=0.50||0.50||0.05||0.50||N") -and $wrapper.Contains("InpStopRetryBufferATR=0\.5</b>")) },
             @{ Name = "harness accounts for both recovered and safely refused bounded retries"; Pass = ($wrapper.Contains("retryableOpenRequestIds") -and $wrapper.Contains("failedOpenRetryRequestIds") -and $wrapper.Contains("openStopRetryRecovered + $openStopRetryFailed") -and $wrapper.Contains("safe rejection with no order/deal") -and $wrapper.Contains("unclassifiableSendFailureSequences")) },
             @{ Name = "development-only interval is enforced"; Pass = ($wrapper.Contains("ToDate=2026.10.20") -and -not $wrapper.Contains("ToDate=2026.10.21")) }
           )
