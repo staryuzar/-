@@ -1,7 +1,6 @@
 #property strict
-#property version   "0.100"
+#property version   "1.000"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
-#include <Trade/Trade.mqh>
 
 input bool   InpEnableTrading       = true;
 input bool   InpDemoOnly            = true;
