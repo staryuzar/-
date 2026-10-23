@@ -5,6 +5,7 @@ $installDir = Join-Path $root "terminal"
 $installer = Join-Path $root "mt5setup.exe"
 $source = Join-Path $PWD "trading-lab\tv26\TV26_FiveTF_Arabic_CANDIDATE.mq5"
 $pine = Join-Path $PWD "trading-lab\tv26\TradingView_Parity_5TF.pine"
+$componentPine = Join-Path $PWD "trading-lab\tv26\TradingView_Parity_Components_1TF.pine"
 $readme = Join-Path $PWD "trading-lab\tv26\README_AR.md"
 $reportDir = Join-Path $PWD "tv26-results"
 New-Item -ItemType Directory -Path $root,$installDir,$reportDir -Force | Out-Null
@@ -13,11 +14,13 @@ $report = Join-Path $reportDir "compile-report.txt"
 "UTC start: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $report -Encoding utf8
 if (-not (Test-Path -LiteralPath $source)) { throw "EA source not found: $source" }
 if (-not (Test-Path -LiteralPath $pine)) { throw "Pine comparator not found: $pine" }
+if (-not (Test-Path -LiteralPath $componentPine)) { throw "Component Pine audit not found: $componentPine" }
 if (-not (Test-Path -LiteralPath $readme)) { throw "Arabic README not found: $readme" }
 
 # Static regression audit: guard the known TechnicalRating v3 parity rules before compiling.
 $sourceText = Get-Content -LiteralPath $source -Raw
 $pineText = Get-Content -LiteralPath $pine -Raw
+$componentPineText = Get-Content -LiteralPath $componentPine -Raw
 $auditChecks = @(
   @{ Name = "five timeframe inputs"; File = "EA"; Text = "#define N_TF 5" },
   @{ Name = "26-rating component set"; File = "EA"; Text = "#define N_RATINGS 26" },
@@ -33,11 +36,20 @@ $auditChecks = @(
   @{ Name = "closed-candle component audit export"; File = "EA"; Text = "void ExportAuditIfNeeded()" },
   @{ Name = "Pine uses TechnicalRating v3"; File = "PINE"; Text = "import TradingView/TechnicalRating/3 as tvRating" },
   @{ Name = "Pine outputs prior confirmed rating bar"; File = "PINE"; Text = "[totalRating[1], maRating[1], oscillatorRating[1]]" },
-  @{ Name = "Pine shifts values before lookahead_on"; File = "PINE"; Text = "lookahead=barmerge.lookahead_on" }
+  @{ Name = "Pine shifts values before lookahead_on"; File = "PINE"; Text = "lookahead=barmerge.lookahead_on" },
+  @{ Name = "component Pine imports TradingView ta library v9"; File = "COMPONENT_PINE"; Text = "import TradingView/ta/9 as tvta" },
+  @{ Name = "component Pine checks Ichimoku span at [26]"; File = "COMPONENT_PINE"; Text = "lead1[26] > lead2[26]" },
+  @{ Name = "component Pine uses BBP EMA(13) source rule"; File = "COMPONENT_PINE"; Text = "float bullPower = high - ta.ema(close, 13)" },
+  @{ Name = "component Pine uses v3 ADX rating condition"; File = "COMPONENT_PINE"; Text = "adx > 20 and adx > adx[1] and diP < diN" },
+  @{ Name = "component table fits all votes and metadata"; File = "COMPONENT_PINE"; Text = "table.new(position.top_right, 3, 31, border_width=1)" }
 )
 $auditFailures = @()
 foreach ($check in $auditChecks) {
-  $subject = if ($check.File -eq "PINE") { $pineText } else { $sourceText }
+  $subject = switch ($check.File) {
+    "PINE" { $pineText }
+    "COMPONENT_PINE" { $componentPineText }
+    default { $sourceText }
+  }
   if ($subject.Contains($check.Text)) {
     "STATIC AUDIT PASS: $($check.Name)" | Add-Content -LiteralPath $report -Encoding utf8
   } else {
@@ -112,6 +124,7 @@ $ex5Bytes = (Get-Item $ex5).Length
 Copy-Item -LiteralPath $ex5 -Destination (Join-Path $reportDir "TV26_FiveTF_Arabic_CANDIDATE.ex5") -Force
 Copy-Item -LiteralPath $source -Destination (Join-Path $reportDir "TV26_FiveTF_Arabic_CANDIDATE.mq5") -Force
 Copy-Item -LiteralPath $pine -Destination (Join-Path $reportDir "TradingView_Parity_5TF.pine") -Force
+Copy-Item -LiteralPath $componentPine -Destination (Join-Path $reportDir "TradingView_Parity_Components_1TF.pine") -Force
 Copy-Item -LiteralPath $readme -Destination (Join-Path $reportDir "README_AR.md") -Force
 @"
 TV26 Arabic candidate package
@@ -127,6 +140,8 @@ MT5 installation:
 4. Refresh Navigator > Expert Advisors or restart MT5.
 5. Attach the EA to XAUUSD on an M1 chart. Its rating calculations default to M1/M5/M15/M30/H1.
 6. Find TV26_Audit_<symbol>_<magic>.csv inside the terminal Common\Files folder after the EA runs.
+7. In TradingView Pine Editor, paste TradingView_Parity_5TF.pine to compare the 5 numeric summaries.
+8. To inspect votes for all 26 components, paste TradingView_Parity_Components_1TF.pine and choose M1/M5/M15/M30/H1 from its input. Its component vote rows are for the prior confirmed candle only.
 
 Safety and validation:
 - This package has compile proof only; no Strategy Tester or live TradingView parity result is implied.
