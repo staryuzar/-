@@ -92,7 +92,14 @@ try {
   }
   Copy-Item $importFile (Join-Path $reports "GoldLabDukascopyImportResult.txt") -Force
   $ir=Get-Content $importFile -Raw;$ir|Add-Content $summary -Encoding utf8
-  if($ir -notmatch '(?m)^STATUS=PASS;'){SaveLogs;throw "Custom-symbol import/readback gate failed."}
+  if($ir -notmatch '(?m)^STATUS=PASS;' -or
+     $ir -notmatch 'valid_ticks=480416' -or
+     $ir -notmatch 'custom_ticks_replace=480416' -or
+     $ir -notmatch 'copyticksrange_readback=480416' -or
+     $ir -notmatch 'risk_probe_ok=(true|false)') {
+    SaveLogs
+    throw "Custom-symbol import/readback gate failed: expected exactly 480416 original, imported and read-back ticks plus an explicit risk-probe status."
+  }
 
   $setName="GoldLab_Dukascopy_Import_Proof.set"
   $set=@(
@@ -130,10 +137,12 @@ try {
   if(!$q.Success -or !$b.Success -or !$t.Success -or !$dt.Success){SaveLogs;throw "Could not parse report history/date fields."}
   $quality=$q.Groups[1].Value.Trim();$bars=[long]$b.Groups[1].Value.Replace(",","");$ticks=[long]$t.Groups[1].Value.Replace(",","")
   $trades=if($tr.Success){[int]$tr.Groups[1].Value}else{-1};$deals=if($de.Success){[int]$de.Groups[1].Value}else{-1}
-  @("","## Custom-symbol tester gate","Source: Dukascopy, not Headway broker ticks","Symbol: XAUUSD_DK0326","Period: M5 ($($dt.Groups[1].Value) - $($dt.Groups[2].Value))","History quality: $quality","Bars: $bars","Ticks: $ticks","Trades/deals: $trades/$deals","One-day smoke test only; H1 EMA200 lacks warm-up. No strategy-profit inference.")|Add-Content $summary -Encoding utf8
+  @("","## Custom-symbol tester gate","Source: Dukascopy, not Headway broker ticks","Symbol: XAUUSD_DK0326","Period: M5 ($($dt.Groups[1].Value) - $($dt.Groups[2].Value))","History quality: $quality","Bars: $bars","Ticks: $ticks","Trades/deals: $trades/$deals","One-day data-path smoke test only; H1 EMA200 lacks warm-up. Zero trades are acceptable; no strategy-profit inference.")|Add-Content $summary -Encoding utf8
   if($quality -ne "100% real ticks"){SaveLogs;throw "Tester history quality is '$quality', expected 100% real ticks."}
-  if($bars -lt 200 -or $ticks -lt 100000){SaveLogs;throw "Tester feed below minimum bars/ticks."}
-  if($dt.Groups[1].Value -ne "2026.03.26" -or $dt.Groups[2].Value -ne "2026.03.27"){SaveLogs;throw "Tester period mismatch."}
+  if($bars -lt 200 -or $ticks -ne 480416){SaveLogs;throw "Tester feed gate failed (bars=$bars; ticks=$ticks; expected exactly 480416 ticks)."}
+  # MT5 may render the date range through the first following M5 bar.
+  # An exact 480416-tick count independently binds this report to the one-day import.
+  if($dt.Groups[1].Value -ne "2026.03.26" -or $dt.Groups[2].Value -notin @("2026.03.27","2026.03.28")){SaveLogs;throw "Tester period mismatch: $($dt.Groups[1].Value) - $($dt.Groups[2].Value)."}
   if($html -notmatch '(?is)InpTestForceInvalidStopsOnce=false</b>' -or $html -notmatch '(?is)InpMaxSpreadPoints=1000(?:\.0+)?</b>'){SaveLogs;throw "Injection-off or spread-scaling input not confirmed in report."}
   "STATUS=PASS; custom-symbol tick import/readback and MT5 real-tick tester proof succeeded; not performance evidence."|Add-Content $summary -Encoding utf8
   Write-Host "Phase 4/4: PASS — MT5 confirmed imported real ticks; no strategy-profit conclusion is drawn."
