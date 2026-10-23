@@ -230,7 +230,7 @@ foreach ($file in $evidenceFiles) {
     if ($line -match 'GoldLab\|OPEN_STOP_RETRY_FAIL\|[^|]+\|trigger_request_id=(\d+);outcome=retry_send_rejected;retcode=\d+') {
       [void]$rejectedOpenRetryTriggerRequestIds.Add([string]$Matches[1])
     }
-    if ($line -match 'GoldLab\|SLTP_MODIFY_STATE\|[^|]+\|request_id=(\d+);ticket=\d+;position_exists_after=false;classification=closed_before_response;sent=false;accepted=false;retcode=3;last_error=4756;')
+    if ($line -match 'GoldLab\|SLTP_MODIFY_STATE\|[^|]+\|request_id=(\d+);ticket=\d+;position_exists_after=false;classification=closed_before_response;sent=false;accepted=false;retcode=3;last_error=4756;') {
       [void]$staleClosedRequestIds.Add([string]$Matches[1])
     }
     if ($line -match 'GoldLab\|SLTP_MODIFY_STATE\|[^|]+\|request_id=(\d+);ticket=\d+;position_exists_after=true;classification=position_still_open;') {
