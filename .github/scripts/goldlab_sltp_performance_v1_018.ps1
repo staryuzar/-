@@ -26,14 +26,15 @@ if ($source -notmatch '(?m)^#property version\s+"1\.018"' -or
     $source -notmatch 'requestedRetryBufferDistance=InpStopRetryBufferATR\*retryATR' -or
     $source -notmatch 'OPEN_STOP_RETRY_BUFFER_CAPPED' -or
     $source -notmatch 'for\(int capIteration=0;capIteration<24;capIteration\+\+\)' -or
-    $source -notmatch 'candidateLots>=minLot') {
+    $source -notmatch 'candidateLots>=minLot' -or
+    $source -notmatch 'double retryRiskDistance=retryBaseRiskDistance+retryBufferDistance;') {
   throw "EA source does not contain the intended v1.018 OrderCheck, retry-buffer, OrderSend, and request-result telemetry gates."
 }
 $sourceHash = (Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $content = Get-Content -LiteralPath $runnerPath -Raw
 
 $writeCsvMarker = "InpWriteTradeCSV=true||false||0||true||N"
-$writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + "InpStopRetryBufferATR=0.50||0.50||0.05||0.50||N"
+$writeCsvReplacement = $writeCsvMarker + [Environment]::NewLine + "InpRequireSignalCandleDirection=true||true||0||true||N" + [Environment]::NewLine + "InpRequireFastEMARejection=true||false||0||false||N" + [Environment]::NewLine + "InpStopRetryBufferATR=0.50||0.50||0.05||0.50||N" + [Environment]::NewLine + "InpTestForceInvalidStopsOnce=false||false||0||true||N"
 $replacements = @(
   @("2026-09-01 through 2026-10-19 (short-side-only diagnostic)", "2026-08-05 through 2026-10-20 (OrderCheck execution-safety diagnostic; short-only)"),
   @("model 1 (1-minute OHLC diagnostic; not real-tick validation)", "model 4 (Every tick based on real ticks; Random Delay ExecutionMode=-1 diagnostic)"),
@@ -55,7 +56,7 @@ $content = [regex]::Replace($content, '(?m)^Model=1\r?$', 'Model=4')
 $content = [regex]::Replace($content, '(?m)^FromDate=2026\.09\.01\r?$', 'FromDate=2026.08.05')
 $content = [regex]::Replace($content, '(?m)^ToDate=2026\.10\.19\r?$', 'ToDate=2026.10.20')
 $oldMax = '($html -match ''(?is)InpMaxADX=40(?:\.0+)?</b>'')'
-$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=0\.5(?:0+)?</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
+$newChecks = '($html -match ''(?is)InpRiskPercent=0\.5</b>'') -and ($html -match ''(?is)InpStopATR=0\.45</b>'') -and ($html -match ''(?is)InpTargetATR=2\.4</b>'') -and ($html -match ''(?is)InpTrailATR=1\.4</b>'') -and ($html -match ''(?is)InpMaxSpreadPoints=100(?:\.0+)?</b>'') -and ($html -match ''(?is)InpAllowLong=false</b>'') -and ($html -match ''(?is)InpMinADX=23(?:\.0+)?</b>'') -and ($html -match ''(?is)InpMaxADX=25(?:\.0+)?</b>'') -and ($html -match ''(?is)InpRequireSignalCandleDirection=true</b>'') -and ($html -match ''(?is)InpRequireFastEMARejection=true</b>'') -and ($html -match ''(?is)InpStopRetryBufferATR=0\.5(?:0+)?</b>'') -and ($html -match ''(?is)InpTestForceInvalidStopsOnce=false</b>'') -and ($html -match ''(?is)Period:</td>\s*<td[^>]*><b>M5 \(2026\.08\.05 - 2026\.10\.20\)</b>'')'
 if (!$content.Contains($oldMax)) { throw "Parameter verification source marker not found." }
 $content = $content.Replace($oldMax, $newChecks)
 $content = $content.Replace("Input verification: PASS (risk=0.5, stop=0.45 ATR, max spread=100, max ADX=40, long entries disabled)", "Input/date/execution verification: PASS (ADX25 baseline rules confirmed; requested retry-buffer maximum=0.50 ATR (effective cushion is risk-capped on retry); Model 4 real ticks; ExecutionMode=-1 Random Delay; period ends 2026-10-20)")
@@ -66,6 +67,7 @@ $checks = @(
   ($content -match 'InpRequireSignalCandleDirection=true'),
   ($content -match 'InpRequireFastEMARejection=true'),
   ($content -match 'InpStopRetryBufferATR=0.50'),
+  ($content -match 'InpTestForceInvalidStopsOnce=false'),
   ($content -match '(?m)^Model=4\r?$'),
   ($content -match '(?m)^ExecutionMode=-1\r?$'),
   ($content -match '(?m)^FromDate=2026\.08\.05\r?$'),
@@ -75,7 +77,7 @@ $checks = @(
   ($content -match 'Random Delay ExecutionMode=-1 diagnostic')
 )
 if ($checks -contains $false) {
-  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=0.50","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
+  $checkNames = @("InpMinADX=23.0","InpMaxADX=25.0","InpRequireSignalCandleDirection=true","InpRequireFastEMARejection=true","InpStopRetryBufferATR=0.50","InpTestForceInvalidStopsOnce=false","Model=4","ExecutionMode=-1 Random Delay","FromDate=2026.08.05","ToDate=2026.10.20","report basename","OrderCheck period guard","Random Delay execution label")
   for ($i=0; $i -lt $checks.Count; $i++) { Write-Host ("PRECHECK " + $checkNames[$i] + "=" + [bool]$checks[$i]) }
   throw "OrderCheck diagnostic runner preflight failed; see named PRECHECK results above."
 }
@@ -87,7 +89,7 @@ $runtimeRunner = Join-Path $env:RUNNER_TEMP "goldlab_mt5_ordercheck_runner.ps1"
   "EA version: 1.018",
   "Period: 2026-08-05 through 2026-10-20",
   "Model: 4 — every tick based on real ticks",
-  "Execution: Random Delay (ExecutionMode=-1); EA inputs match the frozen ADX25 development baseline; retry-only stop buffer=0.50 ATR is applied only after INVALID_STOPS.",
+  "Execution: Random Delay (ExecutionMode=-1); EA inputs match the frozen ADX25 development baseline; requested retry-buffer maximum=0.50 ATR is applied only after INVALID_STOPS; InpTestForceInvalidStopsOnce=false.",
   "Expected inputs: risk=0.50%; stop=0.45 ATR; target=2.4 ATR; trail=1.4 ATR; spread=100; ADX=23-25; short-only; candle direction=true; EMA rejection=true; retry-only buffer=0.50 ATR.",
   "OrderCheck preflight, immediate OrderSend results, and TRADE_TRANSACTION_REQUEST replies are logged separately. This is diagnostics only; deal history remains the execution audit.",
   "UTC preflight: $([DateTime]::UtcNow.ToString('o'))"
