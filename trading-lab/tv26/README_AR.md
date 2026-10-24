@@ -16,7 +16,7 @@ A research candidate for XAUUSD in MT5. It calculates 26 Technical-Ratings-style
 يلزم تصدير CSV واحد من TradingView يضم الأطر الخمسة معًا؛ ينزّل سير العمل ملف تدقيق MT5 من المختبر السحابي تلقائيًا. المقارنة تفحص OHLC أولًا ثم درجات الملخص وأصوات المكونات. لا يُدّعى تحقق المطابقة الفعلية قبل توفر ملفات TradingView الصادرة من Pine وتشغيل المقارنة عليها.
 
 ## حالة المطابقة المباشرة
-راجع تقرير الحالة والأدلة والشرط المتبقي في TV26_DIRECT_PARITY_STATUS_2026-10-23.md. المقارنة الفعلية مع TradingView لا تُعلن نجاحًا قبل إدخال CSV الحقيقي المُصدّر من Pine وتشغيل سير العمل.
+راجع [حالة المطابقة الحالية — 24 أكتوبر 2026](TV26_DIRECT_PARITY_STATUS_2026-10-24.md) و[تقرير التدقيق السحابي التفصيلي](TV26_CLOUD_AUDIT_2026-10-24.md). المقارنة الفعلية مع TradingView لا تُعلن نجاحًا قبل إدخال CSV الحقيقي المُصدّر من Pine وتشغيل سير العمل.
 
 ## 26 components
 **Moving-average group (15):** SMA/EMA 10, 20, 30, 50, 100, 200; Ichimoku Kijun/base line; VWMA 20; Hull MA 9.
