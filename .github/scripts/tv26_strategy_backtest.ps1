@@ -328,10 +328,31 @@ Visual=0
     } catch { }
   }
   "Diagnostic logs preserved (redacted): $logIndex" | Add-Content -LiteralPath $summary -Encoding utf8
-  $diagText = ""
+  # MT5 writes the same EA event payload into both the terminal log and tester-agent log.
+  # Deduplicate on the event body after the marker; otherwise every diagnostic count is doubled.
+  $diagEvents = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+  $eventMarkers = @(
+    "TV26_CONSENSUS;",
+    "TV26_ENTRY_BLOCK;",
+    "TV26_ORDER_ACCEPTED;",
+    "TV26_ORDER_REJECTED;",
+    "TV26_POSITION_CLOSED;"
+  )
   foreach ($safeLog in @(Get-ChildItem -LiteralPath $logsOut -Filter "*.txt" -File -ErrorAction SilentlyContinue)) {
-    try { $diagText += (Get-Content -LiteralPath $safeLog.FullName -Raw -ErrorAction Stop) + [Environment]::NewLine } catch {}
+    try {
+      foreach ($line in @(Get-Content -LiteralPath $safeLog.FullName -ErrorAction Stop)) {
+        foreach ($marker in $eventMarkers) {
+          $eventStart = $line.IndexOf($marker,[System.StringComparison]::Ordinal)
+          if ($eventStart -ge 0) {
+            [void]$diagEvents.Add($line.Substring($eventStart).Trim())
+            break
+          }
+        }
+      }
+    } catch {}
   }
+  $diagText = (@($diagEvents | Sort-Object) -join [Environment]::NewLine)
+  "Diagnostic event payloads: $($diagEvents.Count) unique after deduplication across terminal/tester logs." | Add-Content -LiteralPath $summary -Encoding utf8
   $diagnosticPatterns = [ordered]@{
     "consensus_signal_bars" = 'TV26_CONSENSUS;signal='
     "blocked_min_volume_risk_cap" = 'reason=MIN_VOLUME_RISK_CAP'
