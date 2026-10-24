@@ -34,7 +34,8 @@ class SignalLatchContractTests(unittest.TestCase):
         logic = self.trade_logic
         self.assertIn("if(!hasTracked && sig==g_lastExecutedSignal)", logic)
         self.assertIn("reason=SAME_SIGNAL_LATCH", logic)
-        self.assertIn("RememberSignal(0)", branch)
+        # The neutral branch is the only path that re-arms the latch after the consensus becomes neutral while flat.
+        self.assertIn("RememberSignal(0)", self.neutral_branch)
 
     def test_research_fix_is_diagnostic_and_does_not_add_global_cooldown(self):
         branch = self.neutral_branch
