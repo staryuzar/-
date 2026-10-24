@@ -77,6 +77,17 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertNotIn("40083533466", workflow)
         self.assertIn("--min-mt5-coverage 0.80", workflow)
 
+    def test_strategy_diagnostic_counts_deduplicate_mirrored_mt5_events(self):
+        script = (ROOT.parents[1] / ".github/scripts/tv26_strategy_backtest.ps1").read_text(encoding="utf-8")
+        self.assertIn("HashSet[string]", script)
+        self.assertIn("TV26_CONSENSUS;", script)
+        self.assertIn("TV26_ENTRY_BLOCK;", script)
+        self.assertIn("TV26_ORDER_ACCEPTED;", script)
+        self.assertIn("TV26_POSITION_CLOSED;", script)
+        self.assertIn("$line.Substring($eventStart).Trim()", script)
+        self.assertIn("$diagText = (@($diagEvents | Sort-Object) -join [Environment]::NewLine)", script)
+        self.assertNotIn("$diagText += (Get-Content", script)
+
     def test_direct_parity_audit_resolver_bash_syntax(self):
         workflow = (ROOT.parents[1] / ".github/workflows/tv26-direct-tradingview-parity.yml").read_text(encoding="utf-8")
         lines = workflow.splitlines()
