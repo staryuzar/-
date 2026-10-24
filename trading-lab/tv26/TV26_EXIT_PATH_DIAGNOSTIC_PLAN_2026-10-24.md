@@ -34,11 +34,31 @@ Widened SL/TP are intended only to make rule-based exits easier to observe. Thei
 6. Logs identify whether each trigger was `OPPOSITE_SUMMARY` or `REAL_M1_REVERSAL`.
 7. Zero triggers is **inconclusive**, not a pass. If no trigger occurs, choose a different three-day window based on available signal/position events rather than claiming the exit rule passed.
 
-## Current status
+## Completed first runtime diagnostic — workflow run 40130018918
 
-Source-level logic inspection is complete. The earlier 2026-09-01 baseline produced nine trades, but its preserved logs did not show a rule-based exit trigger/completion; most exits were SL/TP. Therefore the early-exit behavior remains unverified by a completed Strategy Tester event.
+Run: https://github.com/staryuzar/-/actions/runs/40130018918  
+Artifact: tv26-exit-path-diagnostic-40130018918  
+Effective source SHA-256: 18f967c14b12120e9bb13185d5184725f981b175b5a42a024df3f25c6fddbb41
 
-The new diagnostic workflow has been committed to the isolated branch. Its execution status/results must be read from GitHub Actions before claiming runtime validation. The production candidate branch and default stop/target settings are unchanged.
+- MetaEditor compiled the EA with zero errors and zero warnings; MT5 Strategy Tester Model 4 completed successfully.
+- Data integrity and formula audits passed: 141,232 component votes compared, zero vote mismatches; 5,432 candle groups, zero invalid/duplicate/timestamp errors; 16,296 summary aggregate values re-calculated with zero mismatches.
+- Three trades were opened and all three exited through REAL_M1_REVERSAL. Unique event log confirms three triggers, three completed closes, zero close failures.
+- No OPPOSITE_SUMMARY trigger occurred. That branch is still unproven at runtime.
+- The three trades all lost: net -$7.47, 0 winners / 3 losers, maximal equity DD 1.86%. They were diagnostic settings (risk 2%, SL 5 ATR, TP 20 ATR), so this is not a comparison with the candidate's default 1% / 2 ATR / 4 ATR settings.
+- The MT5 HTML deal table confirms the 3 positions were closed by the EA's close command and not by SL/TP. The price-rule trigger did close losing positions, but only an exit-off comparison can show whether it improves or harms the outcome on the same window.
+
+A first run (40128087743) did not produce an audit because MT5 cancelled preliminary tick-history download and stopped with “no history data”; this was classified as infrastructure failure, not as a strategy result. The retry wrapper now retries only this evidenced history-download failure, once, and preserves the first-attempt logs.
+
+## Matched A/B validation in the isolated branch
+
+The diagnostic-only source now has a default-true InpUseRuleBasedEarlyExit switch. When false in the A/B arm, the EA continues to hold the open position and does not permit another entry, while broker SL/TP remain active. The main candidate branch/source is unchanged.
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40130429104  
+The workflow runs the exit-on and exit-off arms sequentially in one isolated Windows job, with the same MQL5 source hash, three-day dates (2026-09-01 through 2026-09-03), model, risk, SL/TP and reference history. It changes only the early-exit input and magic number. It saves each arm's logs separately, audits each arm independently, then checks hashes/settings and writes a matched comparison report.
+
+Acceptance still requires equal source and history hashes, valid formula/data audits for both arms, successfully paired exit-on triggers, and no early-exit events in the exit-off arm. Profitability is evaluated separately from rule execution. The opposite-summary branch remains unvalidated until a reason=OPPOSITE_SUMMARY trigger is captured.
+
+The production candidate branch and its default stop/target settings are unchanged.
 
 ## TradingView parity
 
