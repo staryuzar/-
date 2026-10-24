@@ -65,6 +65,23 @@ Workflow: [M1 breakout-buffer matrix](https://github.com/staryuzar/-/actions/run
 
 An isolated branch, `tv26-breakout-buffer-study`, adds `InpM1BreakoutBufferATR`. At zero, behavior is intended to preserve the previous breakout rule; positive values require the closed M1 price to exceed the previous high/low by an additional fraction of M1 ATR. The matrix holds risk at 1%, SL at 2 ATR, TP at 4 ATR, and tests buffer distances 0.00, 0.05, 0.10, and 0.20 ATR on 1–23 October inclusive. The matrix is still running; no outcome is claimed yet, and this candidate has not been merged into the main line.
 
+## Short 3-day diagnostic runs — 21–23 October
+
+All results below are MT5 Strategy Tester simulations, not live trades. Their sample sizes are too small for parameter selection; they are useful only as a quick check of loss modes and the interaction with minimum-volume risk protection.
+
+| Configuration | Net P/L | Profit factor | Max equity DD | Trades | Wins / losses | Diagnostic |
+|---|---:|---:|---:|---:|---:|---|
+| Risk 1%, SL 2 ATR / TP 3 ATR, M1 close-breakout enabled | +$7.48 | 0.00 (no losing trade) | 0.74% | 1 | 1 / 0 | One winning trade only; no statistical pass |
+| Risk 1%, SL 2 ATR / TP 3 ATR, no breakout | +$4.39 | 2.42 | 0.99% | 2 | 1 / 1 | One loss; sample too small |
+| Risk 1%, SL 1 ATR / TP 1.5 ATR, no breakout | -$8.31 | 0.50 | 1.85% | 7 | 2 / 5 | Fail |
+| Risk 1%, SL 1.5 ATR / TP 2.25 ATR, no breakout | -$3.60 | 0.80 | 2.19% | 6 | 2 / 4 | Fail |
+
+The 3-day baseline at 0.5% risk with SL 2 ATR / TP 3 ATR took zero trades. In the short 3-day window, 14 bars generated strong five-timeframe consensus, but minimum-volume risk protection blocked 11 entries; the 1% breakout variant had 14 consensus bars and 6 minimum-volume blocks. Keep this protection; allowing a 0.01 lot when its stop would exceed the risk budget would make the displayed risk percentage untrue.
+
+A later 10-day variant configured with M1 breakout but missing tick history failed to generate the audit CSV. The job log said MT5's preliminary tick-history download was cancelled / no history data, so it is classified as an **incomplete infrastructure run**, not as a losing strategy result.
+
+These tests support retaining SL 2 ATR rather than the tested tighter 1 ATR / 1.5 ATR settings; they do not settle the best target multiplier. Target-selection should use the larger matrices plus a separate holdout, not this three-day sample.
+
 ## Acceptance criteria
 
 A candidate must have:
