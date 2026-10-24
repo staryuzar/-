@@ -56,3 +56,4 @@ jobs:
           path: tv26-progressive-results/
           if-no-files-found: warn
           retention-days: 30
+# Re-run after restoring the known-good PowerShell tester helper.
