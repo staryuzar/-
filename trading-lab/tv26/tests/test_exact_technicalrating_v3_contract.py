@@ -62,6 +62,15 @@ class ExactTechnicalRatingV3ContractTests(unittest.TestCase):
         self.assertIn("InpRiskPercent=0.50", ea)
         self.assertIn("InpDemoOnly=true", ea)
 
+    def test_netting_account_guard_rejects_foreign_symbol_positions(self):
+        ea = compact("TV26_FiveTF_Arabic_CANDIDATE.mq5")
+        self.assertIn("boolHasForeignNettingPosition()", ea)
+        self.assertIn("mode==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", ea)
+        self.assertIn("if((ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagic)returntrue;", ea)
+        self.assertIn("if(HasForeignNettingPosition())", ea)
+        self.assertIn("FOREIGN_NETTING_POSITION", ea)
+        self.assertIn("لم يتم تعديل المركز", ea)
+
     def test_all_five_timeframes_use_confirmed_closed_bars_and_timestamp_shift(self):
         pine = compact("TradingView_Parity_AllTF_Export.pine")
         self.assertEqual(pine.count("request.security(syminfo.tickerid"), 5)
