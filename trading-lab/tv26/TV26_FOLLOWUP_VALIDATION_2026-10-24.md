@@ -444,7 +444,7 @@ The 0-bar and 10-bar arms completed on the same EA source hash and identical mar
 
 Both runs had the same MT5 audit SHA-256 `699e66d4e046c9e9df8195f793aab3d195dcf988dd0fa734f58aafc773fc0d26` and history SHA-256 `db0447bee35ea1d59e4ad10c8c96709ca539a459d329a5bcd140ee03bf573005`. The 10-bar arm recorded zero cooldown blocks and kept the same accepted-order/trade counts. I also compared the Strategy Tester HTML order/deal tables directly: all 41 table rows (including the 10 entries, 10 exits, and balance row) are identical between 0 and 10 bars, not merely the headline metrics. Its complete formula audit checked 329,368 votes with zero mismatches; OHLC integrity checks passed. Decision: **no evidence of benefit from 10 bars on this holdout**.
 
-The 20-bar arm in the same source-matched workflow was still in progress at the time of this update; its outcome must not be inferred from the two completed arms.
+At the time of this original section the 20-bar arm was still in progress; its completed result is now recorded in section 32.
 
 ## 29. Separate three-day risk diagnostic — technical history failure, not a result
 
@@ -474,7 +474,7 @@ The exact Strategy Tester deal rows for the 0-bar and 10-bar arms are identical.
 
 The main concentration is the three losing sells on October 5 and the two losing buys on October 9. The 10-bar setting failed to block them because the accepted entries were not within ten M1 bars of the previous exit; the entry/deal table and diagnostic counter confirm no cooldown block occurred.
 
-The October 7 12:20 sell was a winner (+$4.47) entered 10 minutes 27 seconds after the prior sell's SL exit at 12:09:33. A 20-bar cooldown could suppress this winning entry even though it would not remove the earlier October 5 cluster. This makes the October 1–10 20-bar arm especially important: do not infer that longer cooldown is better from the October 20–22 diagnostic where it removed a loss. The 20-bar arm's actual report is still required before recording the result.
+The October 7 12:20 sell was a winner (+$4.47) entered 10 minutes 27 seconds after the prior sell's SL exit at 12:09:33. The completed 20-bar arm blocked that entry but allowed a later sell at 12:31 to reach TP for +$7.10, replacing the earlier +$4.47 outcome (+$2.63 improvement). This timing change did not reduce the seven losing trades. The full result and its limits are recorded in section 32; do not generalize it from one affected entry.
 
 
 ## 32. October 1–10 cooldown holdout — all arms completed
@@ -495,3 +495,12 @@ All three arms used the same current EA source SHA, the same October 1–10 wind
 The 0-bar and 10-bar HTML order/deal tables matched exactly. In the 20-bar arm, one re-entry at 12:20 on October 7 was blocked after an SL exit at 12:09:33; a subsequent sell was accepted at 12:31 and reached TP at 13:02:38. This shifted entry timing and improved the net result by $2.63 while leaving the seven losses and overall trade count unchanged. It did **not** make the strategy profitable: net remains negative and PF remains below 1.0.
 
 Decision: the 20-bar rule is a modest holdout improvement for this particular 3-ATR-target setup, not a general fix. Keep the default cooldown at 0 until the same rule is replicated on another clean window with matched settings; the earlier Sep 11–20 comparison showed almost no benefit (−$11.32 vs −$11.41), and the Oct 20–22 diagnostic that motivated the idea was not independent. Do not merge a global cooldown or describe the candidate as profitable from these results.
+
+
+## 33. Next independent cooldown cross-check launched
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40113501784  
+Workflow file: `.github/workflows/tv26-strategy-cooldown-sep21-30.yml`  
+Commit: `5b1ad32f804e1f1137fdc569d831fcb0557db08e`
+
+To test whether the October 1–10 20-bar timing improvement transfers, a new source-matched 0/10/20-bar matrix was launched for **September 21–30, 2026** using XAUUSD M1, Model 4, $500 balance, 1% risk, 2 ATR stop, 3 ATR target and M1 close-breakout. The three arms are serialized and have the same formula/OHLC audits; the existing demo and tester-only guards remain in place. No outcome is inferred until each arm and audit completes. This is a cross-check, not permission to adopt a global cooldown.
