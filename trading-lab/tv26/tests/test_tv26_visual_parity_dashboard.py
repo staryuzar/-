@@ -23,7 +23,7 @@ class TV26VisualParityDashboardTests(unittest.TestCase):
         self.assertIn("tvRating.calcRatingAll()", self.code)
 
     def test_dashboard_reads_all_five_timeframes(self) -> None:
-        requests = re.findall(r"request\\.security\\(", self.code)
+        requests = re.findall(r"request\.security\(", self.code)
         self.assertEqual(len(requests), 5)
         for timeframe in ('"1"', '"5"', '"15"', '"30"', '"60"'):
             self.assertIn(f"syminfo.tickerid, {timeframe}", self.code)
@@ -42,7 +42,7 @@ class TV26VisualParityDashboardTests(unittest.TestCase):
         self.assertIn("lookahead=barmerge.lookahead_on", self.code)
 
     def test_dashboard_has_no_chart_data_export_plots_or_csv_flow(self) -> None:
-        plot_calls = re.findall(r"(?m)^\\s*plot(?:shape|char|bar|candle|arrow)?\\s*\\(", self.code)
+        plot_calls = re.findall(r"(?m)^\s*plot(?:shape|char|bar|candle|arrow)?\s*\(", self.code)
         self.assertEqual(plot_calls, [])
         self.assertNotIn("TV26_AllTF.csv", self.code)
         self.assertNotIn("file_download", self.code.lower())
