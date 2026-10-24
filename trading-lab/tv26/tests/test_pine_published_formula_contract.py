@@ -60,6 +60,7 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertIn('      - "trading-lab/tv26/parity-input/TV26_AllTF.csv"', workflow)
         self.assertIn("MT5_AUDIT_RUN_ID: ${{ inputs.mt5_audit_run_id || '40077651784' }}", workflow)
         self.assertIn("MT5_UTC_OFFSET_HOURS: ${{ inputs.mt5_utc_offset_hours || '3' }}", workflow)
+        self.assertIn("--min-mt5-coverage 0.80", workflow)
 
     def test_williams_r_uses_builtin_namespace_in_both_exporters(self):
         for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
