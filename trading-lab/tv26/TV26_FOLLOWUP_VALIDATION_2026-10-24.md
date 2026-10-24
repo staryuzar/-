@@ -86,3 +86,40 @@ The buffer-0.00 baseline's loss pattern was 4 losing sells (Sep 14 10:10; Sep 14
 ## 8. Official TechnicalRating v3 source cross-check
 
 The MQL5 oscillator rules were inspected against the pinned source snapshot of TradingView's TechnicalRating Pine library v3 (version dated 2024-11-29): https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts (see calcRatingAll(), especially lines 663–665 for ADX). That source and the exported Pine benchmark use rising ADX for both +DI and -DI directional branches. TradingView's help page currently describes falling ADX for the sell branch, so the documentation and versioned library source are inconsistent. We retained the versioned TradingView/TechnicalRating/3 library rule rather than silently substituting the help-page wording. The source comparison is an implementation cross-check, not actual chart-export parity; direct parity still requires an actual TradingView CSV for the same symbol/feed and overlapping bars.
+
+
+## 9. Follow-on investigation — breakout, threshold and re-entry hypotheses
+
+These experiments were kept on separate research branches; none is merged into the candidate branch.
+
+### M1 breakout lookback screening (Sep 14–18; diagnostic, not held out)
+
+- 1 previous bar: -$11.41, PF 0.43, equity DD 3.39%, 6 trades (1 win / 5 losses).
+- 3 previous bars: -$7.57, PF 0.54, DD 2.63%, 5 trades (1 / 4).
+- 5 previous bars: +$0.82, PF 1.10, DD 1.12%, 3 trades (1 / 2).
+- Report: https://github.com/staryuzar/-/blob/tv26-breakout-lookback-study/trading-lab/tv26/TV26_BREAKOUT_LOOKBACK_EXPERIMENT_2026-10-24.md
+- Decision: five-bar breakout is a screening candidate only; 3 trades on the same diagnostic window used to investigate the failures is insufficient.
+
+### Entry consensus strength screening (Sep 14–18; diagnostic, not held out)
+
+- Minimum rating 0.50: -$11.41, PF 0.43, DD 3.39%, 6 trades (1 / 5).
+- Minimum rating 0.55: +$1.08, PF 1.14, DD 0.90%, 3 trades (1 / 2).
+- Minimum rating 0.60: $0.00, 0 trades. This is inconclusive, not a successful result.
+- All variants compiled with zero errors/warnings and passed audit (235,300 votes, zero mismatches; clean exported OHLC integrity) on the same source-data hashes.
+- Report: https://github.com/staryuzar/-/blob/tv26-consensus-threshold-study/trading-lab/tv26/TV26_CONSENSUS_THRESHOLD_EXPERIMENT_2026-10-24.md
+- Decision: do not approve 0.55 based on this in-sample screen; 0.60 is rejected as a useful setting for this short period because it eliminates every trade.
+
+### Post-exit cooldown screening (Sep 11–20)
+
+- Cooldown 0 bars: -$11.41, PF 0.43, DD 3.39%, 6 trades (1 / 5).
+- Cooldown 10 bars: same metrics, 6 trades; four cooldown blocks logged.
+- Cooldown 20 bars: -$11.32, PF 0.44, DD 3.38%, same 6 trades; seven cooldown blocks.
+- Report: https://github.com/staryuzar/-/blob/tv26-breakout-buffer-study/trading-lab/tv26/TV26_COOLDOWN_EXPERIMENT_2026-10-24.md
+- Decision: reject cooldown as a performance fix for this sample; it blocked attempts but did not change the accepted trades in a meaningful way.
+
+### Validation now in progress
+
+- Independent parameter holdout on Sep 1–10, comparing baseline 1-bar/0.50, 5-bar/0.50, 1-bar/0.55, and combined 5-bar/0.55: https://github.com/staryuzar/-/actions/runs/40106562109
+- Separate oscillator-agreement holdout on Sep 1–10, comparing no extra oscillator gate with a directional oscillator average minimum of 0.15 on each timeframe: https://github.com/staryuzar/-/actions/runs/40106767960
+- The oscillator gate is on a separate research branch and defaults to disabled; it cannot change the existing candidate unless its explicit input is enabled.
+- These two holdouts use the same Headway-Demo XAUUSD feed and model 4 tester settings. MT5 may synthesize ticks for gaps in broker real-tick history. They can check reproducibility and whether an entry hypothesis transfers to a different window; they cannot by themselves prove future profitability.
