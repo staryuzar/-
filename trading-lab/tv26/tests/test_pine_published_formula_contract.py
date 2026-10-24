@@ -111,7 +111,7 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         # Validate through a UTF-8 temporary file instead of stdin. Git Bash on
         # Windows can otherwise return a false nonzero result when parsing this
         # multiline heredoc-like payload through a subprocess pipe.
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".sh", newline="\\n", delete=False) as handle:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".sh", newline="\n", delete=False) as handle:
             handle.write(script)
             script_path = handle.name
         try:
