@@ -82,7 +82,7 @@ def read_arm(key: str) -> dict:
         # Pair by the exact M1 decision bar, position ticket, and reason.
         # Ticket-only pairing can falsely pass if one later close is counted
         # as evidence for multiple earlier failed/repeated exit attempts.
-        ticket = re.search(r"ticket=(\\d+)", line)
+        ticket = re.search(r"ticket=(\d+)", line)
         reason = re.search(r"reason=([^;]+)", line)
         bar = re.search(r"bar=([^;]+)", line)
         if not ticket or not reason or not bar:
