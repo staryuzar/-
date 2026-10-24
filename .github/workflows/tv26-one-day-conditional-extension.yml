@@ -1,0 +1,134 @@
+name: TV26 one-day gate then conditional extension
+
+on:
+  push:
+    branches:
+      - tv26-five-timeframes-arabic-candidate
+    paths:
+      - ".github/workflows/tv26-one-day-conditional-extension.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-one-day-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  one-day-gate:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      TV26_TEST_FROM: "2026.10.23"
+      TV26_TEST_TO: "2026.10.24"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "3.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Run one-day XAUUSD M1 Strategy Tester
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./.github/scripts/tv26_strategy_backtest.ps1
+          if (!(Test-Path "tv26-strategy-results/strategy-backtest-summary.txt")) {
+            throw "One-day tester summary missing; cannot apply extension rule."
+          }
+          New-Item -ItemType Directory -Path "tv26-one-day-results" -Force | Out-Null
+          Copy-Item "tv26-strategy-results/*" "tv26-one-day-results/" -Recurse -Force
+
+      - name: Decide whether to extend to three days
+        id: gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $summaryPath = "tv26-one-day-results/strategy-backtest-summary.txt"
+          $summary = Get-Content -LiteralPath $summaryPath -Raw
+          $tradesMatch = [regex]::Match($summary, '(?m)^Total Trades:\s*(\d+)')
+          $lossMatch = [regex]::Match($summary, '(?m)^Loss Trades \(% of total\):\s*(\d+)')
+          if (!$tradesMatch.Success -or !$lossMatch.Success) {
+            "extend=false" | Add-Content $env:GITHUB_OUTPUT
+            "## Extension gate: INCONCLUSIVE" | Add-Content $env:GITHUB_STEP_SUMMARY
+            "Could not read total trades/loss trades from MT5 report; no automatic extension or pass claim." | Add-Content $env:GITHUB_STEP_SUMMARY
+            throw "Could not reliably parse one-day trade metrics."
+          }
+          $trades = [int]$tradesMatch.Groups[1].Value
+          $losses = [int]$lossMatch.Groups[1].Value
+          "trades=$trades" | Add-Content $env:GITHUB_OUTPUT
+          "losses=$losses" | Add-Content $env:GITHUB_OUTPUT
+          if ($losses -eq 0) {
+            "extend=true" | Add-Content $env:GITHUB_OUTPUT
+            "## Extension gate: EXTEND" | Add-Content $env:GITHUB_STEP_SUMMARY
+            "One-day result has $trades trade(s) and zero losing trades. Extending to the three-day window 2026-10-21 through 2026-10-23. This is only a screening gate, not proof of profitability." | Add-Content $env:GITHUB_STEP_SUMMARY
+          } else {
+            "extend=false" | Add-Content $env:GITHUB_OUTPUT
+            "## Extension gate: STOP AND DIAGNOSE" | Add-Content $env:GITHUB_STEP_SUMMARY
+            "One-day result has $trades trade(s), including $losses losing trade(s). Per request, do not expand the date range yet; inspect the loss evidence first." | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Run expanded three-day Strategy Tester only if one-day had no losses
+        if: steps.gate.outputs.extend == 'true'
+        shell: pwsh
+        env:
+          TV26_TEST_FROM: "2026.10.21"
+          TV26_TEST_TO: "2026.10.24"
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./.github/scripts/tv26_strategy_backtest.ps1
+          if (!(Test-Path "tv26-strategy-results/strategy-backtest-summary.txt")) {
+            throw "Expanded tester summary missing."
+          }
+          New-Item -ItemType Directory -Path "tv26-expanded-results" -Force | Out-Null
+          Copy-Item "tv26-strategy-results/*" "tv26-expanded-results/" -Recurse -Force
+
+      - name: Validate one-day indicator audit and formula parity
+        if: always()
+        shell: pwsh
+        run: |
+          $audit = "tv26-one-day-results/TV26_Audit_XAUUSD_26102327.csv"
+          $history = "tv26-one-day-results/TV26_OHLC_History_XAUUSD.csv"
+          if ((Test-Path $audit) -and (Test-Path $history)) {
+            python trading-lab/tv26/validate_tv26_mt5_audit.py --csv $audit --report tv26-one-day-results/data-integrity-report.md --json tv26-one-day-results/data-integrity-report.json
+            python trading-lab/tv26/reference_tv26_formulas.py --audit $audit --history $history --report tv26-one-day-results/formula-parity-report.md --details tv26-one-day-results/formula-parity-details.csv --json tv26-one-day-results/formula-parity-report.json
+          } else {
+            "One-day audit files missing; formula audit not completed." | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Validate expanded indicator audit and formula parity
+        if: steps.gate.outputs.extend == 'true' && always()
+        shell: pwsh
+        run: |
+          $audit = "tv26-expanded-results/TV26_Audit_XAUUSD_26102327.csv"
+          $history = "tv26-expanded-results/TV26_OHLC_History_XAUUSD.csv"
+          if ((Test-Path $audit) -and (Test-Path $history)) {
+            python trading-lab/tv26/validate_tv26_mt5_audit.py --csv $audit --report tv26-expanded-results/data-integrity-report.md --json tv26-expanded-results/data-integrity-report.json
+            python trading-lab/tv26/reference_tv26_formulas.py --audit $audit --history $history --report tv26-expanded-results/formula-parity-report.md --details tv26-expanded-results/formula-parity-details.csv --json tv26-expanded-results/formula-parity-report.json
+          } else {
+            "Expanded audit files missing; formula audit not completed." | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Upload one-day and conditional expanded evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-one-day-gate-${{ github.run_id }}
+          path: |
+            tv26-one-day-results/
+            tv26-expanded-results/
+          if-no-files-found: warn
+          retention-days: 30
