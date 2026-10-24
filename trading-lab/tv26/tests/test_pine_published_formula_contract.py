@@ -69,6 +69,13 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
                 self.assertIn("ta.wpr(14)", normalized)
                 self.assertNotIn("tvta.wpr(14)", normalized)
 
+    def test_ci_calls_tradingview_compiler_with_supported_flags(self):
+        workflow = (ROOT.parents[1] / ".github/workflows/tv26-parity-tests.yml").read_text(encoding="utf-8")
+        self.assertIn("Validate Pine exporters with TradingView compiler endpoint", workflow)
+        self.assertIn("--tv --human trading-lab/tv26/TradingView_Parity_AllTF_Export.pine", workflow)
+        self.assertIn("--tv --human trading-lab/tv26/TradingView_Parity_Components_1TF.pine", workflow)
+        self.assertNotIn("--no-lint", workflow)
+
     def test_aggregate_and_closed_bar_contract(self):
         self.assertIn("floattotal=nz(ratingMA,0)+nz(ratingOther,0)", self.source)
         self.assertIn("notna(ratingMA)andnotna(ratingOther)=>total/2", self.source)
