@@ -153,12 +153,12 @@ def diagnose_comparison(counts: dict[str, int], min_bars: int) -> tuple[str, str
     if counts["matched_bars"] < min_bars:
         return ("INSUFFICIENT_OVERLAP",
                 "الشموع المشتركة أقل من المطلوب: صدّر فترة أوسع وتأكد من توفر سجل MT5 للفترة نفسها.")
-    if counts["incomplete_mt5_summary_bars"] or counts["component_values_missing"]:
-        return ("INCOMPLETE_DATA",
-                "هناك قيم أو مكونات غير مكتملة؛ أصلح جاهزية البيانات قبل تقييم الصيغ.")
     if counts["price_mismatches"]:
         return ("PRICE_FEED_OR_CANDLE_ALIGNMENT",
                 "أسعار OHLC مختلفة؛ مصدر السعر أو توقيت الشموع أو ضبط الجلسة غير متطابق. لا تعدّل الصيغ قبل حل ذلك.")
+    if counts["incomplete_mt5_summary_bars"] or counts["component_values_missing"]:
+        return ("INCOMPLETE_DATA",
+                "هناك قيم أو مكونات غير مكتملة؛ أصلح جاهزية البيانات قبل تقييم الصيغ.")
     if not counts["formula_calibration_values_checked"] or counts["formula_calibration_mismatches"]:
         return ("PINE_AGGREGATE_FORMULA_MISMATCH",
                 "تجميعات Pine لا تطابق مكتبة TradingView الرسمية؛ أصلح المُصدّر قبل مقارنة MT5.")
