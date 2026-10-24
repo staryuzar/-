@@ -45,6 +45,11 @@ datetime g_auditAttemptBar[N_TF];
 int g_auditAttempts[N_TF];
 string g_auditFile="";
 bool g_historyExported=false;
+// Reproduce TradingView ta.rsi() RMA arithmetic instead of relying on platform iRSI rounding.
+double g_tvRsiAvgGain[N_TF],g_tvRsiAvgLoss[N_TF],g_tvRsiLastClose[N_TF];
+double g_tvRsiCurrent[N_TF],g_tvRsiPrevious[N_TF];
+datetime g_tvRsiLastClosedBar[N_TF];
+bool g_tvRsiInitialized[N_TF];
 double g_rating[N_TF];
 double g_maRating[N_TF], g_oscRating[N_TF];
 int g_ready[N_TF], g_maReady[N_TF], g_oscReady[N_TF];
@@ -263,6 +268,102 @@ void ReleaseHandles()
       if(g_macdSlow[t]!=INVALID_HANDLE) IndicatorRelease(g_macdSlow[t]);
    }
 }
+double TVRSIFromAverages(double avgGain,double avgLoss)
+{
+   if(avgLoss==0.0 && avgGain>0.0) return 100.0;
+   if(avgGain==0.0 && avgLoss>0.0) return 0.0;
+   if(avgGain==0.0 && avgLoss==0.0) return 50.0;
+   double rs=avgGain/avgLoss;
+   return 100.0-(100.0/(1.0+rs));
+}
+
+// Seed Wilder RMA from the same oldest-to-newest 1,600 closed candles exported
+// by ExportReferenceHistory(). Use TradingView's recurrence alpha*x+(1-alpha)*prev.
+bool InitializeTVRSIState(int t)
+{
+   const int period=14;
+   const int historyBars=1600;
+   MqlRates rates[];
+   if(!ReadRates(g_tfs[t],historyBars,1,rates)) return false;
+
+   double gainSum=0.0,lossSum=0.0;
+   for(int s=historyBars-2;s>=historyBars-1-period;s--)
+   {
+      double delta=rates[s].close-rates[s+1].close;
+      if(delta>0.0) gainSum+=delta;
+      else if(delta<0.0) lossSum-=delta;
+   }
+
+   double alpha=1.0/(double)period;
+   g_tvRsiAvgGain[t]=gainSum/(double)period;
+   g_tvRsiAvgLoss[t]=lossSum/(double)period;
+   double previousValue=EMPTY_VALUE,currentValue=EMPTY_VALUE;
+
+   // The seed ends at series index historyBars-1-period. Continue toward shift 1.
+   for(int s=historyBars-2-period;s>=0;s--)
+   {
+      double delta=rates[s].close-rates[s+1].close;
+      double gain=(delta>0.0 ? delta : 0.0);
+      double loss=(delta<0.0 ? -delta : 0.0);
+      g_tvRsiAvgGain[t]=alpha*gain+(1.0-alpha)*g_tvRsiAvgGain[t];
+      g_tvRsiAvgLoss[t]=alpha*loss+(1.0-alpha)*g_tvRsiAvgLoss[t];
+      double value=TVRSIFromAverages(g_tvRsiAvgGain[t],g_tvRsiAvgLoss[t]);
+      if(s==1) previousValue=value;
+      if(s==0) currentValue=value;
+   }
+   if(!MathIsValidNumber(previousValue) || !MathIsValidNumber(currentValue) ||
+      previousValue==EMPTY_VALUE || currentValue==EMPTY_VALUE) return false;
+
+   g_tvRsiPrevious[t]=previousValue;
+   g_tvRsiCurrent[t]=currentValue;
+   g_tvRsiLastClose[t]=rates[0].close;
+   g_tvRsiLastClosedBar[t]=rates[0].time;
+   g_tvRsiInitialized[t]=true;
+   return true;
+}
+
+// Advance RSI once per newly closed candle; catch up every missed candle chronologically.
+bool UpdateTVRSIState(int t,double &current,double &previous)
+{
+   if(!g_tvRsiInitialized[t] && !InitializeTVRSIState(t)) return false;
+   datetime closedTime=iTime(_Symbol,g_tfs[t],1);
+   if(closedTime<=0) return false;
+
+   if(closedTime!=g_tvRsiLastClosedBar[t])
+   {
+      int oldShift=iBarShift(_Symbol,g_tfs[t],g_tvRsiLastClosedBar[t],true);
+      if(oldShift<2)
+      {
+         g_tvRsiInitialized[t]=false;
+         if(!InitializeTVRSIState(t)) return false;
+      }
+      else
+      {
+         double alpha=1.0/14.0;
+         for(int sh=oldShift-1;sh>=1;sh--)
+         {
+            datetime stamp=iTime(_Symbol,g_tfs[t],sh);
+            double close=iClose(_Symbol,g_tfs[t],sh);
+            if(stamp<=0 || close<=0.0) return false;
+            double delta=close-g_tvRsiLastClose[t];
+            double gain=(delta>0.0 ? delta : 0.0);
+            double loss=(delta<0.0 ? -delta : 0.0);
+            g_tvRsiAvgGain[t]=alpha*gain+(1.0-alpha)*g_tvRsiAvgGain[t];
+            g_tvRsiAvgLoss[t]=alpha*loss+(1.0-alpha)*g_tvRsiAvgLoss[t];
+            g_tvRsiPrevious[t]=g_tvRsiCurrent[t];
+            g_tvRsiCurrent[t]=TVRSIFromAverages(g_tvRsiAvgGain[t],g_tvRsiAvgLoss[t]);
+            g_tvRsiLastClose[t]=close;
+            g_tvRsiLastClosedBar[t]=stamp;
+         }
+      }
+   }
+
+   current=g_tvRsiCurrent[t];
+   previous=g_tvRsiPrevious[t];
+   return MathIsValidNumber(current) && MathIsValidNumber(previous) &&
+          current!=EMPTY_VALUE && previous!=EMPTY_VALUE;
+}
+
 bool ComputeOne(int t,int j,int &score)
 {
    score=0;
@@ -307,7 +408,7 @@ bool ComputeOne(int t,int j,int &score)
    }
    if(j==RSI14)
    {
-      if(!ReadBuf(g_handles[t][j],0,1,a) || !ReadBuf(g_handles[t][j],0,2,b)) return false;
+      if(!UpdateTVRSIState(t,a,b)) return false;
       score=(a<30 && a>b ? 1 : (a>70 && a<b ? -1 : 0));
       g_diagA[t][j]=a; g_diagB[t][j]=b;
       return true;
@@ -629,6 +730,11 @@ bool ExportReferenceHistory()
    FileFlush(fh);
    FileClose(fh);
    g_historyExported=true;
+   for(int t=0;t<N_TF;t++)
+   {
+      if(!InitializeTVRSIState(t))
+         Print("TV26 RSI warmup not ready for ",TFName(g_tfs[t]),"; will retry on next evaluation.");
+   }
    Print("TV26 reference history export OK: ",fileName,
          "; frames=",N_TF,"; bars per frame=",historyBars);
    return true;
