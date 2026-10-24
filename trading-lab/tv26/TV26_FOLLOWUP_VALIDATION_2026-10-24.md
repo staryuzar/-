@@ -786,3 +786,31 @@ Both arms used the same dates, source repository SHA, MT5 Model 4, risk 1%, SL 2
 The trade report confirms that all four common trades have the same entries/exits/results. The legacy baseline also opened a new sell at 2026-09-08 22:59:00, one second after the prior sell TP at 22:58:59; that re-entry hit SL at 23:01:22 for -$5.08. In the preserve arm, the same closed-bar sell signal was explicitly blocked with `reason=SAME_SIGNAL_LATCH`, and that extra losing trade did not occur. The net difference (+$5.08) exactly matches the removed loss; the other winning and losing trades did not change.
 
 **Interpretation:** This is a valid, source-distinct A/B and confirms that the latch-preservation state change prevented the specific September instant re-entry on this historical path. It does not establish a general profitability edge: the sample is only five baseline trades, both arms still have losing trades, and it is the diagnostic period that motivated the fix. Keep the October 20–22 cross-check as the independent-window test before accepting the change; do not merge into main until that is reviewed.
+
+
+## 26. Matched M1 oscillator gate results — Sep and Oct (run 40119228229)
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40119228229
+
+The experiment used an isolated test-only injection into the compiled EA copy (the repository MQL5 file was not modified). Both arms used risk 1%, SL 2 ATR, TP 4 ATR, M1 close-breakout, cooldown 0, MT5 Model 4, same date range per pair, and passed all formula/data audits. Effective compiled source SHA differs between gate (with code injection) and baseline (without gate), and the OHLC/reference history hashes within each pair match.
+
+| Window | Variant | Net | PF | Max equity DD | Trades | Wins / losses |
+|---|---|---:|---:|---:|---:|---:|
+| Sep 1–10 | no oscillator gate | +$8.43 | 1.88 | 2.35% | 4 | 2 / 2 |
+| Sep 1–10 | M1 oscillator minimum 0.15 | +$8.43 | 1.88 | 2.35% | 4 | 2 / 2 |
+| Oct 20–22 | no oscillator gate | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 |
+| Oct 20–22 | M1 oscillator minimum 0.15 | +$7.53 | 3.45 | 0.98% | 2 | 1 / 1 |
+
+### What the trade-level evidence says
+
+- Sep: the gate blocked some weak-M1-oscillator signal attempts but did not change the executed trade list or final metrics. It did not improve that sample.
+- Oct: the gate blocked the first sell entry at 11:08 on Oct 20 (M1 oscillator rating -0.091), avoiding its -$3.81 stop loss. The second sell at 11:30 still lost -$3.07. The Oct 22 winner was entered at 06:36 instead of the unfiltered arm's 06:38 and closed for +$10.60 rather than +$9.62; this later difference is a downstream position-sizing/entry-path effect after the first loss was avoided, not a guaranteed standalone benefit of the filter.
+- The three-day +$7.53 result is only $0.03 above the screening threshold and is based on two trades. The Oct window motivated the hypothesis, so it is exploratory/in-sample, not an independent confirmation. The gate is not promoted on this result alone.
+
+The filtered three-day arm passed data/formula audit (141,232 vote comparisons, zero formula mismatches; 5,432 candle groups with no OHLC integrity faults). It has not yet passed the required longer sequential test or an independent holdout.
+
+## 27. Independent-window result for signal-latch change — Oct 20–22 (run 40118894559)
+
+The Oct baseline and latch-preservation arms both completed on different effective source hashes. Both produced +$2.74 net, PF 1.40, 1.72% max equity DD, 3 trades (1 win / 2 losses). The order/deal list was unchanged: both Oct 20 sells hit SL; the Oct 22 sell reached TP. Logs show the signal memory was held while each Oct 20 position was open, then reset after the position was flat at the next neutral state. The second losing sell occurred later at 11:30.
+
+**Decision:** the latch change has a reproduced targeted benefit for the September immediate post-TP same-direction re-entry, but not for the separate October loss cluster. Keep the fix isolated from main pending additional independent-window validation; do not describe it as a general loss-prevention solution.
