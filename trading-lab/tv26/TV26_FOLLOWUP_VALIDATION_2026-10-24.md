@@ -239,3 +239,12 @@ Promotion criteria are explicit:
 - Every stage must pass both OHLC integrity validation and the independent published TechnicalRating formula audit. Zero trades or an audit/metric failure stops expansion rather than being treated as success.
 
 Each stage gets a unique magic number and its own artifact folder, retaining the tester summary, trade report, logs, CSV exports, formula report, and stage decision. MT5's explicit canceled tick-history failure is retried once; a second or non-transient failure stops the progression. The run was in progress when this entry was written, so no result from the new progressive sequence is asserted here. These thresholds are screening rules selected for the $500 lab account, not general investment guidance or evidence of a robust edge.
+
+
+## 16. Progressive runner infrastructure repair — 2026-10-24
+
+- First progressive run: https://github.com/staryuzar/-/actions/runs/40110879062.
+- Stage 1 did complete and pass its configured screen: October 22, +$10.60 net, PF reported as 0.00 with no losses, max equity DD 0.74%, one winning trade, and both audits passed.
+- Stage 2 did **not** run: the shared tester script clears the MT5 credential environment variable after a run. The progressive orchestrator initially failed to restore it, so stage 2 reported “Missing secret mt5; no tester run attempted.” This was an orchestration failure, not a strategy result. No claim is made about the two-day strategy outcome from this failed attempt.
+- Fix committed: `2b400508d0ccac05f03fdb41a18a5df7f4bad03c` restores the in-memory credential value before each tester attempt and fixes literal USD text in the generated gate report. The secret is not written to source files or artifacts.
+- Rerun triggered: https://github.com/staryuzar/-/actions/runs/40111025063. This rerun starts the progression over with a clean one-day test; two-day and longer windows are only reached if the preceding gate passes.
