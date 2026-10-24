@@ -13,6 +13,18 @@ EXPECTED = {
     "on": ("26102481", "true"),
     "off": ("26102482", "false"),
 }
+EXPECTED_SHARED_INPUTS = {
+    "InpEnableTrading": "true",
+    "InpDemoOnly": "true",
+    "InpTesterOnly": "true",
+    "InpRiskPercent": "1.00",
+    "InpATRPeriod": "14",
+    "InpStopATR": "2.00",
+    "InpTargetATR": "4.00",
+    "InpCooldownBarsAfterExit": "0",
+    "InpRequireM1CloseBreakout": "false",
+    "InpUseM1PriceReversalExit": "false",
+}
 METRICS = {
     "Net profit": "Total Net Profit:",
     "Profit factor": "Profit Factor:",
@@ -28,6 +40,11 @@ def metric(html: str, label: str) -> str:
     pattern = r"(?is)<td[^>]*>\s*" + re.escape(label) + r"\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>"
     m = re.search(pattern, html)
     return re.sub(r"<[^>]+>", "", m.group(1)).strip() if m else "NOT FOUND"
+
+
+def input_value(html: str, name: str):
+    match = re.search(r"(?is)" + re.escape(name) + r"=([^<\\s]+)\\s*</b>", html)
+    return match.group(1).strip() if match else None
 
 
 def first_number(value: str):
@@ -107,6 +124,12 @@ def read_arm(key: str) -> dict:
         raise RuntimeError(f"{key} arm report does not prove expected magic {magic}")
     if not re.search(r"(?is)InpUseRuleBasedEarlyExit=" + re.escape(early) + r"</b>", html):
         raise RuntimeError(f"{key} arm report does not prove early-exit setting={early}")
+    shared_inputs = {name: input_value(html, name) for name in EXPECTED_SHARED_INPUTS}
+    for name, expected in EXPECTED_SHARED_INPUTS.items():
+        if shared_inputs[name] != expected:
+            raise RuntimeError(
+                f"{key} arm input mismatch: {name} expected {expected!r}, got {shared_inputs[name]!r}"
+            )
     if "PASS" not in audit_path.read_text(encoding="utf-8", errors="replace"):
         raise RuntimeError(f"{key} formula audit did not pass")
     if "PASS" not in integrity_path.read_text(encoding="utf-8", errors="replace"):
@@ -133,7 +156,7 @@ def read_arm(key: str) -> dict:
         "summary": summary, "source": source.group(1).lower(), "history": history.group(1).lower(),
         "metrics": metrics, "events": event_set, "triggers": triggers, "completed": completed,
         "failed": failed, "paired": paired, "exit_class": exit_class,
-        "folder": folder, "magic": magic, "early": early,
+        "folder": folder, "magic": magic, "early": early, "shared_inputs": shared_inputs,
     }
 
 
@@ -157,15 +180,19 @@ def main() -> int:
     off_exit = off["exit_class"]
     on_valid_exit = on_exit["valid_summary_only"]
     off_clean = len(off["triggers"]) == 0 and len(off["completed"]) == 0 and not off["failed"]
-    settings_ok = source_equal and history_equal
+    shared_inputs_equal = on["shared_inputs"] == off["shared_inputs"]
+    window_equal = window_range(on["summary"]) == window_range(off["summary"]) and window_range(on["summary"]) != "window unknown"
+    settings_ok = source_equal and history_equal and shared_inputs_equal and window_equal
     window_text = window_range(on["summary"])
     rows = [
         f"# TV26 matched opposite-summary exit A/B — {window_text}",
         "",
-        "Both arms use the same three-day XAUUSD M1 window, MT5 Model 4, source file, history feed, risk 2%, SL 5 ATR and TP 20 ATR. Only InpUseRuleBasedEarlyExit differs. These diagnostic risk/SL/TP values are not the candidate's production defaults.",
+        "Both arms use the same three-day XAUUSD M1 window, MT5 Model 4 and source/history. The configuration is the candidate's normal setup: risk 1%, SL 2 ATR, TP 4 ATR, entry breakout disabled, M1 price-reversal exit disabled, and tester/demo guards enabled. Only InpUseRuleBasedEarlyExit and Magic differ.",
         "",
         f"- Source hash equal: {'YES' if source_equal else 'NO'} ({on['source']} vs {off['source']})",
         f"- OHLCV history hash equal: {'YES' if history_equal else 'NO'} ({on['history']} vs {off['history']})",
+        f"- Same date window: {'YES' if window_equal else 'NO'}",
+        f"- Expected normal inputs match in both arms: {'YES' if shared_inputs_equal else 'NO'}",
         f"- Formula/data audits: PASS for both arms",
         f"- Exit ON triggers/completed/failed: {len(on['triggers'])}/{len(on['completed'])}/{len(on['failed'])}; all-trigger exact pairs: {on['paired']}",
         f"- Exit ON OPPOSITE_SUMMARY triggers/paired: {len(on_exit['summary_triggers'])}/{on_exit['summary_paired']}; unexpected other trigger types: {len(on_exit['other_triggers'])}",

@@ -74,11 +74,11 @@ jobs:
       TV26_TEST_FROM: "${{ matrix.start_date }}"
       TV26_TEST_TO: "${{ matrix.end_date }}"
       TV26_TEST_MODEL: "4"
-      TV26_TEST_RISK_PERCENT: "2.00"
-      TV26_TEST_STOP_ATR: "5.00"
-      TV26_TEST_TARGET_ATR: "20.00"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "4.00"
       TV26_TEST_REQUIRE_M1_BREAKOUT: "false"
-      TV26_TEST_STAGE: "tv26-exit-ab-shared"
+      TV26_TEST_STAGE: "tv26-exit-normal-settings"
     steps:
       - name: Checkout diagnostic candidate
         uses: actions/checkout@v4
@@ -108,7 +108,7 @@ jobs:
             $env:MT5_CREDENTIALS = $savedCredentials
             $env:TV26_TEST_MAGIC = $arm.Magic
             $env:TV26_TEST_USE_EARLY_EXIT = $arm.EarlyExit
-            $env:TV26_TEST_STAGE = "tv26-exit-ab-shared"
+            $env:TV26_TEST_STAGE = "tv26-exit-normal-settings"
             $results = Join-Path $PWD "tv26-strategy-results"
             $retryBackup = Join-Path $PWD "tv26-exit-diagnostic-attempt-1"
             $destination = Join-Path $PWD $arm.Name
