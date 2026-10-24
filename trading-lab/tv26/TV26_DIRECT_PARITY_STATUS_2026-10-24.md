@@ -2,51 +2,57 @@
 
 ## Gate summary
 
-| Gate | Status | Evidence |
+| Gate | Status | Latest evidence |
 |---|---|---|
-| Pine exporters accepted by the TradingView compiler | PASS | [Parity CI, 24 Oct](https://github.com/staryuzar/-/actions/runs/40079665993) |
-| Python comparator / splitter / regression suite | PASS | [38 deterministic tests and TradingView compiler gate](https://github.com/staryuzar/-/actions/runs/40079367672) |
-| MQL5 source compiled by official MetaEditor in cloud | PASS | [MetaEditor compile](https://github.com/staryuzar/-/actions/runs/40079666035) |
-| Recent MT5 audit for 21–23 October 2026 | PASS | [Cloud audit](https://github.com/staryuzar/-/actions/runs/40079359327) |
-| Independent formula reference vs MT5 audit votes | PASS within the recorded MT5 feed | [Audit evidence artifact](https://github.com/staryuzar/-/actions/runs/40079359327/artifacts/12554097875) |
-| Raw Ichimoku values vs OHLC, including 26-bar cloud shift | PASS on the downloaded audit sample: 5,432 candles × 5 raw values, zero mismatches | [Cloud audit artifact](https://github.com/staryuzar/-/actions/runs/40079359327/artifacts/12554097875) |
-| Direct actual TradingView chart data vs MT5 | **PENDING — no TradingView CSV uploaded** | Requires `TV26_AllTF.csv` from the Pine exporter below |
-| Strategy profitability / real-tick robustness | **NOT TESTED by these parity runs** | Requires separate backtests with trading enabled in a controlled tester |
+| Pine exporters accepted by the TradingView compiler | PASS | [Parity CI, TradingView compiler + regressions](https://github.com/staryuzar/-/actions/runs/40083533515) |
+| Python comparator, splitter and regression suite | PASS — 41 deterministic tests | [CI run](https://github.com/staryuzar/-/actions/runs/40083533515) |
+| MQL5 source compiled by official MetaEditor in cloud | PASS | [MetaEditor compile](https://github.com/staryuzar/-/actions/runs/40083533537) |
+| Recent MT5 audit for 21–23 October 2026 | PASS | [Cloud audit](https://github.com/staryuzar/-/actions/runs/40083533466); [artifact 12556177506](https://github.com/staryuzar/-/actions/runs/40083533466/artifacts/12556177506) |
+| Independent formula reference versus MT5 audit votes | PASS on the recorded MT5 feed | [Audit job and evidence](https://github.com/staryuzar/-/actions/runs/40083533466) |
+| Raw Ichimoku values and 26-bar cloud alignment | PASS: 27,160 values, zero mismatches | [Cloud audit artifact](https://github.com/staryuzar/-/actions/runs/40083533466/artifacts/12556177506) |
+| Direct actual TradingView chart data versus MT5 | **PENDING — no real TradingView CSV in the repository** | Requires `TV26_AllTF.csv` from the Pine exporter |
+| EA strategy profitability / real-tick robustness | **NOT TESTED by parity runs** | Requires a separate Strategy Tester campaign with trading enabled only in a controlled tester |
 
-## Verified recent MT5 audit
+## Verified latest MT5 audit
 
-- Window: 21–23 October 2026; MT5 tester end date 24 October.
-- Symbol/account context: XAUUSD, Headway-Demo / Jarocel (Pty) Ltd.
-- Tester: M1, model 1-minute OHLC, 500 USD deposit, 1:1000 leverage.
-- Trading intentionally disabled: `InpEnableTrading=false`, `AllowLiveTrading=0`.
-- Audit rows: 146,664; 5,432 candle groups; 141,232 component votes.
-- Readiness: all 5,432 summary rows complete over M1/M5/M15/M30/H1.
-- Internal aggregate arithmetic: 16,296 values checked, zero mismatches.
-- Independent implementation of published TechnicalRating v3 expressions vs MT5 votes: 141,232 checked, zero mismatches, zero missing values.
-- Source/data fingerprints and all limits are in [TV26_CLOUD_AUDIT_2026-10-24.md](TV26_CLOUD_AUDIT_2026-10-24.md).
+- Window: 21–23 October 2026; Strategy Tester end date 24 October.
+- Symbol/broker: XAUUSD, Headway-Demo / Jarocel (Pty) Ltd.
+- Tester model: M1, 1-minute OHLC, not Real Ticks; deposit 500 USD; leverage 1:1000.
+- Trading was intentionally disabled: `InpEnableTrading=false`, `AllowLiveTrading=0`.
+- Audit CSV: 146,664 data rows; 5,432 candle groups; 141,232 component votes.
+- All 5,432 summary rows were complete on M1/M5/M15/M30/H1.
+- Aggregate arithmetic checks: 16,296 values, zero mismatches.
+- Independent implementation of the published TechnicalRating v3 rules versus MT5 votes: 141,232 checked, zero mismatches, zero missing/invalid values.
+- Raw Ichimoku validation: 27,160 values checked, zero mismatches/missing, including Tenkan, Kijun and Senkou spans shifted 26 bars.
+- Audit SHA-256: `e92d178246b76d463f366a5057729d5a73abe5d67b2ee6f56278a0fd508593b2`.
+- OHLCV history SHA-256: `a694348596d8ccca2cc82bd7ed5d82844c452656cf12fabdcdb7b27333f6c671`.
+- Full detailed record: [TV26_CLOUD_AUDIT_2026-10-24.md](TV26_CLOUD_AUDIT_2026-10-24.md).
 
-The result means that MT5’s recorded votes agree with the independently coded reference on the audited MT5 OHLCV. It does **not** prove that live TradingView chart values are numerically identical.
+These results establish that the recorded MT5 votes agree with an independent implementation of the published rules on the audited MT5 feed. They do **not** show that the live TradingView chart has identical values, and do not establish strategy profitability.
 
-A separate raw-value validation reconstructed Tenkan, Kijun, Senkou Span A/B shifted back 26 bars, and close from the actual exported OHLC. It checked 27,160 raw values over all five timeframes (5,432 Ichimoku candles) with zero mismatches. This confirms the current MT5 buffer alignment on that audited feed; it still does not substitute for the TradingView CSV comparison.
+## Compiler and comparison pipeline checks
 
-## Actual TradingView compiler check
+Both `TradingView_Parity_AllTF_Export.pine` and `TradingView_Parity_Components_1TF.pine` passed the TradingView compiler endpoint as part of CI. The 41-test Python suite includes the CSV splitter, repeated-higher-timeframe-row validation, timestamp handling, formula contract tests, and an end-to-end synthetic comparison across all five timeframes. Its negative test deliberately corrupts one M15 RSI14 vote and confirms that the comparator returns FAIL and identifies RSI14.
 
-Both `TradingView_Parity_AllTF_Export.pine` and `TradingView_Parity_Components_1TF.pine` were sent through the TradingView compiler endpoint as part of GitHub Actions and returned `clean`. The check exposed and fixed a real compile issue before that result: `tvta.wpr(14)` was changed to the built-in `ta.wpr(14)`, and regression tests now prevent the wrong namespace returning.
+- [Latest parity CI and compiler gate — run 40083533515](https://github.com/staryuzar/-/actions/runs/40083533515)
+- [Latest official MetaEditor compile — run 40083533537](https://github.com/staryuzar/-/actions/runs/40083533537)
+- [Latest cloud MT5 audit — run 40083533466](https://github.com/staryuzar/-/actions/runs/40083533466)
+- [Latest audit artifact — 12556177506](https://github.com/staryuzar/-/actions/runs/40083533466/artifacts/12556177506)
 
-## Remaining input
+The synthetic end-to-end pass is a software integration test only. It cannot replace live chart data or Pine runtime output from the user’s TradingView chart.
 
-Export one CSV from TradingView after adding [TradingView_Parity_AllTF_Export.pine](TradingView_Parity_AllTF_Export.pine) to the XAUUSD chart at M1. Target window: 21–23 October 2026. Use the closest available feed to Headway XAUUSD; if OHLC differs, the report will identify the feed/time alignment issue before blaming the formulas.
+## Remaining input: one TradingView export
 
-Upload the resulting file as:
+1. Open XAUUSD on TradingView at M1 and add `TradingView_Parity_AllTF_Export.pine`.
+2. Export chart data, preserving the raw CSV at full precision; use the 21–23 October 2026 window where available and select the closest available XAUUSD feed to Headway-Demo.
+3. Commit the single file as `trading-lab/tv26/parity-input/TV26_AllTF.csv` on branch `tv26-five-timeframes-arabic-candidate`.
 
-`trading-lab/tv26/parity-input/TV26_AllTF.csv`
+The workflow automatically triggers when that exact file is committed. It downloads the matching MT5 audit artifact from run `40083533466`, then creates reports/details for M1/M5/M15/M30/H1. Default MT5 server offset is UTC+3; confirm this against the broker’s actual server time before interpreting timestamps.
 
-on branch `tv26-five-timeframes-arabic-candidate`.
+Do not use another symbol such as a futures contract or a composite gold index as a substitute for spot XAUUSD. Similar ticker labels do not guarantee identical OHLC bars. If prices do not agree, the diagnostics prioritize `PRICE_FEED_OR_CANDLE_ALIGNMENT` before recommending formula changes.
 
-The automated workflow watches that path and starts on commit. It downloads the matching MT5 audit artifact from run `40079359327`, then produces reports for all five timeframes. Its current default MT5 offset is UTC+3; verify the broker server offset before interpreting timing mismatches.
+## Direct parity acceptance gates
 
-Official TradingView documentation describes intraday chart limits by plan: 5,000 bars for basic plans, 10,000 for Essential/Plus, 20,000 for Premium, 25,000 for Expert and 40,000 for Ultimate. See [TradingView's historical intraday bars and limits](https://www.tradingview.com/support/solutions/43000480679-historical-intraday-data-bars-and-limits-explained/). A recent three-day interval is deliberately used to improve the chance of overlap on M1 charts.
+Do not mark direct parity PASS until every timeframe has at least 10 common closed bars, the matched bars cover at least 80% of the MT5 audit bars for that timeframe, OHLC differs by no more than 0.01, all three aggregate ratings are within 0.0011, the Pine-reconstructed aggregates agree with the official TradingView library, and all 26 component votes match without missing values.
 
-## Decision rule
-
-Do not mark parity PASS until all five frames have at least 10 common closed candles, the matched candles cover at least 80% of MT5 audit candles for each frame, OHLC matches within 0.01, all three aggregate ratings are within 0.0011, formula aggregates agree with the official library, and all 26 component votes match without missing values. The 80% coverage gate prevents a misleading PASS based on a tiny overlap. Do not infer profitability from this check.
+This stage must remain marked **PENDING** until the real `TV26_AllTF.csv` is supplied and the workflow produces actual results. Do not infer profitability from these parity checks or enable live trading based on them.

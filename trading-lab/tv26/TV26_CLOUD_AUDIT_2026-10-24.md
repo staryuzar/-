@@ -4,8 +4,8 @@
 
 نجح التدقيق السحابي على MT5 الحقيقي في Windows runner للفترة **21–23 أكتوبر 2026**، مع إيقاف التداول الآلي صراحةً. الغرض من هذا التشغيل هو تجهيز سجل حديث متزامن زمنيًا مع بيانات TradingView القابلة للتصدير على إطار الدقيقة، وليس قياس ربحية المستشار.
 
-- سير العمل: https://github.com/staryuzar/-/actions/runs/40082292816
-- الأثر الكامل: https://github.com/staryuzar/-/actions/runs/40082292816/artifacts/12555587965
+- سير العمل: https://github.com/staryuzar/-/actions/runs/40083533466
+- الأثر الكامل: https://github.com/staryuzar/-/actions/runs/40083533466/artifacts/12556177506
 - الفرع: `tv26-five-timeframes-arabic-candidate`
 - الرمز/الوسيط: XAUUSD / Jarocel (Pty) Ltd / Headway-Demo
 - نسخة MT5: 5.0.0.6283
