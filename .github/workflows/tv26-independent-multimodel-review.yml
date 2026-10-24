@@ -1,0 +1,52 @@
+name: TV26 independent multi-model code review
+
+on:
+  workflow_dispatch:
+    inputs:
+      review_scope:
+        description: "Review focus"
+        required: true
+        type: choice
+        options:
+          - full
+          - exit-path
+          - tradingview-parity
+        default: full
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-multimodel-review-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  independent-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout selected research branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run independent provider reviews
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TV26_REVIEW_SCOPE: ${{ inputs.review_scope }}
+          TV26_BRANCH: ${{ github.ref_name }}
+          TV26_COMMIT: ${{ github.sha }}
+        run: python trading-lab/tv26/run_independent_reviews.py
+      - name: Upload reviews and synthesis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-independent-review-${{ github.run_id }}
+          path: tv26-independent-review/
+          if-no-files-found: warn
+          retention-days: 30
