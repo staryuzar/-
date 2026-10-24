@@ -458,3 +458,20 @@ A separate three-day diagnostic using a 3 ATR target did not yield a valid MT5 r
 Following the correction to the signal-latch test assertion, the current comparator suite passed all 70 Python tests and the TradingView compiler-status gate (workflow 40112887150). MetaEditor compilation also passed (workflow 40112887163). The source-matched trading-disabled cloud audit completed in workflow 40112887198: 141,232 vote comparisons with zero formula mismatches, 16,296 summary aggregate values with zero mismatch, 5,432 OHLC candle groups with no data-quality issues, and 27,160 Ichimoku raw fields with zero mismatch or missing values.
 
 These technical passes strengthen the implementation checks; they do not override the failed three-day profitability gate or establish direct numerical parity against an actual TradingView chart export.
+
+
+## 31. Trade-level diagnosis — same-source October cooldown holdout
+
+The exact Strategy Tester deal rows for the 0-bar and 10-bar arms are identical. The ten closed trades (same list in both arms) break down by date as follows:
+
+| Date | Entries / direction | Net contribution | Detail |
+|---|---|---:|---|
+| Oct 2 | 1 sell | +$6.08 | TP |
+| Oct 5 | 3 sells | -$12.00 | Three SL exits: -$4.13, -$3.09, -$4.78 |
+| Oct 7 | 4 sells | +$4.18 | Two TP wins (+$5.80, +$4.47) and two SL losses (-$3.03, -$3.06) |
+| Oct 9 | 2 buys | -$7.36 | Two SL exits: -$4.76, -$2.60 |
+| Total | 8 sells, 2 buys | -$9.10 | 3 wins, 7 losses |
+
+The main concentration is the three losing sells on October 5 and the two losing buys on October 9. The 10-bar setting failed to block them because the accepted entries were not within ten M1 bars of the previous exit; the entry/deal table and diagnostic counter confirm no cooldown block occurred.
+
+The October 7 12:20 sell was a winner (+$4.47) entered 10 minutes 27 seconds after the prior sell's SL exit at 12:09:33. A 20-bar cooldown could suppress this winning entry even though it would not remove the earlier October 5 cluster. This makes the October 1–10 20-bar arm especially important: do not infer that longer cooldown is better from the October 20–22 diagnostic where it removed a loss. The 20-bar arm's actual report is still required before recording the result.
