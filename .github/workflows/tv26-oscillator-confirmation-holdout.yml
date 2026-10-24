@@ -54,9 +54,48 @@ jobs:
       - name: Install formula-audit dependencies
         run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
 
-      - name: Run isolated MT5 Strategy Tester
+      - name: Run isolated MT5 Strategy Tester with one bounded tick-history retry
         shell: pwsh
-        run: ./.github/scripts/tv26_strategy_backtest.ps1
+        run: |
+          $ErrorActionPreference = "Stop"
+          $completed = $false
+          $results = "tv26-strategy-results"
+          for ($attempt = 1; $attempt -le 2; $attempt++) {
+            try {
+              & ./.github/scripts/tv26_strategy_backtest.ps1
+              $completed = $true
+              break
+            } catch {
+              $diagDir = Join-Path $results "diagnostics"
+              $transientTickFailure = $false
+              if (Test-Path -LiteralPath $diagDir) {
+                foreach ($logFile in @(Get-ChildItem -LiteralPath $diagDir -Filter "*.txt" -File -ErrorAction SilentlyContinue)) {
+                  $logText = Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue
+                  if ($logText -match "(?i)no history data, stop testing|preliminary downloading of history ticks canceled") {
+                    $transientTickFailure = $true
+                    break
+                  }
+                }
+              }
+              if ($attempt -ge 2 -or !$transientTickFailure) { throw }
+              Write-Warning "MT5 canceled incomplete initial tick-history download. Preserving diagnostics and retrying once in the same runner."
+              $failedDiag = Join-Path $results "retry-attempt-1-diagnostics"
+              if (Test-Path -LiteralPath $failedDiag) { Remove-Item -LiteralPath $failedDiag -Recurse -Force }
+              if (Test-Path -LiteralPath $diagDir) { Move-Item -LiteralPath $diagDir -Destination $failedDiag -Force }
+              $summaryPath = Join-Path $results "strategy-backtest-summary.txt"
+              if (Test-Path -LiteralPath $summaryPath) {
+                Copy-Item -LiteralPath $summaryPath -Destination (Join-Path $results "retry-attempt-1-summary.txt") -Force
+              }
+              foreach ($fileName in @("TV26_Audit_XAUUSD_26102327.csv","TV26_OHLC_History_XAUUSD.csv","strategy-tester-report.html","data-integrity-report.md","data-integrity-report.json","formula-parity-report.md","formula-parity-report.json","formula-parity-details.csv")) {
+                $filePath = Join-Path $results $fileName
+                if (Test-Path -LiteralPath $filePath) { Remove-Item -LiteralPath $filePath -Force }
+              }
+              $eventLogs = Join-Path $results "diagnostic-logs"
+              if (Test-Path -LiteralPath $eventLogs) { Remove-Item -LiteralPath $eventLogs -Recurse -Force }
+              Start-Sleep -Seconds 3
+            }
+          }
+          if (!$completed) { throw "MT5 Strategy Tester did not complete after the one permitted tick-history retry." }
 
       - name: Validate exported MT5 audit structure
         shell: bash
