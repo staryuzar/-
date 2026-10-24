@@ -5,7 +5,7 @@
 import TradingView/ta/9 as tvta
 import TradingView/TechnicalRating/3 as tvRating
 
-indicator("TV26 — تدقيق المكونات الـ26", overlay=false, precision=3)
+indicator("TV26 — تدقيق المكونات الـ26", overlay=false, precision=16)
 
 f_calcRating(float src, bool bullCond, bool bearCond) =>
     na(src) ? na : bullCond ? 1.0 : bearCond ? -1.0 : 0.0
