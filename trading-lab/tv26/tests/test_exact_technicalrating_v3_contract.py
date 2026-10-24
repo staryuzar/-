@@ -69,7 +69,7 @@ class ExactTechnicalRatingV3ContractTests(unittest.TestCase):
         self.assertIn("if((ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagic)returntrue;", ea)
         self.assertIn("if(HasForeignNettingPosition())", ea)
         self.assertIn("FOREIGN_NETTING_POSITION", ea)
-        self.assertIn("لم يتم تعديل المركز", ea)
+        self.assertIn("لميتمتعديلالمركز", ea)
 
     def test_all_five_timeframes_use_confirmed_closed_bars_and_timestamp_shift(self):
         pine = compact("TradingView_Parity_AllTF_Export.pine")
