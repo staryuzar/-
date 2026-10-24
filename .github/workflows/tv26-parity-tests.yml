@@ -40,16 +40,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          /tmp/pine-lint trading-lab/tv26/TradingView_Parity_AllTF_Export.pine
-          /tmp/pine-lint trading-lab/tv26/TradingView_Parity_Components_1TF.pine
+          /tmp/pine-lint --human trading-lab/tv26/TradingView_Parity_AllTF_Export.pine
+          /tmp/pine-lint --human trading-lab/tv26/TradingView_Parity_Components_1TF.pine
       - name: Validate Pine exporters with TradingView compiler endpoint
+        id: tv_compile
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           echo "Checking five-timeframe exporter with TradingView..."
           /tmp/pine-lint --tv --human trading-lab/tv26/TradingView_Parity_AllTF_Export.pine
+          alltf_status=$?
           echo "Checking single-timeframe diagnostic exporter with TradingView..."
           /tmp/pine-lint --tv --human trading-lab/tv26/TradingView_Parity_Components_1TF.pine
+          diagnostic_status=$?
+          set -e
+          if [[ "$alltf_status" -eq 0 && "$diagnostic_status" -eq 0 ]]; then
+            echo "status=pass" >> "$GITHUB_OUTPUT"
+            echo "Both Pine exporters passed TradingView compiler validation."
+          else
+            echo "status=fail" >> "$GITHUB_OUTPUT"
+            echo "::error::TradingView compiler validation failed (AllTF=$alltf_status, diagnostic=$diagnostic_status). Python tests will still run for additional diagnostics."
+          fi
       - name: Check Python syntax
         run: >-
           python -m py_compile
@@ -66,3 +77,13 @@ jobs:
           trading-lab/tv26/tests/test_pine_published_formula_contract.py
       - name: Run deterministic parity tests
         run: python -m unittest discover -s trading-lab/tv26/tests -v
+      - name: Enforce TradingView compiler result
+        if: always()
+        shell: bash
+        env:
+          TV_COMPILER_STATUS: ${{ steps.tv_compile.outputs.status }}
+        run: |
+          if [[ "$TV_COMPILER_STATUS" != "pass" ]]; then
+            echo "::error::The TV26 Pine exporters did not pass TradingView compiler validation."
+            exit 1
+          fi
