@@ -39,6 +39,41 @@ class ExitEventPairingTests(unittest.TestCase):
         self.assertNotEqual(MODULE.event_key(first), close_key)
         self.assertEqual(MODULE.event_key(second), close_key)
 
+    def test_summary_exit_passes_only_for_exact_paired_opposite_summary(self):
+        trigger = "TV26_EXIT_TRIGGER;reason=OPPOSITE_SUMMARY;bar=2026.09.01 12:05;side=POSITION_TYPE_BUY;ticket=12345"
+        completed = "TV26_EXIT_COMPLETED;reason=OPPOSITE_SUMMARY;bar=2026.09.01 12:05;ticket=12345"
+        result = MODULE.classify_exit_events([trigger], [completed], [])
+        self.assertTrue(result["valid_summary_only"])
+        self.assertEqual(result["summary_paired"], 1)
+        self.assertEqual(result["other_triggers"], [])
+
+    def test_m1_price_reversal_cannot_pass_summary_only_diagnostic(self):
+        trigger = "TV26_EXIT_TRIGGER;reason=REAL_M1_REVERSAL;bar=2026.09.01 12:05;side=POSITION_TYPE_BUY;ticket=12345"
+        completed = "TV26_EXIT_COMPLETED;reason=REAL_M1_REVERSAL;bar=2026.09.01 12:05;ticket=12345"
+        result = MODULE.classify_exit_events([trigger], [completed], [])
+        self.assertFalse(result["valid_summary_only"])
+        self.assertEqual(result["summary_triggers"], [])
+        self.assertEqual(result["other_triggers"], [trigger])
+
+    def test_summary_exit_without_exact_same_bar_close_does_not_pass(self):
+        trigger = "TV26_EXIT_TRIGGER;reason=OPPOSITE_SUMMARY;bar=2026.09.01 12:05;side=POSITION_TYPE_BUY;ticket=12345"
+        completed = "TV26_EXIT_COMPLETED;reason=OPPOSITE_SUMMARY;bar=2026.09.01 12:06;ticket=12345"
+        result = MODULE.classify_exit_events([trigger], [completed], [])
+        self.assertFalse(result["valid_summary_only"])
+        self.assertEqual(result["summary_paired"], 0)
+
+    def test_summary_exit_with_failed_close_does_not_pass(self):
+        trigger = "TV26_EXIT_TRIGGER;reason=OPPOSITE_SUMMARY;bar=2026.09.01 12:05;side=POSITION_TYPE_BUY;ticket=12345"
+        completed = "TV26_EXIT_COMPLETED;reason=OPPOSITE_SUMMARY;bar=2026.09.01 12:05;ticket=12345"
+        failed = "TV26_EXIT_FAILED;reason=OPPOSITE_SUMMARY;bar=2026.09.01 12:05;ticket=12345"
+        result = MODULE.classify_exit_events([trigger], [completed], [failed])
+        self.assertFalse(result["valid_summary_only"])
+
+    def test_zero_summary_triggers_is_not_a_pass(self):
+        result = MODULE.classify_exit_events([], [], [])
+        self.assertFalse(result["valid_summary_only"])
+        self.assertEqual(result["summary_triggers"], [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

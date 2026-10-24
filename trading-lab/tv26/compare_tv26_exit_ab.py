@@ -51,6 +51,36 @@ def event_key(line: str):
     return (ticket.group(1), reason.group(1), bar.group(1))
 
 
+def classify_exit_events(triggers: list[str], completed: list[str], failed: list[str]) -> dict:
+    """Require the intended opposite-summary event and exact same-bar close pairing."""
+    summary_triggers = [
+        line for line in triggers
+        if re.search(r"(?:^|;)reason=OPPOSITE_SUMMARY(?:;|$)", line)
+    ]
+    other_triggers = [line for line in triggers if line not in summary_triggers]
+    done_keys = {key for line in completed if (key := event_key(line)) is not None}
+    summary_paired = sum(
+        1 for line in summary_triggers
+        if (key := event_key(line)) is not None and key in done_keys
+    )
+    all_keys = [event_key(line) for line in triggers]
+    all_paired = sum(1 for key in all_keys if key is not None and key in done_keys)
+    valid = (
+        bool(summary_triggers)
+        and not other_triggers
+        and summary_paired == len(summary_triggers)
+        and all_paired == len(triggers)
+        and not failed
+    )
+    return {
+        "summary_triggers": summary_triggers,
+        "other_triggers": other_triggers,
+        "summary_paired": summary_paired,
+        "all_paired": all_paired,
+        "valid_summary_only": valid,
+    }
+
+
 def read_arm(key: str) -> dict:
     folder = ARMS[key]
     summary_path = folder / "strategy-backtest-summary.txt"
@@ -92,10 +122,12 @@ def read_arm(key: str) -> dict:
     trigger_keys = [event_key(x) for x in triggers]
     done_keys = {key for x in completed if (key := event_key(x)) is not None}
     paired = sum(1 for key in trigger_keys if key is not None and key in done_keys)
+    exit_class = classify_exit_events(triggers, completed, failed)
     return {
         "summary": summary, "source": source.group(1).lower(), "history": history.group(1).lower(),
         "metrics": metrics, "events": event_set, "triggers": triggers, "completed": completed,
-        "failed": failed, "paired": paired, "folder": folder, "magic": magic, "early": early,
+        "failed": failed, "paired": paired, "exit_class": exit_class,
+        "folder": folder, "magic": magic, "early": early,
     }
 
 
@@ -115,19 +147,24 @@ def main() -> int:
     off = read_arm("off")
     source_equal = on["source"] == off["source"]
     history_equal = on["history"] == off["history"]
-    on_valid_exit = len(on["triggers"]) > 0 and on["paired"] == len(on["triggers"]) and not on["failed"]
+    on_exit = on["exit_class"]
+    off_exit = off["exit_class"]
+    on_valid_exit = on_exit["valid_summary_only"]
     off_clean = len(off["triggers"]) == 0 and len(off["completed"]) == 0 and not off["failed"]
     settings_ok = source_equal and history_equal
+    date_match = re.search(r"Range\\s+(\\d{4}-\\d{2}-\\d{2})\\s+to\\s+(\\d{4}-\\d{2}-\\d{2}) inclusive", on["summary"])
+    window_text = f"{date_match.group(1)} to {date_match.group(2)}" if date_match else "window unknown"
     rows = [
-        "# TV26 matched early-exit A/B — 2026-10-24",
+        f"# TV26 matched opposite-summary exit A/B — {window_text}",
         "",
         "Both arms use the same three-day XAUUSD M1 window, MT5 Model 4, source file, history feed, risk 2%, SL 5 ATR and TP 20 ATR. Only InpUseRuleBasedEarlyExit differs. These diagnostic risk/SL/TP values are not the candidate's production defaults.",
         "",
         f"- Source hash equal: {'YES' if source_equal else 'NO'} ({on['source']} vs {off['source']})",
         f"- OHLCV history hash equal: {'YES' if history_equal else 'NO'} ({on['history']} vs {off['history']})",
         f"- Formula/data audits: PASS for both arms",
-        f"- Early-exit ON triggers/completed/failed: {len(on['triggers'])}/{len(on['completed'])}/{len(on['failed'])}; paired trigger tickets: {on['paired']}",
-        f"- Early-exit OFF triggers/completed/failed: {len(off['triggers'])}/{len(off['completed'])}/{len(off['failed'])}",
+        f"- Exit ON triggers/completed/failed: {len(on['triggers'])}/{len(on['completed'])}/{len(on['failed'])}; all-trigger exact pairs: {on['paired']}",
+        f"- Exit ON OPPOSITE_SUMMARY triggers/paired: {len(on_exit['summary_triggers'])}/{on_exit['summary_paired']}; unexpected other trigger types: {len(on_exit['other_triggers'])}",
+        f"- Exit OFF triggers/completed/failed: {len(off['triggers'])}/{len(off['completed'])}/{len(off['failed'])}",
         "",
         "| Metric | Exit ON | Exit OFF | ON minus OFF |",
         "|---|---:|---:|---:|",
@@ -143,15 +180,21 @@ def main() -> int:
     rows.extend(["", "## Verdict", ""])
     if not settings_ok:
         verdict = "INVALID_MATCH: source or data history hashes differ"
-    elif not on_valid_exit:
-        verdict = "INCONCLUSIVE: exit-ON arm did not demonstrate successful rule-based closes"
     elif not off_clean:
         verdict = "INVALID_MATCH: exit-OFF arm emitted early-exit events"
+    elif on["failed"]:
+        verdict = "FAILED: exit-ON arm logged one or more failed closes"
+    elif on_exit["other_triggers"]:
+        verdict = "INVALID_MATCH: unexpected non-summary trigger in a summary-only diagnostic"
+    elif not on_exit["summary_triggers"]:
+        verdict = "INCONCLUSIVE: no OPPOSITE_SUMMARY trigger occurred in this window"
+    elif not on_valid_exit:
+        verdict = "FAILED: one or more OPPOSITE_SUMMARY triggers lack an exact same-ticket/reason/bar completed close"
     else:
-        verdict = "MATCHED_A_B_VALID: same source/history and switch is isolated"
+        verdict = "MATCHED_A_B_VALID: opposite-summary exit triggers closed successfully; source/history hashes match"
     rows.append(f"**{verdict}.**")
     rows.append("")
-    rows.append("The A/B comparison measures the effect of enabling early exits on this one historical window; it cannot prove a general profitability edge. The opposite-summary branch remains unvalidated unless a trigger reason OPPOSITE_SUMMARY appears.")
+    rows.append("This run isolates the M5/M15/M30 opposite-summary exit; M1 price-reversal exit is disabled. A valid result confirms only the exit path on this historical window, not general strategy profitability.")
     out = ROOT / "tv26-exit-ab-comparison.md"
     out.write_text("\n".join(rows) + "\n", encoding="utf-8")
     print(out.read_text(encoding="utf-8"))

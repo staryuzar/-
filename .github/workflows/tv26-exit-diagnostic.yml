@@ -23,12 +23,29 @@ concurrency:
 
 jobs:
   tester:
+    name: "MT5 matched A/B — ${{ matrix.window }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - window: sep04-06
+            start_date: "2026.09.04"
+            end_date: "2026.09.07"
+          - window: sep07-09
+            start_date: "2026.09.07"
+            end_date: "2026.09.10"
+          - window: oct04-06
+            start_date: "2026.10.04"
+            end_date: "2026.10.07"
+          - window: oct07-09
+            start_date: "2026.10.07"
+            end_date: "2026.10.10"
     runs-on: windows-2022
     timeout-minutes: 45
     env:
       MT5_CREDENTIALS: ${{ secrets.mt5 }}
-      TV26_TEST_FROM: "2026.10.01"
-      TV26_TEST_TO: "2026.10.04"
+      TV26_TEST_FROM: "${{ matrix.start_date }}"
+      TV26_TEST_TO: "${{ matrix.end_date }}"
       TV26_TEST_MODEL: "4"
       TV26_TEST_RISK_PERCENT: "2.00"
       TV26_TEST_STOP_ATR: "5.00"
@@ -136,7 +153,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tv26-matched-exit-ab-${{ github.run_id }}
+          name: tv26-matched-exit-ab-${{ github.run_id }}-${{ matrix.window }}
           path: |
             tv26-exit-a-on/
             tv26-exit-b-off/
