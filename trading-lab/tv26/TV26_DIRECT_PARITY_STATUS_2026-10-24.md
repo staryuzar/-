@@ -46,4 +46,4 @@ Official TradingView documentation describes intraday chart limits by plan: 5,00
 
 ## Decision rule
 
-Do not mark parity PASS until all five frames have at least 10 common closed candles, OHLC matches within 0.01, all three aggregate ratings are within 0.0011, formula aggregates agree with the official library, and all 26 component votes match without missing values. Do not infer profitability from this check.
+Do not mark parity PASS until all five frames have at least 10 common closed candles, the matched candles cover at least 80% of MT5 audit candles for each frame, OHLC matches within 0.01, all three aggregate ratings are within 0.0011, formula aggregates agree with the official library, and all 26 component votes match without missing values. The 80% coverage gate prevents a misleading PASS based on a tiny overlap. Do not infer profitability from this check.
