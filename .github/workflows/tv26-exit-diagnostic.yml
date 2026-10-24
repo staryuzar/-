@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/tv26-exit-diagnostic.yml"
       - ".github/scripts/tv26_strategy_backtest.ps1"
+      - ".github/scripts/tv26_exit_diagnostic_retry.ps1"
       - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
       - "trading-lab/tv26/test_tv26_exit_contract.py"
   workflow_dispatch:
@@ -35,18 +36,18 @@ jobs:
     steps:
       - name: Checkout diagnostic candidate
         uses: actions/checkout@v4
-      - name: Run TV26 entry/exit contract checks before MT5
-        shell: pwsh
-        run: python trading-lab/tv26/test_tv26_exit_contract.py
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Run TV26 entry/exit contract checks before MT5
+        shell: pwsh
+        run: python trading-lab/tv26/test_tv26_exit_contract.py
       - name: Install formula-audit dependencies
         run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
       - name: Run controlled three-day exit diagnostic (tester only; widened SL/TP are diagnostic)
         shell: pwsh
-        run: ./.github/scripts/tv26_strategy_backtest.ps1
+        run: ./.github/scripts/tv26_exit_diagnostic_retry.ps1
       - name: Validate exported MT5 audit
         shell: bash
         run: >-
@@ -67,7 +68,10 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $logs = Get-ChildItem -Path "tv26-strategy-results/diagnostic-logs" -Filter "*.txt" -File -ErrorAction SilentlyContinue
+          $logs = @()
+          foreach ($root in @("tv26-strategy-results","tv26-exit-diagnostic-attempt-1")) {
+            if (Test-Path -LiteralPath $root) { $logs += @(Get-ChildItem -LiteralPath $root -Filter "*.txt" -File -Recurse -ErrorAction SilentlyContinue) }
+          }
           $unique = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
           $markers = @("TV26_EXIT_TRIGGER;","TV26_EXIT_COMPLETED;","TV26_EXIT_FAILED;")
           foreach ($f in $logs) {
@@ -117,6 +121,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tv26-exit-path-diagnostic-${{ github.run_id }}
-          path: tv26-strategy-results/
+          path: |
+            tv26-strategy-results/
+            tv26-exit-diagnostic-attempt-1/
           if-no-files-found: warn
           retention-days: 30
