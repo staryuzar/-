@@ -532,3 +532,21 @@ The gate emits a specific diagnostic with M1/M5 raw and directional oscillator r
 A September 21–30 source-matched real-tick comparison was prepared for threshold 0.00 versus 0.15 using 1% risk, 2 ATR stop, 3 ATR target, M1 close-breakout, zero cooldown, and the same Headway-Demo feed. The first CI attempts exposed test-harness/environment problems before Strategy Tester: (1) an assertion used the wrong `DetailSignal` signature, and (2) the test called a Windows Store WSL shim named `bash` rather than Git Bash, which returned “Windows Subsystem for Linux has no installed distributions.” These are not strategy results. The test was corrected to use Git for Windows' Bash executable explicitly, to parse the block from a UTF-8 temporary file, and to assert the new entry-gate ordering. No performance outcome should be recorded until the current workflow completes compiler, regression, tester and audit gates.
 
 Research holdout workflow: https://github.com/staryuzar/-/actions/runs/40114435807
+
+
+## 36. Targeted post-TP same-direction cooldown — research branch started
+
+Research-only branch: `tv26-post-tp-same-direction-cooldown-study`  
+EA source commit: `5c422c17083eff82b0cb5271c26c2228df01eceb`  
+Tester harness commit: `6e7f2cc5f3dd22598fb79db5f1fd374318920efa`  
+Contract-test commit: `6780c6a5dabdc2e70e3461afa0bc830fb2cfaf8f`
+
+This is a narrower hypothesis than a global after-exit cooldown, based on two observed same-direction re-entries after take-profit that subsequently hit SL:
+- Sep 8: sell TP at 22:58:59, same-direction sell re-entered at 22:59:00, then SL -$5.08.
+- Sep 23: sell TP +$4.50 at 10:59:34, same-direction sell re-entered at 11:10, then SL -$3.83.
+
+A different pattern argues against a global cooldown: on Oct 7, a sell opened at 12:20 after a prior SL at 12:09:33 was a winner (+$4.47). A 20-bar global cooldown delayed it until 12:31; it later won +$7.10, changing profit by +$2.63, but this timing outcome is not evidence the global rule should be adopted.
+
+The research build adds `InpSameDirectionCooldownAfterProfitBars`, default 0 (disabled), capped at 720 bars. It checks the direction of the last closed position and only pauses a new same-direction entry after the complete position lifecycle had positive net profit; it should not pause after an SL/loss or an opposite-direction signal. To account for entry commission, swap and fees, the implementation uses `HistorySelectByPosition` and totals BUY/SELL deal profit, swap, commission and fee across the full position history; if that history cannot be verified, the profit-based gate remains off. Official reference: https://www.mql5.com/en/docs/trading/historyselectbyposition.
+
+The change is isolated to its research branch, and its two-window, source-matched MT5 matrix is being prepared for Sep 21–30 and Oct 1–10 with values 0/10/20 bars, global cooldown fixed at zero, 1% risk, 2 ATR SL, 3 ATR TP, M1 close-breakout and Model 4. **No strategy result is claimed for this new rule until MetaEditor compilation, all regression contracts, the six tester arms and audits pass.** It has not been merged into the candidate or default branch.
