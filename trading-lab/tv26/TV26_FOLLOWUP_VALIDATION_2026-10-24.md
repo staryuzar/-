@@ -359,3 +359,71 @@ Formula audits passed at all three stages: 47,164, 94,198 and 141,232 component 
 A follow-up isolation attempt (https://github.com/staryuzar/-/actions/runs/40111786286) failed before a tester run because a code-edit operation corrupted the shared PowerShell helper's quoting/structure. This is a runner/script failure, not a strategy result; that attempt produced no valid trades or audit. The helper has now been restored from the previously successful version and the per-stage portable-terminal/log-root change applied as a minimal top-of-file edit. A fresh sequential rerun should confirm that isolation fix before relying on per-stage diagnostic counters.
 
 Decision: the current candidate has **not passed multi-day profitability screening**. Keep it in research only; do not merge to main or use live. Continue with the re-entry-latch hypothesis as a separate research branch, while preserving baseline comparisons and rejecting any change that merely suppresses trades without improving held-out outcomes.
+
+
+## 23. Final progressive-runner isolation retest and current-candidate cross-check
+
+Completed runner retest: https://github.com/staryuzar/-/actions/runs/40112081270  
+Artifact: https://github.com/staryuzar/-/actions/runs/40112081270/artifacts/12567257003
+
+The per-stage terminal/log isolation fix is now confirmed by a clean full run. The stage-specific portable MT5 roots and unique magic numbers were used, and each stage's accepted-order diagnostic count matches the Strategy Tester trade count. All three tests and audits completed without the earlier cross-stage log contamination.
+
+| Days | Window | Net | PF | Equity DD | Trades | Wins / losses | Decision |
+|---:|---|---:|---:|---:|---:|---:|---|
+| 1 | Oct 22 | +$10.60 | 0.00* | 0.74% | 1 | 1 / 0 | Expand |
+| 2 | Oct 21–22 | +$10.60 | 0.00* | 0.74% | 1 | 1 / 0 | Expand |
+| 3 | Oct 20–22 | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | Stop |
+
+*PF is displayed as 0.00 by MT5 when no losing trades exist. The first two windows still contain only one trade; this is not evidence of robust profitability. The three-day stage failed the required $7.50 net-profit gate and correctly stopped progression. The stage-specific audit vote counts remain 47,164 / 94,198 / 141,232 with zero formula mismatches, and all OHLC audits passed.
+
+## 24. Signal-latch change — independent October cross-check complete
+
+Research comparison workflow: https://github.com/staryuzar/-/actions/runs/40111570530  
+October artifact: https://github.com/staryuzar/-/actions/runs/40111570530/artifacts/12567026082
+
+The Sep 1–10 comparison previously showed a favorable but small effect: baseline +$3.35 / PF 1.23 / DD 2.48% / five trades (2 wins, 3 losses) versus latch-preservation +$8.43 / PF 1.88 / DD 2.35% / four trades (2 wins, 2 losses). It removed only the identified same-direction sell re-entry that lost $5.08. This outcome is promising but remains a four-trade observation on the period that motivated the hypothesis.
+
+On the predeclared October 20–22 cross-window check, the latch-preservation build did **not** change the result: +$2.74, PF 1.40, equity DD 1.72%, three sells (one win, two losses). The audit passed with 141,232 vote comparisons and zero formula mismatches; OHLC integrity checks also passed. The October logs show no same-signal-latch blocks, so this window does not independently demonstrate a performance gain or a loss.
+
+Implementation note: the latch-preservation source was subsequently committed to the active candidate branch at commit 12fb2fab17c6c5f2c7d715ef0645ae009ec84787; it has not been merged into the repository default/main branch. The result should remain a candidate-branch change, not a production-performance claim. Keep it under observation and retain the baseline as a comparator.
+
+## 25. Ten-day cooldown diagnostic and independent holdout
+
+Diagnostic workflow: https://github.com/staryuzar/-/actions/runs/40112056560  
+10-bar artifact: https://github.com/staryuzar/-/actions/runs/40112056560/artifacts/12567072288  
+20-bar artifact: https://github.com/staryuzar/-/actions/runs/40112056560/artifacts/12567177171
+
+On Oct 14–23, XAUUSD M1, Model 4, $500, 1% risk, SL 2 ATR, TP 3 ATR, M1 close-breakout enabled:
+
+| Cooldown after exit | Net | PF | Max equity DD | Trades | Wins / losses |
+|---:|---:|---:|---:|---:|---:|
+| 10 M1 bars | +$3.13 | 1.19 | 2.24% | 8 | 3 / 5 |
+| 20 M1 bars | +$6.20 | 1.46 | 2.24% | 7 | 3 / 4 |
+
+Compared with the historical zero-cooldown M1-breakout result on this window (-$1.40 / PF 0.93 / DD 2.72% / nine trades), these variants are better screening outcomes. However, the zero-cooldown baseline was measured earlier in the development sequence, so it is not a strict same-commit A/B. More importantly, a prior September 11–20 test showed no general benefit from cooldowns. Do not turn cooldown on globally based on this single window.
+
+A stricter same-source Oct 1–10 holdout is underway in workflow https://github.com/staryuzar/-/actions/runs/40112056553. The zero-bar control has completed and the 10-/20-bar variants were still queued/running at the last status check; no holdout conclusion is claimed until all arms and audits complete.
+
+## 26. MT5 indicator audit — all five timeframes and Ichimoku raw values
+
+Trading-disabled audit workflow: https://github.com/staryuzar/-/actions/runs/40112682884  
+Artifact: https://github.com/staryuzar/-/actions/runs/40112682884/artifacts/12567441591
+
+With EA trading disabled, the Oct 21–23 M1-chart diagnostic completed under MT5 Model 1 and passed:
+- 141,232 indicator votes compared with the independent published TechnicalRating v3 formula implementation; zero mismatches or missing/invalid comparisons.
+- 16,296 summary aggregate values recalculated; zero mismatches.
+- 5,432 OHLC candle groups checked; zero invalid rows, duplicates, or timestamp errors.
+- 27,160 Ichimoku raw fields checked across M1/M5/M15/M30/H1 (Tenkan, Kijun, shifted Span A, shifted Span B and close); zero mismatches and zero missing values.
+- MetaEditor compile: zero errors and zero warnings.
+
+This is stronger coverage of the internal indicator implementation, particularly the 26-bar Ichimoku cloud alignment, but remains a reference-formula check on the Headway-Demo feed. A direct numerical export from the actual TradingView chart on matching symbol/feed/session is still required for the final chart-parity claim.
+
+## 27. Regression-test harness repair
+
+The parity/comparator workflow exposed a test-harness defect after the latch test was added: one assertion referenced an undefined local variable (branch) instead of the fixture's extracted neutral branch. That caused a Python NameError; it was not a failing TradingView formula, MT5 indicator, or EA compilation result.
+
+Fixed in commit 614afebc8998cc4e5351fb1bdbe41bb3d7ce1ca3 by asserting against self.neutral_branch. The follow-up comparator workflow passed all 70 Python tests and its TradingView compiler-status gate: https://github.com/staryuzar/-/actions/runs/40112887150. MetaEditor compile also passed: https://github.com/staryuzar/-/actions/runs/40112887163. The separately launched cloud MT5 audit at https://github.com/staryuzar/-/actions/runs/40112887198 was still queued at last check.
+
+## Current decision
+
+The formula implementations and data-audit tooling now have multiple clean MT5 runs, the progressive runner's isolation is validated, and the signal-latch change has one favorable diagnostic period but no lift in the October cross-check. The candidate still fails the three-day profitability gate, and the direct TradingView chart-export comparison remains open. Keep the work on the candidate/research branches; do not claim the EA is production-ready or enable live use on this evidence.
