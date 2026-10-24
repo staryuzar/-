@@ -872,31 +872,6 @@ void TradeIfAligned()
       return;
    }
 
-   // Strategy-only confirmation: keep the published five-timeframe TechnicalRating
-   // classification unchanged; optionally require directional oscillator support on M1 and M5.
-   if(InpMinM1M5DirectionalOscillatorRating>0.0)
-   {
-      double m1DirectionalOsc=(double)sig*g_oscRating[0];
-      double m5DirectionalOsc=(double)sig*g_oscRating[1];
-      bool m1OscPass=(m1DirectionalOsc>=InpMinM1M5DirectionalOscillatorRating);
-      bool m5OscPass=(m5DirectionalOsc>=InpMinM1M5DirectionalOscillatorRating);
-      if(!m1OscPass || !m5OscPass)
-      {
-         g_lastBlock="تأكيد المذبذبات في الدقيقتين M1 وM5 لا يدعم اتجاه الدخول بالحد المطلوب";
-         g_lastAction="انتظار؛ تصنيف الأطر قوي لكن تأكيد المذبذبات القصيرة غير كافٍ";
-         Print("TV26_ENTRY_BLOCK;reason=M1_M5_OSCILLATOR_GATE;signal=",SignalName(sig),
-               ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
-               ";M1_osc=",DoubleToString(g_oscRating[0],3),
-               ";M1_directional=",DoubleToString(m1DirectionalOsc,3),
-               ";M5_osc=",DoubleToString(g_oscRating[1],3),
-               ";M5_directional=",DoubleToString(m5DirectionalOsc,3),
-               ";threshold=",DoubleToString(InpMinM1M5DirectionalOscillatorRating,3),
-               ";m1_pass=",(m1OscPass?"true":"false"),
-               ";m5_pass=",(m5OscPass?"true":"false"));
-         return;
-      }
-   }
-
    if(HasForeignNettingPosition())
    {
       g_lastBlock="حساب Netting يحتوي على مركز ذهب لا يخص هذا المستشار؛ لم يتم تعديل المركز";
@@ -963,6 +938,32 @@ void TradeIfAligned()
          return;
       }
    }
+
+   // Strategy-only confirmation: keep the published five-timeframe TechnicalRating
+   // classification unchanged; optionally require directional oscillator support on M1 and M5.
+   if(InpMinM1M5DirectionalOscillatorRating>0.0)
+   {
+      double m1DirectionalOsc=(double)sig*g_oscRating[0];
+      double m5DirectionalOsc=(double)sig*g_oscRating[1];
+      bool m1OscPass=(m1DirectionalOsc>=InpMinM1M5DirectionalOscillatorRating);
+      bool m5OscPass=(m5DirectionalOsc>=InpMinM1M5DirectionalOscillatorRating);
+      if(!m1OscPass || !m5OscPass)
+      {
+         g_lastBlock="تأكيد المذبذبات في الدقيقتين M1 وM5 لا يدعم اتجاه الدخول بالحد المطلوب";
+         g_lastAction="انتظار؛ تصنيف الأطر قوي لكن تأكيد المذبذبات القصيرة غير كافٍ";
+         Print("TV26_ENTRY_BLOCK;reason=M1_M5_OSCILLATOR_GATE;signal=",SignalName(sig),
+               ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+               ";M1_osc=",DoubleToString(g_oscRating[0],3),
+               ";M1_directional=",DoubleToString(m1DirectionalOsc,3),
+               ";M5_osc=",DoubleToString(g_oscRating[1],3),
+               ";M5_directional=",DoubleToString(m5DirectionalOsc,3),
+               ";threshold=",DoubleToString(InpMinM1M5DirectionalOscillatorRating,3),
+               ";m1_pass=",(m1OscPass?"true":"false"),
+               ";m5_pass=",(m5OscPass?"true":"false"));
+         return;
+      }
+   }
+
    if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)
    {
       g_lastBlock="حماية الحساب: التداول مسموح على الحساب التجريبي فقط";
