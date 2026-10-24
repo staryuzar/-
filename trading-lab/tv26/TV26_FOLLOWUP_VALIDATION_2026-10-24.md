@@ -550,3 +550,38 @@ A different pattern argues against a global cooldown: on Oct 7, a sell opened at
 The research build adds `InpSameDirectionCooldownAfterProfitBars`, default 0 (disabled), capped at 720 bars. It checks the direction of the last closed position and only pauses a new same-direction entry after the complete position lifecycle had positive net profit; it should not pause after an SL/loss or an opposite-direction signal. To account for entry commission, swap and fees, the implementation uses `HistorySelectByPosition` and totals BUY/SELL deal profit, swap, commission and fee across the full position history; if that history cannot be verified, the profit-based gate remains off. Official reference: https://www.mql5.com/en/docs/trading/historyselectbyposition.
 
 The change is isolated to its research branch, and its two-window, source-matched MT5 matrix is being prepared for Sep 21–30 and Oct 1–10 with values 0/10/20 bars, global cooldown fixed at zero, 1% risk, 2 ATR SL, 3 ATR TP, M1 close-breakout and Model 4. **No strategy result is claimed for this new rule until MetaEditor compilation, all regression contracts, the six tester arms and audits pass.** It has not been merged into the candidate or default branch.
+
+
+## 37. Progressive gate rerun after PowerShell helper restoration — 2026-10-24
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40115334971  
+Artifact: https://github.com/staryuzar/-/actions/runs/40115334971/artifacts/12568635764
+
+The repaired progressive workflow completed successfully at the infrastructure/audit level and stopped at the 3-day profitability gate, as designed. Settings were XAUUSD M1, MT5 Model 4, $500 deposit, risk 1%, SL 2 ATR, TP 4 ATR, M1 close-breakout enabled, demo/tester-only guards, and distinct Magic IDs for each stage.
+
+| Window | Net | PF | Max equity DD | Trades | Wins / losses | Gate |
+|---|---:|---:|---:|---:|---:|---|
+| Oct 22 | +$10.60 | 0.00* | 0.74% | 1 | 1 / 0 | Pass one-day screen only |
+| Oct 21–22 | +$10.60 | 0.00* | 0.74% | 1 | 1 / 0 | Continue to 3 days, still one trade total |
+| Oct 20–22 | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | STOP: below required +$7.50 |
+
+*MT5 reports PF 0.00 with no losing trades; this is not a meaningful PF estimate. One winning trade is not evidence of robust profitability. At three days, the accepted trades were two losing sells on Oct 20 (-$3.81 and -$3.07) and one winning sell on Oct 22 (+$9.62). The runner therefore stopped before longer windows. The 3-day audit checked 141,232 component votes with zero independent-formula mismatches; all 5,432 candle groups and aggregate checks passed. The one- and two-day audits also passed. These are broker-feed formula/data audits, not direct TradingView chart-runtime parity. No live trading or main-branch merge is authorized by these results.
+
+## 38. Signal-latch fix diagnostic — latest fixed-source runs
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40115390637  
+September artifact: https://github.com/staryuzar/-/actions/runs/40115390637/artifacts/12568391392  
+October artifact: https://github.com/staryuzar/-/actions/runs/40115390637/artifacts/12568651534
+
+The fixed-source diagnostic completed both windows using source SHA-256 `1448c417b458b78f7d69225801b44949cefb8b960bbe2a07eb68b719d64dde87`, 1% risk, SL 2 ATR, TP 4 ATR, M1 close-breakout enabled, global cooldown 0, and Model 4. The source preserves the last executed signal while a matching position is still open and only clears/re-arms once neutral and flat.
+
+| Window | Net | PF | Max equity DD | Trades | Wins / losses | Same-signal latch blocks |
+|---|---:|---:|---:|---:|---:|---:|
+| Sep 1–10 | +$8.43 | 1.88 | 2.35% | 4 | 2 / 2 | 2 |
+| Oct 20–22 | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | 0 |
+
+Audits passed: 371,332 component votes on Sep 1–10 and 141,232 on Oct 20–22, with zero vote mismatches and no OHLC integrity errors. The September report's four trades omit the prior unwanted instant same-direction re-entry; the October trades are unchanged because no matching latch block was triggered. These fixed-only runs do not prove the patch caused the difference relative to a baseline. A source-matched before/after A/B matrix is being run using the historical pre-fix source and the fixed source over both periods; no causal improvement is claimed until all four arms complete with matching feed/history checks.
+
+## 39. Direct TradingView parity and strategy gate remain separate
+
+The repository still has no actual live TradingView chart-output CSV from the same symbol/feed and overlapping closed-bar timestamps. Therefore direct numerical TradingView chart-runtime parity remains **PENDING** despite successful Pine compiler, MetaEditor, independent published-formula, OHLC and Ichimoku checks. Strategy robustness also remains **NOT ESTABLISHED**: the recent 3-day progressive screen stopped at +$2.74 against a +$7.50 gate. Continue on research/candidate branches only.
