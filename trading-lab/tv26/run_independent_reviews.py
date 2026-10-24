@@ -65,8 +65,8 @@ def call_deepseek(prompt):
     return data["choices"][0]["message"]["content"]
 
 def call_gemini(prompt):
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=" + os.environ["GEMINI_API_KEY"]
-    data = post_json(url, {}, {
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
+    data = post_json(url, {"x-goog-api-key": os.environ["GEMINI_API_KEY"]}, {
         "systemInstruction": {"parts": [{"text": "Act as an independent senior MQL5 reviewer. Find concrete defects; distinguish evidence from hypotheses."}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 6500}})
