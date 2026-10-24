@@ -31,14 +31,25 @@ All four jobs completed successfully. Each variant's source compiled without err
 - The improvement at 0.10 ATR came with the same maximum losing streak of six. The sample still contains more losing trades than winning trades; the net gain depends on the relative size of winners and losers.
 - The 0.10 ATR run did not merely remove a large set of trades: it retained 19 of 20 entries. However, entry timing changed on one profitable short around 7 October, as well as excluding a losing short on 20 October; this is exactly why an independent-period check is necessary.
 
-## Independent holdout
+## Independent holdout result — 1–10 September
 
-A second, two-variant test has been started on 2026-09-01 through 2026-09-10, with the same 1% risk, SL 2 ATR, TP 4 ATR, breakout requirement, tester model, and initial balance. Only the buffer differs (0.00 vs 0.10 ATR). This period was not used to pick the buffer value. The results must be evaluated before deciding whether to keep the feature.
+Workflow: [GitHub Actions run 40102679768](https://github.com/staryuzar/-/actions/runs/40102679768)
+
+The two holdout jobs completed successfully using Model 4, XAUUSD M1, $500 initial deposit, 1:1000 leverage, 1% risk, SL 2 ATR, TP 4 ATR and the same close-breakout requirement. Only the buffer value differed.
+
+| Buffer | Net P/L | Profit factor | Max equity DD | Trades | Wins / losses |
+|---|---:|---:|---:|---:|---:|
+| 0.00 ATR | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 |
+| 0.10 ATR | +$13.06 | 3.97 | 1.54% | 3 | 2 / 1 |
+
+Both runs passed data-integrity and formula-level audits: 371,332 votes compared each, zero vote mismatches, zero missing/invalid comparisons, zero duplicated rows, zero invalid OHLC candles, and zero summary aggregate mismatches.
+
+The holdout improvement is promising but still a very small sample (three trades with the candidate). Trade records show the buffer changed entry timing and eliminated two losing short outcomes from the baseline sequence while retaining the two later winners; it did **not** filter the losing long on 10 September. That trade entered long at 4431.41 around 08:59 and closed by stop at 09:02:59 for -$4.40 in both variants. The 0.10 ATR variant had two profitable shorts (+$8.47 and +$8.99) and the same $4.40 loss, netting +$13.06. The loss means this holdout fails the strict “no losing trades” gate; do not extend this exact gate as if it passed.
 
 ## Acceptance decision
 
 **Provisional candidate for further testing: 0.10 ATR. Not approved for live trading or merge.**
 
-Do not select a parameter solely from this 23-day backtest. The change remains experimental until the September holdout confirms that the benefit persists with valid, isolated evidence and without excessive drawdown. A positive holdout is still not proof of a durable edge; additional periods and realistic cost sensitivity remain necessary.
+The independent period supports continuing research on 0.10 ATR, but 3 trades cannot establish a reliable edge. The remaining long-side loss points to a separate entry-quality question and must be studied separately; do not pretend the breakout buffer solved it. Before merge or live-use consideration, test additional independent periods, use realistic execution costs, and check for drawdown and loss-streak stability.
 
 MT5 may synthesize replacement ticks in intervals where the broker's real-tick history is missing. The test is historical simulation and does not establish future returns.
