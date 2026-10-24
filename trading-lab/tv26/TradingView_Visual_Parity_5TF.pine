@@ -155,16 +155,11 @@ f_display_payload() =>
     [packedVotes[1], libTotal[1], libMA[1], libOsc[1],
      formulaTotal[1], formulaMA[1], formulaOther[1], time[1]]
 
-[packM1, totalM1, maM1, oscM1, formulaTotalM1, formulaMaM1, formulaOscM1, timeM1] =
-    request.security(syminfo.tickerid, "1", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
-[packM5, totalM5, maM5, oscM5, formulaTotalM5, formulaMaM5, formulaOscM5, timeM5] =
-    request.security(syminfo.tickerid, "5", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
-[packM15, totalM15, maM15, oscM15, formulaTotalM15, formulaMaM15, formulaOscM15, timeM15] =
-    request.security(syminfo.tickerid, "15", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
-[packM30, totalM30, maM30, oscM30, formulaTotalM30, formulaMaM30, formulaOscM30, timeM30] =
-    request.security(syminfo.tickerid, "30", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
-[packH1, totalH1, maH1, oscH1, formulaTotalH1, formulaMaH1, formulaOscH1, timeH1] =
-    request.security(syminfo.tickerid, "60", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packM1, totalM1, maM1, oscM1, formulaTotalM1, formulaMaM1, formulaOscM1, timeM1] = request.security(syminfo.tickerid, "1", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packM5, totalM5, maM5, oscM5, formulaTotalM5, formulaMaM5, formulaOscM5, timeM5] = request.security(syminfo.tickerid, "5", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packM15, totalM15, maM15, oscM15, formulaTotalM15, formulaMaM15, formulaOscM15, timeM15] = request.security(syminfo.tickerid, "15", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packM30, totalM30, maM30, oscM30, formulaTotalM30, formulaMaM30, formulaOscM30, timeM30] = request.security(syminfo.tickerid, "30", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packH1, totalH1, maH1, oscH1, formulaTotalH1, formulaMaH1, formulaOscH1, timeH1] = request.security(syminfo.tickerid, "60", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
 
 var table t = table.new(position.top_right, 6, 33, border_width=1, frame_width=1)
 var string[] timeframeNames = array.from("M1", "M5", "M15", "M30", "H1")
