@@ -44,6 +44,11 @@ if ([string]::IsNullOrWhiteSpace($testOscMinText)) { $testOscMinText = "0.00" }
 $testOscMin = [decimal]::Parse($testOscMinText,$culture)
 if ($testOscMin -lt 0 -or $testOscMin -gt 1.0) { throw "TV26_TEST_M1_OSC_MIN must be between 0.00 and 1.00." }
 $testOscMinText = $testOscMin.ToString("0.00",$culture)
+$testBreakEvenText = [string]$env:TV26_TEST_BREAK_EVEN_ATR
+if ([string]::IsNullOrWhiteSpace($testBreakEvenText)) { $testBreakEvenText = "0.00" }
+$testBreakEven = [decimal]::Parse($testBreakEvenText,$culture)
+if ($testBreakEven -lt 0 -or $testBreakEven -gt 5.0) { throw "TV26_TEST_BREAK_EVEN_ATR must be between 0.00 and 5.00." }
+$testBreakEvenText = $testBreakEven.ToString("0.00",$culture)
 if ([string]::IsNullOrWhiteSpace($testRiskText)) { $testRiskText = "0.50" }
 if ([string]::IsNullOrWhiteSpace($testStopText)) { $testStopText = "2.0" }
 if ([string]::IsNullOrWhiteSpace($testTargetText)) { $testTargetText = "3.0" }
@@ -185,6 +190,7 @@ InpRiskPercent=$testRiskText||$testRiskText||0.10||$testRiskText||N
 InpATRPeriod=14||14||1||14||N
 InpStopATR=$testStopText||$testStopText||0.5||$testStopText||N
 InpTargetATR=$testTargetText||$testTargetText||0.5||$testTargetText||N
+InpBreakEvenATR=$testBreakEvenText||$testBreakEvenText||0.5||$testBreakEvenText||N
 InpCooldownBarsAfterExit=$testCooldownBars||$testCooldownBars||0||$testCooldownBars||N
 InpRequireM1CloseBreakout=$testBreakoutText||$testBreakoutText||0||true||N
 InpMaxSpreadPoints=100.0||100.0||10.0||100.0||N
@@ -235,7 +241,7 @@ UseCloud=0
 Visual=0
 "@
   [System.IO.File]::WriteAllText($config,$ini,[System.Text.UTF8Encoding]::new($false))
-  "Tester configured: M1 chart; date range $rangeLabelStart to $rangeLabelEnd; model=$testModel ($testModelLabel); risk=$testRiskText percent; SL=$testStopText ATR; TP=$testTargetText ATR; InpEnableTrading=true; InpDemoOnly=true; InpTesterOnly=true. Orders are simulated inside MT5 Strategy Tester only." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Tester configured: M1 chart; date range $rangeLabelStart to $rangeLabelEnd; model=$testModel ($testModelLabel); risk=$testRiskText percent; SL=$testStopText ATR; TP=$testTargetText ATR; break-even=$testBreakEvenText ATR; InpEnableTrading=true; InpDemoOnly=true; InpTesterOnly=true. Orders are simulated inside MT5 Strategy Tester only." | Add-Content -LiteralPath $summary -Encoding utf8
   $env:MT5_CREDENTIALS = $null
   $accountPasswordForRedaction = $accountPassword
   $accountPassword = $null
@@ -322,6 +328,7 @@ Visual=0
     '(?is)InpRiskPercent=' + [regex]::Escape($testRiskText) + '</b>',
     '(?is)InpStopATR=' + [regex]::Escape($testStopText) + '</b>',
     '(?is)InpTargetATR=' + [regex]::Escape($testTargetText) + '</b>',
+    '(?is)InpBreakEvenATR=' + [regex]::Escape($testBreakEvenText) + '</b>',
     '(?is)InpRequireM1CloseBreakout=' + [regex]::Escape($testBreakoutText) + '</b>',
     '(?is)InpCooldownBarsAfterExit=' + [regex]::Escape($testCooldownText) + '</b>'
   )
@@ -330,7 +337,7 @@ Visual=0
       throw "Tester report does not confirm required safe backtest input pattern: $pattern"
     }
   }
-  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic $testMagicText; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText; post-exit cooldown=$testCooldownBars M1 bars)." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic $testMagicText; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; break-even=$testBreakEvenText ATR; M1 close-breakout=$testBreakoutText; post-exit cooldown=$testCooldownBars M1 bars)." | Add-Content -LiteralPath $summary -Encoding utf8
   function Get-TesterMetric([string]$ReportHtml,[string]$Label) {
     $pattern = '(?is)<td[^>]*>\s*' + [regex]::Escape($Label) + '\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>'
     $match = [regex]::Match($ReportHtml,$pattern)
