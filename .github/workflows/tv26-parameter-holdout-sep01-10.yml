@@ -1,0 +1,116 @@
+name: TV26 independent parameter holdout — Sep 1–10
+
+on:
+  push:
+    branches:
+      - tv26-consensus-threshold-study
+    paths:
+      - ".github/workflows/tv26-parameter-holdout-sep01-10.yml"
+      - ".github/scripts/tv26_strategy_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize against the screening jobs because they use the same demo account secret.
+concurrency:
+  group: tv26-consensus-threshold-screen-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tester:
+    name: "${{ matrix.label }}"
+    runs-on: windows-2022
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - id: baseline
+            label: "Holdout baseline: 1 bar / 0.50"
+            lookback: "1"
+            threshold: "0.50"
+          - id: lookback5
+            label: "Holdout: 5-bar breakout / 0.50"
+            lookback: "5"
+            threshold: "0.50"
+          - id: threshold055
+            label: "Holdout: 1-bar breakout / 0.55"
+            lookback: "1"
+            threshold: "0.55"
+          - id: combined5_055
+            label: "Holdout: 5-bar breakout / 0.55"
+            lookback: "5"
+            threshold: "0.55"
+
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      PYTHONUTF8: "1"
+      TV26_TEST_FROM: "2026.09.01"
+      TV26_TEST_TO: "2026.09.11"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "4.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_BREAKOUT_LOOKBACK_BARS: "${{ matrix.lookback }}"
+      TV26_TEST_BREAKOUT_BUFFER_ATR: "0.00"
+      TV26_TEST_ENTRY_CONSENSUS_THRESHOLD: "${{ matrix.threshold }}"
+
+    steps:
+      - name: Checkout isolated EA candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Run isolated MT5 Strategy Tester
+        shell: pwsh
+        run: ./.github/scripts/tv26_strategy_backtest.ps1
+
+      - name: Validate exported MT5 audit structure
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_mt5_audit.py
+          --csv tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --report tv26-strategy-results/data-integrity-report.md
+          --json tv26-strategy-results/data-integrity-report.json
+
+      - name: Compare votes with independent published TradingView formulas
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-strategy-results/formula-parity-report.md
+          --details tv26-strategy-results/formula-parity-details.csv
+          --json tv26-strategy-results/formula-parity-report.json
+
+      - name: Publish summary and upload evidence
+        if: always()
+        shell: pwsh
+        run: |
+          "## ${{ matrix.label }}" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          "Window: 2026-09-01 through 2026-09-10; risk 1%; SL 2 ATR; TP 4 ATR; tester Model 4." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          $summaryPath = "tv26-strategy-results/strategy-backtest-summary.txt"
+          if (Test-Path -LiteralPath $summaryPath) {
+            Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          } else {
+            "Tester summary missing; incomplete infrastructure run, not a strategy outcome." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+
+      - name: Upload tester evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-param-holdout-${{ matrix.id }}-${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
