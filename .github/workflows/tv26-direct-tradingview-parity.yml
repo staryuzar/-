@@ -1,6 +1,12 @@
 name: TV26 direct TradingView parity
 
 on:
+  # As soon as the real TradingView CSV is committed, produce the comparison reports automatically.
+  push:
+    branches:
+      - tv26-five-timeframes-arabic-candidate
+    paths:
+      - "trading-lab/tv26/parity-input/TV26_AllTF.csv"
   workflow_dispatch:
     inputs:
       mt5_audit_run_id:
@@ -22,6 +28,9 @@ jobs:
   compare:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      MT5_AUDIT_RUN_ID: ${{ inputs.mt5_audit_run_id || '39985703535' }}
+      MT5_UTC_OFFSET_HOURS: ${{ inputs.mt5_utc_offset_hours || '3' }}
     steps:
       - name: Checkout parity inputs
         uses: actions/checkout@v4
@@ -29,7 +38,6 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          MT5_AUDIT_RUN_ID: ${{ inputs.mt5_audit_run_id }}
         run: |
           set -euo pipefail
           mkdir -p downloaded-mt5-audit
@@ -74,7 +82,7 @@ jobs:
               --tv "tv26-direct-parity-results/TV26_${tf}_normalized.csv" \
               --mt5 trading-lab/tv26/parity-input/MT5_Audit.csv \
               --timeframe "${tf}" \
-              --mt5-utc-offset-hours "${{ inputs.mt5_utc_offset_hours }}" \
+              --mt5-utc-offset-hours "$MT5_UTC_OFFSET_HOURS" \
               --min-bars 10 \
               --report "tv26-direct-parity-results/${tf}-report.md" \
               --details "tv26-direct-parity-results/${tf}-details.csv"; then
