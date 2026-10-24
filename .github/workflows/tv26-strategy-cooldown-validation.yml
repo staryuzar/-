@@ -1,0 +1,95 @@
+name: TV26 10-day breakout + post-exit cooldown diagnostics
+
+on:
+  push:
+    branches:
+      - tv26-five-timeframes-arabic-candidate
+    paths:
+      - ".github/workflows/tv26-strategy-cooldown-validation.yml"
+      - ".github/scripts/tv26_strategy_cooldown_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-cooldown-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tester:
+    name: "M1 breakout + ${{ matrix.cooldown }}-bar cooldown"
+    runs-on: windows-2022
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cooldown: [5, 10]
+
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      TV26_TEST_FROM: "2026.10.14"
+      TV26_TEST_TO: "2026.10.24"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "3.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_COOLDOWN_BARS: "${{ matrix.cooldown }}"
+
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Run isolated 10-day real-tick Strategy Tester
+        shell: pwsh
+        run: ./.github/scripts/tv26_strategy_cooldown_backtest.ps1
+
+      - name: Validate exported MT5 audit structure
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_mt5_audit.py
+          --csv tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --report tv26-strategy-results/data-integrity-report.md
+          --json tv26-strategy-results/data-integrity-report.json
+
+      - name: Compare all 26 votes to independent published formulas
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-strategy-results/formula-parity-report.md
+          --details tv26-strategy-results/formula-parity-details.csv
+          --json tv26-strategy-results/formula-parity-report.json
+
+      - name: Add result to the Actions summary
+        if: always()
+        shell: pwsh
+        run: |
+          $summaryPath = "tv26-strategy-results/strategy-backtest-summary.txt"
+          "## M1 breakout + ${{ matrix.cooldown }}-bar cooldown" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          if (Test-Path -LiteralPath $summaryPath) {
+            Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          } else {
+            "The tester summary file was not generated. Treat this run as incomplete." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+
+      - name: Upload full tester evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-cooldown-${{ matrix.cooldown }}bars-${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
