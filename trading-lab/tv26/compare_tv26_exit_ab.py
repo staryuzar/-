@@ -107,6 +107,10 @@ def fmt_delta(on_value: str, off_value: str) -> str:
 
 
 def main() -> int:
+    # Windows GitHub runners may use a legacy console encoding; logs contain Arabic frame labels.
+    # Keep the UTF-8 report authoritative and prevent console printing from failing after it is written.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     on = read_arm("on")
     off = read_arm("off")
     source_equal = on["source"] == off["source"]
