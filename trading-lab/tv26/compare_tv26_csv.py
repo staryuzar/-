@@ -145,6 +145,33 @@ def lookup(row: dict[str, str], headers: list[str], colname: str) -> str:
     return row.get(actual, "") if actual else ""
 
 
+def diagnose_comparison(counts: dict[str, int], min_bars: int) -> tuple[str, str]:
+    """Return a prioritized next-step diagnosis; do not tune formulas before feed/time alignment."""
+    if counts["matched_bars"] == 0:
+        return ("NO_TIME_OVERLAP",
+                "لا توجد شموع مشتركة: راجع فرق توقيت خادم MT5، ومدى التاريخ، ثم مصدر الرمز.")
+    if counts["matched_bars"] < min_bars:
+        return ("INSUFFICIENT_OVERLAP",
+                "الشموع المشتركة أقل من المطلوب: صدّر فترة أوسع وتأكد من توفر سجل MT5 للفترة نفسها.")
+    if counts["incomplete_mt5_summary_bars"] or counts["component_values_missing"]:
+        return ("INCOMPLETE_DATA",
+                "هناك قيم أو مكونات غير مكتملة؛ أصلح جاهزية البيانات قبل تقييم الصيغ.")
+    if counts["price_mismatches"]:
+        return ("PRICE_FEED_OR_CANDLE_ALIGNMENT",
+                "أسعار OHLC مختلفة؛ مصدر السعر أو توقيت الشموع أو ضبط الجلسة غير متطابق. لا تعدّل الصيغ قبل حل ذلك.")
+    if not counts["formula_calibration_values_checked"] or counts["formula_calibration_mismatches"]:
+        return ("PINE_AGGREGATE_FORMULA_MISMATCH",
+                "تجميعات Pine لا تطابق مكتبة TradingView الرسمية؛ أصلح المُصدّر قبل مقارنة MT5.")
+    if counts["summary_mismatches"]:
+        return ("MT5_SUMMARY_RATING_MISMATCH",
+                "الأسعار متطابقة لكن درجات ملخص MT5 تختلف؛ افحص تجميع الأصوات والمنطق النهائي في المستشار.")
+    if counts["component_vote_mismatches"]:
+        return ("COMPONENT_VOTE_MISMATCH",
+                "الملخصات والأسعار اجتازت الفحص، لكن مكونات محددة تختلف؛ استخدم ملف التفاصيل لتحديد المؤشر والشمعة.")
+    return ("MATCH_WITHIN_TOLERANCES",
+            "جميع شروط المقارنة اجتازت الفحص ضمن حدود التسامح المحددة لهذه العينة.")
+
+
 def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
                   mt5_utc_offset_hours: float, min_bars: int = 10,
                   price_tolerance: float = 0.01, rating_tolerance: float = 0.0011
@@ -329,8 +356,10 @@ def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
         "pine_component_aggregates_match_official_library": counts["formula_calibration_values_checked"] > 0 and counts["formula_calibration_mismatches"] == 0,
         "all_26_component_votes_match": counts["component_vote_mismatches"] == 0,
     }
+    diagnosis_code, diagnosis_ar = diagnose_comparison(counts, min_bars)
     result = {
         "status": "PASS" if all(requirements.values()) else "FAIL",
+        "diagnosis_code": diagnosis_code, "diagnosis_ar": diagnosis_ar,
         "timeframe": tf, "min_bars_required": min_bars,
         "mt5_utc_offset_hours": mt5_utc_offset_hours, "mt5_symbols": sorted(symbols),
         "price_tolerance": price_tolerance, "rating_tolerance": rating_tolerance,
@@ -381,6 +410,11 @@ def make_report(r: dict[str, Any], mt5_path: str | Path, tv_path: str | Path) ->
 ## شروط النجاح
 
 {checks}
+
+## التشخيص ذي الأولوية
+
+- الرمز: **{r['diagnosis_code']}**
+- الإجراء التالي: {r['diagnosis_ar']}
 
 ## قراءة النتيجة
 
