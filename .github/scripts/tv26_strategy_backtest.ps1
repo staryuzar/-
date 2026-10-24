@@ -208,6 +208,16 @@ Visual=0
   $env:MT5_CREDENTIALS = $null
   $accountPasswordForRedaction = $accountPassword
   $accountPassword = $null
+  # A/B arms reuse the same portable MT5 installation. Purge prior-arm logs before this launch so
+  # the next arm cannot inherit old TV26_EXIT_* events from the preceding tester run.
+  $staleLogs = @(Get-ChildItem -LiteralPath $install -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue)
+  foreach ($staleLog in $staleLogs) {
+    Remove-Item -LiteralPath $staleLog.FullName -Force -ErrorAction Stop
+  }
+  $remainingLogs = @(Get-ChildItem -LiteralPath $install -Filter "*.log" -File -Recurse -ErrorAction SilentlyContinue)
+  if ($remainingLogs.Count -gt 0) {
+    throw "Unable to guarantee clean per-arm MT5 log state; refusing to launch tester."
+  }
   $tester = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable", "/config:$config") -WorkingDirectory $install -PassThru
   if (!$tester.WaitForExit(900000)) {
     Stop-Process -Id $tester.Id -Force -ErrorAction SilentlyContinue
