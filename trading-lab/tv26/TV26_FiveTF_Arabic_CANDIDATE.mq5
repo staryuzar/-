@@ -6,12 +6,12 @@ input bool   InpEnableTrading       = true;
 input bool   InpDemoOnly            = true;
 input bool   InpTesterOnly          = false; // When true, refuse execution outside MT5 Strategy Tester.
 input ulong  InpMagic               = 26102326;
-input double InpRiskPercent         = 0.50;
+input double InpRiskPercent         = 1.00;
 input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
-input double InpTargetATR           = 3.0;
+input double InpTargetATR           = 4.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
-input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
+input bool   InpRequireM1CloseBreakout = true; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
 input ENUM_TIMEFRAMES InpTF1        = PERIOD_M1;
@@ -559,17 +559,29 @@ void EvaluateAll()
       g_rating[t]=(g_maReady[t]==15 && g_oscReady[t]==11 ? (g_maRating[t]+g_oscRating[t])/2.0 : 0.0);
    }
 }
+// Multi-timeframe trend + confirmation + M1 execution.
+// H1 and M30 set the directional bias; M15 confirms it; M5 may be neutral
+// but cannot materially oppose it. M1 breakout is the execution trigger by default.
 int AlignedSignal()
 {
-   bool allStrongBuy=true, allStrongSell=true;
    for(int t=0;t<N_TF;t++)
+      if(g_ready[t]!=N_RATINGS || g_maReady[t]!=15 || g_oscReady[t]!=11)
+         return 0;
+
+   const double directional=0.10;
+   const double opposition=0.10;
+   bool buyBias=(g_rating[4]>directional && g_rating[3]>directional && g_rating[2]>directional);
+   bool sellBias=(g_rating[4]<-directional && g_rating[3]<-directional && g_rating[2]<-directional);
+
+   // M5 neutrality is acceptable; meaningful opposition blocks the setup.
+   if(buyBias && g_rating[1]>=-opposition)
    {
-      if(g_ready[t]!=N_RATINGS || g_maReady[t]!=15 || g_oscReady[t]!=11) return 0;
-      if(g_rating[t]<=STRONG) allStrongBuy=false;
-      if(g_rating[t]>=-STRONG) allStrongSell=false;
+      if(InpRequireM1CloseBreakout || g_rating[0]>directional) return 1;
    }
-   if(allStrongBuy) return 1;
-   if(allStrongSell) return -1;
+   if(sellBias && g_rating[1]<=opposition)
+   {
+      if(InpRequireM1CloseBreakout || g_rating[0]<-directional) return -1;
+   }
    return 0;
 }
 string DetailSignal(int t,int j)
