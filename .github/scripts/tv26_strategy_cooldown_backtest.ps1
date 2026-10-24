@@ -34,6 +34,11 @@ if ([string]::IsNullOrWhiteSpace($testCooldownText)) { $testCooldownText = "0" }
 $testCooldownBars = [int]::Parse($testCooldownText,$culture)
 if ($testCooldownBars -lt 0 -or $testCooldownBars -gt 720) { throw "TV26_TEST_COOLDOWN_BARS must be between 0 and 720." }
 $testCooldownText = $testCooldownBars.ToString($culture)
+$testProfitReentryText = [string]$env:TV26_TEST_PROFIT_REENTRY_COOLDOWN_BARS
+if ([string]::IsNullOrWhiteSpace($testProfitReentryText)) { $testProfitReentryText = "0" }
+$testProfitReentryBars = [int]::Parse($testProfitReentryText,$culture)
+if ($testProfitReentryBars -lt 0 -or $testProfitReentryBars -gt 720) { throw "TV26_TEST_PROFIT_REENTRY_COOLDOWN_BARS must be between 0 and 720." }
+$testProfitReentryText = $testProfitReentryBars.ToString($culture)
 if ([string]::IsNullOrWhiteSpace($testRiskText)) { $testRiskText = "0.50" }
 if ([string]::IsNullOrWhiteSpace($testStopText)) { $testStopText = "2.0" }
 if ([string]::IsNullOrWhiteSpace($testTargetText)) { $testTargetText = "3.0" }
@@ -95,6 +100,7 @@ $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $nu
   "Model $testModel ($testModelLabel), deposit 500 USD, leverage 1:1000.",
   "M1 close-breakout confirmation: $testBreakoutText (last closed M1 close must break the prior candle high/low).",
   "Post-exit cooldown: $testCooldownBars M1 bars.",
+  "Same-direction post-profit cooldown: $testProfitReentryBars M1 bars; 0 disables it. This rule must only affect same-direction entries after a net-profitable exit.",
   "MT5 may synthesize replacement ticks for intervals where broker real-tick history is missing.",
   "This is a preliminary historical strategy simulation. It is not a live account run, and it does not prove future profitability.",
   "UTC start: $([DateTime]::UtcNow.ToString('o'))"
@@ -147,6 +153,7 @@ InpATRPeriod=14||14||1||14||N
 InpStopATR=$testStopText||$testStopText||0.5||$testStopText||N
 InpTargetATR=$testTargetText||$testTargetText||0.5||$testTargetText||N
 InpCooldownBarsAfterExit=$testCooldownBars||$testCooldownBars||0||$testCooldownBars||N
+InpSameDirectionCooldownAfterProfitBars=$testProfitReentryBars||$testProfitReentryBars||0||$testProfitReentryBars||N
 InpRequireM1CloseBreakout=$testBreakoutText||$testBreakoutText||0||true||N
 InpMaxSpreadPoints=100.0||100.0||10.0||100.0||N
 InpDeviationPoints=20||20||1||20||N
@@ -284,14 +291,15 @@ Visual=0
     '(?is)InpStopATR=' + [regex]::Escape($testStopText) + '</b>',
     '(?is)InpTargetATR=' + [regex]::Escape($testTargetText) + '</b>',
     '(?is)InpRequireM1CloseBreakout=' + [regex]::Escape($testBreakoutText) + '</b>',
-    '(?is)InpCooldownBarsAfterExit=' + [regex]::Escape($testCooldownText) + '</b>'
+    '(?is)InpCooldownBarsAfterExit=' + [regex]::Escape($testCooldownText) + '</b>',
+    '(?is)InpSameDirectionCooldownAfterProfitBars=' + [regex]::Escape($testProfitReentryText) + '</b>'
   )
   foreach ($pattern in $expectedInputs) {
     if ($html -notmatch $pattern) {
       throw "Tester report does not confirm required safe backtest input pattern: $pattern"
     }
   }
-  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText; post-exit cooldown=$testCooldownBars M1 bars)." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText; post-exit cooldown=$testCooldownBars M1 bars; same-direction post-profit cooldown=$testProfitReentryBars M1 bars)." | Add-Content -LiteralPath $summary -Encoding utf8
   function Get-TesterMetric([string]$ReportHtml,[string]$Label) {
     $pattern = '(?is)<td[^>]*>\s*' + [regex]::Escape($Label) + '\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>'
     $match = [regex]::Match($ReportHtml,$pattern)
@@ -378,6 +386,7 @@ Visual=0
     "rejected_orders" = 'TV26_ORDER_REJECTED;'
     "blocked_invalid_atr" = 'reason=ATR_NOT_READY'
     "blocked_post_exit_cooldown" = 'reason=POST_EXIT_COOLDOWN'
+    "blocked_post_profit_same_direction_cooldown" = 'reason=POST_PROFIT_SAME_DIRECTION_COOLDOWN'
   }
   foreach ($metric in $diagnosticPatterns.Keys) {
     $count = [regex]::Matches($diagText,[regex]::Escape($diagnosticPatterns[$metric])).Count
