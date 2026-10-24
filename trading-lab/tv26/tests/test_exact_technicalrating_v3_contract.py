@@ -59,6 +59,14 @@ class ExactTechnicalRatingV3ContractTests(unittest.TestCase):
         self.assertIn("if(!UpdateTVRSIState(t,a,b))returnfalse;", ea)
         self.assertIn("score=(a<30&&a>b?1:(a>70&&a<b?-1:0));", ea)
 
+    def test_timeframe_input_order_is_pinned_to_signal_contract(self):
+        ea = compact("TV26_FiveTF_Arabic_CANDIDATE.mq5")
+        self.assertIn("if(g_tfs[0]!=PERIOD_M1||g_tfs[1]!=PERIOD_M5||", ea)
+        self.assertIn("g_tfs[2]!=PERIOD_M15||g_tfs[3]!=PERIOD_M30||", ea)
+        self.assertIn("g_tfs[4]!=PERIOD_H1)", ea)
+        self.assertIn("INIT_PARAMETERS_INCORRECT", ea)
+        self.assertIn("M1/M5/M15/M30/H1", ea)
+
     def test_risk_and_order_safety_inputs_have_hard_validation(self):
         ea = compact("TV26_FiveTF_Arabic_CANDIDATE.mq5")
         self.assertIn("if(InpRiskPercent<=0||InpRiskPercent>2.0)", ea)

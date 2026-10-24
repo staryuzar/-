@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.009"
+#property version   "1.010"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -1156,8 +1156,14 @@ void TradeIfAligned()
 int OnInit()
 {
    g_tfs[0]=InpTF1;g_tfs[1]=InpTF2;g_tfs[2]=InpTF3;g_tfs[3]=InpTF4;g_tfs[4]=InpTF5;
-   for(int t=0;t<N_TF;t++)
-      for(int k=0;k<t;k++) if(g_tfs[t]==g_tfs[k]){Print("TV26: يجب اختيار خمسة أطر زمنية مختلفة");return INIT_PARAMETERS_INCORRECT;}
+   // Entry/exit consensus functions use fixed indices; reject altered order rather than silently rating the wrong frames.
+   if(g_tfs[0]!=PERIOD_M1 || g_tfs[1]!=PERIOD_M5 ||
+      g_tfs[2]!=PERIOD_M15 || g_tfs[3]!=PERIOD_M30 ||
+      g_tfs[4]!=PERIOD_H1)
+   {
+      Print("TV26: ترتيب الأطر يجب أن يكون M1/M5/M15/M30/H1؛ إجماع الدخول والخروج يعتمد على هذه الفهارس");
+      return INIT_PARAMETERS_INCORRECT;
+   }
    // Hard safety limit: reject accidental risk settings above the lab's 2% ceiling.
    if(InpRiskPercent<=0 || InpRiskPercent>2.0)
    {
