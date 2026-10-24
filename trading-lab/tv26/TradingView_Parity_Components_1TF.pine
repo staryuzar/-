@@ -1,3 +1,5 @@
+// LEGACY FORMULA REFERENCE ONLY — do not export real TradingView chart data to CSV or upload it for automated processing.
+// Use TradingView_Visual_Parity_5TF.pine for a display-only, human-readable check under current TradingView market-data policy.
 // This is a diagnostic reimplementation of the published TechnicalRating v3 rating expressions.
 // © TradingView source-expression reference (MPL-2.0): https://www.tradingview.com/script/jDWyb5PG-TechnicalRating/
 // Reference source snapshot inspected: https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts
