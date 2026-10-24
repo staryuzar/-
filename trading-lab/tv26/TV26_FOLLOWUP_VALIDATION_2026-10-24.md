@@ -338,3 +338,24 @@ After reviewing the completed progressive artifact, the tester report's actual d
 The shared progressive helper now uses a separate portable MT5 installation/log root for each stage, keyed by that stage's unique magic number. The progressive workflow path filter was updated so the isolation change triggers a new sequential run. Retest: https://github.com/staryuzar/-/actions/runs/40111786286
 
 The rerun must reproduce the strategy metrics and demonstrate that each stage's diagnostic events match only that stage's trades before the log counters are reused. The previously completed run remains historical evidence for its Strategy Tester reports and formula/data audits; no inflated diagnostic counter is treated as a strategy fact.
+
+## 22. Progressive daily gate — completed strategy screen and runner isolation correction
+
+Completed sequential tester run: https://github.com/staryuzar/-/actions/runs/40111025063  
+Artifact: https://github.com/staryuzar/-/actions/runs/40111025063/artifacts/12567295356
+
+The corrected credential handling allowed the progressive gate to complete three sequential stages. It used XAUUSD M1, MT5 Model 4, $500 deposit, 1% risk, 2 ATR stop, 4 ATR target, M1 close-breakout, demo guard and tester-only guard. Each stage completed its formula and OHLC integrity audits.
+
+| Days | Window | Net | PF | Max equity DD | Trades | Wins / losses | Gate |
+|---:|---|---:|---:|---:|---:|---:|---|
+| 1 | Oct 22 | +$10.60 | 0.00* | 0.74% | 1 | 1 / 0 | Pass screen |
+| 2 | Oct 21–22 | +$10.60 | 0.00* | 0.74% | 1 | 1 / 0 | Pass screen |
+| 3 | Oct 20–22 | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | Stop |
+
+*MT5 reports PF 0.00 when gross losses are zero; it is not a negative PF reading. The one-day and two-day runs each produced the same single trade on Oct 22. The three-day run did not meet the predeclared $7.50 minimum net profit for three days, so the workflow correctly stopped without running longer windows.
+
+Formula audits passed at all three stages: 47,164, 94,198 and 141,232 component votes checked respectively; zero mismatches or missing/invalid votes. Summary aggregate checks passed; OHLC integrity audits reported zero invalid rows, duplicates or timestamp errors. Five overlapping reference bars were checked with no price mismatches at each stage. This confirms the candidate's exported calculations against the independent formula reference on the tested Headway-Demo feed, not direct parity with a live TradingView chart. MT5 can synthesize ticks where broker real-tick history is absent.
+
+A follow-up isolation attempt (https://github.com/staryuzar/-/actions/runs/40111786286) failed before a tester run because a code-edit operation corrupted the shared PowerShell helper's quoting/structure. This is a runner/script failure, not a strategy result; that attempt produced no valid trades or audit. The helper has now been restored from the previously successful version and the per-stage portable-terminal/log-root change applied as a minimal top-of-file edit. A fresh sequential rerun should confirm that isolation fix before relying on per-stage diagnostic counters.
+
+Decision: the current candidate has **not passed multi-day profitability screening**. Keep it in research only; do not merge to main or use live. Continue with the re-entry-latch hypothesis as a separate research branch, while preserving baseline comparisons and rejecting any change that merely suppresses trades without improving held-out outcomes.
