@@ -123,7 +123,7 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         script = (ROOT.parents[1] / ".github/scripts/tv26_strategy_backtest.ps1").read_text(encoding="utf-8")
         workflow = (ROOT.parents[1] / ".github/workflows/tv26-strategy-breakout-risk1-diagnostic.yml").read_text(encoding="utf-8")
         self.assertIn("InpRequireM1CloseBreakout = false", ea)
-        self.assertIn("decisionClose>priorHigh : decisionClose<priorLow", ea.replace(" ", ""))
+        self.assertIn("decisionClose>priorHigh : decisionClose<priorLow", ea)
         self.assertIn("reason=M1_CLOSE_BREAKOUT_NOT_CONFIRMED", ea)
         self.assertIn("TV26_TEST_REQUIRE_M1_BREAKOUT", script)
         self.assertIn("InpRequireM1CloseBreakout=$testBreakoutText", script)
