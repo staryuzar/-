@@ -5,11 +5,11 @@
 | Gate | Status | Evidence |
 |---|---|---|
 | Pine exporters accepted by the TradingView compiler | PASS | [Parity CI, 24 Oct](https://github.com/staryuzar/-/actions/runs/40079367672) |
-| Python comparator / splitter / regression suite | PASS | [38 deterministic tests and TradingView compiler gate](https://github.com/staryuzar/-/actions/runs/40078002503) |
-| MQL5 source compiled by official MetaEditor in cloud | PASS | [MetaEditor compile](https://github.com/staryuzar/-/actions/runs/40078002533) |
-| Recent MT5 audit for 21–23 October 2026 | PASS | [Cloud audit](https://github.com/staryuzar/-/actions/runs/40077651784) |
-| Independent formula reference vs MT5 audit votes | PASS within the recorded MT5 feed | [Audit evidence artifact](https://github.com/staryuzar/-/actions/runs/40077651784/artifacts/12553559302) |
-| Raw Ichimoku values vs OHLC, including 26-bar cloud shift | PASS on the downloaded audit sample: 5,432 candles × 5 raw values, zero mismatches | [Cloud audit artifact](https://github.com/staryuzar/-/actions/runs/40077651784/artifacts/12553559302) |
+| Python comparator / splitter / regression suite | PASS | [38 deterministic tests and TradingView compiler gate](https://github.com/staryuzar/-/actions/runs/40079367672) |
+| MQL5 source compiled by official MetaEditor in cloud | PASS | [MetaEditor compile](https://github.com/staryuzar/-/actions/runs/40079349096) |
+| Recent MT5 audit for 21–23 October 2026 | PASS | [Cloud audit](https://github.com/staryuzar/-/actions/runs/40079359327) |
+| Independent formula reference vs MT5 audit votes | PASS within the recorded MT5 feed | [Audit evidence artifact](https://github.com/staryuzar/-/actions/runs/40079359327/artifacts/12554097875) |
+| Raw Ichimoku values vs OHLC, including 26-bar cloud shift | PASS on the downloaded audit sample: 5,432 candles × 5 raw values, zero mismatches | [Cloud audit artifact](https://github.com/staryuzar/-/actions/runs/40079359327/artifacts/12554097875) |
 | Direct actual TradingView chart data vs MT5 | **PENDING — no TradingView CSV uploaded** | Requires `TV26_AllTF.csv` from the Pine exporter below |
 | Strategy profitability / real-tick robustness | **NOT TESTED by these parity runs** | Requires separate backtests with trading enabled in a controlled tester |
 
@@ -43,7 +43,7 @@ Upload the resulting file as:
 
 on branch `tv26-five-timeframes-arabic-candidate`.
 
-The automated workflow watches that path and starts on commit. It downloads the matching MT5 audit artifact from run `40077651784`, then produces reports for all five timeframes. Its current default MT5 offset is UTC+3; verify the broker server offset before interpreting timing mismatches.
+The automated workflow watches that path and starts on commit. It downloads the matching MT5 audit artifact from run `40079359327`, then produces reports for all five timeframes. Its current default MT5 offset is UTC+3; verify the broker server offset before interpreting timing mismatches.
 
 Official TradingView documentation describes intraday chart limits by plan: 5,000 bars for basic plans, 10,000 for Essential/Plus, 20,000 for Premium, 25,000 for Expert and 40,000 for Ultimate. See [TradingView's historical intraday bars and limits](https://www.tradingview.com/support/solutions/43000480679-historical-intraday-data-bars-and-limits-explained/). A recent three-day interval is deliberately used to improve the chance of overlap on M1 charts.
 
