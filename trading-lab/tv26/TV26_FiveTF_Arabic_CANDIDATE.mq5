@@ -11,7 +11,8 @@ input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
-input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
+input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond prior highs/lows.
+input int    InpM1BreakoutLookbackBars = 1; // Number of prior closed M1 candles whose high/low must be broken; 1 preserves the original rule.
 input double InpM1BreakoutBufferATR   = 0.0; // Extra close-breakout distance beyond prior M1 high/low, measured in ATR units.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
@@ -856,31 +857,45 @@ void TradeIfAligned()
       return;
    }
 
-   // Optional M1 close-breakout confirmation. The EA is evaluated once per new M1 bar:
-   // sell only after the latest closed candle closes below the previous candle's low;
-   // buy only after it closes above the previous candle's high.
+   // Optional M1 close-breakout confirmation. Look back across prior N completed candles:
+   // buy only if the latest closed M1 candle closes above their highest high;
+   // sell only if it closes below their lowest low. Lookback=1 preserves the original rule.
    if(InpRequireM1CloseBreakout)
    {
       double decisionClose=iClose(_Symbol,PERIOD_M1,1);
-      double priorHigh=iHigh(_Symbol,PERIOD_M1,2);
-      double priorLow=iLow(_Symbol,PERIOD_M1,2);
+      double priorHigh=0.0;
+      double priorLow=DBL_MAX;
+      bool priorBarsReady=true;
+      for(int shift=2;shift<2+InpM1BreakoutLookbackBars;shift++)
+      {
+         double highValue=iHigh(_Symbol,PERIOD_M1,shift);
+         double lowValue=iLow(_Symbol,PERIOD_M1,shift);
+         if(highValue<=0.0 || lowValue<=0.0)
+         {
+            priorBarsReady=false;
+            break;
+         }
+         priorHigh=MathMax(priorHigh,highValue);
+         priorLow=MathMin(priorLow,lowValue);
+      }
       double breakoutATR=0.0;
       bool breakoutATRReady=ReadBuf(g_atr[0],0,1,breakoutATR) && breakoutATR>0.0;
       double requiredBuffer=InpM1BreakoutBufferATR*(breakoutATRReady?breakoutATR:0.0);
-      bool referenceReady=(decisionClose>0.0 && priorHigh>0.0 && priorLow>0.0 &&
+      bool referenceReady=(decisionClose>0.0 && priorBarsReady && priorHigh>0.0 && priorLow>0.0 &&
                            (InpM1BreakoutBufferATR<=0.0 || breakoutATRReady));
       bool breakoutConfirmed=referenceReady &&
          (sig>0 ? decisionClose>priorHigh+requiredBuffer : decisionClose<priorLow-requiredBuffer);
       if(!breakoutConfirmed)
       {
          g_lastBlock="تأكيد كسر إغلاق شمعة M1 غير مكتمل";
-         g_lastAction="انتظار إغلاق يتجاوز قمة/قاع الشمعة السابقة";
+         g_lastAction="انتظار إغلاق يتجاوز أعلى/أدنى "+IntegerToString(InpM1BreakoutLookbackBars)+" شموع سابقة";
          Print("TV26_ENTRY_BLOCK;reason=M1_CLOSE_BREAKOUT_NOT_CONFIRMED;signal=",SignalName(sig),
                ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
                ";close=",DoubleToString(decisionClose,_Digits),
                ";prior_high=",DoubleToString(priorHigh,_Digits),
                ";prior_low=",DoubleToString(priorLow,_Digits),
                ";atr_ready=",(breakoutATRReady?"true":"false"),
+               ";lookback_bars=",InpM1BreakoutLookbackBars,
                ";buffer_atr=",DoubleToString(InpM1BreakoutBufferATR,3),
                ";required_buffer=",DoubleToString(requiredBuffer,_Digits),
                ";data_ready=",(referenceReady?"true":"false"));
@@ -1054,9 +1069,10 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 || InpM1BreakoutBufferATR<0 ||
+      InpM1BreakoutLookbackBars<1 || InpM1BreakoutLookbackBars>20 ||
       InpMaxSpreadPoints<0 || InpDeviationPoints<0 || InpCooldownBarsAfterExit<0)
    {
-      Print("TV26: إعدادات ATR أو السبريد أو الانزلاق أو التهدئة غير صالحة");
+      Print("TV26: إعدادات ATR أو عدد شموع الكسر أو السبريد أو الانزلاق أو التهدئة غير صالحة");
       return INIT_PARAMETERS_INCORRECT;
    }
    InitHandles();
