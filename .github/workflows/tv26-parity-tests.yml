@@ -26,6 +26,22 @@ jobs:
           python-version: "3.12"
       - name: Install formula-audit dependencies
         run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+      - name: Install pinned Pine Script static linter
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://github.com/folknor/pine-tools/releases/download/v0.5.0/pine-lint \
+            -o /tmp/pine-lint
+          echo "9d2da5994ea4f5fc06a44a310ec867993e6b32d3036457f60d23ed07e15c3f87  /tmp/pine-lint" | sha256sum --check
+          chmod +x /tmp/pine-lint
+          /tmp/pine-lint --version
+      - name: Lint TradingView Pine exporters (static analysis only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/pine-lint trading-lab/tv26/TradingView_Parity_AllTF_Export.pine
+          /tmp/pine-lint trading-lab/tv26/TradingView_Parity_Components_1TF.pine
       - name: Check Python syntax
         run: >-
           python -m py_compile
