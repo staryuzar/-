@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: tv26-exit-diagnostic-study
+  group: tv26-exit-diagnostic-study-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
