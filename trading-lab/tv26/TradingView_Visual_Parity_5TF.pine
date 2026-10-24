@@ -83,7 +83,7 @@ f_components() =>
          ta.crossover(ao, 0) or (ao > 0 and ao[1] > 0 and ao > ao[1] and ao[2] > ao[1]),
          ta.crossunder(ao, 0) or (ao < 0 and ao[1] < 0 and ao < ao[1] and ao[2] < ao[1]))
     float rMomentum = f_calcRating(mom[1], mom > mom[1], mom < mom[1])
-    float rMacd = f_calcRating(macdSignal, macdLine > macdSignal and macdHist > 0, macdLine < macdSignal and macdHist < 0)
+    float rMacd = f_calcRating(macdSignal, macdLine > macdSignal, macdLine < macdSignal)
     float rStochRsi = f_calcRating(priceAvg,
          downTrend and kStochRsi < 20 and dStochRsi < 20 and kStochRsi > dStochRsi,
          upTrend and kStochRsi > 80 and dStochRsi > 80 and kStochRsi < dStochRsi)
