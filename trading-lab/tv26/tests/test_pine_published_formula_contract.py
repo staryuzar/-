@@ -106,7 +106,7 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
             body.append(line[10:] if line.startswith("          ") else "")
         script = "\n".join(body) + "\n"
         result = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True, check=False)
-        self.assertEqual(result.returncode, 0, msg=result.stderr or "Bash syntax check failed")
+        self.assertEqual(result.returncode, 0, msg=result.stderr or result.stdout or f"Bash syntax check failed (return code {result.returncode}); extracted script:\n{script}")
 
     def test_exporters_discard_chikou_and_use_macd_histogram_consistently(self):
         for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
