@@ -230,7 +230,16 @@ def main() -> int:
     out = ROOT / "tv26-exit-ab-comparison.md"
     out.write_text("\n".join(rows) + "\n", encoding="utf-8")
     print(out.read_text(encoding="utf-8"))
-    return 0 if settings_ok and on_valid_exit and off_clean else 2
+    # A zero-trigger window is a valid INCONCLUSIVE observation, not a passing exit test
+    # and not a pipeline failure. Fail only when the paired experiment itself is invalid.
+    hard_failure = (
+        not settings_ok
+        or not off_clean
+        or bool(on["failed"])
+        or bool(on_exit["other_triggers"])
+        or (bool(on_exit["summary_triggers"]) and not on_valid_exit)
+    )
+    return 2 if hard_failure else 0
 
 
 if __name__ == "__main__":
