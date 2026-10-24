@@ -1,5 +1,6 @@
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -105,8 +106,17 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
                 self.fail(f"Unexpected indentation in Bash block: {line!r}")
             body.append(line[10:] if line.startswith("          ") else "")
         script = "\n".join(body) + "\n"
-        result = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True, check=False)
-        self.assertEqual(result.returncode, 0, msg=result.stderr or result.stdout or f"Bash syntax check failed (return code {result.returncode}); extracted script:\n{script}")
+        # Validate through a UTF-8 temporary file instead of stdin. Git Bash on
+        # Windows can otherwise return a false nonzero result when parsing this
+        # multiline heredoc-like payload through a subprocess pipe.
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".sh", newline="\\n", delete=False) as handle:
+            handle.write(script)
+            script_path = handle.name
+        try:
+            result = subprocess.run(["bash", "-n", script_path], text=True, capture_output=True, check=False)
+        finally:
+            Path(script_path).unlink(missing_ok=True)
+        self.assertEqual(result.returncode, 0, msg=result.stderr or result.stdout or f"Bash syntax check failed (return code {result.returncode})")
 
     def test_exporters_discard_chikou_and_use_macd_histogram_consistently(self):
         for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
