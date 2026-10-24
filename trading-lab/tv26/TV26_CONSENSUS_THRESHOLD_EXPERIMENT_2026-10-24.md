@@ -27,3 +27,8 @@ The 0.55 setting removed both Sep 14 sell losses (-$4.38 and -$4.37) and the Sep
 ## Decision gates
 
 Do not select threshold 0.55 from this same window alone; the experiment was prompted by these very losses. The 0.60 screen was completed and rejected as inconclusive because it produced no trades. The next workflow compares baseline 1-bar/0.50, 5-bar/0.50, 1-bar/0.55, and combined 5-bar/0.55 on the separate 2026-09-01 through 2026-09-10 window. Reject any candidate that only produces no trades or a one-trade result as inconclusive, and preserve the minimum-volume risk cap.
+
+
+### Why the 0.55 holdout had zero trades
+
+The tester report confirms `InpEntryConsensusThreshold=0.55` and the same audit/history hashes as baseline. There were only six consensus-signal bars. Of the logged entry attempts, four were correctly blocked by the minimum-volume risk cap (0.01 lot would risk $5.15–$11.01 against a $5 risk budget); two failed the existing M1 close-breakout confirmation. No orders were accepted. This is not a zero-loss success: the candidate produced no trade sample and materially reduced opportunity on this window. Keep the minimum-lot risk cap and breakout rule intact.
