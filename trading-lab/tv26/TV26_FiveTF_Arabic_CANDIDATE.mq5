@@ -1054,6 +1054,11 @@ int OnInit()
       Print("TV26: نسبة المخاطرة يجب أن تكون أكبر من صفر ولا تتجاوز 2.0%");
       return INIT_PARAMETERS_INCORRECT;
    }
+   if(!InpAllowBuyEntries && !MQLInfoInteger(MQL_TESTER))
+   {
+      Print("TV26: تعطيل الشراء متاح داخل Strategy Tester فقط في النسخة التشخيصية");
+      return INIT_PARAMETERS_INCORRECT;
+   }
    if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 ||
       InpMaxSpreadPoints<0 || InpDeviationPoints<0 || InpCooldownBarsAfterExit<0)
    {
