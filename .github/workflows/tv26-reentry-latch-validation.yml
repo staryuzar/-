@@ -22,18 +22,18 @@ jobs:
         include:
           - id: sep01-10
             label: "Sep 1–10 signal-latch diagnostic"
-            from: "2026.09.01"
-            to: "2026.09.11"
+            date_from: "2026.09.01"
+            date_to: "2026.09.11"
           - id: oct20-22
             label: "Oct 20–22 cross-window check"
-            from: "2026.10.20"
-            to: "2026.10.23"
+            date_from: "2026.10.20"
+            date_to: "2026.10.23"
 
     env:
       MT5_CREDENTIALS: ${{ secrets.mt5 }}
       PYTHONUTF8: "1"
-      TV26_TEST_FROM: "${{ matrix.from }}"
-      TV26_TEST_TO: "${{ matrix.to }}"
+      TV26_TEST_FROM: "${{ matrix.date_from }}"
+      TV26_TEST_TO: "${{ matrix.date_to }}"
       TV26_TEST_MODEL: "4"
       TV26_TEST_RISK_PERCENT: "1.00"
       TV26_TEST_STOP_ATR: "2.00"
