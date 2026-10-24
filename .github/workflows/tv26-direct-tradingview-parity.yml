@@ -31,8 +31,10 @@ jobs:
       MT5_AUDIT_RUN_ID_INPUT: ${{ github.event.inputs.mt5_audit_run_id || '' }}
       MT5_UTC_OFFSET_HOURS: ${{ github.event.inputs.mt5_utc_offset_hours || '3' }}
     steps:
-      - name: Checkout parity inputs
+      - name: Checkout parity inputs with history for audit-source verification
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Resolve and download a source-matching cloud MT5 audit
         id: mt5_audit
         shell: bash
