@@ -1,0 +1,124 @@
+name: TV26 ATR break-even protection — matched real-tick comparison
+
+on:
+  push:
+    branches:
+      - tv26-break-even-protection-study
+    paths:
+      - ".github/workflows/tv26-break-even-protection-validation.yml"
+      - ".github/scripts/tv26_strategy_cooldown_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-break-even-protection-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tester:
+    name: "${{ matrix.label }}"
+    runs-on: windows-2022
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - id: sep11-20-baseline
+            label: "Sep 11–20 — no break-even"
+            date_from: "2026.09.11"
+            date_to: "2026.09.21"
+            be_atr: "0.00"
+            magic: "26102431"
+          - id: sep11-20-be1
+            label: "Sep 11–20 — break-even at 1 ATR"
+            date_from: "2026.09.11"
+            date_to: "2026.09.21"
+            be_atr: "1.00"
+            magic: "26102432"
+          - id: sep21-30-baseline
+            label: "Sep 21–30 — no break-even (holdout)"
+            date_from: "2026.09.21"
+            date_to: "2026.10.01"
+            be_atr: "0.00"
+            magic: "26102433"
+          - id: sep21-30-be1
+            label: "Sep 21–30 — break-even at 1 ATR (holdout)"
+            date_from: "2026.09.21"
+            date_to: "2026.10.01"
+            be_atr: "1.00"
+            magic: "26102434"
+
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      PYTHONUTF8: "1"
+      TV26_TEST_FROM: "${{ matrix.date_from }}"
+      TV26_TEST_TO: "${{ matrix.date_to }}"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "4.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_COOLDOWN_BARS: "0"
+      TV26_TEST_M1_OSC_MIN: "0.00"
+      TV26_TEST_BREAK_EVEN_ATR: "${{ matrix.be_atr }}"
+      TV26_TEST_MAGIC: "${{ matrix.magic }}"
+
+    steps:
+      - name: Checkout isolated break-even study
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Compile EA and run isolated real-tick MT5 Strategy Tester
+        shell: pwsh
+        run: ./.github/scripts/tv26_strategy_cooldown_backtest.ps1
+
+      - name: Validate exported MT5 audit structure
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_mt5_audit.py
+          --csv tv26-strategy-results/TV26_Audit_XAUUSD_${{ matrix.magic }}.csv
+          --report tv26-strategy-results/data-integrity-report.md
+          --json tv26-strategy-results/data-integrity-report.json
+
+      - name: Compare all 26 votes to independent published formulas
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-strategy-results/TV26_Audit_XAUUSD_${{ matrix.magic }}.csv
+          --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-strategy-results/formula-parity-report.md
+          --details tv26-strategy-results/formula-parity-details.csv
+          --json tv26-strategy-results/formula-parity-report.json
+
+      - name: Publish tester result
+        if: always()
+        shell: pwsh
+        run: |
+          "## ${{ matrix.label }}" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          "Window ${{ matrix.date_from }} through day before ${{ matrix.date_to }}; break-even trigger ${{ matrix.be_atr }} ATR; risk 1%; SL 2 ATR; TP 4 ATR; M1 breakout on; cooldown 0; Model 4." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          $summaryPath = "tv26-strategy-results/strategy-backtest-summary.txt"
+          if (Test-Path -LiteralPath $summaryPath) {
+            Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          } else {
+            "Tester summary missing; incomplete infrastructure run, not a strategy result." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+
+      - name: Upload complete tester and audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-break-even-${{ matrix.id }}-${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
