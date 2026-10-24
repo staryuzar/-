@@ -132,8 +132,13 @@ def compute_votes(df: pd.DataFrame) -> dict[str,pd.Series]:
     up=h.diff(); down=-l.diff()
     plus_dm=pd.Series(np.where((up>down)&(up>0),up,0.0),index=df.index)
     minus_dm=pd.Series(np.where((down>up)&(down>0),down,0.0),index=df.index)
-    tr=pd.concat([h-l,(h-c.shift(1)).abs(),(l-c.shift(1)).abs()],axis=1).max(axis=1)
-    tr.iloc[0]=h.iloc[0]-l.iloc[0]
+    # Pine's `ta.tr` series (used by the published DMI reference) is NA until a previous close exists.
+    prev_close=c.shift(1)
+    tr=pd.Series(np.maximum(h-l,np.maximum((h-prev_close).abs(),(l-prev_close).abs())),index=df.index)
+    # ta.change(high/low) is NA on the first bar; preserve that NA for Wilder's SMA seed.
+    invalid_dm=up.isna()|down.isna()
+    plus_dm.loc[invalid_dm]=np.nan
+    minus_dm.loc[invalid_dm]=np.nan
     atr=rma(tr,14); plus=100*rma(plus_dm,14)/atr; minus=100*rma(minus_dm,14)/atr
     dx=100*(plus-minus).abs()/(plus+minus).replace(0,1)
     adx=rma(dx,14)
@@ -165,7 +170,11 @@ def compute_votes(df: pd.DataFrame) -> dict[str,pd.Series]:
     bbv=np.where(uptrend&(bear<0)&(bear>bear.shift(1)),1,
          np.where(downtrend&(bull>0)&(bull<bull.shift(1)),-1,0))
     votes["BullBearPower"]=pd.Series(bbv,index=df.index,dtype=float).where(ema50.notna()&bear.notna()&bear.shift(1).notna()&bull.notna()&bull.shift(1).notna())
-    tmax=pd.concat([h,c.shift(1)],axis=1).max(axis=1); tmin=pd.concat([l,c.shift(1)],axis=1).min(axis=1)
+    # TradingView ta.uo uses max(high, close[1]) / min(low, close[1]); do not skip
+    # the first-bar NA as pandas DataFrame.max/min would do by default.
+    prev_close=c.shift(1)
+    tmax=pd.Series(np.maximum(h.to_numpy(),prev_close.to_numpy()),index=df.index)
+    tmin=pd.Series(np.minimum(l.to_numpy(),prev_close.to_numpy()),index=df.index)
     tr_uo=tmax-tmin; bp=c-tmin
     a7=bp.rolling(7,min_periods=7).sum()/tr_uo.rolling(7,min_periods=7).sum().replace(0,np.nan)
     a14=bp.rolling(14,min_periods=14).sum()/tr_uo.rolling(14,min_periods=14).sum().replace(0,np.nan)
