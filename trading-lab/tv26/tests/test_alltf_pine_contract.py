@@ -27,6 +27,15 @@ class TV26AllTFPineContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.source = (ROOT / "TradingView_Parity_AllTF_Export.pine").read_text(encoding="utf-8")
 
+    def test_numeric_csv_export_uses_full_precision_for_packed_votes(self):
+        self.assertIn('precision=16', self.source)
+        self.assertIn('float digit = na(v) ? 3.0 : v + 1.0', self.source)
+        # The packed base-4 integer contains all 26 votes; rounding it to display precision
+        # would destroy the low-order digits and silently corrupt component comparisons.
+        self.assertIn('plot(PackedM1, "TV26.M1.packed"', self.source)
+        for tf in TIMEFRAMES:
+            self.assertIn(f'plot(Packed{tf}, "TV26.{tf}.packed"', self.source)
+
     def test_plot_and_request_limits_are_respected(self):
         plot_count = len(re.findall(r"(?m)^\s*plot\(", self.source))
         request_count = len(re.findall(r"request\.security\(syminfo\.tickerid", self.source))
