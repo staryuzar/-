@@ -211,3 +211,16 @@ Although the sell-only subset did better on both short windows, it reduces trade
 Workflow: https://github.com/staryuzar/-/actions/runs/40109199896
 
 The three-day base result was +$2.74 / PF 1.40 / max equity DD 1.72% on three trades (one win, two losses). The diagnostic matrix fixes risk at 1%, stop at 2 ATR, target at 4 ATR, M1 close breakout on, and compares cooldowns of 0, 10, and 20 M1 bars on the same three dates. This is intentionally a diagnostic because the suspected cluster was observed on these dates. Any favourable outcome must then be replicated on a separate window; a lower trade count alone is not considered improvement.
+
+
+## 14. Signal-latch state fix prepared for isolated validation
+
+Source inspection found a direct state-machine concern in the current candidate: the neutral-signal branch calls RememberSignal(0) before checking whether this EA still has an open position. Thus, a neutral period during a position can erase the last executed direction and re-arm a same-side entry. This is consistent with the logged Sep 8 sell TP at 22:58:59 followed by a new sell at 22:59:00, but the exact preceding neutral bar was not logged in the old build, so the causal path remains a testable hypothesis rather than a proven explanation.
+
+A research-only change has been committed on the separate branch:
+https://github.com/staryuzar/-/blob/tv26-reentry-latch-preservation-study/trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5
+Commit: f0f915f6c4234d5bdb090075d5fbc7da3eb1959b
+
+Change scope: on a neutral consensus, preserve the last executed direction while this EA has a position open; clear/re-arm the latch only while flat. A diagnostic message records when the latch is held/reset. This does not change indicator formulas, ATR stop/target, risk percentage, spread limits, order sizing, or cooldown. The branch is not merged, and this source change is **not yet compiled/tested by MT5**. The intended first validation is the same Sep 1–10 setup as the source-matched five-trade baseline, then an independent-window replication only if the trade-list effect is supported. Do not infer performance from the code change itself.
+
+The current Oct 20–22 cooldown matrix remains a separate experiment. Its zero-cooldown control has completed and reproduced the earlier result (+$2.74, PF 1.40, 1 win / 2 losses, 3 trades). The 10- and 20-bar variants are still being run; do not mix these results with the latch-source experiment.
