@@ -50,3 +50,22 @@ No unofficial WebSocket/scraping feed was added. TradingView's current policies 
 - **MT5 audit and Ichimoku checks:** PASS.
 - **Direct numerical parity with an actual TradingView chart:** PENDING.
 - **Live trading approval:** NOT GRANTED by these checks.
+
+## Evidence refresh — 2026-10-24 12:21 UTC
+
+This addendum supersedes the earlier run IDs above where a newer source-matched run is listed.
+
+- Candidate branch head inspected: `d948bcc89cf6f31796741f31c14d9b53e4f8127d`.
+- Comparator/regression suite: [run 40093365780](https://github.com/staryuzar/-/actions/runs/40093365780) — **53 tests passed**.
+- MetaEditor package build: [run 40093365794](https://github.com/staryuzar/-/actions/runs/40093365794) — PASS; package version 1.009, EX5 generated (67,422 bytes), uploaded build artifact 12559558694.
+- Source-matched cloud MT5 audit: [run 40093365818](https://github.com/staryuzar/-/actions/runs/40093365818) — PASS; [artifact 12560305327](https://github.com/staryuzar/-/actions/runs/40093365818/artifacts/12560305327).
+- Latest MT5 audit source SHA-256: `150263920e66781660aa5c01c81272fb39b510fee5428181ff8abc7020f21f55`.
+- Audit CSV SHA-256: `e92d178246b76d463f366a5057729d5a73abe5d67b2ee6f56278a0fd508593b2`; OHLCV reference SHA-256: `a694348596d8ccca2cc82bd7ed5d82844c452656cf12fabdcdb7b27333f6c671`.
+- Validated output: 146,664 data rows; 5,432 complete candle groups; 141,232 component votes; 16,296 recalculated summary aggregates; zero aggregate mismatches; zero independent formula-vote mismatches; 27,160 raw Ichimoku values checked with zero mismatches. All five frames M1/M5/M15/M30/H1 passed.
+- Tester exit code was 0, and the audit explicitly ran with automated trading disabled.
+
+### Current decision — unchanged for direct parity
+
+The new run confirms the audited candidate source and internal formulas on the recorded MT5 feed. It does **not** remove the only external-data blocker: `trading-lab/tv26/parity-input/TV26_AllTF.csv` is not present until an actual TradingView chart export is supplied. Pine compiler acceptance, local synthetic regression tests, and MT5-feed agreement cannot substitute for chart-runtime output from TradingView.
+
+The prepared one-file export script is `trading-lab/tv26/TradingView_Parity_AllTF_Export.pine`; the exact export procedure is in `trading-lab/tv26/DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md`. Once that real CSV exists at the specified path, the direct comparison workflow will compare all 26 votes plus summary ratings on M1/M5/M15/M30/H1, with strict source matching and candle-alignment gates. No live-trading approval follows from this audit.
