@@ -1,4 +1,5 @@
 name: TV26 October 1–10 holdout — breakout with or without cooldown
+# Re-run the independent holdout after matching TradingView RSI RMA arithmetic.
 
 on:
   push:
