@@ -64,8 +64,10 @@ jobs:
       TV26_TEST_COOLDOWN_BARS: "0"
 
     steps:
-      - name: Checkout research harness
+      - name: Checkout research harness with exact historical sources available
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
