@@ -606,6 +606,7 @@ void DrawPanel()
    p+="\nقرار التنفيذ: "+g_lastAction;
    if(g_lastBlock!="") p+="\nسبب المنع/التنبيه: "+g_lastBlock;
    p+="\nالتداول الآلي: "+(InpEnableTrading?"مفعّل":"معطّل")+" | حماية الحساب التجريبي: "+(InpDemoOnly?"مفعّلة":"غير مفعّلة");
+   p+="\nنقل وقف الخسارة إلى التعادل: "+(InpBreakEvenATR>0.0 ? (DoubleToString(InpBreakEvenATR,2)+" ATR") : "معطّل");
    Comment(p);
 }
 string AuditValue(double v)
@@ -880,12 +881,20 @@ void ManageBreakEven()
       }
       else
       {
+         static ulong lastRejectTicket=0;
+      static datetime lastRejectBar=0;
+      datetime currentBar=iTime(_Symbol,PERIOD_M1,0);
+      if(lastRejectTicket!=ticket || lastRejectBar!=currentBar)
+      {
          Print("TV26_BREAK_EVEN_REJECTED;ticket=",ticket,
                ";retcode=",res.retcode,
                ";sent=",(sent?"true":"false"),
                ";comment=",res.comment,
                ";new_sl=",DoubleToString(newSL,digits),
                ";time=",TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS));
+         lastRejectTicket=ticket;
+         lastRejectBar=currentBar;
+      }
       }
    }
 }
