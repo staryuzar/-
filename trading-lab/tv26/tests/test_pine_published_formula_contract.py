@@ -76,6 +76,17 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertIn("--tv --human trading-lab/tv26/TradingView_Parity_Components_1TF.pine", workflow)
         self.assertNotIn("--no-lint", workflow)
 
+    def test_input_readme_uses_the_same_single_file_as_workflow(self):
+        input_readme = (ROOT / "parity-input" / "README.md").read_text(encoding="utf-8")
+        workflow = (ROOT.parents[1] / ".github/workflows/tv26-direct-tradingview-parity.yml").read_text(encoding="utf-8")
+        self.assertIn("TV26_AllTF.csv", input_readme)
+        self.assertIn('      - "trading-lab/tv26/parity-input/TV26_AllTF.csv"', workflow)
+        self.assertNotIn("TV26_M1.csv", input_readme)
+        self.assertNotIn("TV26_M5.csv", input_readme)
+        self.assertNotIn("TV26_M15.csv", input_readme)
+        self.assertNotIn("TV26_M30.csv", input_readme)
+        self.assertNotIn("TV26_H1.csv", input_readme)
+
     def test_aggregate_and_closed_bar_contract(self):
         self.assertIn("floattotal=nz(ratingMA,0)+nz(ratingOther,0)", self.source)
         self.assertIn("notna(ratingMA)andnotna(ratingOther)=>total/2", self.source)
