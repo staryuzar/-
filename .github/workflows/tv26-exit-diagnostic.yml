@@ -26,7 +26,7 @@ jobs:
       TV26_TEST_FROM: "2026.09.01"
       TV26_TEST_TO: "2026.09.04"
       TV26_TEST_MODEL: "4"
-      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_RISK_PERCENT: "2.00"
       TV26_TEST_STOP_ATR: "5.00"
       TV26_TEST_TARGET_ATR: "20.00"
       TV26_TEST_REQUIRE_M1_BREAKOUT: "false"
@@ -59,25 +59,52 @@ jobs:
           --report tv26-strategy-results/formula-parity-report.md
           --details tv26-strategy-results/formula-parity-details.csv
           --json tv26-strategy-results/formula-parity-report.json
-      - name: Summarize whether rule-based exits actually fired
+      - name: Summarize unique rule-based exit events
         if: always()
         shell: pwsh
         run: |
           $logs = Get-ChildItem -Path "tv26-strategy-results/diagnostic-logs" -Filter "*.txt" -File -ErrorAction SilentlyContinue
-          $all = ($logs | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue }) -join "`n"
-          $trigger = ([regex]::Matches($all, "TV26_EXIT_TRIGGER;")).Count
-          $completed = ([regex]::Matches($all, "TV26_EXIT_COMPLETED;")).Count
-          $failed = ([regex]::Matches($all, "TV26_EXIT_FAILED;")).Count
+          $unique = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+          $markers = @("TV26_EXIT_TRIGGER;","TV26_EXIT_COMPLETED;","TV26_EXIT_FAILED;")
+          foreach ($f in $logs) {
+            foreach ($line in @(Get-Content -LiteralPath $f.FullName -ErrorAction SilentlyContinue)) {
+              foreach ($marker in $markers) {
+                $idx = $line.IndexOf($marker,[System.StringComparison]::Ordinal)
+                if ($idx -ge 0) { [void]$unique.Add($line.Substring($idx).Trim()); break }
+              }
+            }
+          }
+          $events = @($unique)
+          $triggerEvents = @($events | Where-Object { $_.StartsWith("TV26_EXIT_TRIGGER;") })
+          $doneEvents = @($events | Where-Object { $_.StartsWith("TV26_EXIT_COMPLETED;") })
+          $failedEvents = @($events | Where-Object { $_.StartsWith("TV26_EXIT_FAILED;") })
+          $opposite = @($triggerEvents | Where-Object { $_ -match "reason=OPPOSITE_SUMMARY" }).Count
+          $reversal = @($triggerEvents | Where-Object { $_ -match "reason=REAL_M1_REVERSAL" }).Count
+          $paired = 0
+          foreach ($triggerEvent in $triggerEvents) {
+            $m = [regex]::Match($triggerEvent, "ticket=(\d+)")
+            if ($m.Success) {
+              $ticket = $m.Groups[1].Value
+              if (@($doneEvents | Where-Object { $_ -match ("ticket=" + [regex]::Escape($ticket) + "(;|$)") }).Count -gt 0) { $paired++ }
+            }
+          }
+          $verdict = "INCONCLUSIVE_NO_TRIGGER"
+          if ($triggerEvents.Count -gt 0 -and $paired -eq $triggerEvents.Count -and $failedEvents.Count -eq 0) { $verdict = "PASS_RUNTIME_EVIDENCE" }
+          elseif ($failedEvents.Count -gt 0 -or $paired -lt $triggerEvents.Count) { $verdict = "FAIL_CLOSE_PATH" }
           $text = @(
             "# Exit-path diagnostic",
             "",
-            "This run uses widened SL/TP (5 ATR / 20 ATR) only to keep positions available for observing rule-based exits; it is not a performance comparison against the baseline.",
+            "Isolated Strategy Tester diagnostic only; risk 2% (hard-capped by EA), SL 5 ATR and TP 20 ATR. Do not compare its P/L directly against the default 1% / 2 ATR / 4 ATR baseline.",
             "",
-            "- TV26_EXIT_TRIGGER events: $trigger",
-            "- TV26_EXIT_COMPLETED events: $completed",
-            "- TV26_EXIT_FAILED events: $failed",
+            "- Unique exit triggers: $($triggerEvents.Count)",
+            "- Opposite-summary triggers: $opposite",
+            "- Confirmed M1 reversal triggers: $reversal",
+            "- Unique successful close events: $($doneEvents.Count)",
+            "- Trigger tickets with a successful close event: $paired",
+            "- Failed close events: $($failedEvents.Count)",
+            "- Verdict: $verdict",
             "",
-            "A pass requires at least one trigger and a corresponding completed close. Zero triggers means inconclusive, not a pass."
+            "Zero triggers means inconclusive, not a pass. Duplicate terminal/tester log lines are deduplicated."
           )
           $text | Set-Content -LiteralPath "tv26-strategy-results/exit-path-diagnostic.md" -Encoding utf8
           Get-Content -LiteralPath "tv26-strategy-results/exit-path-diagnostic.md"
