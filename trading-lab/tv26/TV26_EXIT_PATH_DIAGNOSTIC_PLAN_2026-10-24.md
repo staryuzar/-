@@ -112,3 +112,28 @@ The three trigger payloads also show the summary direction at the exit instant, 
 - Buy ticket 6: M5 `+0.355`, M15 `+0.591`, M30 `+0.515`; M1 close `4388.25`; no opposite summary.
 
 In all three cases, the summary ratings remained aligned with the open trade at the moment the M1 structure-break rule closed it. This supports the hypothesis that the current three-candle M1 exit will often act before an M5/M15/M30 summary becomes oppositely directional. The matched A/B must still determine whether that early exit was beneficial.
+
+
+## 15. Confirmed matched summary-exit A/B — run 20
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40134222771  
+Artifact: https://github.com/staryuzar/-/actions/runs/40134222771/artifacts/12576022738  
+Branch commit: `7650c56f3c4a9bb630995f9893bcebf7d22cf02a`
+
+The UTF-8 console-output defect in run 19 was corrected; run 20 completed successfully on Windows and all steps passed, including compilation, MT5 Strategy Tester, both integrity audits, both formula audits, the matched A/B comparator, and artifact upload.
+
+Matched window: September 1–3, 2026 inclusive; XAUUSD M1; MT5 Model 4; same EA source SHA-256 `e5e02af0e262f92fc1137bd223945d7eb838138d904df3433e7e27c5730284a8`; same exported OHLCV history SHA-256 `5fa5ea953cb7e5957bac8e5e8c3771550b58a3a56ae7a688131cd744db1cc21b`; risk 2% diagnostic cap; SL 5 ATR / TP 20 ATR. Only the rule-based early-exit switch and magic number differed. M1 price-reversal exit was disabled so this run isolates the M5/M15/M30 opposite-summary path.
+
+| Measure | Summary exit ON | Summary exit OFF | Difference |
+|---|---:|---:|---:|
+| Net profit | +$14.05 | +$5.89 | +$8.16 |
+| Profit factor | 1.76 | 1.22 | +0.54 |
+| Maximum equity drawdown | $14.26 (2.84%) | $20.36 (3.87%) | -$6.10 |
+| Trades | 4 | 4 | 0 |
+| Winners / losers | 1 / 3 | 1 / 3 | unchanged |
+
+**Execution evidence:** exit-ON produced two `OPPOSITE_SUMMARY` triggers, each matched to `TV26_EXIT_COMPLETED` by exact ticket + reason + M1-bar key; zero failed closes. Exit-OFF produced zero early-exit events. Both runs used matching source/history hashes and passed all formula/data audits (141,232 formula votes per run, zero mismatches; 5,432 candle groups, zero integrity defects).
+
+The two buy positions closed by the summary rule at 01:45 and 12:40 on September 3, instead of reaching stop-loss at 02:17 and 12:46 in the matched OFF arm. The loss reduction was $2.38 and $5.78 respectively, summing to the $8.16 net-profit difference on this period. The overall run still had three losing trades out of four and uses widened diagnostic SL/TP; this is a successful exit-path test, **not evidence of reliable profitability**.
+
+A follow-up matched A/B test was then configured for October 1–3, 2026, and the deterministic exact-event-pairing tests were added to the workflow. Its result must be recorded separately; do not merge diagnostic behavior into the production branch based on one three-day sample.
