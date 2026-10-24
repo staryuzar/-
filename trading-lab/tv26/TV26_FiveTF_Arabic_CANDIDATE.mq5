@@ -12,6 +12,7 @@ input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
 input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
+input double InpMinM1M5DirectionalOscillatorRating = 0.00; // Strategy-only gate: require M1 and M5 oscillator averages to support the trade direction; 0 disables it.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
 input ENUM_TIMEFRAMES InpTF1        = PERIOD_M1;
@@ -871,6 +872,31 @@ void TradeIfAligned()
       return;
    }
 
+   // Strategy-only confirmation: keep the published five-timeframe TechnicalRating
+   // classification unchanged; optionally require directional oscillator support on M1 and M5.
+   if(InpMinM1M5DirectionalOscillatorRating>0.0)
+   {
+      double m1DirectionalOsc=(double)sig*g_oscRating[0];
+      double m5DirectionalOsc=(double)sig*g_oscRating[1];
+      bool m1OscPass=(m1DirectionalOsc>=InpMinM1M5DirectionalOscillatorRating);
+      bool m5OscPass=(m5DirectionalOsc>=InpMinM1M5DirectionalOscillatorRating);
+      if(!m1OscPass || !m5OscPass)
+      {
+         g_lastBlock="تأكيد المذبذبات في الدقيقتين M1 وM5 لا يدعم اتجاه الدخول بالحد المطلوب";
+         g_lastAction="انتظار؛ تصنيف الأطر قوي لكن تأكيد المذبذبات القصيرة غير كافٍ";
+         Print("TV26_ENTRY_BLOCK;reason=M1_M5_OSCILLATOR_GATE;signal=",SignalName(sig),
+               ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+               ";M1_osc=",DoubleToString(g_oscRating[0],3),
+               ";M1_directional=",DoubleToString(m1DirectionalOsc,3),
+               ";M5_osc=",DoubleToString(g_oscRating[1],3),
+               ";M5_directional=",DoubleToString(m5DirectionalOsc,3),
+               ";threshold=",DoubleToString(InpMinM1M5DirectionalOscillatorRating,3),
+               ";m1_pass=",(m1OscPass?"true":"false"),
+               ";m5_pass=",(m5OscPass?"true":"false"));
+         return;
+      }
+   }
+
    if(HasForeignNettingPosition())
    {
       g_lastBlock="حساب Netting يحتوي على مركز ذهب لا يخص هذا المستشار؛ لم يتم تعديل المركز";
@@ -1067,6 +1093,11 @@ int OnInit()
    if(InpRiskPercent<=0 || InpRiskPercent>2.0)
    {
       Print("TV26: نسبة المخاطرة يجب أن تكون أكبر من صفر ولا تتجاوز 2.0%");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(InpMinM1M5DirectionalOscillatorRating<0.0 || InpMinM1M5DirectionalOscillatorRating>1.0)
+   {
+      Print("TV26: حد تأكيد المذبذبات M1/M5 يجب أن يكون بين 0 و1");
       return INIT_PARAMETERS_INCORRECT;
    }
    if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 ||
