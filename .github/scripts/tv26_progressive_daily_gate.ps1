@@ -1,5 +1,7 @@
 $ErrorActionPreference = "Stop"
 $culture = [Globalization.CultureInfo]::InvariantCulture
+$originalCredentials = [string]$env:MT5_CREDENTIALS
+if ([string]::IsNullOrWhiteSpace($originalCredentials)) { throw "GitHub Actions secret mt5 is missing; no tester run attempted." }
 $anchor = [datetime]::ParseExact("2026.10.22","yyyy.MM.dd",$culture)
 $root = Join-Path $PWD "tv26-progressive-results"
 New-Item -ItemType Directory -Path $root -Force | Out-Null
@@ -36,6 +38,7 @@ for ($days=1; $days -le 10; $days++) {
   $err = $null
 
   for ($attempt=1; $attempt -le 2; $attempt++) {
+    $env:MT5_CREDENTIALS = $originalCredentials
     try {
       & ./.github/scripts/tv26_strategy_backtest.ps1
       if (!(Test-Path (Join-Path $results "strategy-backtest-summary.txt"))) { throw "Tester summary is missing." }
@@ -96,12 +99,12 @@ for ($days=1; $days -le 10; $days++) {
       $required = [decimal]5.00
       $ddLimit = [decimal]1.00
       $pass = ($trades -ge 1) -and ($losses -eq 0) -and ($net -ge $required) -and ($dd -le $ddLimit)
-      $rule = "one day: net >= $5, at least 1 trade, zero losses, DD <= 1%"
+      $rule = "one day: net >= 5.00 USD, at least 1 trade, zero losses, DD <= 1%"
     } else {
       $required = [decimal]2.50 * $days
       $ddLimit = [decimal][Math]::Min(5.0,[Math]::Max(2.0,[double]$days))
       $pass = ($trades -ge 1) -and ($net -ge $required) -and ($dd -le $ddLimit) -and (($losses -eq 0) -or ($pf -ge [decimal]1.15))
-      $rule = "$days days: net >= $2.50/day average, PF >= 1.15 if losses, DD <= $ddLimit%"
+      $rule = "$days days: net >= average 2.50 USD/day, PF >= 1.15 if losses, DD <= $ddLimit%"
     }
     $gate = if ($pass) { "PASS — EXPAND" } else { "STOP — GATE FAILED" }
     $rows.Add([pscustomobject]@{Days=$days;From=$from.ToString("yyyy-MM-dd");Through=$anchor.ToString("yyyy-MM-dd");Net=("{0:F2}" -f $net);PF=("{0:F2}" -f $pf);DD=("{0:F2}%" -f $dd);Trades=$trades;Losses=$losses;Audit="PASS";Gate=$gate})
@@ -123,9 +126,9 @@ $report = [System.Collections.Generic.List[string]]::new()
 $report.Add("# TV26 Progressive Daily Gate")
 $report.Add("")
 $report.Add("Anchor date: 2026-10-22. One day first, then 2, 3... up to 10 days backward from the same end date. Only a passing stage allows the next longer test.")
-$report.Add("Settings: XAUUSD M1; Model 4; $500 starting deposit; 1% risk; SL 2 ATR; TP 4 ATR; M1 close-breakout enabled; tester-only guard; unique magic per stage.")
+$report.Add("Settings: XAUUSD M1; Model 4; USD 500 starting deposit; 1% risk; SL 2 ATR; TP 4 ATR; M1 close-breakout enabled; tester-only guard; unique magic per stage.")
 $report.Add("")
-$report.Add("Gate: day 1 requires >= $5 net, at least one trade, zero losses and DD <= 1%. For stages >= 2 days: net >= $2.50 per tested day, at least one trade, PF >= 1.15 if losses exist, DD <= 1% per day capped at 5%. Every stage must pass both OHLC integrity and independent formula audits.")
+$report.Add("Gate: day 1 requires net >= 5.00 USD, at least one trade, zero losses and DD <= 1%. For stages >= 2 days: net >= 2.50 USD per tested day, at least one trade, PF >= 1.15 if losses exist, DD <= 1% per day capped at 5%. Every stage must pass both OHLC integrity and independent formula audits.")
 $report.Add("")
 $report.Add("| Days | From | Through | Net profit | PF | Equity DD | Trades | Losses | Audit | Decision |")
 $report.Add("|---:|---|---|---:|---:|---:|---:|---:|---|---|")
