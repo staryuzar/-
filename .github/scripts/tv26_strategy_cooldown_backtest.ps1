@@ -129,7 +129,8 @@ try {
     }
     $oscGate = @"
    // Test-only M1 oscillator confirmation gate; injected only into the compiled copy.
-   if(!hasTracked && ((sig>0 && g_oscRating[0] < $testOscMinText) || (sig<0 && g_oscRating[0] > -$testOscMinText)))
+   // It checks fresh entries and direction reversals; it does not alter the indicator panel.
+   if((sig>0 && g_oscRating[0] < $testOscMinText) || (sig<0 && g_oscRating[0] > -$testOscMinText))
    {
       g_lastBlock="تأكيد مذبذبات M1 غير كافٍ لاتجاه الإشارة";
       g_lastAction="انتظار؛ اتجاه مذبذبات M1 لا يؤكد الإشارة بالحد المطلوب";
