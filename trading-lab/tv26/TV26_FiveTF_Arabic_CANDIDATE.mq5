@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.009"
+#property version   "1.010"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -12,6 +12,7 @@ input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
 input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
+input bool   InpAllowBuyEntries        = true;  // Research switch; default preserves both-direction behavior.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
 input ENUM_TIMEFRAMES InpTF1        = PERIOD_M1;
@@ -838,6 +839,15 @@ void TradeIfAligned()
          ";M15=",DoubleToString(g_rating[2],3),
          ";M30=",DoubleToString(g_rating[3],3),
          ";H1=",DoubleToString(g_rating[4],3));
+
+   if(sig>0 && !InpAllowBuyEntries)
+   {
+      g_lastAction="إشارة شراء متوافقة؛ حُجبت في اختبار اتجاهي تشخيصي";
+      g_lastBlock="تعطيل دخول الشراء في النسخة التشخيصية فقط";
+      Print("TV26_ENTRY_BLOCK;reason=BUY_DIRECTION_DISABLED;signal=شراء;bar=",
+            TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+      return;
+   }
 
    if(!InpEnableTrading)
    {
