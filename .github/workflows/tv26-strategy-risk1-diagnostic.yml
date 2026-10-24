@@ -1,4 +1,4 @@
-name: TV26 risk-cap diagnostic — 1% risk, 2 ATR stop / 3 ATR target
+name: TV26 3-day real-tick risk diagnostic — 1% risk, 2 ATR stop / 3 ATR target
 
 on:
   push:
@@ -23,8 +23,9 @@ jobs:
     timeout-minutes: 30
     env:
       MT5_CREDENTIALS: ${{ secrets.mt5 }}
-      TV26_TEST_FROM: "2026.09.01"
-      TV26_TEST_TO: "2026.09.11"
+      TV26_TEST_FROM: "2026.10.21"
+      TV26_TEST_TO: "2026.10.24"
+      TV26_TEST_MODEL: "4"
       TV26_TEST_RISK_PERCENT: "1.00"
       TV26_TEST_STOP_ATR: "2.00"
       TV26_TEST_TARGET_ATR: "3.00"
@@ -37,7 +38,7 @@ jobs:
           python-version: "3.12"
       - name: Install formula-audit dependencies
         run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
-      - name: Run isolated 10-day risk-cap diagnostic (not live)
+      - name: Run isolated 3-day real-tick risk diagnostic (not live)
         shell: pwsh
         run: ./.github/scripts/tv26_strategy_backtest.ps1
       - name: Validate strategy-run MT5 audit file

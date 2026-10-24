@@ -12,6 +12,11 @@ $testTo = [string]$env:TV26_TEST_TO
 if ([string]::IsNullOrWhiteSpace($testFrom)) { $testFrom = "2026.09.01" }
 if ([string]::IsNullOrWhiteSpace($testTo)) { $testTo = "2026.09.04" }
 $culture = [Globalization.CultureInfo]::InvariantCulture
+$testModelText = [string]$env:TV26_TEST_MODEL
+if ([string]::IsNullOrWhiteSpace($testModelText)) { $testModelText = "4" }
+$testModel = [int]::Parse($testModelText,$culture)
+if ($testModel -notin @(1,4)) { throw "TV26_TEST_MODEL must be 1 (1-minute OHLC) or 4 (Every tick based on real ticks)." }
+$testModelLabel = if ($testModel -eq 4) { "Every tick based on real ticks (Model=4)" } else { "1-minute OHLC (Model=1)" }
 $startDate = [datetime]::ParseExact($testFrom,"yyyy.MM.dd",$culture)
 $endDate = [datetime]::ParseExact($testTo,"yyyy.MM.dd",$culture)
 if ($endDate -le $startDate) { throw "TV26_TEST_TO must be later than TV26_TEST_FROM; ToDate is exclusive." }
@@ -78,7 +83,8 @@ $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $nu
   "TV26 Strategy Tester backtest; simulated trades are allowed only inside this isolated tester run. InpTesterOnly=true blocks execution outside Strategy Tester.",
   "Symbol XAUUSD, tester timeframe M1, ratings M1/M5/M15/M30/H1.",
   "Range $rangeLabelStart to $rangeLabelEnd inclusive; MT5 Tester ToDate=$testTo (exclusive end date).",
-  "Model 1 (1-minute OHLC), deposit 500 USD, leverage 1:1000.",
+  "Model $testModel ($testModelLabel), deposit 500 USD, leverage 1:1000.",
+  "MT5 may synthesize replacement ticks for intervals where broker real-tick history is missing.",
   "This is a preliminary historical strategy simulation. It is not a live account run, and it does not prove future profitability.",
   "UTC start: $([DateTime]::UtcNow.ToString('o'))"
 ) | Set-Content -LiteralPath $summary -Encoding utf8
@@ -159,7 +165,7 @@ Expert=TV26\TV26_FiveTF_Arabic_CANDIDATE.ex5
 ExpertParameters=$setName
 Symbol=XAUUSD
 Period=M1
-Model=1
+Model=$testModel
 ExecutionMode=0
 Optimization=0
 FromDate=$testFrom
@@ -177,7 +183,7 @@ UseCloud=0
 Visual=0
 "@
   [System.IO.File]::WriteAllText($config,$ini,[System.Text.UTF8Encoding]::new($false))
-  "Tester configured: M1 chart; date range $rangeLabelStart to $rangeLabelEnd; risk=$testRiskText percent; SL=$testStopText ATR; TP=$testTargetText ATR; InpEnableTrading=true; InpDemoOnly=true; InpTesterOnly=true. Orders are simulated inside MT5 Strategy Tester only." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Tester configured: M1 chart; date range $rangeLabelStart to $rangeLabelEnd; model=$testModel ($testModelLabel); risk=$testRiskText percent; SL=$testStopText ATR; TP=$testTargetText ATR; InpEnableTrading=true; InpDemoOnly=true; InpTesterOnly=true. Orders are simulated inside MT5 Strategy Tester only." | Add-Content -LiteralPath $summary -Encoding utf8
   $env:MT5_CREDENTIALS = $null
   $accountPasswordForRedaction = $accountPassword
   $accountPassword = $null
@@ -341,7 +347,7 @@ Visual=0
     "$metric=$count" | Add-Content -LiteralPath $summary -Encoding utf8
   }
   "UTC finish: $([DateTime]::UtcNow.ToString('o'))" | Add-Content -LiteralPath $summary -Encoding utf8
-  "Classification: STRATEGY_TESTER_SIMULATION. Results apply only to $rangeLabelStart through $rangeLabelEnd under the 1-minute OHLC model; no live orders are permitted by the tester-only guard." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Classification: STRATEGY_TESTER_SIMULATION. Results apply only to $rangeLabelStart through $rangeLabelEnd under $testModelLabel. MT5 may synthesize replacement ticks where broker real-tick history is missing. No live orders are permitted by the tester-only guard." | Add-Content -LiteralPath $summary -Encoding utf8
   Get-Content -LiteralPath $summary
 }
 finally {
