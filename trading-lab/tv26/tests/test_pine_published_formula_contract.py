@@ -1,4 +1,5 @@
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -75,6 +76,26 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertIn("Git blob equality above proves the exact committed EA source was tested.", workflow)
         self.assertNotIn("40083533466", workflow)
         self.assertIn("--min-mt5-coverage 0.80", workflow)
+
+    def test_direct_parity_audit_resolver_bash_syntax(self):
+        workflow = (ROOT.parents[1] / ".github/workflows/tv26-direct-tradingview-parity.yml").read_text(encoding="utf-8")
+        lines = workflow.splitlines()
+        step_name = "      - name: Resolve and download a source-matching cloud MT5 audit"
+        start = lines.index(step_name)
+        run_line = start + 1
+        while run_line < len(lines) and lines[run_line].strip() != "run: |":
+            run_line += 1
+        self.assertLess(run_line, len(lines), "Resolver step must contain a literal Bash block")
+        body = []
+        for line in lines[run_line + 1:]:
+            if line.startswith("      - name: "):
+                break
+            if line.strip() and not line.startswith("          "):
+                self.fail(f"Unexpected indentation in Bash block: {line!r}")
+            body.append(line[10:] if line.startswith("          ") else "")
+        script = "\\n".join(body) + "\\n"
+        result = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, msg=result.stderr or "Bash syntax check failed")
 
     def test_williams_r_uses_builtin_namespace_in_both_exporters(self):
         for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
