@@ -7,6 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / ".github" / "scripts" / "tv26_strategy_cooldown_backtest.ps1"
 WORKFLOW = ROOT / ".github" / "workflows" / "tv26-strategy-cooldown-validation.yml"
+HOLDOUT_WORKFLOW = ROOT / ".github" / "workflows" / "tv26-strategy-cooldown-holdout.yml"
 REPORT = ROOT / "trading-lab" / "tv26" / "TV26_10DAY_STRATEGY_DIAGNOSIS_2026-10-24_AR.md"
 
 
@@ -15,6 +16,7 @@ class CooldownValidationContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.script = SCRIPT.read_text(encoding="utf-8")
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
+        cls.holdout_workflow = HOLDOUT_WORKFLOW.read_text(encoding="utf-8")
         cls.report = REPORT.read_text(encoding="utf-8")
 
     def test_cooldown_parameter_is_bounded_and_applied_to_tester_set(self):
@@ -51,6 +53,15 @@ class CooldownValidationContractTests(unittest.TestCase):
         self.assertIn("InpDemoOnly=true", self.script)
         self.assertIn("InpTesterOnly=true", self.script)
         self.assertIn("No live orders are permitted by the tester-only guard.", self.script)
+
+    def test_out_of_sample_holdout_is_fixed_and_compared_serially(self):
+        self.assertIn('TV26_TEST_FROM: "2026.10.01"', self.holdout_workflow)
+        self.assertIn('TV26_TEST_TO: "2026.10.11"', self.holdout_workflow)
+        self.assertIn("cooldown: [0, 10]", self.holdout_workflow)
+        self.assertIn("max-parallel: 1", self.holdout_workflow)
+        self.assertIn("tv26-cooldown-validation-${{ github.ref }}", self.holdout_workflow)
+        self.assertIn("TV26_TEST_REQUIRE_M1_BREAKOUT: \"true\"", self.holdout_workflow)
+        self.assertIn("tv26_strategy_cooldown_backtest.ps1", self.holdout_workflow)
 
     def test_prior_matrix_report_does_not_claim_profitability(self):
         self.assertIn("لا توجد نسخة مثبتة الربحية حتى الآن", self.report)
