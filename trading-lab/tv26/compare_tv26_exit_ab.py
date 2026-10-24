@@ -43,7 +43,7 @@ def first_number(value: str):
 
 def event_key(line: str):
     """Stable identity for an exit trigger/close event; refuses incomplete logs."""
-    ticket = re.search(r"ticket=(\\d+)", line)
+    ticket = re.search(r"ticket=(\d+)", line)
     reason = re.search(r"reason=([^;]+)", line)
     bar = re.search(r"bar=([^;]+)", line)
     if not ticket or not reason or not bar:
