@@ -39,6 +39,11 @@ if ([string]::IsNullOrWhiteSpace($testLookbackText)) { $testLookbackText = "1" }
 $testLookbackBars = [int]::Parse($testLookbackText,$culture)
 if ($testLookbackBars -lt 1 -or $testLookbackBars -gt 20) { throw "TV26_TEST_BREAKOUT_LOOKBACK_BARS must be between 1 and 20." }
 $testLookbackText = $testLookbackBars.ToString($culture)
+$testEntryThresholdText = [string]$env:TV26_TEST_ENTRY_CONSENSUS_THRESHOLD
+if ([string]::IsNullOrWhiteSpace($testEntryThresholdText)) { $testEntryThresholdText = "0.50" }
+$testEntryThreshold = [decimal]::Parse($testEntryThresholdText,$culture)
+if ($testEntryThreshold -lt 0.50 -or $testEntryThreshold -gt 0.90) { throw "TV26_TEST_ENTRY_CONSENSUS_THRESHOLD must be between 0.50 and 0.90." }
+$testEntryThresholdText = $testEntryThreshold.ToString("0.00",$culture)
 if ([string]::IsNullOrWhiteSpace($testRiskText)) { $testRiskText = "0.50" }
 if ([string]::IsNullOrWhiteSpace($testStopText)) { $testStopText = "2.0" }
 if ([string]::IsNullOrWhiteSpace($testTargetText)) { $testTargetText = "3.0" }
@@ -98,6 +103,7 @@ $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $nu
   "Symbol XAUUSD, tester timeframe M1, ratings M1/M5/M15/M30/H1.",
   "Range $rangeLabelStart to $rangeLabelEnd inclusive; MT5 Tester ToDate=$testTo (exclusive end date).",
   "Model $testModel ($testModelLabel), deposit 500 USD, leverage 1:1000.",
+  "Minimum entry rating on each timeframe: $testEntryThresholdText (TradingView display labels retain standard +/-0.50).",
   "M1 close-breakout confirmation: $testBreakoutText; lookback=$testLookbackText previous M1 bars; required extra distance beyond their high/low: $testBreakoutBufferText ATR.",
   "MT5 may synthesize replacement ticks for intervals where broker real-tick history is missing.",
   "This is a preliminary historical strategy simulation. It is not a live account run, and it does not prove future profitability.",
@@ -147,6 +153,7 @@ InpDemoOnly=true||true||0||true||N
 InpTesterOnly=true||true||0||true||N
 InpMagic=26102327||26102327||1||26102327||N
 InpRiskPercent=$testRiskText||$testRiskText||0.10||$testRiskText||N
+InpEntryConsensusThreshold=$testEntryThresholdText||$testEntryThresholdText||0.01||$testEntryThresholdText||N
 InpATRPeriod=14||14||1||14||N
 InpStopATR=$testStopText||$testStopText||0.5||$testStopText||N
 InpTargetATR=$testTargetText||$testTargetText||0.5||$testTargetText||N
@@ -286,6 +293,7 @@ Visual=0
     '(?is)InpTesterOnly=true</b>',
     '(?is)InpMagic=26102327</b>',
     '(?is)InpRiskPercent=' + [regex]::Escape($testRiskText) + '</b>',
+    '(?is)InpEntryConsensusThreshold=' + [regex]::Escape($testEntryThresholdText) + '</b>',
     '(?is)InpStopATR=' + [regex]::Escape($testStopText) + '</b>',
     '(?is)InpTargetATR=' + [regex]::Escape($testTargetText) + '</b>',
     '(?is)InpRequireM1CloseBreakout=' + [regex]::Escape($testBreakoutText) + '</b>',
@@ -297,7 +305,7 @@ Visual=0
       throw "Tester report does not confirm required safe backtest input pattern: $pattern"
     }
   }
-  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText; lookback=$testLookbackText bars; buffer=$testBreakoutBufferText ATR)." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; entry threshold=$testEntryThresholdText; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText; lookback=$testLookbackText bars; buffer=$testBreakoutBufferText ATR)." | Add-Content -LiteralPath $summary -Encoding utf8
   function Get-TesterMetric([string]$ReportHtml,[string]$Label) {
     $pattern = '(?is)<td[^>]*>\s*' + [regex]::Escape($Label) + '\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>'
     $match = [regex]::Match($ReportHtml,$pattern)
