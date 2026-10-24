@@ -1058,6 +1058,11 @@ void TradeIfAligned()
    if(sent && (res.retcode==TRADE_RETCODE_DONE || res.retcode==TRADE_RETCODE_DONE_PARTIAL || res.retcode==TRADE_RETCODE_PLACED))
    {
       RememberSignal(sig);
+      g_lastAction=(sig>0?"شراء":"بيع")+" نُفّذ/قُبل؛ حجم "+DoubleToString(lots,2);
+      g_lastBlock="";
+      Print("TV26_ORDER_ACCEPTED;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+            ";retcode=",res.retcode,";volume=",DoubleToString(lots,2),";entry=",DoubleToString(entry,digits),
+            ";sl=",DoubleToString(sl,digits),";tp=",DoubleToString(tp,digits));
       if(InpRequireOppositeSignalAfterLossBeforeReentry && g_lossLatchSignal!=0 && sig==-g_lossLatchSignal)
       {
          Print("TV26_LOSS_LATCH_RELEASED;reason=OPPOSITE_DIRECTION_ORDER_ACCEPTED;closed_loss_direction=",
@@ -1066,11 +1071,6 @@ void TradeIfAligned()
          g_lossLatchSignal=0;
          if(g_lossLatchGV!="") GlobalVariableSet(g_lossLatchGV,0.0);
       }
-      g_lastAction=(sig>0?"شراء":"بيع")+" نُفّذ/قُبل؛ حجم "+DoubleToString(lots,2);
-      g_lastBlock="";
-      Print("TV26_ORDER_ACCEPTED;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
-            ";retcode=",res.retcode,";volume=",DoubleToString(lots,2),";entry=",DoubleToString(entry,digits),
-            ";sl=",DoubleToString(sl,digits),";tp=",DoubleToString(tp,digits));
    }
    else
    {
