@@ -908,7 +908,18 @@ int OnInit()
    g_tfs[0]=InpTF1;g_tfs[1]=InpTF2;g_tfs[2]=InpTF3;g_tfs[3]=InpTF4;g_tfs[4]=InpTF5;
    for(int t=0;t<N_TF;t++)
       for(int k=0;k<t;k++) if(g_tfs[t]==g_tfs[k]){Print("TV26: يجب اختيار خمسة أطر زمنية مختلفة");return INIT_PARAMETERS_INCORRECT;}
-   if(InpRiskPercent<=0 || InpStopATR<=0 || InpTargetATR<=0){Print("TV26: إعدادات المخاطرة غير صالحة");return INIT_PARAMETERS_INCORRECT;}
+   // Hard safety limit: reject accidental risk settings above the lab's 2% ceiling.
+   if(InpRiskPercent<=0 || InpRiskPercent>2.0)
+   {
+      Print("TV26: نسبة المخاطرة يجب أن تكون أكبر من صفر ولا تتجاوز 2.0%");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 ||
+      InpMaxSpreadPoints<0 || InpDeviationPoints<0 || InpCooldownBarsAfterExit<0)
+   {
+      Print("TV26: إعدادات ATR أو السبريد أو الانزلاق أو التهدئة غير صالحة");
+      return INIT_PARAMETERS_INCORRECT;
+   }
    InitHandles();
    g_auditFile="TV26_Audit_"+_Symbol+"_"+IntegerToString((int)InpMagic)+".csv";
    ExportReferenceHistory();
