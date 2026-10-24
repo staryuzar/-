@@ -442,7 +442,7 @@ The 0-bar and 10-bar arms completed on the same EA source hash and identical mar
 | 0 M1 bars | -$9.10 | 0.64 | 3.00% | 10 | 3 / 7 | 0 |
 | 10 M1 bars | -$9.10 | 0.64 | 3.00% | 10 | 3 / 7 | 0 |
 
-Both runs had the same MT5 audit SHA-256 `699e66d4e046c9e9df8195f793aab3d195dcf988dd0fa734f58aafc773fc0d26` and history SHA-256 `db0447bee35ea1d59e4ad10c8c96709ca539a459d329a5bcd140ee03bf573005`. The 10-bar arm recorded zero cooldown blocks and kept the same accepted-order/trade counts. Its complete formula audit checked 329,368 votes with zero mismatches; OHLC integrity checks passed. Decision: **no evidence of benefit from 10 bars on this holdout**.
+Both runs had the same MT5 audit SHA-256 `699e66d4e046c9e9df8195f793aab3d195dcf988dd0fa734f58aafc773fc0d26` and history SHA-256 `db0447bee35ea1d59e4ad10c8c96709ca539a459d329a5bcd140ee03bf573005`. The 10-bar arm recorded zero cooldown blocks and kept the same accepted-order/trade counts. I also compared the Strategy Tester HTML order/deal tables directly: all 41 table rows (including the 10 entries, 10 exits, and balance row) are identical between 0 and 10 bars, not merely the headline metrics. Its complete formula audit checked 329,368 votes with zero mismatches; OHLC integrity checks passed. Decision: **no evidence of benefit from 10 bars on this holdout**.
 
 The 20-bar arm in the same source-matched workflow was still in progress at the time of this update; its outcome must not be inferred from the two completed arms.
 
