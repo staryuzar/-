@@ -69,3 +69,22 @@ This addendum supersedes the earlier run IDs above where a newer source-matched 
 The new run confirms the audited candidate source and internal formulas on the recorded MT5 feed. It does **not** remove the only external-data blocker: `trading-lab/tv26/parity-input/TV26_AllTF.csv` is not present until an actual TradingView chart export is supplied. Pine compiler acceptance, local synthetic regression tests, and MT5-feed agreement cannot substitute for chart-runtime output from TradingView.
 
 The prepared one-file export script is `trading-lab/tv26/TradingView_Parity_AllTF_Export.pine`; the exact export procedure is in `trading-lab/tv26/DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md`. Once that real CSV exists at the specified path, the direct comparison workflow will compare all 26 votes plus summary ratings on M1/M5/M15/M30/H1, with strict source matching and candle-alignment gates. No live-trading approval follows from this audit.
+
+## Display-only verification route — 2026-10-24
+
+A safer visual route has now been added for checking the current closed candle without exporting TradingView market data to a processing pipeline:
+
+- Dashboard: [`TradingView_Visual_Parity_5TF.pine`](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Visual_Parity_5TF.pine)
+- Arabic guide: [`TV26_VISUAL_PARITY_GUIDE_AR.md`](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TV26_VISUAL_PARITY_GUIDE_AR.md)
+- Pine compiler validation and deterministic suite: [run 40096390137](https://github.com/staryuzar/-/actions/runs/40096390137) — TradingView compiler returned `clean` for the display-only dashboard; **59 Python tests passed**.
+- The table displays the official TechnicalRating v3 total/MA/oscillator ratings, recalculation deltas, OHLC and closed-bar time, and all 26 component votes across M1/M5/M15/M30/H1. It has no `plot()` outputs or CSV export series.
+- The MT5 source/indicator audit remains the independent reference: [latest verified audit run 40093365818](https://github.com/staryuzar/-/actions/runs/40093365818), with 141,232 component votes matching the published-formula reference on the audited MT5 feed.
+
+### Updated parity interpretation
+
+- **Published-source/formula contract:** PASS.
+- **MT5 feed vs independent published-formula implementation:** PASS for the recorded 141,232 votes.
+- **Pine display-only dashboard compiler and regression tests:** PASS.
+- **Direct per-bar comparison of the MT5 chart to a separate TradingView chart:** not yet observed by a human reviewer; the machine-generated historical TradingView/MT5 comparison remains unclaimed.
+- The dashboard is the recommended route for a human-readable on-screen check. Compare timestamp and OHLC first; if those differ, a component-rating difference cannot be attributed to formula error alone.
+- Current TradingView policy limits its market data to display-only use and disallows non-display processing for algorithmic trading; see https://www.tradingview.com/policies/. For that reason, do not treat TradingView chart data as a machine input to the EA or upload it to an automated signal pipeline. Continue validating the EA using MT5 broker history and the versioned published formula source.
