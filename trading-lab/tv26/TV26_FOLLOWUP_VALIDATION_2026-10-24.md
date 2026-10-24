@@ -224,3 +224,18 @@ Commit: f0f915f6c4234d5bdb090075d5fbc7da3eb1959b
 Change scope: on a neutral consensus, preserve the last executed direction while this EA has a position open; clear/re-arm the latch only while flat. A diagnostic message records when the latch is held/reset. This does not change indicator formulas, ATR stop/target, risk percentage, spread limits, order sizing, or cooldown. The branch is not merged, and this source change is **not yet compiled/tested by MT5**. The intended first validation is the same Sep 1–10 setup as the source-matched five-trade baseline, then an independent-window replication only if the trade-list effect is supported. Do not infer performance from the code change itself.
 
 The current Oct 20–22 cooldown matrix remains a separate experiment. Its zero-cooldown control has completed and reproduced the earlier result (+$2.74, PF 1.40, 1 win / 2 losses, 3 trades). The 10- and 20-bar variants are still being run; do not mix these results with the latch-source experiment.
+
+
+## 15. Progressive one-day-first validation workflow
+
+Workflow commit: `30516b4fe771d6f1ae5fce7bfd856fe9199517ed`
+Run: https://github.com/staryuzar/-/actions/runs/40110879062
+
+The previous conditional one-day/three-day workflow has been replaced by a sequential daily gate runner. The first window is October 22, 2026; if it passes, the runner replays October 21–22, then October 20–22, and so on, up to ten days ending on the same date. It does not launch later windows unless the previous stage passes.
+
+Promotion criteria are explicit:
+- One day: net profit at least $5.00, at least one trade, zero losing trades, max equity drawdown no more than 1.00%.
+- Two days and beyond: cumulative net profit at least $2.50 per tested day on average; at least one trade; if any losses occur, PF at least 1.15; max equity drawdown limited to 1% per day, capped at 5%.
+- Every stage must pass both OHLC integrity validation and the independent published TechnicalRating formula audit. Zero trades or an audit/metric failure stops expansion rather than being treated as success.
+
+Each stage gets a unique magic number and its own artifact folder, retaining the tester summary, trade report, logs, CSV exports, formula report, and stage decision. MT5's explicit canceled tick-history failure is retried once; a second or non-transient failure stops the progression. The run was in progress when this entry was written, so no result from the new progressive sequence is asserted here. These thresholds are screening rules selected for the $500 lab account, not general investment guidance or evidence of a robust edge.
