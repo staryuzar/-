@@ -29,6 +29,10 @@ $testBreakoutText = [string]$env:TV26_TEST_REQUIRE_M1_BREAKOUT
 if ([string]::IsNullOrWhiteSpace($testBreakoutText)) { $testBreakoutText = "false" }
 $testRequireM1Breakout = [bool]::Parse($testBreakoutText)
 $testBreakoutText = $testRequireM1Breakout.ToString().ToLowerInvariant()
+$testOppositeAfterLossText = [string]$env:TV26_TEST_REQUIRE_OPPOSITE_AFTER_LOSS
+if ([string]::IsNullOrWhiteSpace($testOppositeAfterLossText)) { $testOppositeAfterLossText = "false" }
+$testRequireOppositeAfterLoss = [bool]::Parse($testOppositeAfterLossText)
+$testOppositeAfterLossText = $testRequireOppositeAfterLoss.ToString().ToLowerInvariant()
 $testCooldownText = [string]$env:TV26_TEST_COOLDOWN_BARS
 if ([string]::IsNullOrWhiteSpace($testCooldownText)) { $testCooldownText = "0" }
 $testCooldownBars = [int]::Parse($testCooldownText,$culture)
@@ -94,6 +98,7 @@ $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $nu
   "Range $rangeLabelStart to $rangeLabelEnd inclusive; MT5 Tester ToDate=$testTo (exclusive end date).",
   "Model $testModel ($testModelLabel), deposit 500 USD, leverage 1:1000.",
   "M1 close-breakout confirmation: $testBreakoutText (last closed M1 close must break the prior candle high/low).",
+  "Require an opposite strong consensus order after a losing close before same-side reentry: $testOppositeAfterLossText.",
   "Post-exit cooldown: $testCooldownBars M1 bars.",
   "MT5 may synthesize replacement ticks for intervals where broker real-tick history is missing.",
   "This is a preliminary historical strategy simulation. It is not a live account run, and it does not prove future profitability.",
@@ -147,6 +152,7 @@ InpATRPeriod=14||14||1||14||N
 InpStopATR=$testStopText||$testStopText||0.5||$testStopText||N
 InpTargetATR=$testTargetText||$testTargetText||0.5||$testTargetText||N
 InpCooldownBarsAfterExit=$testCooldownBars||$testCooldownBars||0||$testCooldownBars||N
+InpRequireOppositeSignalAfterLossBeforeReentry=$testOppositeAfterLossText||$testOppositeAfterLossText||0||true||N
 InpRequireM1CloseBreakout=$testBreakoutText||$testBreakoutText||0||true||N
 InpMaxSpreadPoints=100.0||100.0||10.0||100.0||N
 InpDeviationPoints=20||20||1||20||N
@@ -284,6 +290,7 @@ Visual=0
     '(?is)InpStopATR=' + [regex]::Escape($testStopText) + '</b>',
     '(?is)InpTargetATR=' + [regex]::Escape($testTargetText) + '</b>',
     '(?is)InpRequireM1CloseBreakout=' + [regex]::Escape($testBreakoutText) + '</b>',
+    '(?is)InpRequireOppositeSignalAfterLossBeforeReentry=' + [regex]::Escape($testOppositeAfterLossText) + '</b>',
     '(?is)InpCooldownBarsAfterExit=' + [regex]::Escape($testCooldownText) + '</b>'
   )
   foreach ($pattern in $expectedInputs) {
@@ -291,7 +298,7 @@ Visual=0
       throw "Tester report does not confirm required safe backtest input pattern: $pattern"
     }
   }
-  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText; post-exit cooldown=$testCooldownBars M1 bars)." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText; opposite-consensus-after-loss latch=$testOppositeAfterLossText; post-exit cooldown=$testCooldownBars M1 bars)." | Add-Content -LiteralPath $summary -Encoding utf8
   function Get-TesterMetric([string]$ReportHtml,[string]$Label) {
     $pattern = '(?is)<td[^>]*>\s*' + [regex]::Escape($Label) + '\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>'
     $match = [regex]::Match($ReportHtml,$pattern)
@@ -378,6 +385,10 @@ Visual=0
     "rejected_orders" = 'TV26_ORDER_REJECTED;'
     "blocked_invalid_atr" = 'reason=ATR_NOT_READY'
     "blocked_post_exit_cooldown" = 'reason=POST_EXIT_COOLDOWN'
+    "blocked_same_direction_after_loss_latch" = 'reason=SAME_DIRECTION_AFTER_LOSS_LATCH'
+    "loss_latch_armed" = 'TV26_LOSS_LATCH_ARMED;'
+    "loss_latch_released" = 'TV26_LOSS_LATCH_RELEASED;'
+    "loss_latch_net_unavailable" = 'TV26_LOSS_LATCH_NOT_ARMED;'
   }
   foreach ($metric in $diagnosticPatterns.Keys) {
     $count = [regex]::Matches($diagText,[regex]::Escape($diagnosticPatterns[$metric])).Count
