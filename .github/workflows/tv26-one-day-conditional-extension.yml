@@ -73,10 +73,14 @@ jobs:
           $losses = [int]$lossMatch.Groups[1].Value
           "trades=$trades" | Add-Content $env:GITHUB_OUTPUT
           "losses=$losses" | Add-Content $env:GITHUB_OUTPUT
-          if ($losses -eq 0) {
+          if ($trades -gt 0 -and $losses -eq 0) {
             "extend=true" | Add-Content $env:GITHUB_OUTPUT
             "## Extension gate: EXTEND" | Add-Content $env:GITHUB_STEP_SUMMARY
             "One-day result has $trades trade(s) and zero losing trades. Extending to the three-day window 2026-10-21 through 2026-10-23. This is only a screening gate, not proof of profitability." | Add-Content $env:GITHUB_STEP_SUMMARY
+          } elseif ($trades -eq 0) {
+            "extend=false" | Add-Content $env:GITHUB_OUTPUT
+            "## Extension gate: INCONCLUSIVE — NO TRADES" | Add-Content $env:GITHUB_STEP_SUMMARY
+            "One-day result has zero trades. Zero losses with zero trades is not a pass and must not trigger automatic extension; inspect signal/entry blockers and test another session separately." | Add-Content $env:GITHUB_STEP_SUMMARY
           } else {
             "extend=false" | Add-Content $env:GITHUB_OUTPUT
             "## Extension gate: STOP AND DIAGNOSE" | Add-Content $env:GITHUB_STEP_SUMMARY
@@ -108,6 +112,7 @@ jobs:
           $audit = "tv26-one-day-results/TV26_Audit_XAUUSD_26102327.csv"
           $history = "tv26-one-day-results/TV26_OHLC_History_XAUUSD.csv"
           if ((Test-Path $audit) -and (Test-Path $history)) {
+            $env:PYTHONIOENCODING = "utf-8"
             python trading-lab/tv26/validate_tv26_mt5_audit.py --csv $audit --report tv26-one-day-results/data-integrity-report.md --json tv26-one-day-results/data-integrity-report.json
             python trading-lab/tv26/reference_tv26_formulas.py --audit $audit --history $history --report tv26-one-day-results/formula-parity-report.md --details tv26-one-day-results/formula-parity-details.csv --json tv26-one-day-results/formula-parity-report.json
           } else {
@@ -124,6 +129,7 @@ jobs:
           $audit = Join-Path "tv26-expanded-results" ("TV26_Audit_XAUUSD_" + $magic + ".csv")
           $history = "tv26-expanded-results/TV26_OHLC_History_XAUUSD.csv"
           if ((Test-Path $audit) -and (Test-Path $history)) {
+            $env:PYTHONIOENCODING = "utf-8"
             python trading-lab/tv26/validate_tv26_mt5_audit.py --csv $audit --report tv26-expanded-results/data-integrity-report.md --json tv26-expanded-results/data-integrity-report.json
             python trading-lab/tv26/reference_tv26_formulas.py --audit $audit --history $history --report tv26-expanded-results/formula-parity-report.md --details tv26-expanded-results/formula-parity-details.csv --json tv26-expanded-results/formula-parity-report.json
           } else {
