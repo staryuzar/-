@@ -71,6 +71,12 @@ class ExactTechnicalRatingV3ContractTests(unittest.TestCase):
         self.assertIn("FOREIGN_NETTING_POSITION", ea)
         self.assertIn("لميتمتعديلالمركز", ea)
 
+    def test_reverse_close_uses_the_supported_symbol_filling_mode(self):
+        ea = compact("TV26_FiveTF_Arabic_CANDIDATE.mq5")
+        self.assertIn('req.type_filling=FillMode();req.comment="TV26closeopposite";', ea)
+        self.assertIn("ENUM_ORDER_TYPE_FILLINGFillMode()", ea)
+        self.assertNotIn('req.type_filling=ORDER_FILLING_IOC;req.comment="TV26closeopposite";', ea)
+
     def test_all_five_timeframes_use_confirmed_closed_bars_and_timestamp_shift(self):
         pine = compact("TradingView_Parity_AllTF_Export.pine")
         self.assertEqual(pine.count("request.security(syminfo.tickerid"), 5)
