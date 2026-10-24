@@ -58,7 +58,7 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
     def test_parity_workflow_runs_automatically_on_export_upload(self):
         workflow = (ROOT.parents[1] / ".github/workflows/tv26-direct-tradingview-parity.yml").read_text(encoding="utf-8")
         self.assertIn('      - "trading-lab/tv26/parity-input/TV26_AllTF.csv"', workflow)
-        self.assertIn("MT5_AUDIT_RUN_ID: ${{ github.event.inputs.mt5_audit_run_id || '40082292816' }}", workflow)
+        self.assertIn("MT5_AUDIT_RUN_ID: ${{ github.event.inputs.mt5_audit_run_id || '40082766693' }}", workflow)
         self.assertIn("MT5_UTC_OFFSET_HOURS: ${{ github.event.inputs.mt5_utc_offset_hours || '3' }}", workflow)
         self.assertIn("--min-mt5-coverage 0.80", workflow)
 
