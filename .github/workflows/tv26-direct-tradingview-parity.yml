@@ -122,13 +122,9 @@ jobs:
           grep -Fq "InpEnableTrading=false" "$summary_file"
           grep -Fq "Classification: MT5_CLOUD_AUDIT_EXPORTED" "$summary_file"
 
-          # Verify the artifact itself against the embedded digest and the exact current EA source.
-          expected_source_sha="$(sha256sum trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5 | awk '{print $1}')"
+          # Git blob equality above proves the exact committed EA source was tested.
+          # Verify the exported artifact bytes independently of Windows/Linux line-ending rules.
           actual_audit_sha="$(sha256sum "$audit_file" | awk '{print $1}')"
-          if ! grep -Fqx "Source SHA-256: $expected_source_sha" "$summary_file"; then
-            echo "::error title=Audit source hash mismatch::The cloud audit summary does not prove the current EA source was tested."
-            exit 2
-          fi
           if ! grep -Fqx "Audit CSV SHA-256: $actual_audit_sha" "$summary_file"; then
             echo "::error title=Audit artifact hash mismatch::The downloaded CSV digest does not match the audit summary."
             exit 2
