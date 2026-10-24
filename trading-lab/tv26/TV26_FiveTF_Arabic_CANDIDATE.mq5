@@ -667,6 +667,21 @@ bool CloseTicket(ulong ticket)
    // A partial-close retcode is not a successful reversal if the old position remains.
    return !PositionSelectByTicket(ticket);
 }
+// In netting/exchange accounts only one position can exist per symbol.
+// Refuse to touch a symbol position owned by a manual trade or another EA.
+bool HasForeignNettingPosition()
+{
+   ENUM_ACCOUNT_MARGIN_MODE mode=(ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   if(mode==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING) return false;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong tk=PositionGetTicket(i);
+      if(tk==0 || !PositionSelectByTicket(tk)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if((ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagic) return true;
+   }
+   return false;
+}
 double NormalizeLots(double lots)
 {
    double minv=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),maxv=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX),step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
@@ -722,6 +737,15 @@ void TradeIfAligned()
    {
       g_lastAction=(sig>0?"إشارة شراء قوي متوافقة":"إشارة بيع قوي متوافقة")+"؛ التنفيذ معطّل";
       Print("TV26_ENTRY_BLOCK;reason=TRADING_DISABLED;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+      return;
+   }
+
+   if(HasForeignNettingPosition())
+   {
+      g_lastBlock="حساب Netting يحتوي على مركز ذهب لا يخص هذا المستشار؛ لم يتم تعديل المركز";
+      g_lastAction="منع التنفيذ لحماية المركز الخارجي";
+      Print("TV26_ENTRY_BLOCK;reason=FOREIGN_NETTING_POSITION;signal=",SignalName(sig),
+            ";symbol=",_Symbol,";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
       return;
    }
 
