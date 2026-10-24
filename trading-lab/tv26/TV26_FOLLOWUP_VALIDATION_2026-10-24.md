@@ -667,3 +667,20 @@ Workflow: https://github.com/staryuzar/-/actions/runs/40115390637
 
 ### TradingView parity status
 Formula-level audit remains a formula implementation check against the published TechnicalRating v3 rules on the Headway-Demo/Jarocel XAUUSD feed. It is not direct parity against an actual TradingView chart export. The direct parity gate remains OPEN until Pine outputs from the same TradingView symbol/feed and overlapping timestamps are exported and compared by component and timeframe.
+
+
+## 24. Entry-timeframe diagnostic for the three Oct 20–22 trades
+
+Using the exported audit CSV from run 40115334971, I extracted the latest available closed-bar summary for each timeframe at each entry decision. Ratings are total / moving-average (MA) / oscillator (OSC); negative values are sell-biased.
+
+| Entry decision | Outcome | M1 total / MA / OSC | M5 total / MA / OSC | M15 total / MA / OSC | M30 and H1 OSC |
+|---|---|---|---|---|---|
+| Oct 20 11:07, sell | SL -$3.81 | -0.512 / -0.933 / -0.091 | -0.524 / -0.867 / -0.182 | -0.445 / -0.800 / -0.091 | both -0.273 |
+| Oct 20 11:29, sell | SL -$3.07 | -0.558 / -0.933 / -0.182 | -0.636 / -1.000 / -0.273 | -0.512 / -0.933 / -0.091 | both -0.273 |
+| Oct 22 06:37, sell | TP +$9.62 | -0.591 / -1.000 / -0.182 | -0.342 / -0.867 / **+0.182** | -0.636 / -1.000 / -0.273 | both -0.273 |
+
+### Interpretation
+1. The first two losing sells were taken when M1 and M15 oscillator readings were weakly sell-biased (about -0.09), while their MA readings were strongly sell-biased. The average total rating still crossed the EA's strong-sell threshold. This is evidence that MA dominance can allow entries while shorter-timeframe oscillators provide little confirmation.
+2. A blanket rule requiring every timeframe's oscillator to point in the trade direction would also reject the only winner: its M5 oscillator rating was +0.182 while the MAs and total rating remained sell-biased. So a strict all-timeframe oscillator-alignment filter is not justified by this sample.
+3. Three trades are far too few to fit or validate a threshold. Do not add a filter merely because it removes the two losses; it must be checked on independent dates and must retain winners.
+4. The next research candidate should test an entry-timing/reversal guard on M1/M5, with baseline trade logs retained and a fixed holdout. Compare net, PF, equity DD, every removed winner/loss, and the exact blocker counts. No result should be accepted solely because trade count falls.
