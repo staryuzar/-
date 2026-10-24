@@ -1,0 +1,91 @@
+name: TV26 controlled exit-path diagnostic (isolated tester only)
+
+on:
+  push:
+    branches:
+      - tv26-exit-diagnostic-study
+    paths:
+      - ".github/workflows/tv26-exit-diagnostic.yml"
+      - ".github/scripts/tv26_strategy_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-exit-diagnostic-study
+  cancel-in-progress: false
+
+jobs:
+  tester:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      TV26_TEST_FROM: "2026.09.01"
+      TV26_TEST_TO: "2026.09.04"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "5.00"
+      TV26_TEST_TARGET_ATR: "20.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "false"
+      TV26_TEST_MAGIC: "26102481"
+    steps:
+      - name: Checkout diagnostic candidate
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+      - name: Run controlled three-day exit diagnostic (tester only; widened SL/TP are diagnostic)
+        shell: pwsh
+        run: ./.github/scripts/tv26_strategy_backtest.ps1
+      - name: Validate exported MT5 audit
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_mt5_audit.py
+          --csv tv26-strategy-results/TV26_Audit_XAUUSD_26102481.csv
+          --report tv26-strategy-results/data-integrity-report.md
+          --json tv26-strategy-results/data-integrity-report.json
+      - name: Compare formulas against independent public-reference implementation
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-strategy-results/TV26_Audit_XAUUSD_26102481.csv
+          --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-strategy-results/formula-parity-report.md
+          --details tv26-strategy-results/formula-parity-details.csv
+          --json tv26-strategy-results/formula-parity-report.json
+      - name: Summarize whether rule-based exits actually fired
+        if: always()
+        shell: pwsh
+        run: |
+          $logs = Get-ChildItem -Path "tv26-strategy-results/diagnostic-logs" -Filter "*.txt" -File -ErrorAction SilentlyContinue
+          $all = ($logs | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue }) -join "`n"
+          $trigger = ([regex]::Matches($all, "TV26_EXIT_TRIGGER;")).Count
+          $completed = ([regex]::Matches($all, "TV26_EXIT_COMPLETED;")).Count
+          $failed = ([regex]::Matches($all, "TV26_EXIT_FAILED;")).Count
+          $text = @(
+            "# Exit-path diagnostic",
+            "",
+            "This run uses widened SL/TP (5 ATR / 20 ATR) only to keep positions available for observing rule-based exits; it is not a performance comparison against the baseline.",
+            "",
+            "- TV26_EXIT_TRIGGER events: $trigger",
+            "- TV26_EXIT_COMPLETED events: $completed",
+            "- TV26_EXIT_FAILED events: $failed",
+            "",
+            "A pass requires at least one trigger and a corresponding completed close. Zero triggers means inconclusive, not a pass."
+          )
+          $text | Set-Content -LiteralPath "tv26-strategy-results/exit-path-diagnostic.md" -Encoding utf8
+          Get-Content -LiteralPath "tv26-strategy-results/exit-path-diagnostic.md"
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-exit-path-diagnostic-${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
