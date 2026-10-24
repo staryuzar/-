@@ -65,6 +65,7 @@ class M1M5OscillatorGateTests(unittest.TestCase):
     def test_tester_harness_applies_and_audits_requested_gate_value(self):
         self.assertIn("TV26_TEST_MIN_M1M5_OSCILLATOR_RATING", self.harness)
         self.assertIn("must be between 0 and 1", self.harness)
+        self.assertIn("$testM1M5Osc -lt 0 -or $testM1M5Osc -gt 1.0", self.harness)
         self.assertIn(
             "InpMinM1M5DirectionalOscillatorRating=$testM1M5OscText",
             self.harness,
