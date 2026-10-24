@@ -12,12 +12,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: tv26-latch-ab-\${{ github.ref }}
+  group: tv26-latch-ab-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   compare:
-    name: "\${{ matrix.label }}"
+    name: "${{ matrix.label }}"
     runs-on: windows-2022
     timeout-minutes: 120
     strategy:
@@ -51,11 +51,11 @@ jobs:
             date_to: "2026.10.23"
 
     env:
-      MT5_CREDENTIALS: \${{ secrets.mt5 }}
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
-      TV26_TEST_FROM: \${{ matrix.date_from }}
-      TV26_TEST_TO: \${{ matrix.date_to }}
+      TV26_TEST_FROM: ${{ matrix.date_from }}
+      TV26_TEST_TO: ${{ matrix.date_to }}
       TV26_TEST_MODEL: "4"
       TV26_TEST_RISK_PERCENT: "1.00"
       TV26_TEST_STOP_ATR: "2.00"
@@ -80,17 +80,17 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $sourcePath = "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
-          $sourceRef = "\${{ matrix.source_ref }}"
+          $sourceRef = "${{ matrix.source_ref }}"
           $selected = @(& git show "$($sourceRef):$sourcePath")
           if ($LASTEXITCODE -ne 0 -or $selected.Count -eq 0) { throw "Could not retrieve the selected immutable EA source ref." }
-          $sourceText = [string]::Join("\`n", $selected) + "\`n"
+          $sourceText = [string]::Join([Environment]::NewLine, $selected) + [Environment]::NewLine
           [System.IO.File]::WriteAllText((Join-Path $PWD $sourcePath), $sourceText, [System.Text.UTF8Encoding]::new($false))
           $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
           $results = Join-Path $PWD "tv26-strategy-results"
           New-Item -ItemType Directory -Path $results -Force | Out-Null
           @(
-            "Variant: \${{ matrix.variant }}",
-            "Label: \${{ matrix.label }}",
+            "Variant: ${{ matrix.variant }}",
+            "Label: ${{ matrix.label }}",
             "Immutable source commit: $sourceRef",
             "EA source SHA-256: $sourceHash",
             "Date from: $env:TV26_TEST_FROM",
@@ -160,8 +160,8 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          "## \${{ matrix.label }}" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
-          "Source ref: \${{ matrix.source_ref }}; variant: \${{ matrix.variant }}; dates $env:TV26_TEST_FROM to $env:TV26_TEST_TO (exclusive end)." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          "## ${{ matrix.label }}" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          "Source ref: ${{ matrix.source_ref }}; variant: ${{ matrix.variant }}; dates $env:TV26_TEST_FROM to $env:TV26_TEST_TO (exclusive end)." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
           foreach ($name in @("latch-ab-source-manifest.txt","strategy-backtest-summary.txt","data-integrity-report.md","formula-parity-report.md")) {
             $p = Join-Path "tv26-strategy-results" $name
             if (Test-Path -LiteralPath $p) {
@@ -175,7 +175,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tv26-latch-ab-\${{ matrix.id }}-\${{ github.run_id }}
+          name: tv26-latch-ab-${{ matrix.id }}-${{ github.run_id }}
           path: tv26-strategy-results/
           if-no-files-found: warn
           retention-days: 30
