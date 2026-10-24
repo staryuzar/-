@@ -834,3 +834,24 @@ The 4-day trade list shows two Oct 19 buys stopped out at -$3.40 and -$2.59, the
 All four completed stages had successful OHLC and formula audits; stage 4 checked 261,232 component votes with zero mismatches and 10,926 candle groups with no OHLC integrity faults. The result is therefore a genuine failed strategy gate rather than a data-audit failure.
 
 **Decision:** reject the assumption that the M1 oscillator minimum 0.15 is sufficient to make this candidate robust. Keep it research-only. It improved the selected Oct 20–22 window but the conditional four-day extension erased almost all net profit. An independent Sep 11–20 matched baseline/gate holdout is still running as workflow 40120436495; no promotion decision should be made until that result is inspected.
+
+
+## 29. Independent Sep 11–20 holdout for the M1 oscillator gate — completed (run 40120436495)
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40120436495
+
+This matched holdout compared no gate to the test-only M1 oscillator-direction minimum of 0.15. Same exact date window (Sep 11–20), MT5 Model 4, $500 deposit, risk 1%, SL 2 ATR, TP 4 ATR, M1 close-breakout on, cooldown 0. The baseline and filtered arms used the same reference OHLCV history SHA-256 `dd039b633033f7bf0413942135c1a382a5dd7720d865c9cd3b5ab86ef014f98c`; each checked 282,334 component votes with zero formula mismatches and 10,859 candle groups with zero integrity faults.
+
+| Variant | Effective compiled-source SHA-256 | Net | PF | Max equity DD | Trades | Wins / losses |
+|---|---|---:|---:|---:|---:|---:|
+| Baseline, no M1 oscillator gate | `1448c417b458b78f7d69225801b44949cefb8b960bbe2a07eb68b719d64dde87` | -$11.41 | 0.43 | 3.39% | 6 | 1 / 5 |
+| M1 oscillator minimum 0.15 | `f841367c51bc5247ad40790994920c083178842a6d3b67a66a64e4c7f83ca2bc` | -$3.12 | 0.74 | 1.72% | 4 | 1 / 3 |
+
+The gate improves this matched window by $8.29 and removes two losing entries, but remains net-negative and below PF 1.00. The remaining losses are the Sep 14 10:30 sell (-$4.37), Sep 15 09:11 sell (-$3.84), and Sep 18 follow-up buy (-$3.59). The winning Sep 18 09:00 buy (+$8.78) remains. One follow-up entry moved from 09:40 to 09:41 because the gate changes which bar can trigger an order; the gate therefore changes later path and is not merely a static “remove two trades” arithmetic adjustment.
+
+**Decision:** this independent window supports that the 0.15 gate can reduce some weak-M1-oscillator losses, but it does not validate a profitable strategy or a deployable improvement. Combined with (a) no change on Sep 1–10, (b) improvement in the Oct 20–22 diagnostic window, but (c) failure of the progressive four-day profitability gate, the correct decision is to keep this gate research-only and not promote/merge it.
+
+### Source-of-loss note for future study
+This holdout's worst feature is repeated same-direction sell entries that hit SL while the M1 total/MA ratings remain strongly negative, plus a second buy after a small TP that later stops out. A more informative next experiment should test whether an independent directional-regime/entry-timing confirmation predicts adverse follow-through on held-out dates. Do not stack additional gates based only on the current losing sample; define the rule before a fresh holdout and measure whether it preserves winners as well as removing losses.
+
+Artifacts: baseline `tv26-m1osc-holdout-sep11-20-baseline-40120436495`; filtered `tv26-m1osc-holdout-sep11-20-m1osc015-40120436495`. The filtered and unfiltered audit CSV hashes differ because the effective source changes the entry path, while the source feed/history hash and window are equal.
