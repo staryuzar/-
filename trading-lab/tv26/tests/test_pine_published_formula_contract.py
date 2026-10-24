@@ -61,6 +61,14 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertIn("MT5_AUDIT_RUN_ID: ${{ inputs.mt5_audit_run_id || '40076029579' }}", workflow)
         self.assertIn("MT5_UTC_OFFSET_HOURS: ${{ inputs.mt5_utc_offset_hours || '3' }}", workflow)
 
+    def test_williams_r_uses_builtin_namespace_in_both_exporters(self):
+        for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
+            raw = (ROOT / filename).read_text(encoding="utf-8")
+            normalized = compact(raw)
+            with self.subTest(filename=filename):
+                self.assertIn("ta.wpr(14)", normalized)
+                self.assertNotIn("tvta.wpr(14)", normalized)
+
     def test_aggregate_and_closed_bar_contract(self):
         self.assertIn("floattotal=nz(ratingMA,0)+nz(ratingOther,0)", self.source)
         self.assertIn("notna(ratingMA)andnotna(ratingOther)=>total/2", self.source)
