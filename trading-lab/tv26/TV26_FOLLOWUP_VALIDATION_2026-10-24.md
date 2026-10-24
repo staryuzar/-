@@ -814,3 +814,23 @@ The filtered three-day arm passed data/formula audit (141,232 vote comparisons, 
 The Oct baseline and latch-preservation arms both completed on different effective source hashes. Both produced +$2.74 net, PF 1.40, 1.72% max equity DD, 3 trades (1 win / 2 losses). The order/deal list was unchanged: both Oct 20 sells hit SL; the Oct 22 sell reached TP. Logs show the signal memory was held while each Oct 20 position was open, then reset after the position was flat at the next neutral state. The second losing sell occurred later at 11:30.
 
 **Decision:** the latch change has a reproduced targeted benefit for the September immediate post-TP same-direction re-entry, but not for the separate October loss cluster. Keep the fix isolated from main pending additional independent-window validation; do not describe it as a general loss-prevention solution.
+
+
+## 28. Conditional progressive gate with M1 oscillator minimum 0.15 (run 40120195353)
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40120195353
+
+This sequential run uses the filtered EA only in the isolated Strategy Tester. It repeats the one-day screen first and expands the date window only while the preceding stage passes. Each stage has a unique magic number and a separate audit folder; the copied build's effective source hash is recorded. Model 4, $500 deposit, 1% risk, SL 2 ATR, TP 4 ATR, M1 close-breakout on, M1 oscillator minimum 0.15, cooldown 0.
+
+| Days | Window | Net | PF | Max equity DD | Trades | Losses | Decision |
+|---:|---|---:|---:|---:|---:|---:|---|
+| 1 | Oct 22 | +$10.60 | 0.00 (no losses) | 0.74% | 1 | 0 | PASS — expand |
+| 2 | Oct 21–22 | +$10.60 | 0.00 (no losses) | 0.74% | 1 | 0 | PASS — expand |
+| 3 | Oct 20–22 | +$7.53 | 3.45 | 0.98% | 2 | 1 | PASS — expand, only $0.03 above floor |
+| 4 | Oct 19–22 | +$0.56 | 1.06 | 2.52% | 4 | 3 | STOP — failed |
+
+The 4-day trade list shows two Oct 19 buys stopped out at -$3.40 and -$2.59, the Oct 20 sell stopped at -$3.07, and the Oct 22 sell TP at +$9.62. The rule requires at least $10.00 net over four days and PF >= 1.15 whenever losses occur; this run met neither net-profit nor profit-factor requirements. The gate stopped at 4 days as designed; no 5–10 day stages were run.
+
+All four completed stages had successful OHLC and formula audits; stage 4 checked 261,232 component votes with zero mismatches and 10,926 candle groups with no OHLC integrity faults. The result is therefore a genuine failed strategy gate rather than a data-audit failure.
+
+**Decision:** reject the assumption that the M1 oscillator minimum 0.15 is sufficient to make this candidate robust. Keep it research-only. It improved the selected Oct 20–22 window but the conditional four-day extension erased almost all net profit. An independent Sep 11–20 matched baseline/gate holdout is still running as workflow 40120436495; no promotion decision should be made until that result is inspected.
