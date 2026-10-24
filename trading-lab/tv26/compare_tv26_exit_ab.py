@@ -81,6 +81,12 @@ def classify_exit_events(triggers: list[str], completed: list[str], failed: list
     }
 
 
+def window_range(summary: str) -> str:
+    """Extract the inclusive date window from the MT5 runner's plain-text summary."""
+    date_match = re.search(r"Range\s+(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2}) inclusive", summary)
+    return f"{date_match.group(1)} to {date_match.group(2)}" if date_match else "window unknown"
+
+
 def read_arm(key: str) -> dict:
     folder = ARMS[key]
     summary_path = folder / "strategy-backtest-summary.txt"
@@ -152,8 +158,7 @@ def main() -> int:
     on_valid_exit = on_exit["valid_summary_only"]
     off_clean = len(off["triggers"]) == 0 and len(off["completed"]) == 0 and not off["failed"]
     settings_ok = source_equal and history_equal
-    date_match = re.search(r"Range\\s+(\\d{4}-\\d{2}-\\d{2})\\s+to\\s+(\\d{4}-\\d{2}-\\d{2}) inclusive", on["summary"])
-    window_text = f"{date_match.group(1)} to {date_match.group(2)}" if date_match else "window unknown"
+    window_text = window_range(on["summary"])
     rows = [
         f"# TV26 matched opposite-summary exit A/B — {window_text}",
         "",

@@ -12,6 +12,13 @@ SPEC.loader.exec_module(MODULE)
 
 
 class ExitEventPairingTests(unittest.TestCase):
+    def test_window_range_extracts_the_exact_inclusive_test_dates(self):
+        summary = "Range 2026-09-07 to 2026-09-09 inclusive; MT5 Tester ToDate=2026.09.10"
+        self.assertEqual(MODULE.window_range(summary), "2026-09-07 to 2026-09-09")
+
+    def test_window_range_is_explicit_when_report_format_is_unknown(self):
+        self.assertEqual(MODULE.window_range("No date metadata"), "window unknown")
+
     def test_exact_same_ticket_reason_and_bar_pairs(self):
         trigger = "TV26_EXIT_TRIGGER;reason=OPPOSITE_SUMMARY;bar=2026.09.01 12:05;side=POSITION_TYPE_BUY;ticket=12345"
         completed = "TV26_EXIT_COMPLETED;reason=OPPOSITE_SUMMARY;bar=2026.09.01 12:05;ticket=12345"
