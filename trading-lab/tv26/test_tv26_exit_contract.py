@@ -90,6 +90,15 @@ class TV26ExitContractTests(unittest.TestCase):
         body = function_body("bool ManageOpenPositionExit()", "void TradeIfAligned(")
         self.assertIn("else if(InpUseM1PriceReversalExit && ConfirmedM1PriceReversal(side,reason))", body)
 
+    def test_timeframe_input_order_matches_rating_contract(self):
+        body = function_body("int OnInit()", "void OnDeinit(")
+        self.assertRegex(
+            body,
+            r"if\\(g_tfs\\[0\\]!=PERIOD_M1\\s*\\|\\|\\s*g_tfs\\[1\\]!=PERIOD_M5\\s*\\|\\|\\s*g_tfs\\[2\\]!=PERIOD_M15\\s*\\|\\|\\s*g_tfs\\[3\\]!=PERIOD_M30\\s*\\|\\|\\s*g_tfs\\[4\\]!=PERIOD_H1\\)"
+        )
+        self.assertIn("INIT_PARAMETERS_INCORRECT", body)
+        self.assertIn("M1/M5/M15/M30/H1", body)
+
     def test_candidate_keeps_demo_guard_and_risk_ceiling(self):
         self.assertIn("input bool   InpDemoOnly            = true;", SOURCE)
         self.assertIn("InpRiskPercent>2.0", SOURCE)
