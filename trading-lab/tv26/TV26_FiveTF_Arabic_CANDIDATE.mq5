@@ -11,6 +11,7 @@ input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
+input bool   InpRequireOppositeSignalAfterLossBeforeReentry = false; // Research gate: after a losing close, require an opposite strong consensus to execute before same-side re-entry.
 input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
@@ -55,6 +56,8 @@ double g_maRating[N_TF], g_oscRating[N_TF];
 int g_ready[N_TF], g_maReady[N_TF], g_oscReady[N_TF];
 datetime g_lastM1Bar=0;
 datetime g_lastExitTime=0;
+int g_lossLatchSignal=0; // Direction of the last fully closed losing position: +1 buy, -1 sell; 0 inactive.
+string g_lossLatchGV="";
 datetime g_lastPanelUpdate=0;
 string g_lastAction="لم يُرسل أي أمر";
 string g_lastBlock="";
@@ -921,6 +924,19 @@ void TradeIfAligned()
       Print("TV26_ENTRY_BLOCK;reason=SAME_SIGNAL_LATCH;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
       return;
    }
+   // Experimental loss-state latch: neutral bars do not re-arm the losing side.
+   // A new entry in that same direction stays blocked until an opposite-side
+   // strong consensus order is actually accepted. This is state-based, not a timer.
+   if(!hasTracked && InpRequireOppositeSignalAfterLossBeforeReentry &&
+      g_lossLatchSignal!=0 && sig==g_lossLatchSignal)
+   {
+      g_lastBlock="بعد خسارة؛ انتظار توافق قوي معاكس قبل إعادة الدخول في الاتجاه نفسه";
+      g_lastAction="منع إعادة الدخول بعد الخسارة حتى تنفيذ اتجاه معاكس";
+      Print("TV26_ENTRY_BLOCK;reason=SAME_DIRECTION_AFTER_LOSS_LATCH;signal=",SignalName(sig),
+            ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+            ";loss_direction=",SignalName(g_lossLatchSignal));
+      return;
+   }
    if(!hasTracked && InpCooldownBarsAfterExit>0 && g_lastExitTime>0)
    {
       datetime allowedFrom=g_lastExitTime+(datetime)(InpCooldownBarsAfterExit*PeriodSeconds(PERIOD_M1));
@@ -1042,6 +1058,14 @@ void TradeIfAligned()
    if(sent && (res.retcode==TRADE_RETCODE_DONE || res.retcode==TRADE_RETCODE_DONE_PARTIAL || res.retcode==TRADE_RETCODE_PLACED))
    {
       RememberSignal(sig);
+      if(InpRequireOppositeSignalAfterLossBeforeReentry && g_lossLatchSignal!=0 && sig==-g_lossLatchSignal)
+      {
+         Print("TV26_LOSS_LATCH_RELEASED;reason=OPPOSITE_DIRECTION_ORDER_ACCEPTED;closed_loss_direction=",
+               SignalName(g_lossLatchSignal),";new_signal=",SignalName(sig),
+               ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+         g_lossLatchSignal=0;
+         if(g_lossLatchGV!="") GlobalVariableSet(g_lossLatchGV,0.0);
+      }
       g_lastAction=(sig>0?"شراء":"بيع")+" نُفّذ/قُبل؛ حجم "+DoubleToString(lots,2);
       g_lastBlock="";
       Print("TV26_ORDER_ACCEPTED;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
@@ -1080,6 +1104,11 @@ int OnInit()
    ExportReferenceHistory();
    g_signalGV="TV26_LastSignal_"+_Symbol+"_"+IntegerToString((int)InpMagic);
    if(GlobalVariableCheck(g_signalGV)) g_lastExecutedSignal=(int)GlobalVariableGet(g_signalGV);
+   g_lossLatchGV="TV26_LossDirection_"+_Symbol+"_"+IntegerToString((int)InpMagic);
+   if(InpRequireOppositeSignalAfterLossBeforeReentry && GlobalVariableCheck(g_lossLatchGV))
+      g_lossLatchSignal=(int)GlobalVariableGet(g_lossLatchGV);
+   else
+      g_lossLatchSignal=0;
    EventSetTimer(2);
    Print("TV26 Arabic candidate initialized. This is a research candidate; validate in MetaEditor and Strategy Tester before use.");
    return INIT_SUCCEEDED;
@@ -1104,9 +1133,61 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    if(entryKind!=DEAL_ENTRY_OUT && entryKind!=DEAL_ENTRY_OUT_BY && entryKind!=DEAL_ENTRY_INOUT) return;
    datetime closeTime=(datetime)HistoryDealGetInteger(trans.deal,DEAL_TIME);
    if(closeTime>g_lastExitTime) g_lastExitTime=closeTime;
+
+   double exitDealNet=HistoryDealGetDouble(trans.deal,DEAL_PROFIT)+
+                      HistoryDealGetDouble(trans.deal,DEAL_SWAP)+
+                      HistoryDealGetDouble(trans.deal,DEAL_COMMISSION)+
+                      HistoryDealGetDouble(trans.deal,DEAL_FEE);
+   ENUM_DEAL_TYPE exitDealType=(ENUM_DEAL_TYPE)HistoryDealGetInteger(trans.deal,DEAL_TYPE);
+   ulong positionId=(ulong)HistoryDealGetInteger(trans.deal,DEAL_POSITION_ID);
+   int closedSignal=0;
+   // An exit BUY closes a prior SELL position, and an exit SELL closes a BUY.
+   if(exitDealType==DEAL_TYPE_BUY) closedSignal=-1;
+   else if(exitDealType==DEAL_TYPE_SELL) closedSignal=1;
+
+   bool positionNetReady=(positionId>0 && HistorySelectByPosition(positionId));
+   double positionNet=0.0;
+   if(positionNetReady)
+   {
+      int dealCount=HistoryDealsTotal();
+      for(int i=0;i<dealCount;i++)
+      {
+         ulong dealTicket=HistoryDealGetTicket(i);
+         if(dealTicket==0) continue;
+         ENUM_DEAL_TYPE dealType=(ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket,DEAL_TYPE);
+         if(dealType!=DEAL_TYPE_BUY && dealType!=DEAL_TYPE_SELL) continue;
+         positionNet+=HistoryDealGetDouble(dealTicket,DEAL_PROFIT)+
+                      HistoryDealGetDouble(dealTicket,DEAL_SWAP)+
+                      HistoryDealGetDouble(dealTicket,DEAL_COMMISSION)+
+                      HistoryDealGetDouble(dealTicket,DEAL_FEE);
+      }
+   }
+   ulong openTicket=0;
+   ENUM_POSITION_TYPE openSide=POSITION_TYPE_BUY;
+   bool positionStillOpen=FindOurPosition(openTicket,openSide);
+   if(InpRequireOppositeSignalAfterLossBeforeReentry && !positionStillOpen &&
+      positionNetReady && positionNet<0.0 && closedSignal!=0)
+   {
+      g_lossLatchSignal=closedSignal;
+      if(g_lossLatchGV!="") GlobalVariableSet(g_lossLatchGV,(double)g_lossLatchSignal);
+      Print("TV26_LOSS_LATCH_ARMED;reason=NET_LOSS_ON_FULL_CLOSE;loss_direction=",
+            SignalName(g_lossLatchSignal),";position_net=",DoubleToString(positionNet,2),
+            ";exit_deal_net=",DoubleToString(exitDealNet,2),
+            ";time=",TimeToString(closeTime,TIME_DATE|TIME_SECONDS));
+   }
+   else if(InpRequireOppositeSignalAfterLossBeforeReentry && !positionStillOpen &&
+           !positionNetReady)
+   {
+      Print("TV26_LOSS_LATCH_NOT_ARMED;reason=POSITION_NET_UNAVAILABLE;deal=",trans.deal,
+            ";time=",TimeToString(closeTime,TIME_DATE|TIME_SECONDS));
+   }
    Print("TV26_POSITION_CLOSED;deal=",trans.deal,
          ";time=",TimeToString(closeTime,TIME_DATE|TIME_SECONDS),
          ";reason=",EnumToString((ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal,DEAL_REASON)),
+         ";exit_deal_net=",DoubleToString(exitDealNet,2),
+         ";position_net=",DoubleToString(positionNet,2),
+         ";position_net_ready=",(positionNetReady?"true":"false"),
+         ";closed_signal=",SignalName(closedSignal),
          ";cooldown_bars=",InpCooldownBarsAfterExit);
 }
 void OnTick()
