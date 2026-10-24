@@ -745,3 +745,28 @@ A live chart-runtime match remains **PENDING** until the visible table can be ch
 - **26 component formulas against independent implementation on audited MT5 feed:** PASS, zero vote mismatches on all completed windows.
 - **Direct TradingView numerical chart parity:** PENDING until actual live chart values and matching closed-bar OHLC/time can be checked.
 - **Live use or merge to main:** not approved by these tests.
+
+
+## 24. Narrowing the October loss mechanism and a separate M1 oscillator test (2026-10-24)
+
+### Re-entry latch hypothesis narrowed using the actual event log
+The preserved-latch run's event log shows a neutral-while-flat reset at the first October 20 stop-out:
+- Sell entry: 11:08:00; stop exit: 11:11:38.
+- The EA logged `TV26_SIGNAL_LATCH_RESET;reason=NEUTRAL_WHILE_FLAT` for decision bar 11:11, processed at 11:12.
+- The next sell entry occurred at 11:30.
+
+Therefore the second October sell followed a neutral signal while the EA was flat; the latch was explicitly re-armed before that entry. **The latch-preservation fix cannot be credited with preventing this second loss on the observed October path.** The matched A/B run still has value for the September instant-re-entry case, where the earlier trade list showed a sell TP followed by a same-direction entry attempt one second later. The A/B variants must be compared using their effective compiled-source hashes, not branch names.
+
+### Data-driven M1 oscillator lead — not yet accepted
+At the three October decision bars, the M1 summary's total / moving-average / oscillator ratings were:
+- Oct 20 11:07 (sell entered 11:08; later SL): total -0.5121, MA -0.9333, oscillator -0.0909.
+- Oct 20 11:29 (sell entered 11:30; later SL): total -0.5576, MA -0.9333, oscillator -0.1818.
+- Oct 22 06:37 (sell entered 06:38; later TP): total -0.5909, MA -1.0000, oscillator -0.1818.
+
+The first losing signal was just inside the EA's -0.50 “strong sell” total-rating threshold, despite a near-neutral M1 oscillator rating. A test-only rule requiring M1 oscillator rating to agree with the direction by at least 0.15 would be expected to block that first sell while retaining the second sell and the Oct 22 winner in this three-trade window. That inference is only from the recorded ratings; it is **not a Strategy Tester result yet**, and two trades retained cannot validate an edge.
+
+An isolated four-arm test has been started to measure the unfiltered baseline against this M1 oscillator gate (minimum directional oscillator rating 0.15) on both Sep 1–10 and Oct 20–22, keeping Model 4, risk 1%, SL 2 ATR, TP 4 ATR, M1 breakout enabled, and cooldown 0 fixed:
+- Workflow: https://github.com/staryuzar/-/actions/runs/40119228229
+- Research branch: `tv26-m1-oscillator-confirmation-study`
+
+No gate is accepted unless the matched summaries, source hashes, trade lists and formula/data audits complete; any gain must be replicated outside the window that motivated the hypothesis.
