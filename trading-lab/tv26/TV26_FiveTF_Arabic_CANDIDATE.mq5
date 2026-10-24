@@ -11,6 +11,7 @@ input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
+input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
 input ENUM_TIMEFRAMES InpTF1        = PERIOD_M1;
@@ -722,6 +723,30 @@ void TradeIfAligned()
       g_lastAction=(sig>0?"إشارة شراء قوي متوافقة":"إشارة بيع قوي متوافقة")+"؛ التنفيذ معطّل";
       Print("TV26_ENTRY_BLOCK;reason=TRADING_DISABLED;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
       return;
+   }
+
+   // Optional M1 close-breakout confirmation. The EA is evaluated once per new M1 bar:
+   // sell only after the latest closed candle closes below the previous candle's low;
+   // buy only after it closes above the previous candle's high.
+   if(InpRequireM1CloseBreakout)
+   {
+      double decisionClose=iClose(_Symbol,PERIOD_M1,1);
+      double priorHigh=iHigh(_Symbol,PERIOD_M1,2);
+      double priorLow=iLow(_Symbol,PERIOD_M1,2);
+      bool referenceReady=(decisionClose>0.0 && priorHigh>0.0 && priorLow>0.0);
+      bool breakoutConfirmed=referenceReady && (sig>0 ? decisionClose>priorHigh : decisionClose<priorLow);
+      if(!breakoutConfirmed)
+      {
+         g_lastBlock="تأكيد كسر إغلاق شمعة M1 غير مكتمل";
+         g_lastAction="انتظار إغلاق يتجاوز قمة/قاع الشمعة السابقة";
+         Print("TV26_ENTRY_BLOCK;reason=M1_CLOSE_BREAKOUT_NOT_CONFIRMED;signal=",SignalName(sig),
+               ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+               ";close=",DoubleToString(decisionClose,_Digits),
+               ";prior_high=",DoubleToString(priorHigh,_Digits),
+               ";prior_low=",DoubleToString(priorLow,_Digits),
+               ";data_ready=",(referenceReady?"true":"false"));
+         return;
+      }
    }
 
    ulong trackedTicket=0;

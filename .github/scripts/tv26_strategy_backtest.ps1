@@ -25,6 +25,10 @@ $rangeLabelEnd = $endDate.AddDays(-1).ToString("yyyy-MM-dd",$culture)
 $testRiskText = [string]$env:TV26_TEST_RISK_PERCENT
 $testStopText = [string]$env:TV26_TEST_STOP_ATR
 $testTargetText = [string]$env:TV26_TEST_TARGET_ATR
+$testBreakoutText = [string]$env:TV26_TEST_REQUIRE_M1_BREAKOUT
+if ([string]::IsNullOrWhiteSpace($testBreakoutText)) { $testBreakoutText = "false" }
+$testRequireM1Breakout = [bool]::Parse($testBreakoutText)
+$testBreakoutText = $testRequireM1Breakout.ToString().ToLowerInvariant()
 if ([string]::IsNullOrWhiteSpace($testRiskText)) { $testRiskText = "0.50" }
 if ([string]::IsNullOrWhiteSpace($testStopText)) { $testStopText = "2.0" }
 if ([string]::IsNullOrWhiteSpace($testTargetText)) { $testTargetText = "3.0" }
@@ -84,6 +88,7 @@ $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $nu
   "Symbol XAUUSD, tester timeframe M1, ratings M1/M5/M15/M30/H1.",
   "Range $rangeLabelStart to $rangeLabelEnd inclusive; MT5 Tester ToDate=$testTo (exclusive end date).",
   "Model $testModel ($testModelLabel), deposit 500 USD, leverage 1:1000.",
+  "M1 close-breakout confirmation: $testBreakoutText (last closed M1 close must break the prior candle high/low).",
   "MT5 may synthesize replacement ticks for intervals where broker real-tick history is missing.",
   "This is a preliminary historical strategy simulation. It is not a live account run, and it does not prove future profitability.",
   "UTC start: $([DateTime]::UtcNow.ToString('o'))"
@@ -135,6 +140,7 @@ InpRiskPercent=$testRiskText||$testRiskText||0.10||$testRiskText||N
 InpATRPeriod=14||14||1||14||N
 InpStopATR=$testStopText||$testStopText||0.5||$testStopText||N
 InpTargetATR=$testTargetText||$testTargetText||0.5||$testTargetText||N
+InpRequireM1CloseBreakout=$testBreakoutText||$testBreakoutText||0||true||N
 InpMaxSpreadPoints=100.0||100.0||10.0||100.0||N
 InpDeviationPoints=20||20||1||20||N
 InpTF1=1||1||1||1||N
@@ -269,14 +275,15 @@ Visual=0
     '(?is)InpMagic=26102327</b>',
     '(?is)InpRiskPercent=' + [regex]::Escape($testRiskText) + '</b>',
     '(?is)InpStopATR=' + [regex]::Escape($testStopText) + '</b>',
-    '(?is)InpTargetATR=' + [regex]::Escape($testTargetText) + '</b>'
+    '(?is)InpTargetATR=' + [regex]::Escape($testTargetText) + '</b>',
+    '(?is)InpRequireM1CloseBreakout=' + [regex]::Escape($testBreakoutText) + '</b>'
   )
   foreach ($pattern in $expectedInputs) {
     if ($html -notmatch $pattern) {
       throw "Tester report does not confirm required safe backtest input pattern: $pattern"
     }
   }
-  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR)." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText)." | Add-Content -LiteralPath $summary -Encoding utf8
   function Get-TesterMetric([string]$ReportHtml,[string]$Label) {
     $pattern = '(?is)<td[^>]*>\s*' + [regex]::Escape($Label) + '\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>'
     $match = [regex]::Match($ReportHtml,$pattern)

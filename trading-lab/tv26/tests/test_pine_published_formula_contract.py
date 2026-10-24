@@ -118,6 +118,22 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
                 self.assertIn("macdLine < macdSignal and macdHist < 0", source)
                 self.assertNotIn("chikou", source)
 
+    def test_strategy_m1_close_breakout_is_optional_and_auditable(self):
+        ea = (ROOT / "TV26_FiveTF_Arabic_CANDIDATE.mq5").read_text(encoding="utf-8")
+        script = (ROOT.parents[1] / ".github/scripts/tv26_strategy_backtest.ps1").read_text(encoding="utf-8")
+        workflow = (ROOT.parents[1] / ".github/workflows/tv26-strategy-breakout-risk1-diagnostic.yml").read_text(encoding="utf-8")
+        self.assertIn("InpRequireM1CloseBreakout = false", ea)
+        self.assertIn("decisionClose>priorHigh : decisionClose<priorLow", ea.replace(" ", ""))
+        self.assertIn("reason=M1_CLOSE_BREAKOUT_NOT_CONFIRMED", ea)
+        self.assertIn("TV26_TEST_REQUIRE_M1_BREAKOUT", script)
+        self.assertIn("InpRequireM1CloseBreakout=$testBreakoutText", script)
+        self.assertIn("InpRequireM1CloseBreakout=' + [regex]::Escape($testBreakoutText)", script)
+        self.assertIn('TV26_TEST_REQUIRE_M1_BREAKOUT: "true"', workflow)
+        self.assertIn('TV26_TEST_RISK_PERCENT: "1.00"', workflow)
+        self.assertIn('TV26_TEST_STOP_ATR: "2.00"', workflow)
+        self.assertIn('TV26_TEST_TARGET_ATR: "3.00"', workflow)
+        self.assertIn('TV26_TEST_MODEL: "4"', workflow)
+
     def test_williams_r_uses_builtin_namespace_in_both_exporters(self):
         for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
             raw = (ROOT / filename).read_text(encoding="utf-8")
