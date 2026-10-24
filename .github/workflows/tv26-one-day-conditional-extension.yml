@@ -8,6 +8,7 @@ on:
       - ".github/workflows/tv26-one-day-conditional-extension.yml"
       - ".github/scripts/tv26_progressive_daily_gate.ps1"
       - ".github/scripts/tv26_strategy_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
   workflow_dispatch:
 
 permissions:
