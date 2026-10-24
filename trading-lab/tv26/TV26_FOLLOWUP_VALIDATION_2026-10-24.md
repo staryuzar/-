@@ -119,7 +119,10 @@ These experiments were kept on separate research branches; none is merged into t
 
 ### Validation now in progress
 
-- Independent parameter holdout on Sep 1–10, comparing baseline 1-bar/0.50, 5-bar/0.50, 1-bar/0.55, and combined 5-bar/0.55: https://github.com/staryuzar/-/actions/runs/40106562109
+- Independent parameter holdout on Sep 1–10, comparing baseline 1-bar/0.50, 5-bar/0.50, 1-bar/0.55, and combined 5-bar/0.55: https://github.com/staryuzar/-/actions/runs/40106562109. Baseline completed at +$3.35, PF 1.23, max equity DD 2.48%, 5 trades (2 wins / 3 losses); the audit checked 371,332 votes with zero mismatches and found no invalid/duplicate/timestamp OHLC issues. The other three variants were still in progress at the last check.
 - Separate oscillator-agreement holdout on Sep 1–10, comparing no extra oscillator gate with a directional oscillator average minimum of 0.15 on each timeframe: https://github.com/staryuzar/-/actions/runs/40106767960
 - The oscillator gate is on a separate research branch and defaults to disabled; it cannot change the existing candidate unless its explicit input is enabled.
 - These two holdouts use the same Headway-Demo XAUUSD feed and model 4 tester settings. MT5 may synthesize ticks for gaps in broker real-tick history. They can check reproducibility and whether an entry hypothesis transfers to a different window; they cannot by themselves prove future profitability.
+
+
+The Sep 1–10 baseline trade list also revealed one immediate re-entry: a sell TP closed on 2026-09-08 at 22:58:59, then another sell opened at 22:59:00 and hit SL at 23:01:22 (-$5.08). This is a specific post-exit re-entry hypothesis, not proof that a cooldown is broadly beneficial; the separate Sep 11–20 test showed 10/20-bar cooldowns did not materially change accepted trades there. Any one-bar pause should be tested across a new period before adoption.
