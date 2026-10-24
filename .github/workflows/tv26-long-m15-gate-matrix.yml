@@ -1,0 +1,117 @@
+name: TV26 long-entry M15 rating gate matrix
+
+on:
+  push:
+    branches:
+      - tv26-long-m15-gate-study
+    paths:
+      - ".github/workflows/tv26-long-m15-gate-matrix.yml"
+      - ".github/scripts/tv26_strategy_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-long-m15-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tester:
+    name: "${{ matrix.label }}"
+    runs-on: windows-2022
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - id: october-base
+            label: "Oct 1–23 training; minimum buy M15 rating 0.50"
+            start: "2026.10.01"
+            end: "2026.10.24"
+            min_m15: "0.50"
+          - id: october-gate058
+            label: "Oct 1–23 training; minimum buy M15 rating 0.58"
+            start: "2026.10.01"
+            end: "2026.10.24"
+            min_m15: "0.58"
+          - id: september-holdout-base
+            label: "Sep 11–20 holdout; minimum buy M15 rating 0.50"
+            start: "2026.09.11"
+            end: "2026.09.21"
+            min_m15: "0.50"
+          - id: september-holdout-gate058
+            label: "Sep 11–20 holdout; minimum buy M15 rating 0.58"
+            start: "2026.09.11"
+            end: "2026.09.21"
+            min_m15: "0.58"
+
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      PYTHONUTF8: "1"
+      TV26_TEST_FROM: "${{ matrix.start }}"
+      TV26_TEST_TO: "${{ matrix.end }}"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "4.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_BREAKOUT_BUFFER_ATR: "0.10"
+      TV26_TEST_MIN_LONG_M15_RATING: "${{ matrix.min_m15 }}"
+
+    steps:
+      - name: Checkout isolated EA candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Run isolated Strategy Tester
+        shell: pwsh
+        run: ./.github/scripts/tv26_strategy_backtest.ps1
+
+      - name: Validate MT5 audit structure
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_mt5_audit.py
+          --csv tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --report tv26-strategy-results/data-integrity-report.md
+          --json tv26-strategy-results/data-integrity-report.json
+
+      - name: Compare component votes to independent published formulas
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-strategy-results/formula-parity-report.md
+          --details tv26-strategy-results/formula-parity-details.csv
+          --json tv26-strategy-results/formula-parity-report.json
+
+      - name: Add readable metrics to the Actions summary
+        if: always()
+        shell: pwsh
+        run: |
+          "## ${{ matrix.label }}" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          $summaryPath = "tv26-strategy-results/strategy-backtest-summary.txt"
+          if (Test-Path -LiteralPath $summaryPath) {
+            Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          } else {
+            "Tester summary missing. Treat this variant as incomplete, not as a negative strategy result." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Upload full run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-long-m15-gate-${{ matrix.id }}-${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
