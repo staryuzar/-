@@ -18,8 +18,8 @@ Workflow: `.github/workflows/tv26-exit-diagnostic.yml`
 Branch: `tv26-exit-diagnostic-study`  
 Window: 2026-09-01 through 2026-09-03 inclusive  
 Tester: MT5 Strategy Tester, Model 4 (real-tick mode), XAUUSD M1  
-Risk: 1%; SL 5 ATR; TP 20 ATR; M1 entry breakout disabled  
-Magic: 26102481  
+Risk: 2% diagnostic cap; SL 5 ATR; TP 20 ATR; M1 entry breakout disabled; M1 price-reversal exit disabled to isolate the summary-exit path  
+Magic: 26102481 (exit ON); 26102482 (exit OFF)  
 Guards: tester-only and demo-only remain enabled by the existing runner.
 
 Widened SL/TP are intended only to make rule-based exits easier to observe. Their performance metrics must not be compared with the baseline's 2 ATR / 4 ATR configuration.
