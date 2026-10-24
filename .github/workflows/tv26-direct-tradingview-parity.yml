@@ -29,8 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      MT5_AUDIT_RUN_ID: ${{ inputs.mt5_audit_run_id || '40082292816' }}
-      MT5_UTC_OFFSET_HOURS: ${{ inputs.mt5_utc_offset_hours || '3' }}
+      MT5_AUDIT_RUN_ID: ${{ github.event.inputs.mt5_audit_run_id || '40082292816' }}
+      MT5_UTC_OFFSET_HOURS: ${{ github.event.inputs.mt5_utc_offset_hours || '3' }}
     steps:
       - name: Checkout parity inputs
         uses: actions/checkout@v4
