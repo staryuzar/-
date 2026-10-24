@@ -93,7 +93,7 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
             if line.strip() and not line.startswith("          "):
                 self.fail(f"Unexpected indentation in Bash block: {line!r}")
             body.append(line[10:] if line.startswith("          ") else "")
-        script = "\\n".join(body) + "\\n"
+        script = "\n".join(body) + "\n"
         result = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, msg=result.stderr or "Bash syntax check failed")
 
