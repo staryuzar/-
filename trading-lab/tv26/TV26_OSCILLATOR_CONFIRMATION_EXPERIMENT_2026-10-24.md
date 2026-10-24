@@ -20,3 +20,8 @@ The new optional input InpMinDirectionalOscillatorRating adds an entry-only chec
 Require a clean compile, clean export/data audits, identical input/history hashes, a useful number of trades, and manual review of the trade list. Do not accept zero or one trade as evidence of quality. Even a positive screen result requires another unseen period before any promotion.
 
 No MT5 outcome is claimed here until the workflow artifacts are available and checked.
+
+
+## Infrastructure retry note
+
+The initial run (40106767960) for threshold 0.15 failed before a valid strategy result was produced. MT5 canceled preliminary real-tick history download and logged `no history data, stop testing`; the summary showed no audit export. Treat this as an incomplete infrastructure run, not a 0.15 strategy outcome. The workflow now preserves the first attempt's diagnostic logs and retries once on this precise failure only: https://github.com/staryuzar/-/actions/runs/40107875721. The 0.00 baseline completed successfully; await a full report/audit for a valid comparison.
