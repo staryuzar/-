@@ -897,6 +897,7 @@ bool ManageOpenPositionExit()
    }
 
    Print("TV26_EXIT_TRIGGER;reason=",reason,
+         ";bar=",TimeToString(iTime(_Symbol,PERIOD_M1,1),TIME_DATE|TIME_MINUTES),
          ";side=",EnumToString(side),
          ";ticket=",ticket,
          ";M5=",DoubleToString(g_rating[1],3),
@@ -910,13 +911,17 @@ bool ManageOpenPositionExit()
                     "أُغلقت الصفقة: أحد ملخصات د5/د15/د30 انعكس ضدها" :
                     "أُغلقت الصفقة: ارتداد سعري مؤكد على د1");
       g_lastBlock="";
-      Print("TV26_EXIT_COMPLETED;reason=",reason,";ticket=",ticket);
+      Print("TV26_EXIT_COMPLETED;reason=",reason,
+            ";bar=",TimeToString(iTime(_Symbol,PERIOD_M1,1),TIME_DATE|TIME_MINUTES),
+            ";ticket=",ticket);
    }
    else
    {
       g_lastAction="فشل إغلاق الصفقة؛ راجع سجل التنفيذ";
       g_lastBlock="رفض أمر الإغلاق أو بقي جزء من المركز مفتوحاً";
-      Print("TV26_EXIT_FAILED;reason=",reason,";ticket=",ticket);
+      Print("TV26_EXIT_FAILED;reason=",reason,
+            ";bar=",TimeToString(iTime(_Symbol,PERIOD_M1,1),TIME_DATE|TIME_MINUTES),
+            ";ticket=",ticket);
    }
    return true;
 }
