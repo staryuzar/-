@@ -51,6 +51,14 @@ class ExactTechnicalRatingV3ContractTests(unittest.TestCase):
         self.assertIn("iBearsPower(_Symbol,g_tfs[t],13)", ea)
         self.assertIn("bull=h-ema(c,13);bear=l-ema(c,13)", reference)
 
+    def test_rsi_matches_published_rma_recurrence_instead_of_platform_iRSI(self):
+        ea = compact("TV26_FiveTF_Arabic_CANDIDATE.mq5")
+        self.assertIn("TVRSIFromAverages(doubleavgGain,doubleavgLoss)", ea)
+        self.assertIn("g_tvRsiAvgGain[t]=alpha*gain+(1.0-alpha)*g_tvRsiAvgGain[t];", ea)
+        self.assertIn("g_tvRsiAvgLoss[t]=alpha*loss+(1.0-alpha)*g_tvRsiAvgLoss[t];", ea)
+        self.assertIn("if(!UpdateTVRSIState(t,a,b))returnfalse;", ea)
+        self.assertIn("score=(a<30&&a>b?1:(a>70&&a<b?-1:0));", ea)
+
     def test_risk_and_order_safety_inputs_have_hard_validation(self):
         ea = compact("TV26_FiveTF_Arabic_CANDIDATE.mq5")
         self.assertIn("if(InpRiskPercent<=0||InpRiskPercent>2.0)", ea)
