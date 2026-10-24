@@ -44,7 +44,7 @@ f_components() =>
     bool downTrend = close < priceAvg
     bool upTrend = close > priceAvg
     float uo = tvta.uo(7, 14, 28)
-    float wr = tvta.wpr(14)
+    float wr = ta.wpr(14)
     float ao = tvta.ao()
 
     float rSma10 = f_calcRatingMA(ta.sma(close, 10), close)
