@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.009"
+#property version   "1.010"
 #property description "TV26 Technical Ratings clone candidate - Arabic panel, five timeframes"
 
 input bool   InpEnableTrading       = true;
@@ -10,6 +10,7 @@ input double InpRiskPercent         = 0.50;
 input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
+input double InpBreakEvenATR        = 0.0; // Move SL to entry after this many M1 ATRs of favorable movement; 0 disables.
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
 input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
 input double InpMaxSpreadPoints     = 100.0;
@@ -814,6 +815,80 @@ void RememberSignal(int sig)
    g_lastExecutedSignal=sig;
    if(g_signalGV!="") GlobalVariableSet(g_signalGV,(double)sig);
 }
+// Move an existing TV26 position's stop to entry after a specified favorable move.
+// This is one-way protection: it never widens the original stop or changes the take-profit.
+void ManageBreakEven()
+{
+   if(!InpEnableTrading || InpBreakEvenATR<=0.0) return;
+   if(InpTesterOnly && !MQLInfoInteger(MQL_TESTER)) return;
+   if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO) return;
+   double atr=0.0;
+   if(!ReadBuf(g_atr[0],0,1,atr) || atr<=0.0) return;
+   double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   if(bid<=0.0 || ask<=0.0) return;
+   int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol ||
+         (ulong)PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
+      ENUM_POSITION_TYPE side=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double entry=PositionGetDouble(POSITION_PRICE_OPEN);
+      double oldSL=PositionGetDouble(POSITION_SL);
+      double tp=PositionGetDouble(POSITION_TP);
+      double newSL=NormalizeDouble(entry,digits);
+      bool trigger=false;
+      if(side==POSITION_TYPE_BUY)
+      {
+         trigger=(bid-entry)>=InpBreakEvenATR*atr;
+         if(!trigger || bid<=newSL) continue;
+         // Do not lower a stop that has already moved beyond break-even.
+         if(oldSL>0.0 && oldSL>=newSL) continue;
+      }
+      else if(side==POSITION_TYPE_SELL)
+      {
+         trigger=(entry-ask)>=InpBreakEvenATR*atr;
+         if(!trigger || ask>=newSL) continue;
+         // For sells, a lower stop is more protective; never move it back upward.
+         if(oldSL>0.0 && oldSL<=newSL) continue;
+      }
+      else continue;
+
+      MqlTradeRequest req; MqlTradeResult res;
+      ZeroMemory(req); ZeroMemory(res);
+      req.action=TRADE_ACTION_SLTP;
+      req.position=ticket;
+      req.symbol=_Symbol;
+      req.magic=InpMagic;
+      req.sl=newSL;
+      req.tp=tp;
+      bool sent=OrderSend(req,res);
+      bool accepted=sent && (res.retcode==TRADE_RETCODE_DONE || res.retcode==TRADE_RETCODE_NO_CHANGES);
+      if(accepted)
+      {
+         Print("TV26_BREAK_EVEN_SET;ticket=",ticket,
+               ";side=",EnumToString(side),
+               ";entry=",DoubleToString(entry,digits),
+               ";old_sl=",DoubleToString(oldSL,digits),
+               ";new_sl=",DoubleToString(newSL,digits),
+               ";tp=",DoubleToString(tp,digits),
+               ";favorable_atr=",DoubleToString(InpBreakEvenATR,2),
+               ";atr=",DoubleToString(atr,digits),
+               ";time=",TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS));
+      }
+      else
+      {
+         Print("TV26_BREAK_EVEN_REJECTED;ticket=",ticket,
+               ";retcode=",res.retcode,
+               ";sent=",(sent?"true":"false"),
+               ";comment=",res.comment,
+               ";new_sl=",DoubleToString(newSL,digits),
+               ";time=",TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS));
+      }
+   }
+}
 void TradeIfAligned()
 {
    if(InpTesterOnly && !MQLInfoInteger(MQL_TESTER))
@@ -1070,9 +1145,10 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 ||
+      InpBreakEvenATR<0 || InpBreakEvenATR>5.0 ||
       InpMaxSpreadPoints<0 || InpDeviationPoints<0 || InpCooldownBarsAfterExit<0)
    {
-      Print("TV26: إعدادات ATR أو السبريد أو الانزلاق أو التهدئة غير صالحة");
+      Print("TV26: إعدادات ATR أو التعادل أو السبريد أو الانزلاق أو التهدئة غير صالحة");
       return INIT_PARAMETERS_INCORRECT;
    }
    InitHandles();
@@ -1111,6 +1187,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 }
 void OnTick()
 {
+   ManageBreakEven(); // Risk management runs on every tick; signal evaluation remains once per new M1 bar.
    if(!IsNewM1Bar()) return;
    EvaluateAll();DrawPanel();ExportAuditIfNeeded();TradeIfAligned();DrawPanel();
 }
