@@ -63,7 +63,6 @@ class TV26ExitContractTests(unittest.TestCase):
         self.assertIn("EvaluateAll();DrawPanel();ExportAuditIfNeeded();TradeIfAligned();", body)
         decision = function_body("void TradeIfAligned()", "int OnInit(")
         self.assertIn("if(ManageOpenPositionExit()) return;", decision)
-        self.assertIn("TV26 three", SOURCE.lower()) if "TV26 three" in SOURCE.lower() else None
 
     def test_candidate_keeps_demo_guard_and_risk_ceiling(self):
         self.assertIn("input bool   InpDemoOnly            = true;", SOURCE)
