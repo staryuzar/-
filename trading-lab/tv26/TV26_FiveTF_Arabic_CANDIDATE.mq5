@@ -12,6 +12,7 @@ input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
 input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
+input double InpM1BreakoutBufferATR   = 0.0; // Extra close-breakout distance beyond prior M1 high/low, measured in ATR units.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
 input ENUM_TIMEFRAMES InpTF1        = PERIOD_M1;
@@ -863,8 +864,13 @@ void TradeIfAligned()
       double decisionClose=iClose(_Symbol,PERIOD_M1,1);
       double priorHigh=iHigh(_Symbol,PERIOD_M1,2);
       double priorLow=iLow(_Symbol,PERIOD_M1,2);
-      bool referenceReady=(decisionClose>0.0 && priorHigh>0.0 && priorLow>0.0);
-      bool breakoutConfirmed=referenceReady && (sig>0 ? decisionClose>priorHigh : decisionClose<priorLow);
+      double breakoutATR=0.0;
+      bool breakoutATRReady=ReadBuf(g_atr[0],0,1,breakoutATR) && breakoutATR>0.0;
+      double requiredBuffer=InpM1BreakoutBufferATR*(breakoutATRReady?breakoutATR:0.0);
+      bool referenceReady=(decisionClose>0.0 && priorHigh>0.0 && priorLow>0.0 &&
+                           (InpM1BreakoutBufferATR<=0.0 || breakoutATRReady));
+      bool breakoutConfirmed=referenceReady &&
+         (sig>0 ? decisionClose>priorHigh+requiredBuffer : decisionClose<priorLow-requiredBuffer);
       if(!breakoutConfirmed)
       {
          g_lastBlock="تأكيد كسر إغلاق شمعة M1 غير مكتمل";
@@ -874,6 +880,9 @@ void TradeIfAligned()
                ";close=",DoubleToString(decisionClose,_Digits),
                ";prior_high=",DoubleToString(priorHigh,_Digits),
                ";prior_low=",DoubleToString(priorLow,_Digits),
+               ";atr_ready=",(breakoutATRReady?"true":"false"),
+               ";buffer_atr=",DoubleToString(InpM1BreakoutBufferATR,3),
+               ";required_buffer=",DoubleToString(requiredBuffer,_Digits),
                ";data_ready=",(referenceReady?"true":"false"));
          return;
       }
@@ -1044,7 +1053,7 @@ int OnInit()
       Print("TV26: نسبة المخاطرة يجب أن تكون أكبر من صفر ولا تتجاوز 2.0%");
       return INIT_PARAMETERS_INCORRECT;
    }
-   if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 ||
+   if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 || InpM1BreakoutBufferATR<0 ||
       InpMaxSpreadPoints<0 || InpDeviationPoints<0 || InpCooldownBarsAfterExit<0)
    {
       Print("TV26: إعدادات ATR أو السبريد أو الانزلاق أو التهدئة غير صالحة");
