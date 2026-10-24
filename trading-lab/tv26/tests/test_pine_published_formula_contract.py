@@ -1,5 +1,7 @@
+import os
 import re
 import subprocess
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -113,7 +115,23 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
             handle.write(script)
             script_path = handle.name
         try:
-            result = subprocess.run(["bash", "-n", script_path], text=True, capture_output=True, check=False)
+            # On GitHub's Windows images, "bash" on PATH can resolve to the WSL
+            # Store shim (which exits 1 when no WSL distro exists) rather than Git Bash.
+            if os.name == "nt":
+                program_files = Path(os.environ.get("ProgramFiles", "C:/Program Files"))
+                candidates = [
+                    program_files / "Git" / "bin" / "bash.exe",
+                    Path("C:/Program Files (x86)/Git/bin/bash.exe"),
+                ]
+                bash_exe = next((candidate for candidate in candidates if candidate.is_file()), None)
+                if bash_exe is None:
+                    self.skipTest("Git Bash is not installed; PATH bash may be a WSL shim.")
+                bash_command = str(bash_exe)
+            else:
+                bash_command = shutil.which("bash")
+                if not bash_command:
+                    self.skipTest("Bash is not installed; cannot perform this syntax-only check.")
+            result = subprocess.run([bash_command, "-n", script_path], text=True, capture_output=True, check=False)
         finally:
             Path(script_path).unlink(missing_ok=True)
         self.assertEqual(result.returncode, 0, msg=result.stderr or result.stdout or f"Bash syntax check failed (return code {result.returncode})")
