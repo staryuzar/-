@@ -13,6 +13,7 @@ input double InpTargetATR           = 3.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
 input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
 input double InpM1BreakoutBufferATR   = 0.0; // Extra close-breakout distance beyond prior M1 high/low, measured in ATR units.
+input double InpMinLongM15Rating     = 0.50; // Minimum M15 rating for BUY entries only; 0.50 preserves the original gate.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
 input ENUM_TIMEFRAMES InpTF1        = PERIOD_M1;
@@ -60,6 +61,7 @@ datetime g_lastPanelUpdate=0;
 string g_lastAction="لم يُرسل أي أمر";
 string g_lastBlock="";
 int g_lastExecutedSignal=0;
+bool g_longM15GateBlocked=false;
 string g_signalGV="";
 
 string g_names[N_RATINGS]={
@@ -563,12 +565,21 @@ void EvaluateAll()
 int AlignedSignal()
 {
    bool allStrongBuy=true, allStrongSell=true;
+   bool rawStrongBuy=true, longM15Qualified=true;
+   g_longM15GateBlocked=false;
    for(int t=0;t<N_TF;t++)
    {
       if(g_ready[t]!=N_RATINGS || g_maReady[t]!=15 || g_oscReady[t]!=11) return 0;
-      if(g_rating[t]<=STRONG) allStrongBuy=false;
+      if(g_rating[t]<=STRONG) { allStrongBuy=false; rawStrongBuy=false; }
       if(g_rating[t]>=-STRONG) allStrongSell=false;
+      // Optional asymmetric diagnostic gate: only BUY entries need this extra M15 margin.
+      if(g_tfs[t]==PERIOD_M15 && g_rating[t]<InpMinLongM15Rating)
+      {
+         allStrongBuy=false;
+         longM15Qualified=false;
+      }
    }
+   if(rawStrongBuy && !longM15Qualified) g_longM15GateBlocked=true;
    if(allStrongBuy) return 1;
    if(allStrongSell) return -1;
    return 0;
@@ -829,7 +840,21 @@ void TradeIfAligned()
    if(sig==0)
    {
       RememberSignal(0); // Re-arm after the five-timeframe consensus is no longer strong.
-      g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";
+      if(g_longM15GateBlocked)
+      {
+         double m15rating=0.0;
+         for(int t=0;t<N_TF;t++) if(g_tfs[t]==PERIOD_M15) m15rating=g_rating[t];
+         g_lastBlock="تقييم M15 للشراء أقل من الحد التجريبي المحدد";
+         g_lastAction="منع شراء؛ قوة إطار 15 دقيقة غير كافية";
+         Print("TV26_ENTRY_BLOCK;reason=LONG_M15_RATING_GATE;bar=",
+               TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+               ";M15=",DoubleToString(m15rating,3),
+               ";minimum=",DoubleToString(InpMinLongM15Rating,3));
+      }
+      else
+      {
+         g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";
+      }
       return;
    }
    Print("TV26_CONSENSUS;signal=",SignalName(sig),
@@ -1054,6 +1079,7 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 || InpM1BreakoutBufferATR<0 ||
+      InpMinLongM15Rating<STRONG || InpMinLongM15Rating>1.0 ||
       InpMaxSpreadPoints<0 || InpDeviationPoints<0 || InpCooldownBarsAfterExit<0)
    {
       Print("TV26: إعدادات ATR أو السبريد أو الانزلاق أو التهدئة غير صالحة");
