@@ -1,121 +1,35 @@
-# TV26 direct parity — current status (24 October 2026)
+# TV26 direct TradingView parity — current state (24 October 2026)
 
-## Latest gates
+## Verified
 
-| Gate | Status | Evidence |
+| Check | State | Evidence |
 |---|---|---|
-| Versioned Pine library references and source-level contract | PASS | [Exact v3 contract test](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/tests/test_exact_technicalrating_v3_contract.py) |
-| Pine exporters accepted by TradingView compiler | PASS | [Display-only dashboard + Pine compile and tests](https://github.com/staryuzar/-/actions/runs/40096465363) |
-| Python comparator/splitter/regression suite | PASS — 59 tests | [CI run 40096465363](https://github.com/staryuzar/-/actions/runs/40096465363) |
-| Official MetaEditor compile | PASS | [Run 40096465405](https://github.com/staryuzar/-/actions/runs/40096465405) |
-| Cloud MT5 indicator audit on the tested source commit | PASS | [Run 40093365818](https://github.com/staryuzar/-/actions/runs/40093365818); [artifact 12560305327](https://github.com/staryuzar/-/actions/runs/40093365818/artifacts/12560305327) |
-| Independent formula reference versus MT5 votes | PASS on recorded MT5 OHLCV feed | 141,232 component votes; zero mismatches |
-| Actual TradingView chart-runtime values versus MT5 | **PENDING** | No real TradingView chart-output CSV has been compared |
-| EA profitability / robustness | **NOT ESTABLISHED by parity tests** | Separate controlled Strategy Tester evidence is required |
+| Published TechnicalRating v3 formula/source contract | PASS | Version-pinned Pine reference and regression tests |
+| Pine visual dashboard compile | PASS | [Earlier compiler/regression run](https://github.com/staryuzar/-/actions/runs/40096465363) |
+| MetaEditor build of candidate | PASS | [Run 40117459680](https://github.com/staryuzar/-/actions/runs/40117459680) |
+| Independent formula checks against recorded MT5 feed | PASS for audited feed | Latest completed audit checked 141,232 component votes with zero mismatches; this is not a live TradingView sample |
+| Real-time chart value match between MT5 and a separate TradingView chart | **PENDING manual visual comparison** | No matching-bar visual review has been recorded |
+| EA profitability/robustness | **NOT ESTABLISHED** | [Three-day progressive run](https://github.com/staryuzar/-/actions/runs/40115334971) stopped at +$2.74 versus required +$7.50 |
 
-## Source reconciliation
+## Safe verification workflow
 
-The exact source reconciliation is documented in [TV26_V3_SOURCE_RECONCILIATION_2026-10-24.md](TV26_V3_SOURCE_RECONCILIATION_2026-10-24.md).
+The automated TradingView CSV-export/processing workflow has been retired. This is deliberate: TradingView's current market-data policy restricts non-display processing. Do not export chart prices/ratings into CSV for automated GitHub processing, do not scrape TradingView, and do not feed TradingView data to an EA.
 
-Two key clarifications are pinned in regression tests:
-- TechnicalRating v3 source uses rising ADX for both the buy and sell branches. This differs from current Help Center wording for sell ADX. The candidate follows the explicitly versioned v3 library it imports.
-- TechnicalRating v3 calculates Bulls/Bears Power from EMA(close, 13); the candidate uses period 13.
+The remaining supported visual route:
+- Pine dashboard: [TradingView_Visual_Parity_5TF.pine](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Visual_Parity_5TF.pine)
+- Arabic instructions: [TV26_VISUAL_PARITY_GUIDE_AR.md](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TV26_VISUAL_PARITY_GUIDE_AR.md)
+- Official policy: https://www.tradingview.com/policies/
+- Official Technical Ratings definition: https://www.tradingview.com/support/solutions/43000614331-technical-ratings/
 
-This means the source-level contract and same-feed independent vote checks are in good shape. They do not, by themselves, establish numerical equality on a separate TradingView chart with a different provider or candle feed.
+Compare the closed-bar timestamp first, then O/H/L/C, then the official total/MA/oscillator ratings and 26 component votes by eye. If timestamps or OHLC differ, the chart/feed is not aligned and an indicator-formula mismatch is not established. The MT5 audit is from Headway-Demo/Jarocel; using a different XAUUSD source on TradingView can naturally produce different bars.
 
-## Latest MT5 audit evidence
+## Historical CSV tools
 
-The cloud audit ran from 21–23 October 2026 for XAUUSD on Headway-Demo/Jarocel with trading disabled. Exact latest source-matched results from run 40093365818:
-- 5,432 candle groups across M1/M5/M15/M30/H1; every summary row complete.
-- 141,232 component votes checked; zero mismatches and zero missing/invalid values against the independent published-formula implementation.
-- 16,296 summary aggregate values recalculated; zero arithmetic mismatches.
-- 27,160 Ichimoku raw values/offset checks; zero mismatches.
-- Audit CSV SHA-256: e92d178246b76d463f366a5057729d5a73abe5d67b2ee6f56278a0fd508593b2.
-- OHLCV history SHA-256: a694348596d8ccca2cc82bd7ed5d82844c452656cf12fabdcdb7b27333f6c671.
-- [Download the current MT5 cloud audit artifact](https://github.com/staryuzar/-/actions/runs/40093365818/artifacts/12560305327)
-
-These results establish the formula-level match on the audited MT5 feed. They do not prove the live TradingView chart has identical values or establish strategy profitability.
-
-## Important boundary
-
-The repository's Pine diagnostic exporter compares the reconstructed aggregates against TradingView's versioned library outputs and can emit one payload covering M1/M5/M15/M30/H1. The Python comparator is tested synthetically and fails when a component is corrupted. However, a synthetic test is not a real TradingView chart sample, and Pine compilation is not a runtime-value comparison.
-
-No unofficial WebSocket/scraping feed was added. TradingView's current policies restrict machine-driven/non-display processing of its market data for algorithmic decisions. The automated EA should use the versioned published formula source with MT5's own market history, not an unauthorized TradingView data feed.
+TradingView_Parity_AllTF_Export.pine, TradingView_Parity_Components_1TF.pine, the CSV decoder, and the CSV comparator are retained as legacy formula-contract and synthetic-test references. The Pine export scripts are visibly marked legacy; the automated direct TradingView data-processing workflow is now only a display-only guard with manual dispatch and no CSV processing step. Do not use the legacy scripts to export real TradingView market data.
 
 ## Decision
 
-- **Source-level formula contract:** PASS.
-- **Pine compiler and 53 deterministic tests:** PASS.
-- **Same-feed MT5 formula checks:** PASS, 141,232/141,232 votes.
-- **MT5 audit and Ichimoku checks:** PASS.
-- **Direct numerical parity with an actual TradingView chart:** PENDING.
-- **Live trading approval:** NOT GRANTED by these checks.
-
-## Evidence refresh — 2026-10-24 12:21 UTC
-
-This addendum supersedes the earlier run IDs above where a newer source-matched run is listed.
-
-- Candidate **code commit tested**: `d948bcc89cf6f31796741f31c14d9b53e4f8127d` (the latest branch tip now also contains this report update).
-- Comparator/regression suite: [run 40093365780](https://github.com/staryuzar/-/actions/runs/40093365780) — **53 tests passed**.
-- MetaEditor package build: [run 40093365794](https://github.com/staryuzar/-/actions/runs/40093365794) — PASS; package version 1.009, EX5 generated (67,422 bytes), uploaded build artifact 12559558694.
-- Source-matched cloud MT5 audit: [run 40093365818](https://github.com/staryuzar/-/actions/runs/40093365818) — PASS; [artifact 12560305327](https://github.com/staryuzar/-/actions/runs/40093365818/artifacts/12560305327).
-- Latest MT5 audit source SHA-256: `150263920e66781660aa5c01c81272fb39b510fee5428181ff8abc7020f21f55`.
-- Audit CSV SHA-256: `e92d178246b76d463f366a5057729d5a73abe5d67b2ee6f56278a0fd508593b2`; OHLCV reference SHA-256: `a694348596d8ccca2cc82bd7ed5d82844c452656cf12fabdcdb7b27333f6c671`.
-- Validated output: 146,664 data rows; 5,432 complete candle groups; 141,232 component votes; 16,296 recalculated summary aggregates; zero aggregate mismatches; zero independent formula-vote mismatches; 27,160 raw Ichimoku values checked with zero mismatches. All five frames M1/M5/M15/M30/H1 passed.
-- Tester exit code was 0, and the audit explicitly ran with automated trading disabled.
-
-### Current decision — unchanged for direct parity
-
-The new run confirms the audited candidate source and internal formulas on the recorded MT5 feed. It does **not** remove the only external-data blocker: `trading-lab/tv26/parity-input/TV26_AllTF.csv` is not present until an actual TradingView chart export is supplied. Pine compiler acceptance, local synthetic regression tests, and MT5-feed agreement cannot substitute for chart-runtime output from TradingView.
-
-The prepared one-file export script is `trading-lab/tv26/TradingView_Parity_AllTF_Export.pine`; the exact export procedure is in `trading-lab/tv26/DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md`. Once that real CSV exists at the specified path, the direct comparison workflow will compare all 26 votes plus summary ratings on M1/M5/M15/M30/H1, with strict source matching and candle-alignment gates. No live-trading approval follows from this audit.
-
-## Latest verification refresh — 24 October 2026, 13:03 UTC
-
-- [TV26 regression/Pine validation run 40096465363](https://github.com/staryuzar/-/actions/runs/40096465363): PASS; **59 Python tests passed**, including the display-only dashboard contract.
-- [MetaEditor compile run 40096465405](https://github.com/staryuzar/-/actions/runs/40096465405): PASS.
-- The current preferred review path is the display-only TradingView dashboard below. It avoids exporting or uploading TradingView market data. Human visual comparison remains pending because a reviewer must open the chart and inspect its live displayed values alongside the MT5 audit/chart.
-
-## Display-only verification route — 2026-10-24
-
-A safer visual route has now been added for checking the current closed candle without exporting TradingView market data to a processing pipeline:
-
-- Dashboard: [`TradingView_Visual_Parity_5TF.pine`](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Visual_Parity_5TF.pine)
-- Arabic guide: [`TV26_VISUAL_PARITY_GUIDE_AR.md`](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TV26_VISUAL_PARITY_GUIDE_AR.md)
-- Pine compiler validation and deterministic suite: [run 40096390137](https://github.com/staryuzar/-/actions/runs/40096390137) — TradingView compiler returned `clean` for the display-only dashboard; **59 Python tests passed**.
-- The table displays the official TechnicalRating v3 total/MA/oscillator ratings, recalculation deltas, OHLC and closed-bar time, and all 26 component votes across M1/M5/M15/M30/H1. It has no `plot()` outputs or CSV export series.
-- The MT5 source/indicator audit remains the independent reference: [latest verified audit run 40093365818](https://github.com/staryuzar/-/actions/runs/40093365818), with 141,232 component votes matching the published-formula reference on the audited MT5 feed.
-
-### Updated parity interpretation
-
-- **Published-source/formula contract:** PASS.
-- **MT5 feed vs independent published-formula implementation:** PASS for the recorded 141,232 votes.
-- **Pine display-only dashboard compiler and regression tests:** PASS.
-- **Direct per-bar comparison of the MT5 chart to a separate TradingView chart:** not yet observed by a human reviewer; the machine-generated historical TradingView/MT5 comparison remains unclaimed.
-- The dashboard is the recommended route for a human-readable on-screen check. Compare timestamp and OHLC first; if those differ, a component-rating difference cannot be attributed to formula error alone.
-- Current TradingView policy limits its market data to display-only use and disallows non-display processing for algorithmic trading; see https://www.tradingview.com/policies/. For that reason, do not treat TradingView chart data as a machine input to the EA or upload it to an automated signal pipeline. Continue validating the EA using MT5 broker history and the versioned published formula source.
-
-
-
-## Latest CI refresh — 24 October 2026, 16:48 UTC
-
-These results supersede older test counts and audit links above where the same gate has newer evidence:
-
-- [TV26 parity comparator and regression suite, run 40112887150](https://github.com/staryuzar/-/actions/runs/40112887150): PASS, **70 Python tests**; the Pine compiler-status gate passed. The earlier failure was a test-harness NameError referencing an undefined local variable, corrected in commit `614afebc8998cc4e5351fb1bdbe41bb3d7ce1ca3`; it was not a formula mismatch.
-- [MetaEditor compile, run 40112887163](https://github.com/staryuzar/-/actions/runs/40112887163): PASS.
-- [Source-matched MT5 cloud indicator audit, run 40112887198](https://github.com/staryuzar/-/actions/runs/40112887198): PASS. The trading-disabled Model 1 audit checked 141,232 votes with zero formula mismatches, recalculated 16,296 summary aggregates with zero mismatches, checked 5,432 candle groups with no integrity faults, and compared 27,160 Ichimoku raw/offset fields with zero mismatches or missing values. [Artifact 12567626365](https://github.com/staryuzar/-/actions/runs/40112887198/artifacts/12567626365).
-- The strategy gate remains separate: progressive XAUUSD real-tick tests on Oct 20–22 stopped at the three-day stage (+$2.74 versus the required +$7.50). Indicator formula agreement does not prove a trading edge.
-
-## Actual TradingView chart comparison is still pending
-
-The repository's `trading-lab/tv26/parity-input/` directory currently contains only its readme instructions; there is no actual chart-output CSV in the branch. Therefore **no direct numerical per-bar parity claim is made** between a live TradingView chart and the MT5 candidate. Pine compiler success and same-feed formula audits are not substitutes for this gate.
-
-Preferred next verification is the display-only on-chart route linked above: open `TradingView_Visual_Parity_5TF.pine` on the same market/symbol context and compare the closed-bar timestamp, OHLC and all 26 votes on M1/M5/M15/M30/H1 with the Arabic MT5 panel. Start by aligning timestamp and OHLC; broker/provider differences can explain rating differences before formula logic is blamed. Keep TradingView market data display-only and respect the account's market-data terms; do not scrape or feed it into EA decisions.
-
-Current decisions:
-- Published-source formula contract and independent same-feed MT5 audit: PASS.
-- Pine compile and regression tests: PASS.
-- MetaEditor compile: PASS.
-- Actual TradingView chart-runtime parity: PENDING human comparison against the same closed bars.
-- Strategy robustness: NOT ESTABLISHED; the three-day profitability gate is still failed.
-- Live deployment: NOT approved by this evidence.
+- Source-level formula contract and same-feed MT5 formula checks: PASS on the recorded input.
+- Direct per-bar comparison against an actual TradingView chart: pending until a human checks matching timestamps/OHLC and visible values.
+- Strategy robustness: not established; the three-day gate failed.
+- No live-use or main-branch merge approval follows from these checks.
