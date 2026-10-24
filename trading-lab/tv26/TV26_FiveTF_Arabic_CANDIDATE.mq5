@@ -5,6 +5,7 @@
 input bool   InpEnableTrading       = true;
 input bool   InpDemoOnly            = true;
 input bool   InpTesterOnly          = false; // When true, refuse execution outside MT5 Strategy Tester.
+input bool   InpUseRuleBasedEarlyExit = true;  // Isolated diagnostic branch A/B switch; keep enabled in candidate behavior.
 input ulong  InpMagic               = 26102326;
 input double InpRiskPercent         = 1.00;
 input int    InpATRPeriod           = 14;
@@ -872,6 +873,15 @@ bool ManageOpenPositionExit()
    ulong ticket=0;
    ENUM_POSITION_TYPE side=POSITION_TYPE_BUY;
    if(!FindOurPosition(ticket,side)) return false;
+
+   // Test-only A/B toggle. Even when disabled, return true so entries remain blocked
+   // while this position is open; broker SL/TP protections remain active.
+   if(!InpUseRuleBasedEarlyExit)
+   {
+      g_lastAction="اختبار مقارنة: الخروج المبكر متوقف؛ حماية وقف الخسارة وجني الربح ما زالت فعّالة";
+      g_lastBlock="";
+      return true;
+   }
 
    int oppositeFrame=OppositeSummaryTimeframe(side);
    string reason="";
