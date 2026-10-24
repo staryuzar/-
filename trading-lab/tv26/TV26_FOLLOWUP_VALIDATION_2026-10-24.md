@@ -251,3 +251,62 @@ Each stage gets a unique magic number and its own artifact folder, retaining the
 
 
 The completed one-day evidence for run 40110879062 records 47,164 component votes checked, zero vote mismatches, zero missing/invalid comparisons, 5,442 aggregate values with zero aggregate mismatches, and 1,814 OHLC candle groups with zero integrity errors. This validates the first stage's data/formula checks on the recorded Headway-Demo MT5 feed; it does not mean the whole progressive sequence passed.
+
+## 17. Completed progressive daily-to-multi-day gate — run 40111025063
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40111025063
+
+The corrected sequential runner completed successfully. All stages used XAUUSD M1, USD 500 initial deposit, MT5 Model 4, 1% risk, stop 2 ATR, target 4 ATR, M1 close-breakout enabled, a tester-only guard, and unique magic numbers. A stage ran only after its predecessor passed.
+
+| Stage | Tested window | Net profit | PF | Max equity DD | Trades | Wins / losses | Decision |
+|---:|---|---:|---:|---:|---:|---:|---|
+| 1 day | Oct 22, 2026 | +$10.60 | 0.00* | 0.74% | 1 | 1 / 0 | Pass screen; expand |
+| 2 days | Oct 21–22, 2026 | +$10.60 | 0.00* | 0.74% | 1 | 1 / 0 | Pass screen; expand |
+| 3 days | Oct 20–22, 2026 | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | Stop |
+
+*MT5 reports PF as 0.00 when there are no losing trades; with a single trade, this is not evidence of a stable edge.
+
+The one- and two-day windows both contain only the October 22 winning sell, so the second day contributed no additional trades. The three-day window added two losing sells on October 20. Because the required three-day profit was at least $7.50, the recorded +$2.74 failed the profit gate and the runner correctly stopped; no 4–10-day windows were run.
+
+### Integrity and formula audits by stage
+
+| Stage | Component votes checked | Vote mismatches | Recalculated aggregates | OHLC candle groups | Invalid / duplicate / timestamp issues |
+|---:|---:|---:|---:|---:|---:|
+| 1 day | 47,164 | 0 | 5,442 | 1,814 | 0 / 0 / 0 |
+| 2 days | 94,198 | 0 | 10,869 | 3,623 | 0 / 0 / 0 |
+| 3 days | 141,232 | 0 | 16,296 | 5,432 | 0 / 0 / 0 |
+
+Each stage compiled the EX5 in MetaEditor with zero reported errors/warnings and completed the MT5 Strategy Tester process with exit code 0. The audit hashes and reports are retained in artifact tv26-progressive-daily-gate-40111025063 (artifact ID 12567295356). As before, these formula-level audits compare MT5 votes to an independent implementation of the published TechnicalRating rules; direct runtime parity against a CSV exported from the user's actual TradingView chart remains pending.
+
+### Trade-level diagnosis of the three-day failure
+
+The two losing sells occurred on October 20:
+- 11:08:00: sell 0.01 XAUUSD at 4119.61, SL 4123.36; stop loss triggered at 11:11:38.
+- 11:30:00: sell 0.01 at 4119.34, SL 4122.38; stop loss triggered at 11:32:19.
+
+The October 22 sell was a winner. Combined gross profit was $9.62 and gross loss was -$6.88, leaving +$2.74 net. The failures are therefore not caused by audit/formula mismatches in the captured data; this short sample shows two same-direction sell stop-outs on October 20, with a later winning sell on October 22.
+
+## 18. Cooldown interpretation after the progressive result
+
+The completed diagnostic matrix for October 20–22 is available in workflow https://github.com/staryuzar/-/actions/runs/40109199896. All three arms used the same source/data and settings (1% risk, SL 2 ATR, TP 4 ATR, M1 close-breakout, Model 4); only post-exit cooldown changed:
+
+| Cooldown | Net profit | PF | Max equity DD | Trades | Wins / losses | Cooldown blocks |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 bars | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | 0 |
+| 10 bars | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | 0 |
+| 20 bars | +$6.79 | 2.78 | 1.13% | 2 | 1 / 1 | 1 |
+
+On this diagnostic three-day window, 20 bars blocked the second October 20 stop-out and improved net profit by $4.05. This is a specific lead, not permission to adopt 20 bars: a separate October 1–10 holdout used a 3 ATR target and did not show a general improvement:
+- 0 bars: -$6.57, PF 0.78, DD 3.78%, 12 trades (4 wins / 8 losses).
+- 10 bars: -$9.10, PF 0.64, DD 3.00%, 10 trades (3 / 7).
+- 20 bars: -$6.47, PF 0.75, DD 2.98%, 10 trades (3 / 7).
+
+The Sep 11–20 20-bar result was also still losing (-$11.32, PF 0.44, six trades), barely different from the zero-bar baseline (-$11.41, PF 0.43, six trades). Conclusion: do not enable cooldown globally as a claimed profit fix. The October 20–22 gain came from avoiding one observed loss in the same window that motivated the test; it must be treated as overfit-prone until independently replicated.
+
+## 19. Next isolated experiment — preserve signal latch during open position
+
+The next test addresses a separate state-machine hypothesis, not another cooldown tweak. The research-only branch tv26-reentry-latch-preservation-study changes the neutral-signal path so it preserves the last executed direction while an EA position is still open; it only clears/re-arms when flat. This is intended to prevent a neutral candle during an open trade from resetting the latch and enabling same-direction immediate re-entry after exit.
+
+Validation was activated on that branch (push-triggered run): https://github.com/staryuzar/-/actions/runs/40111570530. The planned windows are September 1–10 and October 20–22, with the same 1% risk / 2 ATR stop / 4 ATR target / M1 close-breakout / zero cooldown baseline settings. The September window has a previously measured baseline of +$3.35, PF 1.23, five trades (two wins / three losses), including a September 8 same-direction sell re-entry one second after TP which then hit SL at -$5.08. No performance conclusion about the latch fix is valid until its two strategy-tester runs and both audits complete.
+
+No research-only fix has been merged into the candidate or main branch, and no live trading has been enabled.
