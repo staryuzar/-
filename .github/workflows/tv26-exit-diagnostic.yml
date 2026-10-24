@@ -11,6 +11,7 @@ on:
       - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
       - "trading-lab/tv26/test_tv26_exit_contract.py"
       - "trading-lab/tv26/compare_tv26_exit_ab.py"
+      - "trading-lab/tv26/test_tv26_exit_ab_pairing.py"
   workflow_dispatch:
 
 permissions:
@@ -26,8 +27,8 @@ jobs:
     timeout-minutes: 45
     env:
       MT5_CREDENTIALS: ${{ secrets.mt5 }}
-      TV26_TEST_FROM: "2026.09.01"
-      TV26_TEST_TO: "2026.09.04"
+      TV26_TEST_FROM: "2026.10.01"
+      TV26_TEST_TO: "2026.10.04"
       TV26_TEST_MODEL: "4"
       TV26_TEST_RISK_PERCENT: "2.00"
       TV26_TEST_STOP_ATR: "5.00"
@@ -44,6 +45,9 @@ jobs:
       - name: Run TV26 entry/exit contract checks
         shell: pwsh
         run: python trading-lab/tv26/test_tv26_exit_contract.py
+      - name: Run deterministic exit event pairing unit tests
+        shell: pwsh
+        run: python trading-lab/tv26/test_tv26_exit_ab_pairing.py
       - name: Install formula-audit dependencies
         run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
       - name: Run matched exit-on / exit-off Strategy Tester arms sequentially
