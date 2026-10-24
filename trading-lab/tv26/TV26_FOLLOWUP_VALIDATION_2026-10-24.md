@@ -504,3 +504,31 @@ Workflow file: `.github/workflows/tv26-strategy-cooldown-sep21-30.yml`
 Commit: `5b1ad32f804e1f1137fdc569d831fcb0557db08e`
 
 To test whether the October 1–10 20-bar timing improvement transfers, a new source-matched 0/10/20-bar matrix was launched for **September 21–30, 2026** using XAUUSD M1, Model 4, $500 balance, 1% risk, 2 ATR stop, 3 ATR target and M1 close-breakout. The three arms are serialized and have the same formula/OHLC audits; the existing demo and tester-only guards remain in place. No outcome is inferred until each arm and audit completes. This is a cross-check, not permission to adopt a global cooldown.
+
+
+## 34. September 21–30 cooldown cross-check — completed
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40113501784  
+0-bar artifact: https://github.com/staryuzar/-/actions/runs/40113501784/artifacts/12567164341  
+10-bar artifact: https://github.com/staryuzar/-/actions/runs/40113501784/artifacts/12566854212  
+20-bar artifact: https://github.com/staryuzar/-/actions/runs/40113501784/artifacts/12567199994
+
+The source-matched 0/10/20-bar matrix completed on Sep 21–30 with XAUUSD M1, MT5 Model 4, $500 deposit, 1% risk, 2 ATR stop, 3 ATR target, M1 close-breakout enabled. All three arms had identical code source SHA `1448c417b458b78f7d69225801b44949cefb8b960bbe2a07eb68b719d64dde87`, audit SHA `323581c3a518b2c968a5a96223584b76174c2035430204563e268d9ab7b0f8d3` and history SHA `1e5831d3f58937bcf401822e82541aed0f53318ea238e84be816b1157af023dc`. Audits passed on all arms, with no formula vote mismatches or OHLC integrity errors.
+
+| Cooldown | Net | PF | Max equity DD | Trades | Wins / losses | Cooldown blocks |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 bars | +$0.67 | 1.17 | 0.99% | 2 | 1 / 1 | 0 |
+| 10 bars | +$0.67 | 1.17 | 0.99% | 2 | 1 / 1 | 0 |
+| 20 bars | +$4.50 | 0.00* | 0.99% | 1 | 1 / 0 | 1 |
+
+*PF 0.00 indicates there were no losing trades in the single-trade 20-bar sample; it is not a useful estimate of profitability. As on Oct 1–10, the 10-bar arm had no effect. The 20-bar arm blocked one potential re-entry and removed one loss from this two-trade sample. This is directionally consistent with its modest improvement on Oct 1–10, but one blocked trade across a two-trade window is still far too small to approve a general cooldown. The September 11–20 window previously showed almost no change. Keep the default cooldown at 0 until it is replicated on longer, unseen data without a material loss of winners.
+
+## 35. M1/M5 oscillator confirmation — research implementation and gate semantics
+
+Created an isolated branch, `tv26-m1m5-oscillator-gate-study`, adding the optional input `InpMinM1M5DirectionalOscillatorRating` (valid range 0–1; default 0.00 means disabled). It is a strategy entry filter only: it requires the directional oscillator average on both M1 and M5 to meet the threshold, but it does not modify `AlignedSignal()`, the 26-component formula values, or the five-timeframe panel's Strong Buy/Strong Sell classification.
+
+The gate emits a specific diagnostic with M1/M5 raw and directional oscillator ratings, the threshold, and a pass/fail flag for each timeframe. It is ordered after already-open same-side position, same-signal latch, and post-exit cooldown checks so it only diagnoses a plausible new entry; the existing risk, demo and tester-only guards remain intact. This reduces misleading filter counts and ensures the filter does not reset signal memory.
+
+A September 21–30 source-matched real-tick comparison was prepared for threshold 0.00 versus 0.15 using 1% risk, 2 ATR stop, 3 ATR target, M1 close-breakout, zero cooldown, and the same Headway-Demo feed. The first CI attempts exposed test-harness/environment problems before Strategy Tester: (1) an assertion used the wrong `DetailSignal` signature, and (2) the test called a Windows Store WSL shim named `bash` rather than Git Bash, which returned “Windows Subsystem for Linux has no installed distributions.” These are not strategy results. The test was corrected to use Git for Windows' Bash executable explicitly, to parse the block from a UTF-8 temporary file, and to assert the new entry-gate ordering. No performance outcome should be recorded until the current workflow completes compiler, regression, tester and audit gates.
+
+Research holdout workflow: https://github.com/staryuzar/-/actions/runs/40114435807
