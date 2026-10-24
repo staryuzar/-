@@ -58,8 +58,15 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
     def test_parity_workflow_runs_automatically_on_export_upload(self):
         workflow = (ROOT.parents[1] / ".github/workflows/tv26-direct-tradingview-parity.yml").read_text(encoding="utf-8")
         self.assertIn('      - "trading-lab/tv26/parity-input/TV26_AllTF.csv"', workflow)
-        self.assertIn("MT5_AUDIT_RUN_ID: ${{ github.event.inputs.mt5_audit_run_id || '40083533466' }}", workflow)
+        self.assertIn("MT5_AUDIT_RUN_ID_INPUT: ${{ github.event.inputs.mt5_audit_run_id || '' }}", workflow)
         self.assertIn("MT5_UTC_OFFSET_HOURS: ${{ github.event.inputs.mt5_utc_offset_hours || '3' }}", workflow)
+        self.assertIn("required: false", workflow)
+        self.assertIn("gh run list --workflow tv26-cloud-audit.yml", workflow)
+        self.assertIn("audit_matches_checkout", workflow)
+        self.assertIn('git rev-parse "HEAD:$path"', workflow)
+        self.assertIn('git rev-parse "$run_head:$path"', workflow)
+        self.assertIn("Tester process exit code: 0", workflow)
+        self.assertNotIn("40083533466", workflow)
         self.assertIn("--min-mt5-coverage 0.80", workflow)
 
     def test_williams_r_uses_builtin_namespace_in_both_exporters(self):
