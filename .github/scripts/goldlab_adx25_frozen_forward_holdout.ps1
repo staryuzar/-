@@ -242,12 +242,13 @@ foreach ($tickStartMatch in $realTickStartMatches) {
   } catch {}
 }
 $realTickCoverage = ($null -ne $realTickStart -and $realTickStart.Date -le [datetime]'2026-10-21')
-$badTickLines = @($logText -split '\r?\n' | Where-Object { $_ -match '(?i)(real ticks? (?:are )?(?:absent|missing)|real ticks? discarded|tick prices?.{0,100}(?:mismatch|not matched)|tick volumes?.{0,100}(?:mismatch|not matched)|every tick generation (?:was )?used)' } | Select-Object -Unique -First 100)
+$badTickPattern = '(?i)(\bfallback\b|\bfall back\b|\bdiscard(?:ed|ing)?\b|\bmismatch(?:es|ed)?\b|\bnot matched\b|\breal ticks?\b.{0,100}\b(?:absent|missing)\b|\b(?:absent|missing)\b.{0,100}\breal ticks?\b|\btick(?:s| data| prices?| volumes?)?\b.{0,100}\b(?:absent|missing)\b)'
+$badTickLines = @($logText -split '\r?\n' | Where-Object { $_ -match $badTickPattern } | Select-Object -Unique -First 100)
 $realTickStartText = if ($null -ne $realTickStart) { $realTickStart.ToString('yyyy-MM-dd') } else { 'NOT_FOUND' }
 $strictRealTickCoverage = ($historyQualityFull -and $realTickCoverage -and $badTickLines.Count -eq 0)
 
 $coverageState = if ($barCount -ge 600 -and $dateCoverage -and $strictRealTickCoverage) { "PASS: at least 600 M5 bars; all three holdout dates have SIGNAL_AUDIT; broker history reaches 2026-10-23; History Quality 100%; real ticks available by 2026-10-21; no identified fallback/rejection messages" } else { "INCOMPLETE/REJECTED: holdout data/date coverage, History Quality, real-tick start date, or journal fallback/rejection gate failed; no performance acceptance" }
-$realTickLines = @($logText -split '\r?\n' | Where-Object { $_ -match '(?i)real tick|real ticks|every tick generation|ticks? (?:are )?absent|discarded.*tick|tick.*discarded' } | Select-Object -Unique -First 40)
+$realTickLines = @($logText -split '\r?\n' | Where-Object { $_ -match '(?i)real ticks?|every tick generation|\bfallback\b|\bfall back\b|\bdiscard(?:ed|ing)?\b|\bmismatch(?:es|ed)?\b|\bnot matched\b' } | Select-Object -Unique -First 100)
 $lines += @("", "## Real-tick journal evidence", "", "- Model=4 was requested; this does not prove every tested minute used real ticks.", "- Matching real-tick journal lines: $($realTickLines.Count)")
 if ($realTickLines.Count -gt 0) { foreach ($tickLine in $realTickLines) { $lines += ("- " + $tickLine.Trim()) } } else { $lines += "- No matching real-tick status line was found in copied logs; inspect archived terminal/tester logs." }
 $historySyncEndText = if ($null -ne $historySyncEnd) { $historySyncEnd.ToString("yyyy-MM-dd") } else { "NOT_FOUND" }
