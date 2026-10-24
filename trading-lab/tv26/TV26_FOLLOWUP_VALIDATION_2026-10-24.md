@@ -153,3 +153,32 @@ For the 5-bar variant, input verification confirms that the five-bar setting was
 The baseline's five trades comprised three losses and two wins. One specific failure was an immediate sell re-entry one second after a sell TP on 2026-09-08 22:58:59, followed by an SL at 23:01:22 (-$5.08). This is a concrete timing hypothesis, but a single case does not establish that a one-bar pause generalizes. The separate 10/20-bar cooldown experiment on Sep 11–20 did not materially change accepted trades. Any new re-entry rule must be compared with the unchanged baseline on a separate window, with trade count and lost winners explicitly reported.
 
 The oscillator-confirmation retry is tracked separately at https://github.com/staryuzar/-/actions/runs/40107875721. Its earlier 0.15 attempt failed before a valid tester export due to canceled MT5 history download, so no performance conclusion is valid until the retry completes with a complete audit. Formula-level audit PASS continues to mean consistency with the independent published-formula implementation on MT5 data; actual live TradingView chart-runtime parity remains pending.
+
+
+## 11. Completed oscillator-confirmation diagnostic — Sep 1–10
+
+Retry workflow completed successfully: https://github.com/staryuzar/-/actions/runs/40107875721
+
+| Variant | Net profit | Profit factor | Max equity DD | Trades | Wins / losses |
+|---|---:|---:|---:|---:|---:|
+| Oscillator gate disabled (0.00) | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 |
+| Minimum directional oscillator rating 0.15 on every timeframe | +$3.93 | 1.77 | 1.54% | 2 | 1 / 1 |
+
+The 0.15 variant compiled with zero errors/warnings, completed the real-tick tester, and passed the formula/data audit: 371,332 votes, zero mismatches, no missing comparisons, and no OHLC integrity failures. The bounded retry recovered from the prior canceled history-download attempt; the earlier failed run was infrastructure-only and is not counted as a strategy outcome.
+
+Interpretation: on this short diagnostic window, the gate changed the trade list and produced +$0.58 more net profit with lower equity drawdown. It also removed three of five trades, including one winner and two losers. Only two accepted trades remain, one win and one loss; the result is **promising enough to test again, not enough to approve**. Treat this as an in-sample screening result because this September window was already being used to investigate the baseline. A cross-window replication with the same 0.00 vs 0.15 settings is required before retaining the filter. The gate remains disabled by default in the candidate.
+
+## 12. Completed consensus/lookback holdout — full matrix result
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40106562109
+
+The final 5-bar / 0.55 job completed with the following result:
+
+| Variant | Net profit | Profit factor | Max equity DD | Trades | Wins / losses |
+|---|---:|---:|---:|---:|---:|
+| 1-bar breakout / 0.50 baseline | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 |
+| 5-bar breakout / 0.50 | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 |
+| 1-bar breakout / 0.55 | $0.00 | 0.00 | 0.00% | 0 | 0 / 0 |
+| 5-bar breakout / 0.55 | $0.00 | 0.00 | 0.00% | 0 | 0 / 0 |
+
+The 5-bar / 0.50 variant used the configured input but produced the same five accepted entries and same deal list as baseline; it reduced the minimum-volume blocks from 27 to 15 without improving outcomes. Both 0.55 variants produced zero accepted orders. Decision: reject these settings as performance improvements. The baseline remains a reference for comparisons only, not a production pass.
