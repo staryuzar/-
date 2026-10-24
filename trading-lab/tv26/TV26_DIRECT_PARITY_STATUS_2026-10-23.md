@@ -87,3 +87,24 @@
 ## تحسين التشغيل
 
 سير عمل المقارنة المباشرة الآن يبدأ تلقائيًا عند إضافة الملف TV26_AllTF.csv إلى المسار trading-lab/tv26/parity-input/ في هذا الفرع. ويستمر في إنشاء تقارير الأطر الخمسة حتى مع فشل إطار، كيلا تضيع بقية التشخيصات. لا توجد حاجة إلى تشغيل يدوي إلا عند الرغبة في تغيير فرق توقيت خادم MT5 عن UTC.
+
+## تحديث 24 أكتوبر 2026 — بوابة مصدر السعر والتشخيص الموجّه
+
+أضيفت إلى `compare_tv26_csv.py` خانة `diagnosis_code` ورسالة عربية توجّه الإصلاح التالي حسب أول اختلاف جوهري:
+
+- `NO_TIME_OVERLAP`: راجع فرق توقيت الخادم ومدى التاريخ.
+- `PRICE_FEED_OR_CANDLE_ALIGNMENT`: اختلاف OHLC؛ وحّد مصدر الرمز وتوقيت الشمعة قبل تعديل أي معادلة.
+- `PINE_AGGREGATE_FORMULA_MISMATCH`: تجميعات Pine لا تطابق مكتبة TradingView الرسمية.
+- `MT5_SUMMARY_RATING_MISMATCH`: الأسعار متطابقة لكن درجات ملخص MT5 تختلف.
+- `COMPONENT_VOTE_MISMATCH`: يصدر التقرير إلى ملف التفاصيل لاختيار المكوّن والشمعة المختلفين.
+
+الترتيب مُختبر بانحراف OHLC اصطناعي: يجب أن يحدد التقرير مشكلة مصدر السعر قبل أن يوصي بتغيير معادلات المكونات. كما أصبحت اختبارات CI تكمل اختبارات Python حتى لو فشل اتصال مترجم TradingView، ثم تفرض الفشل النهائي إذا لم يجتز ملفا Pine الفحص الرسمي.
+
+دليل مصدر السعر أُضيف إلى الدليل التنفيذي استنادًا إلى [شرح Headway الرسمي لاختلاف الرسوم بين الوسطاء](https://hw.online/faq/what-is-the-explanation-for-the-variance-in-charts-among-forex-brokers/) وصفحات TradingView التي تعرض XAUUSD من مصادر مختلفة، منها [OANDA](https://www.tradingview.com/symbols/XAUUSD/?exchange=OANDA) و[FX_IDC](https://www.tradingview.com/symbols/XAUUSD/?exchange=FX_IDC). لا نعد تطابق اسم XAUUSD دليلًا على تطابق بيانات الشموع.
+
+نتائج التحقق:
+- اختبارات المقارنة مع بوابة مترجم TradingView: https://github.com/staryuzar/-/actions/runs/40077448081 — **نجاح**.
+- اختبار المسار الكامل للتشخيص ورفض اختلاف OHLC: https://github.com/staryuzar/-/actions/runs/40077345910 — **نجاح**.
+- تدقيق MT5 على النسخة التي تحتوي تصحيح تهيئة المؤشرات: https://github.com/staryuzar/-/actions/runs/40077345868 — **نجاح**.
+
+ما زال الإثبات المباشر ينتظر `TV26_AllTF.csv` من مخطط TradingView الحقيقي؛ لم يُسجَّل أي تطابق مصطنع أو نتيجة ربحية غير مثبتة.
