@@ -6,6 +6,10 @@ $reports = Join-Path $PWD "tv26-strategy-results"
 $installer = Join-Path $root "mt5setup.exe"
 $source = Join-Path $PWD "trading-lab\tv26\TV26_FiveTF_Arabic_CANDIDATE.mq5"
 $config = Join-Path $root "tv26-backtest.ini"
+$latchMode = [string]$env:TV26_TEST_LATCH_MODE
+if ([string]::IsNullOrWhiteSpace($latchMode)) { $latchMode = "preserve" }
+$latchMode = $latchMode.Trim().ToLowerInvariant()
+if ($latchMode -notin @("baseline","preserve")) { throw "TV26_TEST_LATCH_MODE must be baseline or preserve." }
 $summary = Join-Path $reports "strategy-backtest-summary.txt"
 $testFrom = [string]$env:TV26_TEST_FROM
 $testTo = [string]$env:TV26_TEST_TO
@@ -114,6 +118,33 @@ try {
   New-Item -ItemType Directory -Path $expertDir -Force | Out-Null
   $eaPath = Join-Path $expertDir "TV26_FiveTF_Arabic_CANDIDATE.mq5"
   Copy-Item -LiteralPath $source -Destination $eaPath -Force
+  # For the A/B baseline, alter only the legacy signal-memory behavior in this
+  # isolated copied EA. The repository candidate itself remains untouched.
+  if ($latchMode -eq "baseline") {
+    $eaText = [System.IO.File]::ReadAllText($eaPath)
+    $neutralPattern = '(?s)   if\(sig==0\)\s*\{\s*// A neutral consensus.*?\s*return;\s*\}\s*(?=   Print\("TV26_CONSENSUS;signal=",SignalName\(sig\),)'
+    $legacyNeutralBlock = @'
+   if(sig==0)
+   {
+      // A/B legacy baseline: neutral consensus clears memory even while a trade is open.
+      if(g_lastExecutedSignal!=0)
+      {
+         RememberSignal(0);
+         Print("TV26_SIGNAL_LATCH_RESET;reason=LEGACY_NEUTRAL_SIGNAL;bar=",
+               TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+      }
+      g_lastBlock="";
+      g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";
+      return;
+   }
+'@
+    $patchedText = [regex]::Replace($eaText,$neutralPattern,$legacyNeutralBlock,1)
+    if ($patchedText -eq $eaText -or $patchedText -notmatch 'LEGACY_NEUTRAL_SIGNAL') {
+      throw "Could not isolate the exact neutral-signal block for the legacy baseline; refusing an unmodified A/B run."
+    }
+    [System.IO.File]::WriteAllText($eaPath,$patchedText,[System.Text.UTF8Encoding]::new($false))
+  }
+  "Signal-latch A/B mode: $latchMode" | Add-Content -LiteralPath $summary -Encoding utf8
   $compile = Start-Process -FilePath $editor.FullName -ArgumentList ('/compile:"' + $eaPath + '" /log') -WorkingDirectory $install -PassThru
   if (!$compile.WaitForExit(120000)) {
     Stop-Process -Id $compile.Id -Force -ErrorAction SilentlyContinue
@@ -132,7 +163,8 @@ try {
     throw "MetaEditor log reports errors or warnings."
   }
   "EA compile: EX5 generated; no non-zero errors/warnings found in fresh logs." | Add-Content -LiteralPath $summary -Encoding utf8
-  "Source SHA-256: $((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
+  "Repository source SHA-256: $((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
+  "Source SHA-256: $((Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
 
   $setDir = Join-Path $install "MQL5\Profiles\Tester"
   New-Item -ItemType Directory -Path $setDir -Force | Out-Null
