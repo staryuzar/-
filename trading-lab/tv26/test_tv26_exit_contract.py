@@ -85,6 +85,11 @@ class TV26ExitContractTests(unittest.TestCase):
         self.assertIn('return (ticket.group(1), reason.group(1), bar.group(1))', compare)
         self.assertIn("key in done_keys", compare)
 
+    def test_m1_price_reversal_exit_is_separately_gated_for_summary_only_study(self):
+        self.assertIn("input bool   InpUseM1PriceReversalExit = false;", SOURCE)
+        body = function_body("bool ManageOpenPositionExit()", "void TradeIfAligned(")
+        self.assertIn("else if(InpUseM1PriceReversalExit && ConfirmedM1PriceReversal(side,reason))", body)
+
     def test_candidate_keeps_demo_guard_and_risk_ceiling(self):
         self.assertIn("input bool   InpDemoOnly            = true;", SOURCE)
         self.assertIn("InpRiskPercent>2.0", SOURCE)

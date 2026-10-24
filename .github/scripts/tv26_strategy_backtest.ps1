@@ -156,6 +156,7 @@ InpStopATR=$testStopText||$testStopText||0.5||$testStopText||N
 InpTargetATR=$testTargetText||$testTargetText||0.5||$testTargetText||N
 InpRequireM1CloseBreakout=$testBreakoutText||$testBreakoutText||0||true||N
 InpUseRuleBasedEarlyExit=$testEarlyExitText||$testEarlyExitText||0||true||N
+InpUseM1PriceReversalExit=false||false||0||true||N
 InpMaxSpreadPoints=100.0||100.0||10.0||100.0||N
 InpDeviationPoints=20||20||1||20||N
 InpTF1=1||1||1||1||N
@@ -302,7 +303,8 @@ Visual=0
     '(?is)InpStopATR=' + [regex]::Escape($testStopText) + '</b>',
     '(?is)InpTargetATR=' + [regex]::Escape($testTargetText) + '</b>',
     '(?is)InpRequireM1CloseBreakout=' + [regex]::Escape($testBreakoutText) + '</b>',
-    '(?is)InpUseRuleBasedEarlyExit=' + [regex]::Escape($testEarlyExitText) + '</b>'
+    '(?is)InpUseRuleBasedEarlyExit=' + [regex]::Escape($testEarlyExitText) + '</b>',
+    '(?is)InpUseM1PriceReversalExit=false</b>'
   )
   foreach ($pattern in $expectedInputs) {
     if ($html -notmatch $pattern) {

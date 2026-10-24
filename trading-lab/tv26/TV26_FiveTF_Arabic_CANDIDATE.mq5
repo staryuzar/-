@@ -5,7 +5,8 @@
 input bool   InpEnableTrading       = true;
 input bool   InpDemoOnly            = true;
 input bool   InpTesterOnly          = false; // When true, refuse execution outside MT5 Strategy Tester.
-input bool   InpUseRuleBasedEarlyExit = true;  // Isolated diagnostic branch A/B switch; keep enabled in candidate behavior.
+input bool   InpUseRuleBasedEarlyExit = true;  // Master diagnostic switch for rule-based exits.
+input bool   InpUseM1PriceReversalExit = false; // Isolated follow-up: test summary exits without the premature M1 path.
 input ulong  InpMagic               = 26102326;
 input double InpRiskPercent         = 1.00;
 input int    InpATRPeriod           = 14;
@@ -887,7 +888,7 @@ bool ManageOpenPositionExit()
    string reason="";
    if(oppositeFrame>=0)
       reason="OPPOSITE_SUMMARY";
-   else if(ConfirmedM1PriceReversal(side,reason))
+   else if(InpUseM1PriceReversalExit && ConfirmedM1PriceReversal(side,reason))
       reason="REAL_M1_REVERSAL";
    else
    {
