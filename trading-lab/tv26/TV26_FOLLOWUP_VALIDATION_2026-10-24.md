@@ -684,3 +684,64 @@ Using the exported audit CSV from run 40115334971, I extracted the latest availa
 2. A blanket rule requiring every timeframe's oscillator to point in the trade direction would also reject the only winner: its M5 oscillator rating was +0.182 while the MAs and total rating remained sell-biased. So a strict all-timeframe oscillator-alignment filter is not justified by this sample.
 3. Three trades are far too few to fit or validate a threshold. Do not add a filter merely because it removes the two losses; it must be checked on independent dates and must retain winners.
 4. The next research candidate should test an entry-timing/reversal guard on M1/M5, with baseline trade logs retained and a fixed holdout. Compare net, PF, equity DD, every removed winner/loss, and the exact blocker counts. No result should be accepted solely because trade count falls.
+
+
+## 43. Targeted post-profit same-direction cooldown — full 0/10/20-bar matrix completed
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40115228654  
+The optional rule was tested only on the separate research branch `tv26-post-tp-same-direction-cooldown-study`, using immutable source SHA `890e0662344f5b6a5297f5f0ba1dba254b3341f88e5bb8fcdf525bdcdf2bfb4f`. Exact MT5 settings were XAUUSD M1, Model 4, $500 deposit, risk 1%, SL 2 ATR, TP 3 ATR, M1 close-breakout on, and global cooldown 0. Only the optional post-profitable-exit / same-direction cooldown differed. All six tester arms, the code-contract suite, and the independent formula/OHLC audits passed.
+
+### September 21–30
+
+0-bar artifact: https://github.com/staryuzar/-/actions/runs/40115228654/artifacts/12568705435  
+10-bar artifact: https://github.com/staryuzar/-/actions/runs/40115228654/artifacts/12568237982  
+20-bar artifact: https://github.com/staryuzar/-/actions/runs/40115228654/artifacts/12568501655
+
+All three arms share audit SHA `323581c3a518b2c968a5a96223584b76174c2035430204563e268d9ab7b0f8d3` and history SHA `1e5831d3f58937bcf401822e82541aed0f53318ea238e84be816b1157af023dc`. The formula audit checked 376,402 votes with zero mismatches and no OHLC integrity errors in each arm.
+
+| Same-direction cooldown after a net-profitable exit | Net | PF | Equity DD | Trades | Wins / losses | Blocked candidate entries |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 bars | +$0.67 | 1.17 | 0.99% | 2 | 1 / 1 | 0 |
+| 10 bars | +$0.67 | 1.17 | 0.99% | 2 | 1 / 1 | 0 |
+| 20 bars | +$4.50 | 0.00* | 0.99% | 1 | 1 / 0 | 1 |
+
+The matched HTML deal tables show the same initial sell on Sep 23 at 10:31, TP at 10:59:34 for +$4.50, then a second sell at 11:10 that hit SL at 11:24:31 for -$3.83 in the 0-bar arm. The 20-bar rule blocked only that second sell; the net gain versus 0-bar is exactly +$3.83. PF 0.00 in the one-trade arm means there were no losses in that tiny sample; it is not a meaningful PF estimate.
+
+### October 1–10
+
+0-bar artifact: https://github.com/staryuzar/-/actions/runs/40115228654/artifacts/12570250267  
+10-bar artifact: https://github.com/staryuzar/-/actions/runs/40115228654/artifacts/12570001029  
+20-bar artifact: https://github.com/staryuzar/-/actions/runs/40115228654/artifacts/12570236262
+
+All three arms share audit SHA `699e66d4e046c9e9df8195f793aab3d195dcf988dd0fa734f58aafc773fc0d26` and history SHA `db0447bee35ea1d59e4ad10c8c96709ca539a459d329a5bcd140ee03bf573005`. The formula audit checked 329,368 votes with zero mismatches and no OHLC integrity errors in each arm.
+
+| Same-direction cooldown after a net-profitable exit | Net | PF | Equity DD | Trades | Wins / losses | Blocked candidate entries |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 bars | -$9.10 | 0.64 | 3.00% | 10 | 3 / 7 | 0 |
+| 10 bars | -$9.10 | 0.64 | 3.00% | 10 | 3 / 7 | 0 |
+| 20 bars | -$9.10 | 0.64 | 3.00% | 10 | 3 / 7 | 0 |
+
+The three HTML trade/deal tables are identical. Unlike September, the targeted condition was never met in this window, so even 20 bars did not change the sequence.
+
+**Decision:** do not import or enable this optional cooldown in the candidate. It gave one isolated improvement on a two-trade September window and no effect on the ten-trade October window. Keep its default at zero on the research branch. The narrow neutral-consensus signal-latch fix in section 42 remains separate and already has source-matched positive/neutral cross-window evidence. None of these results establishes overall strategy profitability.
+
+## 44. Direct TradingView chart-runtime parity — blocker remains explicit
+
+The Pine visual comparator is prepared and compiles. It presents the closed-bar timestamp and OHLC first, then TradingView's TechnicalRating v3 totals and all 26 discrete votes for M1/M5/M15/M30/H1. The MT5/independent-formula audit remains a same-feed test against the Headway-Demo/Jarocel data; it does not stand in for an actual chart value from TradingView.
+
+A live chart-runtime match remains **PENDING** until the visible table can be checked on the same instrument/feed and aligned closed-bar timestamp. The default public XAUUSD technical page may use a different provider (OANDA); using that feed without matching MT5 source candles could create false mismatches. No automated TradingView market-data ingestion has been introduced.
+
+- Manual visual dashboard: https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TradingView_Visual_Parity_5TF.pine
+- Arabic procedure: https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/TV26_VISUAL_PARITY_GUIDE_AR.md
+- Latest source-matched latch A/B: https://github.com/staryuzar/-/actions/runs/40116024446
+- Latest candidate validation report: this file.
+
+## 45. Current decision summary
+
+- **Signal-latch code correction:** retain on candidate; source-matched September A/B improved net by $5.08 and October A/B was unchanged.
+- **Optional same-direction cooldown after profit:** reject for candidate for now; keep disabled/research-only because benefit is one small window and no benefit in the second.
+- **M1/M5 oscillator threshold 0.15:** do not enable; four additional entries were blocked but accepted deals and performance were unchanged on the holdout.
+- **Three-day progressive gate:** FAIL at +$2.74 versus required +$7.50; no longer window was run.
+- **26 component formulas against independent implementation on audited MT5 feed:** PASS, zero vote mismatches on all completed windows.
+- **Direct TradingView numerical chart parity:** PENDING until actual live chart values and matching closed-bar OHLC/time can be checked.
+- **Live use or merge to main:** not approved by these tests.
