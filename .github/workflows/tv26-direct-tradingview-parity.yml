@@ -84,6 +84,7 @@ jobs:
               --timeframe "${tf}" \
               --mt5-utc-offset-hours "$MT5_UTC_OFFSET_HOURS" \
               --min-bars 10 \
+              --min-mt5-coverage 0.80 \
               --report "tv26-direct-parity-results/${tf}-report.md" \
               --details "tv26-direct-parity-results/${tf}-details.csv"; then
               echo "::error title=Parity failed for ${tf}::See the uploaded per-timeframe report and details CSV."
