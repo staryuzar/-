@@ -5,7 +5,7 @@
 import TradingView/ta/9 as tvta
 import TradingView/TechnicalRating/3 as tvRating
 
-indicator("TV26 — تدقيق المكونات الـ26", overlay=false, precision=16)
+indicator("TV26 — لوحة المطابقة البصرية للأطر الخمسة", overlay=false, precision=3)
 
 f_calcRating(float src, bool bullCond, bool bearCond) =>
     na(src) ? na : bullCond ? 1.0 : bearCond ? -1.0 : 0.0
@@ -132,7 +132,7 @@ f_library_ratings_confirmed() =>
 
 // Display-only parity dashboard.
 // It computes and shows values on the TradingView chart for a person to inspect.
-// It has no plot() outputs, no CSV packing/export mechanism, and no external data calls.
+// It only packs values internally to render readable table cells; it has no plot() outputs, no CSV export, and no external data calls.
 f_display_payload() =>
     [formulaTotal, formulaMA, formulaOther,
      rSma10, rSma20, rSma30, rSma50, rSma100, rSma200,
@@ -166,7 +166,7 @@ f_display_payload() =>
 [packH1, totalH1, maH1, oscH1, formulaTotalH1, formulaMaH1, formulaOscH1, timeH1] =
     request.security(syminfo.tickerid, "60", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
 
-var table t = table.new(position.top_right, 6, 32, border_width=1, frame_width=1)
+var table t = table.new(position.top_right, 6, 33, border_width=1, frame_width=1)
 var string[] timeframeNames = array.from("M1", "M5", "M15", "M30", "H1")
 var string[] componentNames = array.from(
      "SMA 10", "SMA 20", "SMA 30", "SMA 50", "SMA 100", "SMA 200",
@@ -186,7 +186,7 @@ f_packedVoteText(float packed, int index) =>
          digit == 1 ? "حياد (0)" : "شراء (+1)"
 
 f_ratingCell(float rating) =>
-    na(rating) ? "غير متاح" : f_ratingName(rating) + " (" + f_voteText(rating) + ")"
+    na(rating) ? "غير متاح" : f_ratingName(rating) + " (" + str.tostring(rating, "#.000") + ")"
 
 if barstate.islast
     table.cell(t, 0, 0, "TV26 — عرض بصري فقط", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
@@ -218,7 +218,7 @@ if barstate.islast
         float dTotal = array.get(formulaTotals, tfIndex) - array.get(totals, tfIndex)
         float dMa = array.get(formulaMas, tfIndex) - array.get(mas, tfIndex)
         float dOsc = array.get(formulaOcs, tfIndex) - array.get(oscs, tfIndex)
-        table.cell(t, tfIndex + 1, 5, f_voteText(dTotal) + " / " + f_voteText(dMa) + " / " + f_voteText(dOsc), text_size=size.tiny)
+        table.cell(t, tfIndex + 1, 5, str.tostring(dTotal, "#.000000") + " / " + str.tostring(dMa, "#.000000") + " / " + str.tostring(dOsc, "#.000000"), text_size=size.tiny)
 
     table.cell(t, 0, 6, "المكوّن", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
     for tfIndex = 0 to 4
