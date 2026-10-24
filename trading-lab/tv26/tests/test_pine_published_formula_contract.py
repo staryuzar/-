@@ -63,6 +63,7 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertIn("required: false", workflow)
         self.assertIn("gh run list --workflow tv26-cloud-audit.yml", workflow)
         self.assertIn("audit_matches_checkout", workflow)
+        self.assertIn("fetch-depth: 0", workflow)
         self.assertIn('git rev-parse "HEAD:$path"', workflow)
         self.assertIn('git rev-parse "$run_head:$path"', workflow)
         self.assertIn("Tester process exit code: 0", workflow)
