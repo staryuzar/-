@@ -1136,30 +1136,53 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    if(entryKind!=DEAL_ENTRY_OUT && entryKind!=DEAL_ENTRY_OUT_BY && entryKind!=DEAL_ENTRY_INOUT) return;
 
    datetime closeTime=(datetime)HistoryDealGetInteger(trans.deal,DEAL_TIME);
-   double exitNet=HistoryDealGetDouble(trans.deal,DEAL_PROFIT)+
-                  HistoryDealGetDouble(trans.deal,DEAL_SWAP)+
-                  HistoryDealGetDouble(trans.deal,DEAL_COMMISSION)+
-                  HistoryDealGetDouble(trans.deal,DEAL_FEE);
+   double exitDealNet=HistoryDealGetDouble(trans.deal,DEAL_PROFIT)+
+                      HistoryDealGetDouble(trans.deal,DEAL_SWAP)+
+                      HistoryDealGetDouble(trans.deal,DEAL_COMMISSION)+
+                      HistoryDealGetDouble(trans.deal,DEAL_FEE);
    ENUM_DEAL_TYPE exitDealType=(ENUM_DEAL_TYPE)HistoryDealGetInteger(trans.deal,DEAL_TYPE);
+   ulong positionId=(ulong)HistoryDealGetInteger(trans.deal,DEAL_POSITION_ID);
    int closedSignal=0;
    // A BUY deal closes a SELL position; a SELL deal closes a BUY position.
    if(exitDealType==DEAL_TYPE_BUY) closedSignal=-1;
    else if(exitDealType==DEAL_TYPE_SELL) closedSignal=1;
 
+   // Evaluate the complete position lifecycle, including entry commission and partial exits,
+   // rather than treating the close deal's own profit as the whole trade's net result.
+   bool positionNetReady=(positionId>0 && HistorySelectByPosition(positionId));
+   double positionNet=0.0;
+   if(positionNetReady)
+   {
+      int dealCount=HistoryDealsTotal();
+      for(int i=0;i<dealCount;i++)
+      {
+         ulong dealTicket=HistoryDealGetTicket(i);
+         if(dealTicket==0) continue;
+         ENUM_DEAL_TYPE dealType=(ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket,DEAL_TYPE);
+         if(dealType!=DEAL_TYPE_BUY && dealType!=DEAL_TYPE_SELL) continue;
+         positionNet+=HistoryDealGetDouble(dealTicket,DEAL_PROFIT)+
+                      HistoryDealGetDouble(dealTicket,DEAL_SWAP)+
+                      HistoryDealGetDouble(dealTicket,DEAL_COMMISSION)+
+                      HistoryDealGetDouble(dealTicket,DEAL_FEE);
+      }
+   }
+
    // Use >= so a later closing deal in the same server second can update the remembered exit state.
    if(closeTime>=g_lastExitTime)
    {
       g_lastExitTime=closeTime;
-      g_lastExitNet=exitNet;
-      g_lastExitWasProfit=(exitNet>0.0);
+      g_lastExitNet=positionNet;
+      g_lastExitWasProfit=(positionNetReady && positionNet>0.0);
       g_lastExitSignal=closedSignal;
    }
    Print("TV26_POSITION_CLOSED;deal=",trans.deal,
          ";time=",TimeToString(closeTime,TIME_DATE|TIME_SECONDS),
          ";reason=",EnumToString((ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal,DEAL_REASON)),
-         ";exit_net=",DoubleToString(exitNet,2),
+         ";exit_deal_net=",DoubleToString(exitDealNet,2),
+         ";position_net=",DoubleToString(positionNet,2),
+         ";position_net_ready=",(positionNetReady?"true":"false"),
          ";closed_signal=",SignalName(closedSignal),
-         ";profitable=",(exitNet>0.0?"true":"false"),
+         ";profitable_net=",(positionNetReady && positionNet>0.0?"true":"false"),
          ";cooldown_bars=",InpCooldownBarsAfterExit,
          ";same_direction_profit_cooldown_bars=",InpSameDirectionCooldownAfterProfitBars);
 }
