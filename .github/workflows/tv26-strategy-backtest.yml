@@ -29,7 +29,7 @@ jobs:
       TV26_TEST_RISK_PERCENT: "1.00"
       TV26_TEST_STOP_ATR: "2.00"
       TV26_TEST_TARGET_ATR: "4.00"
-      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "false"
     steps:
       - name: Checkout candidate
         uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
           python-version: "3.12"
       - name: Install formula-audit dependencies
         run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
-      - name: Run isolated September 1 real-tick Strategy Tester (not live)
+      - name: Run September 1 backtest: three strong summaries + M1 reversal exit (not live)
         shell: pwsh
         run: ./.github/scripts/tv26_strategy_backtest.ps1
       - name: Validate strategy-run MT5 audit file
