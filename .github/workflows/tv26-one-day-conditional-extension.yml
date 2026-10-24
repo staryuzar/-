@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/tv26-one-day-conditional-extension.yml"
       - ".github/scripts/tv26_progressive_daily_gate.ps1"
+      - ".github/scripts/tv26_strategy_backtest.ps1"
   workflow_dispatch:
 
 permissions:
