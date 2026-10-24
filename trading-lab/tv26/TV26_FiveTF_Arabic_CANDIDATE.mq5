@@ -11,7 +11,7 @@ input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
 input double InpTargetATR           = 4.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
-input bool   InpRequireM1CloseBreakout = true; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
+input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
 input ENUM_TIMEFRAMES InpTF1        = PERIOD_M1;
@@ -562,26 +562,21 @@ void EvaluateAll()
 // Multi-timeframe trend + confirmation + M1 execution.
 // H1 and M30 set the directional bias; M15 confirms it; M5 may be neutral
 // but cannot materially oppose it. M1 breakout is the execution trigger by default.
+// The entry decision uses exactly three TradingView-style summaries: M5, M15 and M30.
+// Entry is allowed only when all three are Strong Buy or all three are Strong Sell.
 int AlignedSignal()
 {
-   for(int t=0;t<N_TF;t++)
+   const int frames[3]={1,2,3}; // M5, M15, M30; M1 is execution/price-action monitoring only.
+   for(int i=0;i<3;i++)
+   {
+      int t=frames[i];
       if(g_ready[t]!=N_RATINGS || g_maReady[t]!=15 || g_oscReady[t]!=11)
          return 0;
-
-   const double directional=0.10;
-   const double opposition=0.10;
-   bool buyBias=(g_rating[4]>directional && g_rating[3]>directional && g_rating[2]>directional);
-   bool sellBias=(g_rating[4]<-directional && g_rating[3]<-directional && g_rating[2]<-directional);
-
-   // M5 neutrality is acceptable; meaningful opposition blocks the setup.
-   if(buyBias && g_rating[1]>=-opposition)
-   {
-      if(InpRequireM1CloseBreakout || g_rating[0]>directional) return 1;
    }
-   if(sellBias && g_rating[1]<=opposition)
-   {
-      if(InpRequireM1CloseBreakout || g_rating[0]<-directional) return -1;
-   }
+   bool strongBuy=(g_rating[1]>STRONG && g_rating[2]>STRONG && g_rating[3]>STRONG);
+   bool strongSell=(g_rating[1]<-STRONG && g_rating[2]<-STRONG && g_rating[3]<-STRONG);
+   if(strongBuy) return 1;
+   if(strongSell) return -1;
    return 0;
 }
 string DetailSignal(int t,int j)
@@ -593,6 +588,7 @@ void DrawPanel()
 {
    string p="مستشار تقييم TV26 | الذهب: "+_Symbol+"\n";
    p+="المكونات: 26 (15 متوسطاً + 11 مذبذباً) | الإطار مبني على شموع مغلقة\n";   p+="ملف التدقيق: Common\\Files\\"+g_auditFile+" (CSV)\n";
+   p+="قاعدة القرار: ملخصات د5 + د15 + د30 فقط؛ دخول عند اتفاق شراء قوي/بيع قوي، وخروج عند انقلاب أي ملخص عكس الصفقة أو كسر سعري مؤكد على د1\\n";
    p+="افتتاح الشمعة المغلقة (خادم MT5) | الإطار | الملخص العام | المتوسطات | المذبذبات | الجاهز\n";
    for(int t=0;t<N_TF;t++)
    {
@@ -826,6 +822,94 @@ void RememberSignal(int sig)
    g_lastExecutedSignal=sig;
    if(g_signalGV!="") GlobalVariableSet(g_signalGV,(double)sig);
 }
+int OppositeSummaryTimeframe(ENUM_POSITION_TYPE side)
+{
+   const int frames[3]={1,2,3}; // M5, M15, M30
+   for(int i=0;i<3;i++)
+   {
+      int t=frames[i];
+      if(g_ready[t]!=N_RATINGS || g_maReady[t]!=15 || g_oscReady[t]!=11) continue;
+      // Any opposite-direction rating (Sell/Strong Sell against a buy, vice versa) triggers exit.
+      if(side==POSITION_TYPE_BUY && g_rating[t]<-0.10) return t;
+      if(side==POSITION_TYPE_SELL && g_rating[t]>0.10) return t;
+   }
+   return -1;
+}
+
+// Objective M1 reversal: a closed candle in the opposite direction breaks the
+// extreme of the three candles immediately before it; a candle color alone is insufficient.
+bool ConfirmedM1PriceReversal(ENUM_POSITION_TYPE side,string &detail)
+{
+   double o=iOpen(_Symbol,PERIOD_M1,1);
+   double cl=iClose(_Symbol,PERIOD_M1,1);
+   if(o<=0.0 || cl<=0.0) return false;
+   double priorLow=DBL_MAX, priorHigh=-DBL_MAX;
+   for(int sh=2;sh<=4;sh++)
+   {
+      double lo=iLow(_Symbol,PERIOD_M1,sh);
+      double hi=iHigh(_Symbol,PERIOD_M1,sh);
+      if(lo<=0.0 || hi<=0.0) return false;
+      if(lo<priorLow) priorLow=lo;
+      if(hi>priorHigh) priorHigh=hi;
+   }
+   if(side==POSITION_TYPE_BUY && cl<o && cl<priorLow)
+   {
+      detail="إغلاق هابط كسر قيعان الشموع الثلاث السابقة";
+      return true;
+   }
+   if(side==POSITION_TYPE_SELL && cl>o && cl>priorHigh)
+   {
+      detail="إغلاق صاعد كسر قمم الشموع الثلاث السابقة";
+      return true;
+   }
+   return false;
+}
+
+// Returns true whenever this EA has a position to manage, preventing a second
+// entry on the same M1 bar as an exit.
+bool ManageOpenPositionExit()
+{
+   ulong ticket=0;
+   ENUM_POSITION_TYPE side=POSITION_TYPE_BUY;
+   if(!FindOurPosition(ticket,side)) return false;
+
+   int oppositeFrame=OppositeSummaryTimeframe(side);
+   string reason="";
+   if(oppositeFrame>=0)
+      reason="OPPOSITE_SUMMARY";
+   else if(ConfirmedM1PriceReversal(side,reason))
+      reason="REAL_M1_REVERSAL";
+   else
+   {
+      g_lastAction="الإبقاء على الصفقة؛ لا انقلاب ملخص ولا كسر سعري مؤكد";
+      g_lastBlock="";
+      return true;
+   }
+
+   Print("TV26_EXIT_TRIGGER;reason=",reason,
+         ";side=",EnumToString(side),
+         ";ticket=",ticket,
+         ";M5=",DoubleToString(g_rating[1],3),
+         ";M15=",DoubleToString(g_rating[2],3),
+         ";M30=",DoubleToString(g_rating[3],3),
+         ";M1_close=",DoubleToString(iClose(_Symbol,PERIOD_M1,1),_Digits),
+         ";opposite_frame=",(oppositeFrame>=0?TFName(g_tfs[oppositeFrame]):"none"));
+   if(CloseTicket(ticket))
+   {
+      g_lastAction=(reason=="OPPOSITE_SUMMARY" ?
+                    "أُغلقت الصفقة: أحد ملخصات د5/د15/د30 انعكس ضدها" :
+                    "أُغلقت الصفقة: ارتداد سعري مؤكد على د1");
+      g_lastBlock="";
+      Print("TV26_EXIT_COMPLETED;reason=",reason,";ticket=",ticket);
+   }
+   else
+   {
+      g_lastAction="فشل إغلاق الصفقة؛ راجع سجل التنفيذ";
+      g_lastBlock="رفض أمر الإغلاق أو بقي جزء من المركز مفتوحاً";
+      Print("TV26_EXIT_FAILED;reason=",reason,";ticket=",ticket);
+   }
+   return true;
+}
 void TradeIfAligned()
 {
    if(InpTesterOnly && !MQLInfoInteger(MQL_TESTER))
@@ -835,6 +919,15 @@ void TradeIfAligned()
       Print("TV26_ENTRY_BLOCK;reason=TESTER_ONLY_GUARD");
       return;
    }
+   // Keep the demo-account boundary in force for both entries and rule-based exits.
+   if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)
+   {
+      g_lastBlock="حماية الحساب: التداول والإغلاق الآلي مسموحان على الحساب التجريبي فقط";
+      g_lastAction="لم يتم تعديل أي مركز";
+      return;
+   }
+   if(ManageOpenPositionExit()) return;
+
    int sig=AlignedSignal();
    datetime decisionBar=iTime(_Symbol,PERIOD_M1,1);
    if(sig==0)
@@ -852,7 +945,7 @@ void TradeIfAligned()
                   EnumToString(neutralSide),";ticket=",neutralTicket,
                   ";signal_memory=",SignalName(g_lastExecutedSignal),
                   ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
-         g_lastBlock="توافق محايد؛ ذاكرة الإشارة محفوظة أثناء بقاء الصفقة مفتوحة";
+         g_lastBlock="توافق غير مكتمل؛ تتم متابعة المركز بقواعد الخروج المستقلة";
          g_lastAction="انتظار؛ لا يوجد توافق قوي، مع الاحتفاظ بذاكرة اتجاه الصفقة القائمة";
       }
       else
@@ -864,17 +957,15 @@ void TradeIfAligned()
                   TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
          }
          g_lastBlock="";
-         g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";
+         g_lastAction="انتظار؛ ملخصات د5/د15/د30 ليست كلها شراءً قوياً أو بيعاً قوياً";
       }
       return;
    }
    Print("TV26_CONSENSUS;signal=",SignalName(sig),
          ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
-         ";M1=",DoubleToString(g_rating[0],3),
          ";M5=",DoubleToString(g_rating[1],3),
          ";M15=",DoubleToString(g_rating[2],3),
-         ";M30=",DoubleToString(g_rating[3],3),
-         ";H1=",DoubleToString(g_rating[4],3));
+         ";M30=",DoubleToString(g_rating[3],3));
 
    if(!InpEnableTrading)
    {
@@ -949,14 +1040,6 @@ void TradeIfAligned()
          return;
       }
    }
-   if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)
-   {
-      g_lastBlock="حماية الحساب: التداول مسموح على الحساب التجريبي فقط";
-      g_lastAction="لم يُرسل أمر";
-      Print("TV26_ENTRY_BLOCK;reason=NOT_DEMO_ACCOUNT;signal=",SignalName(sig),";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
-      return;
-   }
-
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
    double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
    double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
