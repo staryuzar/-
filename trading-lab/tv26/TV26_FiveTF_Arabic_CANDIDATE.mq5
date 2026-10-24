@@ -660,7 +660,7 @@ bool CloseTicket(ulong ticket)
    req.action=TRADE_ACTION_DEAL;req.position=ticket;req.symbol=_Symbol;req.magic=InpMagic;req.volume=vol;
    req.type=(side==POSITION_TYPE_BUY?ORDER_TYPE_SELL:ORDER_TYPE_BUY);
    req.price=(req.type==ORDER_TYPE_BUY?SymbolInfoDouble(_Symbol,SYMBOL_ASK):SymbolInfoDouble(_Symbol,SYMBOL_BID));
-   req.deviation=InpDeviationPoints;req.type_filling=ORDER_FILLING_IOC;req.comment="TV26 close opposite";
+   req.deviation=InpDeviationPoints;req.type_filling=FillMode();req.comment="TV26 close opposite";
    bool sent=OrderSend(req,res);
    if(!sent || (res.retcode!=TRADE_RETCODE_DONE && res.retcode!=TRADE_RETCODE_DONE_PARTIAL))
       return false;
