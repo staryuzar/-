@@ -8,6 +8,7 @@ input bool   InpTesterOnly          = false; // When true, refuse execution outs
 input ulong  InpMagic               = 26102326;
 input double InpRiskPercent         = 0.50;
 input double InpEntryConsensusThreshold = 0.50; // Minimum absolute overall rating required on each timeframe for entry; TV classification remains at +/-0.50.
+input double InpMinDirectionalOscillatorRating = 0.00; // Optional minimum oscillator average aligned with trade direction on every timeframe; 0 disables this gate.
 input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
@@ -570,6 +571,12 @@ int AlignedSignal()
       if(g_ready[t]!=N_RATINGS || g_maReady[t]!=15 || g_oscReady[t]!=11) return 0;
       if(g_rating[t]<=InpEntryConsensusThreshold) allStrongBuy=false;
       if(g_rating[t]>=-InpEntryConsensusThreshold) allStrongSell=false;
+      // Optional second-layer confirmation: an aligned overall rating cannot alone mask a neutral/opposing oscillator average.
+      if(InpMinDirectionalOscillatorRating>0.0)
+      {
+         if(g_oscRating[t]<InpMinDirectionalOscillatorRating) allStrongBuy=false;
+         if(g_oscRating[t]>-InpMinDirectionalOscillatorRating) allStrongSell=false;
+      }
    }
    if(allStrongBuy) return 1;
    if(allStrongSell) return -1;
@@ -831,12 +838,18 @@ void TradeIfAligned()
    if(sig==0)
    {
       RememberSignal(0); // Re-arm after the five-timeframe consensus is no longer strong.
-      g_lastAction="انتظار؛ كل إطار يجب أن يتجاوز حد الدخول "+DoubleToString(InpEntryConsensusThreshold,2);
+      g_lastAction="انتظار؛ تحقق من قوة التوافق والمذبذبات في الأطر الخمسة";
       return;
    }
    Print("TV26_CONSENSUS;signal=",SignalName(sig),
          ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
          ";entry_threshold=",DoubleToString(InpEntryConsensusThreshold,3),
+         ";min_oscillator=",DoubleToString(InpMinDirectionalOscillatorRating,3),
+         ";osc_M1=",DoubleToString(g_oscRating[0],3),
+         ";osc_M5=",DoubleToString(g_oscRating[1],3),
+         ";osc_M15=",DoubleToString(g_oscRating[2],3),
+         ";osc_M30=",DoubleToString(g_oscRating[3],3),
+         ";osc_H1=",DoubleToString(g_oscRating[4],3),
          ";M1=",DoubleToString(g_rating[0],3),
          ";M5=",DoubleToString(g_rating[1],3),
          ";M15=",DoubleToString(g_rating[2],3),
@@ -1073,6 +1086,11 @@ int OnInit()
    if(InpEntryConsensusThreshold<STRONG || InpEntryConsensusThreshold>0.90)
    {
       Print("TV26: حد قوة توافق الدخول يجب أن يكون بين 0.50 و0.90");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(InpMinDirectionalOscillatorRating<0.0 || InpMinDirectionalOscillatorRating>0.50)
+   {
+      Print("TV26: حد تأكيد المذبذبات يجب أن يكون بين 0.00 و0.50");
       return INIT_PARAMETERS_INCORRECT;
    }
    if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 || InpM1BreakoutBufferATR<0 ||
