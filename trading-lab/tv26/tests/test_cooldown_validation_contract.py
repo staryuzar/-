@@ -37,6 +37,13 @@ class CooldownValidationContractTests(unittest.TestCase):
         self.assertIn('TV26_TEST_TARGET_ATR: "3.00"', self.workflow)
         self.assertIn("TV26_TEST_REQUIRE_M1_BREAKOUT: \"true\"", self.workflow)
 
+    def test_retry_is_limited_to_confirmed_tick_history_failures(self):
+        self.assertIn("retry once only for incomplete tick history", self.workflow)
+        self.assertIn("no history data, stop testing", self.workflow)
+        self.assertIn("preliminary downloading of history ticks canceled", self.workflow)
+        self.assertIn("$attempt -ge 2 -or !$transientTickFailure", self.workflow)
+        self.assertIn("retry-attempt-1-diagnostics", self.workflow)
+
     def test_only_five_and_ten_closed_m1_bars_are_compared(self):
         self.assertIn("cooldown: [5, 10]", self.workflow)
         self.assertIn("tv26_strategy_cooldown_backtest.ps1", self.workflow)
