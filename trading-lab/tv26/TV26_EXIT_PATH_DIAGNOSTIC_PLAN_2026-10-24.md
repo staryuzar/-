@@ -90,3 +90,16 @@ Unique log result: `REAL_M1_REVERSAL=3`, `OPPOSITE_SUMMARY=0`, `TV26_EXIT_COMPLE
 Workflow: https://github.com/staryuzar/-/actions/runs/40130429104
 
 The latest diagnostic job passed the static entry/exit contract suite and is running two sequential MT5 arms with the same compiled source, broker history, dates, model, risk, stop and target. The only intended behavioral difference is `InpUseRuleBasedEarlyExit` true versus false. At the time of this report update, the run had not yet completed; no A/B performance conclusion is claimed. A report update is required after both arms and their data/formula audits finish.
+
+
+## 14. Historical audit-data pre-screen for the still-unverified summary-exit path
+
+Source dataset: artifact from run 40115228654, October 1–10, 2026, OHLCV history hash `db0447bee35ea1d59e4ad10c8c96709ca539a459d329a5bcd140ee03bf573005`. This is a read-only pre-screen using a previous compiled candidate's exported technical-rating rows; it is **not** an MT5 Strategy Tester rerun of the current exit-enabled source.
+
+A small sequential Python scan used M5/M15/M30 strong consensus for hypothetical entries and looked for the first of the current opposite-summary rule and the M1 three-candle close-break rule. It ignored actual broker execution, SL/TP, sizing/volume caps, spread and some exact MT5 state details, so its results only inform which window to instrument.
+
+- With both exit conditions allowed, 39 hypothetical positions closed and all 39 first encountered the M1 three-candle reversal rule; no opposite-summary event was first.
+- With the M1 reversal condition disabled in this **offline scan only**, 16 hypothetical positions encountered an opposite-summary rating during October 1–10. The three-day slices contained 5 potential summary exits on Oct 1–3, 5 on Oct 4–6, and 6 on Oct 7–9.
+- The Oct 1–3 slice is therefore a reasonable next date window for a purpose-built summary-exit diagnostic that leaves the real opposite-summary logic active but disables only the M1 reversal branch in an isolated tester build.
+
+This is a window-selection hypothesis, not evidence that the current EA actually closes positions on opposite-summary events. A proper pass must show the real EA emitting `reason=OPPOSITE_SUMMARY` and then `TV26_EXIT_COMPLETED` in a completed MT5 tester log.
