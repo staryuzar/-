@@ -23,9 +23,13 @@ jobs:
     timeout-minutes: 30
     env:
       MT5_CREDENTIALS: ${{ secrets.mt5 }}
-      TV26_TEST_FROM: "2026.10.21"
-      TV26_TEST_TO: "2026.10.24"
+      TV26_TEST_FROM: "2026.09.01"
+      TV26_TEST_TO: "2026.09.02"
       TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "4.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
     steps:
       - name: Checkout candidate
         uses: actions/checkout@v4
