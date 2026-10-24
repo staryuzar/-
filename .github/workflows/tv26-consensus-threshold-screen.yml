@@ -1,0 +1,97 @@
+name: TV26 consensus entry threshold screen — Sep 14–18
+
+on:
+  push:
+    branches:
+      - tv26-consensus-threshold-study
+    paths:
+      - ".github/workflows/tv26-consensus-threshold-screen.yml"
+      - ".github/scripts/tv26_strategy_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-consensus-threshold-screen-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tester:
+    name: "Sep 14–18 — entry threshold ${{ matrix.threshold }}"
+    runs-on: windows-2022
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        threshold: ["0.50", "0.55", "0.60"]
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      PYTHONUTF8: "1"
+      TV26_TEST_FROM: "2026.09.14"
+      TV26_TEST_TO: "2026.09.19"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "4.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_BREAKOUT_LOOKBACK_BARS: "1"
+      TV26_TEST_BREAKOUT_BUFFER_ATR: "0.00"
+      TV26_TEST_ENTRY_CONSENSUS_THRESHOLD: "${{ matrix.threshold }}"
+
+    steps:
+      - name: Checkout isolated EA candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Run isolated MT5 Strategy Tester
+        shell: pwsh
+        run: ./.github/scripts/tv26_strategy_backtest.ps1
+
+      - name: Validate exported MT5 audit structure
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_mt5_audit.py
+          --csv tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --report tv26-strategy-results/data-integrity-report.md
+          --json tv26-strategy-results/data-integrity-report.json
+
+      - name: Compare votes with independent published TradingView formulas
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-strategy-results/formula-parity-report.md
+          --details tv26-strategy-results/formula-parity-details.csv
+          --json tv26-strategy-results/formula-parity-report.json
+
+      - name: Publish summary and upload evidence
+        if: always()
+        shell: pwsh
+        run: |
+          "## Sep 14–18 — entry threshold ${{ matrix.threshold }}" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          $summaryPath = "tv26-strategy-results/strategy-backtest-summary.txt"
+          if (Test-Path -LiteralPath $summaryPath) {
+            Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          } else {
+            "Tester summary missing; incomplete infrastructure run, not a strategy outcome." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+
+      - name: Upload tester evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-threshold-screen-${{ matrix.threshold }}-${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
