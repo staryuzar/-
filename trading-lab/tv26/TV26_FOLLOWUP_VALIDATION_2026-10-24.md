@@ -770,3 +770,19 @@ An isolated four-arm test has been started to measure the unfiltered baseline ag
 - Research branch: `tv26-m1-oscillator-confirmation-study`
 
 No gate is accepted unless the matched summaries, source hashes, trade lists and formula/data audits complete; any gain must be replicated outside the window that motivated the hypothesis.
+
+
+## 25. Matched signal-latch A/B on Sep 1–10 — completed (run 40118894559)
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40118894559
+
+Both arms used the same dates, source repository SHA, MT5 Model 4, risk 1%, SL 2 ATR, TP 4 ATR, M1 close breakout, and zero cooldown. MetaEditor and tester completed successfully; both arms passed OHLC integrity and independent formula-level audits (371,332 vote comparisons, zero mismatches; 14,282 candle groups, zero integrity errors).
+
+| Arm | Effective compiled-source SHA-256 | Net | PF | Max equity DD | Trades | Wins / losses |
+|---|---|---:|---:|---:|---:|---:|
+| Legacy neutral-reset baseline | `063b0447260f6c39975a782b4bcbc7a36cef2ce8e77da0860663d414649eaccd` | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 |
+| Preserve latch while position is open | `1448c417b458b78f7d69225801b44949cefb8b960bbe2a07eb68b719d64dde87` | +$8.43 | 1.88 | 2.35% | 4 | 2 / 2 |
+
+The trade report confirms that all four common trades have the same entries/exits/results. The legacy baseline also opened a new sell at 2026-09-08 22:59:00, one second after the prior sell TP at 22:58:59; that re-entry hit SL at 23:01:22 for -$5.08. In the preserve arm, the same closed-bar sell signal was explicitly blocked with `reason=SAME_SIGNAL_LATCH`, and that extra losing trade did not occur. The net difference (+$5.08) exactly matches the removed loss; the other winning and losing trades did not change.
+
+**Interpretation:** This is a valid, source-distinct A/B and confirms that the latch-preservation state change prevented the specific September instant re-entry on this historical path. It does not establish a general profitability edge: the sample is only five baseline trades, both arms still have losing trades, and it is the diagnostic period that motivated the fix. Keep the October 20–22 cross-check as the independent-window test before accepting the change; do not merge into main until that is reviewed.
