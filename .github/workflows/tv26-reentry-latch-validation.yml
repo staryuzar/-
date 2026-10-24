@@ -1,6 +1,11 @@
 name: TV26 signal-latch state fix — Sep diagnostic and Oct cross-check
 
 on:
+  push:
+    branches:
+      - tv26-reentry-latch-preservation-study
+    paths:
+      - ".github/workflows/tv26-reentry-latch-validation.yml"
   workflow_dispatch:
 
 permissions:
