@@ -43,7 +43,7 @@ def metric(html: str, label: str) -> str:
 
 
 def input_value(html: str, name: str):
-    match = re.search(r"(?is)" + re.escape(name) + r"=([^<\\s]+)\\s*</b>", html)
+    match = re.search(r"(?is)" + re.escape(name) + r"=([^<\s]+)\s*</b>", html)
     return match.group(1).strip() if match else None
 
 
