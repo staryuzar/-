@@ -40,6 +40,17 @@ def first_number(value: str):
         return None
 
 
+
+def event_key(line: str):
+    """Stable identity for an exit trigger/close event; refuses incomplete logs."""
+    ticket = re.search(r"ticket=(\\d+)", line)
+    reason = re.search(r"reason=([^;]+)", line)
+    bar = re.search(r"bar=([^;]+)", line)
+    if not ticket or not reason or not bar:
+        return None
+    return (ticket.group(1), reason.group(1), bar.group(1))
+
+
 def read_arm(key: str) -> dict:
     folder = ARMS[key]
     summary_path = folder / "strategy-backtest-summary.txt"
@@ -78,17 +89,6 @@ def read_arm(key: str) -> dict:
     triggers = sorted(x for x in event_set if x.startswith("TV26_EXIT_TRIGGER;"))
     completed = sorted(x for x in event_set if x.startswith("TV26_EXIT_COMPLETED;"))
     failed = sorted(x for x in event_set if x.startswith("TV26_EXIT_FAILED;"))
-    def event_key(line: str):
-        # Pair by the exact M1 decision bar, position ticket, and reason.
-        # Ticket-only pairing can falsely pass if one later close is counted
-        # as evidence for multiple earlier failed/repeated exit attempts.
-        ticket = re.search(r"ticket=(\d+)", line)
-        reason = re.search(r"reason=([^;]+)", line)
-        bar = re.search(r"bar=([^;]+)", line)
-        if not ticket or not reason or not bar:
-            return None
-        return (ticket.group(1), reason.group(1), bar.group(1))
-
     trigger_keys = [event_key(x) for x in triggers]
     done_keys = {key for x in completed if (key := event_key(x)) is not None}
     paired = sum(1 for key in trigger_keys if key is not None and key in done_keys)
