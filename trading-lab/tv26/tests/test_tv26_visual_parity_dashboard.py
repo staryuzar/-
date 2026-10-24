@@ -39,6 +39,11 @@ class TV26VisualParityDashboardTests(unittest.TestCase):
         self.assertIn("packedVotes[1]", self.code)
         self.assertIn("libTotal[1]", self.code)
         self.assertIn("time[1]", self.code)
+        self.assertIn("open[1]", self.code)
+        self.assertIn("high[1]", self.code)
+        self.assertIn("low[1]", self.code)
+        self.assertIn("close[1]", self.code)
+        self.assertIn("OHLC (فتح/أعلى/أدنى/إغلاق)", self.code)
         self.assertIn("lookahead=barmerge.lookahead_on", self.code)
 
     def test_dashboard_has_no_chart_data_export_plots_or_csv_flow(self) -> None:
@@ -46,7 +51,7 @@ class TV26VisualParityDashboardTests(unittest.TestCase):
         self.assertEqual(plot_calls, [])
         self.assertNotIn("TV26_AllTF.csv", self.code)
         self.assertNotIn("file_download", self.code.lower())
-        self.assertIn("var table t = table.new(position.top_right, 6, 33", self.code)
+        self.assertIn("var table t = table.new(position.top_right, 6, 34", self.code)
 
     def test_dashboard_exposes_formula_vs_library_deltas(self) -> None:
         self.assertIn("formulaTotalM1", self.code)
