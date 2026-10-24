@@ -76,6 +76,7 @@ class M1M5OscillatorGateTests(unittest.TestCase):
         )
         self.assertIn("blocked_m1_m5_oscillator_gate", self.harness)
         self.assertIn("minimum M1/M5 directional oscillator rating=$testM1M5OscText", self.harness)
+        self.assertIn("does not change the TradingView TechnicalRating classification", self.harness)
 
 
 if __name__ == "__main__":
