@@ -1,0 +1,67 @@
+name: TV26 3-day real-tick intermediate-stop diagnostic — 1% risk, 1.5 ATR / 2.25 ATR
+
+on:
+  push:
+    branches:
+      - tv26-five-timeframes-arabic-candidate
+    paths:
+      - ".github/workflows/tv26-strategy-risk1-15atr-diagnostic.yml"
+      - ".github/scripts/tv26_strategy_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-strategy-risk1-15atr-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tester:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      TV26_TEST_FROM: "2026.10.21"
+      TV26_TEST_TO: "2026.10.24"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "1.50"
+      TV26_TEST_TARGET_ATR: "2.25"
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+      - name: Run isolated 3-day real-tick intermediate-stop diagnostic (risk 1%, SL 1.5 ATR, TP 2.25 ATR)
+        shell: pwsh
+        run: ./.github/scripts/tv26_strategy_backtest.ps1
+      - name: Validate strategy-run MT5 audit file
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_mt5_audit.py
+          --csv tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --report tv26-strategy-results/data-integrity-report.md
+          --json tv26-strategy-results/data-integrity-report.json
+      - name: Compare published formula votes across all five frames
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-strategy-results/formula-parity-report.md
+          --details tv26-strategy-results/formula-parity-details.csv
+          --json tv26-strategy-results/formula-parity-report.json
+      - name: Upload intermediate-stop diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-risk1-15atr-diagnostic-${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
