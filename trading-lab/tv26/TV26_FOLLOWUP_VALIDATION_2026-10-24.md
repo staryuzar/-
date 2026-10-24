@@ -131,3 +131,6 @@ The Sep 1–10 baseline trade list also revealed one immediate re-entry: a sell 
 ### Oscillator-filter trial infrastructure issue and retry
 
 The first Sep 1–10 trial with `InpMinDirectionalOscillatorRating=0.15` did not produce a valid backtest: MT5 canceled preliminary real-tick history download and logged `no history data, stop testing`. Although MetaEditor compiled the EA with zero errors/warnings, no trades or performance metrics may be inferred from this run. This was an infrastructure failure, not a strategy loss. The workflow was updated to preserve the failed attempt diagnostics and retry once, only when that specific tick-history cancellation is detected. Retry run: https://github.com/staryuzar/-/actions/runs/40107875721. The original 0.00 baseline remains +$3.35 / PF 1.23 / DD 2.48% / 5 trades; no conclusion about the 0.15 filter is valid until a complete comparable tester export and audit exist.
+
+
+The 1-bar / threshold 0.55 holdout completed with zero trades. Its summary recorded six consensus-signal bars, four blocked by the minimum-lot risk cap and two blocked by M1 close-breakout confirmation; accepted orders = 0. The broker minimum 0.01 lot would exceed the nominal $5 risk budget at 1% for those signals ($5.15–$11.01 minimum-volume loss). This is an inconclusive no-trade result, not success. The risk cap was intentionally retained.
