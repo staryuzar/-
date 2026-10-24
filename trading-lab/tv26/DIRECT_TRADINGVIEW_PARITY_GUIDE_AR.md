@@ -26,7 +26,7 @@ GitHub يستطيع تجميع MQL5 وتشغيل Strategy Tester، لكنه لا
 - https://www.tradingview.com/support/solutions/43000537255-how-to-export-chart-data/
 
 ## تصدير واحد يغطي الأطر الخمسة
-1. افتح TradingView على مخطط الذهب واختر مصدر الأسعار الأقرب إلى XAUUSD في MT5. اسم الرمز المتشابه وحده لا يضمن أن مصدر السعر متطابق.
+1. افتح TradingView على مخطط الذهب واختر رمزًا من نوع spot XAUUSD، لا عقد ذهب آجلًا مثل GC1! ولا مؤشرًا مركّبًا مثل TVC:GOLD إذا كان المستشار يتداول XAUUSD في MT5. اسم الرمز المتشابه وحده لا يضمن تطابق مصدر البيانات؛ توضح TradingView أن مصادر الرموز قد تختلف حتى عند تشابهها ([شرح بادئة TVC](https://www.tradingview.com/support/solutions/43000709178-what-does-tvc-stand-for-in-the-instrument-ticker/)). كما أن اختلاف مزوّد الأسعار قد يصنع فروقًا طبيعية بين الرسوم، لذلك لا تخفّض سماحية OHLC لإجبار PASS: يجب أن يحدد التقرير هل الاختلاف من مصدر السعر أو من معادلات التصويت.
 
 **تحذير مصدر السعر:** وجود الرمز XAUUSD على المنصتين لا يعني أن الشموع أو الحجم متطابقة. يوضح [شرح Headway الرسمي لاختلاف الرسوم بين الوسطاء](https://hw.online/faq/what-is-the-explanation-for-the-variance-in-charts-among-forex-brokers/) أن اختلاف مزوّدي السيولة وتغذيات الأسعار قد يؤدي إلى اختلاف حتى في إشارات المؤشرات. كما تعرض TradingView رموزًا منفصلة حسب مزوّد البيانات، مثل [OANDA:XAUUSD](https://www.tradingview.com/symbols/XAUUSD/?exchange=OANDA) و[FX_IDC:XAUUSD](https://www.tradingview.com/symbols/XAUUSD/?exchange=FX_IDC). لهذا يبدأ التقرير بمطابقة OHLC؛ إذا ظهر الرمز `PRICE_FEED_OR_CANDLE_ALIGNMENT`، لا تغيّر معادلات المؤشرات قبل توحيد مصدر السعر وتوقيت الشموع.
 2. اجعل إطار المخطط نفسه **1 دقيقة (M1)**. افتح Pine Editor والصق الملف TradingView_Parity_AllTF_Export.pine كاملًا من المستودع، ثم اضغط Save وبعدها Add to chart.
