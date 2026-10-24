@@ -80,13 +80,115 @@ jobs:
           for candidate_id in $candidate_ids; do
             [[ -n "$candidate_id" ]] || continue
             if ! run_meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_id" \
-              --jq '[.head_sha, .head_branch, .conclusion] | @tsv')"; then
+              --jq '[.head_sha, .head_branch, .conclusion, .path] | @tsv')"; then
               echo "::notice::Could not inspect requested audit run $candidate_id"
               continue
             fi
-            IFS=$'\t' read -r run_head run_branch run_conclusion <<< "$run_meta"
-            if [[ "$run_branch" != "$audit_branch" || "$run_conclusion" != "success" ]]; then
-              echo "::notice::Skipping run $candidate_id because it is not a successful audit on $audit_branch"
+            IFS=
+            if audit_matches_checkout "$run_head"; then
+              selected_id="$candidate_id"
+              selected_head="$run_head"
+              break
+            fi
+          done
+
+          if [[ -z "$selected_id" ]]; then
+            echo "::error title=No matching MT5 audit::No successful cloud audit has the same EA source, audit workflow, formula references, and validators as this checkout. Run TV26 headless cloud MT5 indicator audit for the current candidate first; stale artifacts are deliberately rejected."
+            exit 2
+          fi
+
+          echo "run_id=$selected_id" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$selected_head" >> "$GITHUB_OUTPUT"
+          echo "Selected source-matching MT5 audit: $selected_id ($selected_head)"
+
+          mkdir -p downloaded-mt5-audit
+          gh run download "$selected_id" --repo "$GITHUB_REPOSITORY" \
+            --name "tv26-cloud-audit-$selected_id" --dir downloaded-mt5-audit
+          audit_file="$(find downloaded-mt5-audit -name 'TV26_Audit_*.csv' -type f | head -n 1)"
+          if [[ -z "$audit_file" ]]; then
+            echo "::error title=Missing MT5 audit CSV::The selected audit artifact did not contain TV26_Audit_*.csv."
+            exit 2
+          fi
+          summary_file="$(find downloaded-mt5-audit -name 'cloud-audit-summary.txt' -type f | head -n 1)"
+          if [[ -z "$summary_file" ]]; then
+            echo "::error title=Missing MT5 audit summary::Could not verify the source run that produced the audit."
+            exit 2
+          fi
+          grep -Fq "Tester process exit code: 0" "$summary_file"
+          grep -Fq "InpEnableTrading=false" "$summary_file"
+          grep -Fq "Classification: MT5_CLOUD_AUDIT_EXPORTED" "$summary_file"
+
+          # Git blob equality above proves the exact committed EA source was tested.
+          # Verify the exported artifact bytes independently of Windows/Linux line-ending rules.
+          actual_audit_sha="$(sha256sum "$audit_file" | awk '{print $1}')"
+          if ! grep -Fqx "Audit CSV SHA-256: $actual_audit_sha" "$summary_file"; then
+            echo "::error title=Audit artifact hash mismatch::The downloaded CSV digest does not match the audit summary."
+            exit 2
+          fi
+          cp "$audit_file" trading-lab/tv26/parity-input/MT5_Audit.csv
+          echo "Verified source hash, audit CSV digest, tester exit and trading-disabled state for audit run $selected_id."
+
+      - name: Validate required TradingView exports
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          file="trading-lab/tv26/parity-input/TV26_AllTF.csv"
+          if [[ ! -s "$file" ]]; then
+            echo "::error title=Missing TradingView export::Commit the single real TV26_AllTF.csv exported from TradingView_Parity_AllTF_Export.pine; see trading-lab/tv26/DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md."
+            missing=1
+          fi
+          if [[ ! -s trading-lab/tv26/parity-input/MT5_Audit.csv ]]; then
+            echo "::error title=Missing MT5 audit::The matching cloud MT5 audit artifact was not materialized."
+            missing=1
+          fi
+          if [[ "$missing" != "0" ]]; then exit 2; fi
+      - name: Compare component votes and summary ratings for all five timeframes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tv26-direct-parity-results
+          overall_status=0
+          for tf in M1 M5 M15 M30 H1; do
+            echo "::group::Direct parity for $tf"
+            if ! python trading-lab/tv26/split_tv26_alltf_export.py \
+              --input trading-lab/tv26/parity-input/TV26_AllTF.csv \
+              --timeframe "$tf" \
+              --output "tv26-direct-parity-results/TV26_$tf""_normalized.csv"; then
+              echo "::error title=Export decode failed for $tf::Could not decode the TradingView export for this timeframe."
+              overall_status=1
+              echo "::endgroup::"
+              continue
+            fi
+            if ! python trading-lab/tv26/compare_tv26_csv.py \
+              --tv "tv26-direct-parity-results/TV26_$tf""_normalized.csv" \
+              --mt5 trading-lab/tv26/parity-input/MT5_Audit.csv \
+              --timeframe "$tf" \
+              --mt5-utc-offset-hours "$MT5_UTC_OFFSET_HOURS" \
+              --min-bars 10 \
+              --min-mt5-coverage 0.80 \
+              --report "tv26-direct-parity-results/$tf""-report.md" \
+              --details "tv26-direct-parity-results/$tf""-details.csv"; then
+              echo "::error title=Parity failed for $tf::See the uploaded per-timeframe report and details CSV."
+              overall_status=1
+            fi
+            echo "::endgroup::"
+          done
+          if [[ "$overall_status" != "0" ]]; then
+            echo "::error title=Overall parity failed::One or more timeframes did not pass; reports for all timeframes were generated."
+            exit 1
+          fi
+      - name: Upload direct parity reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-direct-tradingview-parity-${{ github.run_id }}
+          path: tv26-direct-parity-results/
+          if-no-files-found: warn
+          retention-days: 30
+\t' read -r run_head run_branch run_conclusion run_path <<< "$run_meta"
+            if [[ "$run_branch" != "$audit_branch" || "$run_conclusion" != "success" || "$run_path" != ".github/workflows/tv26-cloud-audit.yml" ]]; then
+              echo "::notice::Skipping run $candidate_id because it is not a successful run of .github/workflows/tv26-cloud-audit.yml on $audit_branch"
               continue
             fi
             if audit_matches_checkout "$run_head"; then
