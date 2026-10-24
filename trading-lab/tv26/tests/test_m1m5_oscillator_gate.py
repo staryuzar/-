@@ -4,7 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 EA = ROOT / "TV26_FiveTF_Arabic_CANDIDATE.mq5"
-HARNESS = ROOT.parents[2] / ".github" / "scripts" / "tv26_strategy_cooldown_backtest.ps1"
+HARNESS = ROOT.parents[1] / ".github" / "scripts" / "tv26_strategy_cooldown_backtest.ps1"
 
 
 class M1M5OscillatorGateTests(unittest.TestCase):
