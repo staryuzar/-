@@ -153,15 +153,16 @@ f_display_payload() =>
         float digit = na(v) ? 3.0 : v + 1.0
         packedVotes += digit * math.pow(4.0, i)
     [packedVotes[1], libTotal[1], libMA[1], libOsc[1],
-     formulaTotal[1], formulaMA[1], formulaOther[1], time[1]]
+     formulaTotal[1], formulaMA[1], formulaOther[1], time[1],
+     open[1], high[1], low[1], close[1]]
 
-[packM1, totalM1, maM1, oscM1, formulaTotalM1, formulaMaM1, formulaOscM1, timeM1] = request.security(syminfo.tickerid, "1", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
-[packM5, totalM5, maM5, oscM5, formulaTotalM5, formulaMaM5, formulaOscM5, timeM5] = request.security(syminfo.tickerid, "5", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
-[packM15, totalM15, maM15, oscM15, formulaTotalM15, formulaMaM15, formulaOscM15, timeM15] = request.security(syminfo.tickerid, "15", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
-[packM30, totalM30, maM30, oscM30, formulaTotalM30, formulaMaM30, formulaOscM30, timeM30] = request.security(syminfo.tickerid, "30", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
-[packH1, totalH1, maH1, oscH1, formulaTotalH1, formulaMaH1, formulaOscH1, timeH1] = request.security(syminfo.tickerid, "60", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packM1, totalM1, maM1, oscM1, formulaTotalM1, formulaMaM1, formulaOscM1, timeM1, openM1, highM1, lowM1, closeM1] = request.security(syminfo.tickerid, "1", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packM5, totalM5, maM5, oscM5, formulaTotalM5, formulaMaM5, formulaOscM5, timeM5, openM5, highM5, lowM5, closeM5] = request.security(syminfo.tickerid, "5", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packM15, totalM15, maM15, oscM15, formulaTotalM15, formulaMaM15, formulaOscM15, timeM15, openM15, highM15, lowM15, closeM15] = request.security(syminfo.tickerid, "15", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packM30, totalM30, maM30, oscM30, formulaTotalM30, formulaMaM30, formulaOscM30, timeM30, openM30, highM30, lowM30, closeM30] = request.security(syminfo.tickerid, "30", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[packH1, totalH1, maH1, oscH1, formulaTotalH1, formulaMaH1, formulaOscH1, timeH1, openH1, highH1, lowH1, closeH1] = request.security(syminfo.tickerid, "60", f_display_payload(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
 
-var table t = table.new(position.top_right, 6, 33, border_width=1, frame_width=1)
+var table t = table.new(position.top_right, 6, 34, border_width=1, frame_width=1)
 var string[] timeframeNames = array.from("M1", "M5", "M15", "M30", "H1")
 var string[] componentNames = array.from(
      "SMA 10", "SMA 20", "SMA 30", "SMA 50", "SMA 100", "SMA 200",
@@ -183,6 +184,9 @@ f_packedVoteText(float packed, int index) =>
 f_ratingCell(float rating) =>
     na(rating) ? "غير متاح" : f_ratingName(rating) + " (" + str.tostring(rating, "#.000") + ")"
 
+f_priceText(float price) =>
+    na(price) ? "—" : str.tostring(price, format.mintick)
+
 if barstate.islast
     table.cell(t, 0, 0, "TV26 — عرض بصري فقط", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
     for tfIndex = 0 to 4
@@ -196,6 +200,10 @@ if barstate.islast
     array<float> formulaMas = array.from(formulaMaM1, formulaMaM5, formulaMaM15, formulaMaM30, formulaMaH1)
     array<float> formulaOcs = array.from(formulaOscM1, formulaOscM5, formulaOscM15, formulaOscM30, formulaOscH1)
     array<int> barTimes = array.from(timeM1, timeM5, timeM15, timeM30, timeH1)
+    array<float> opens = array.from(openM1, openM5, openM15, openM30, openH1)
+    array<float> highs = array.from(highM1, highM5, highM15, highM30, highH1)
+    array<float> lows = array.from(lowM1, lowM5, lowM15, lowM30, lowH1)
+    array<float> closes = array.from(closeM1, closeM5, closeM15, closeM30, closeH1)
 
     table.cell(t, 0, 1, "وقت آخر شمعة مغلقة", text_size=size.tiny)
     for tfIndex = 0 to 4
@@ -215,11 +223,15 @@ if barstate.islast
         float dOsc = array.get(formulaOcs, tfIndex) - array.get(oscs, tfIndex)
         table.cell(t, tfIndex + 1, 5, str.tostring(dTotal, "#.000000") + " / " + str.tostring(dMa, "#.000000") + " / " + str.tostring(dOsc, "#.000000"), text_size=size.tiny)
 
-    table.cell(t, 0, 6, "المكوّن", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
+    table.cell(t, 0, 6, "OHLC (فتح/أعلى/أدنى/إغلاق)", text_size=size.tiny)
     for tfIndex = 0 to 4
-        table.cell(t, tfIndex + 1, 6, array.get(timeframeNames, tfIndex), text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
+        string ohlc = f_priceText(array.get(opens, tfIndex)) + " / " + f_priceText(array.get(highs, tfIndex)) + " / " + f_priceText(array.get(lows, tfIndex)) + " / " + f_priceText(array.get(closes, tfIndex))
+        table.cell(t, tfIndex + 1, 6, ohlc, text_size=size.tiny)
+    table.cell(t, 0, 7, "المكوّن", text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
+    for tfIndex = 0 to 4
+        table.cell(t, tfIndex + 1, 7, array.get(timeframeNames, tfIndex), text_color=color.white, bgcolor=color.rgb(45, 55, 72), text_size=size.tiny)
     for componentIndex = 0 to array.size(componentNames) - 1
-        int row = componentIndex + 7
+        int row = componentIndex + 8
         table.cell(t, 0, row, array.get(componentNames, componentIndex), text_size=size.tiny)
         for tfIndex = 0 to 4
             table.cell(t, tfIndex + 1, row, f_packedVoteText(array.get(packs, tfIndex), componentIndex), text_size=size.tiny)
