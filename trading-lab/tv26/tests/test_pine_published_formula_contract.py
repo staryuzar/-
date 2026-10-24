@@ -97,6 +97,15 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         result = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, msg=result.stderr or "Bash syntax check failed")
 
+    def test_exporters_discard_unused_ichimoku_and_macd_tuple_values(self):
+        for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
+            source = (ROOT / filename).read_text(encoding="utf-8")
+            with self.subTest(filename=filename):
+                self.assertIn("[con, base, lead1, lead2, _] = tvta.ichimoku()", source)
+                self.assertIn("[macdLine, macdSignal, _] = ta.macd(close, 12, 26, 9)", source)
+                self.assertNotIn("chikou", source)
+                self.assertNotIn("macdHist", source)
+
     def test_williams_r_uses_builtin_namespace_in_both_exporters(self):
         for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
             raw = (ROOT / filename).read_text(encoding="utf-8")
