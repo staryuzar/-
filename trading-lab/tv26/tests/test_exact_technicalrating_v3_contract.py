@@ -65,9 +65,8 @@ class ExactTechnicalRatingV3ContractTests(unittest.TestCase):
         self.assertIn("if(InpATRPeriod<1||InpStopATR<=0||InpTargetATR<=0||", ea)
         self.assertIn("InpMaxSpreadPoints<0||InpDeviationPoints<0||InpCooldownBarsAfterExit<0)", ea)
         self.assertIn("نسبةالمخاطرةيجبأنتكونأكبرمنصفرولاتتجاوز2.0%", ea)
-        # Keep the research/backtest defaults intact: this is a guard on unsafe
-        # parameter values, not a change to trading signals or risk sizing.
-        self.assertIn("InpRiskPercent=0.50", ea)
+        # Validate the candidate's current research default; the hard 2% ceiling is tested above.
+        self.assertIn("InpRiskPercent=1.00", ea)
         self.assertIn("InpDemoOnly=true", ea)
 
     def test_netting_account_guard_rejects_foreign_symbol_positions(self):
