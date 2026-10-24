@@ -34,6 +34,11 @@ if ([string]::IsNullOrWhiteSpace($testCooldownText)) { $testCooldownText = "0" }
 $testCooldownBars = [int]::Parse($testCooldownText,$culture)
 if ($testCooldownBars -lt 0 -or $testCooldownBars -gt 720) { throw "TV26_TEST_COOLDOWN_BARS must be between 0 and 720." }
 $testCooldownText = $testCooldownBars.ToString($culture)
+$testOscMinText = [string]$env:TV26_TEST_M1_OSC_MIN
+if ([string]::IsNullOrWhiteSpace($testOscMinText)) { $testOscMinText = "0.00" }
+$testOscMin = [decimal]::Parse($testOscMinText,$culture)
+if ($testOscMin -lt 0 -or $testOscMin -gt 1.0) { throw "TV26_TEST_M1_OSC_MIN must be between 0.00 and 1.00." }
+$testOscMinText = $testOscMin.ToString("0.00",$culture)
 if ([string]::IsNullOrWhiteSpace($testRiskText)) { $testRiskText = "0.50" }
 if ([string]::IsNullOrWhiteSpace($testStopText)) { $testStopText = "2.0" }
 if ([string]::IsNullOrWhiteSpace($testTargetText)) { $testTargetText = "3.0" }
@@ -114,6 +119,33 @@ try {
   New-Item -ItemType Directory -Path $expertDir -Force | Out-Null
   $eaPath = Join-Path $expertDir "TV26_FiveTF_Arabic_CANDIDATE.mq5"
   Copy-Item -LiteralPath $source -Destination $eaPath -Force
+  # Optional controlled test-only gate: require M1 oscillator rating to align with
+  # the signal by at least the configured magnitude. The repository source is untouched.
+  if ($testOscMin -gt 0) {
+    $eaText = [System.IO.File]::ReadAllText($eaPath)
+    $cooldownAnchor = '   if(!hasTracked && InpCooldownBarsAfterExit>0 && g_lastExitTime>0)'
+    if (($eaText.Split([string[]]@($cooldownAnchor),[StringSplitOptions]::None).Length - 1) -ne 1) {
+      throw "Could not find exactly one entry-gate injection point; refusing to build an ambiguous M1 oscillator variant."
+    }
+    $oscGate = @"
+   // Test-only M1 oscillator confirmation gate; injected only into the compiled copy.
+   if(!hasTracked && ((sig>0 && g_oscRating[0] < $testOscMinText) || (sig<0 && g_oscRating[0] > -$testOscMinText)))
+   {
+      g_lastBlock="تأكيد مذبذبات M1 غير كافٍ لاتجاه الإشارة";
+      g_lastAction="انتظار؛ اتجاه مذبذبات M1 لا يؤكد الإشارة بالحد المطلوب";
+      Print("TV26_ENTRY_BLOCK;reason=M1_OSCILLATOR_NOT_ALIGNED;signal=",SignalName(sig),
+            ";m1_osc=",DoubleToString(g_oscRating[0],3),
+            ";min_abs=$testOscMinText;bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+      return;
+   }
+"@
+    $patchedText = $eaText.Replace($cooldownAnchor,$oscGate + $cooldownAnchor)
+    if ($patchedText -eq $eaText -or $patchedText -notmatch 'M1_OSCILLATOR_NOT_ALIGNED') {
+      throw "M1 oscillator gate injection failed; refusing to run the gated variant."
+    }
+    [System.IO.File]::WriteAllText($eaPath,$patchedText,[System.Text.UTF8Encoding]::new($false))
+  }
+  "M1 oscillator confirmation minimum (0 disables gate): $testOscMinText" | Add-Content -LiteralPath $summary -Encoding utf8
   $compile = Start-Process -FilePath $editor.FullName -ArgumentList ('/compile:"' + $eaPath + '" /log') -WorkingDirectory $install -PassThru
   if (!$compile.WaitForExit(120000)) {
     Stop-Process -Id $compile.Id -Force -ErrorAction SilentlyContinue
@@ -132,7 +164,8 @@ try {
     throw "MetaEditor log reports errors or warnings."
   }
   "EA compile: EX5 generated; no non-zero errors/warnings found in fresh logs." | Add-Content -LiteralPath $summary -Encoding utf8
-  "Source SHA-256: $((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
+  "Repository source SHA-256: $((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
+  "Source SHA-256: $((Get-FileHash -LiteralPath $eaPath -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
 
   $setDir = Join-Path $install "MQL5\Profiles\Tester"
   New-Item -ItemType Directory -Path $setDir -Force | Out-Null
