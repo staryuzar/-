@@ -1,0 +1,149 @@
+name: TV26 independent September cooldown holdout (TP 4 ATR)
+
+on:
+  push:
+    branches:
+      - tv26-breakout-buffer-study
+    paths:
+      - ".github/workflows/tv26-buffer-cooldown-holdout.yml"
+      - ".github/scripts/tv26_strategy_cooldown_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-buffer-cooldown-holdout-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tester:
+    name: "Sep 11–20 cooldown ${{ matrix.cooldown }} M1 bars"
+    runs-on: windows-2022
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - id: cooldown000
+            cooldown: "0"
+          - id: cooldown010
+            cooldown: "10"
+          - id: cooldown020
+            cooldown: "20"
+
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      PYTHONUTF8: "1"
+      TV26_TEST_FROM: "2026.09.11"
+      TV26_TEST_TO: "2026.09.21"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "4.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_COOLDOWN_BARS: "${{ matrix.cooldown }}"
+
+    steps:
+      - name: Checkout isolated candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Run isolated MT5 Strategy Tester with one bounded tick-history retry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $originalSecret = [string]$env:MT5_CREDENTIALS
+          $scriptPath = ".\\.github\\scripts\\tv26_strategy_cooldown_backtest.ps1"
+          $results = Join-Path $PWD "tv26-strategy-results"
+          $completed = $false
+          for ($attempt = 1; $attempt -le 2; $attempt++) {
+            $env:MT5_CREDENTIALS = $originalSecret
+            try {
+              & $scriptPath
+              $completed = $true
+              break
+            } catch {
+              $diagDir = Join-Path $results "diagnostics"
+              $transientTickFailure = $false
+              if (Test-Path -LiteralPath $diagDir) {
+                foreach ($logFile in @(Get-ChildItem -LiteralPath $diagDir -Filter "*.txt" -File -ErrorAction SilentlyContinue)) {
+                  $logText = Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue
+                  if ($logText -match "(?i)no history data, stop testing|preliminary downloading of history ticks canceled") {
+                    $transientTickFailure = $true
+                    break
+                  }
+                }
+              }
+              if ($attempt -ge 2 -or !$transientTickFailure) { throw }
+              Write-Warning "MT5 reported incomplete initial tick history. Preserving diagnostics and retrying once."
+              $failedDiag = Join-Path $results "retry-attempt-1-diagnostics"
+              if (Test-Path -LiteralPath $failedDiag) { Remove-Item -LiteralPath $failedDiag -Recurse -Force }
+              if (Test-Path -LiteralPath $diagDir) { Move-Item -LiteralPath $diagDir -Destination $failedDiag -Force }
+              $summaryPath = Join-Path $results "strategy-backtest-summary.txt"
+              if (Test-Path -LiteralPath $summaryPath) {
+                Copy-Item -LiteralPath $summaryPath -Destination (Join-Path $results "retry-attempt-1-summary.txt") -Force
+              }
+              foreach ($fileName in @("TV26_Audit_XAUUSD_26102327.csv","TV26_OHLC_History_XAUUSD.csv","strategy-tester-report.html","data-integrity-report.md","data-integrity-report.json","formula-parity-report.md","formula-parity-report.json","formula-parity-details.csv")) {
+                $filePath = Join-Path $results $fileName
+                if (Test-Path -LiteralPath $filePath) { Remove-Item -LiteralPath $filePath -Force }
+              }
+              foreach ($root in @((Join-Path $env:RUNNER_TEMP "tv26-strategy-backtest\\terminal"),(Join-Path $env:APPDATA "MetaQuotes\\Terminal"),(Join-Path $env:LOCALAPPDATA "MetaQuotes\\Terminal"))) {
+                if (!(Test-Path -LiteralPath $root)) { continue }
+                foreach ($fileName in @("TV26_Audit_XAUUSD_26102327.csv","TV26_OHLC_History_XAUUSD.csv")) {
+                  Get-ChildItem -LiteralPath $root -Filter $fileName -File -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+                }
+              }
+              Start-Sleep -Seconds 3
+            }
+          }
+          $env:MT5_CREDENTIALS = $null
+          if (!$completed) { throw "MT5 tester did not produce a valid result after the permitted retry." }
+
+      - name: Validate exported MT5 audit structure
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_mt5_audit.py
+          --csv tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --report tv26-strategy-results/data-integrity-report.md
+          --json tv26-strategy-results/data-integrity-report.json
+
+      - name: Compare votes with independent published TradingView formulas
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-strategy-results/formula-parity-report.md
+          --details tv26-strategy-results/formula-parity-details.csv
+          --json tv26-strategy-results/formula-parity-report.json
+
+      - name: Summarize and upload complete evidence
+        if: always()
+        shell: pwsh
+        run: |
+          "## September 11–20 — cooldown ${{ matrix.cooldown }} bars" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          $summaryPath = "tv26-strategy-results/strategy-backtest-summary.txt"
+          if (Test-Path -LiteralPath $summaryPath) {
+            Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          } else {
+            "Tester summary missing; this is an incomplete run, not a strategy loss result." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+
+      - name: Upload full tester evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-sep11-20-cooldown-${{ matrix.id }}-${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
