@@ -66,3 +66,23 @@ Using the 2026-10-01 through 2026-10-23 sample, risk 1%, SL 2 ATR, TP 4 ATR, and
 - 0.20 ATR buffer: +$18.94; PF 1.45; max equity DD 4.54%; 19 trades (7 wins / 12 losses).
 
 All four matrix variants passed their exported-data and formula-level audits. These are in-sample results and have not been merged into the main candidate; 0.10 ATR is only the provisional holdout candidate. An independent-window comparison of 0.00 vs 0.10 ATR is being run on 2026-09-11 through 2026-09-20. A successful technical audit is not a profitability pass, and a better in-sample net profit is not enough to select a production setting.
+
+
+## 7. Independent holdout result for the M1 breakout-buffer experiment
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40104572704
+
+Both variants ran with the same source SHA, same OHLCV history hash, same MT5 model, and same 2026-09-11 through 2026-09-20 window. The formula/data audits passed for both variants, so this is a comparable strategy outcome rather than a data-integrity failure.
+
+| Buffer | Net profit | Profit factor | Max equity DD | Trades | Wins / losses |
+|---|---:|---:|---:|---:|---:|
+| 0.00 ATR | -$11.41 | 0.43 | 3.39% | 6 | 1 / 5 |
+| 0.10 ATR | -$20.19 | 0.00 | 4.04% | 5 | 0 / 5 |
+
+The trade lists show why the candidate lost: the 0.10 ATR threshold removed the **2026-09-18 09:00 buy**, which was the sole winner (+$8.78), while leaving the other five outcomes unchanged, including all five losing outcomes. It did not prevent any loss in this holdout and reduced net performance by $8.78. **Decision: reject 0.10 ATR; keep 0.00 as the baseline pending further strategy research, not as a claim of profitability.**
+
+The buffer-0.00 baseline's loss pattern was 4 losing sells (Sep 14 10:10; Sep 14 10:30; Sep 15 09:11; Sep 15 12:14) plus one losing buy (Sep 18 09:40), offset by the Sep 18 09:00 buy TP. This suggests direction/regime and entry timing need investigation; merely increasing the breakout threshold is not supported by the holdout.
+
+## 8. Official TechnicalRating v3 source cross-check
+
+The MQL5 oscillator rules were inspected against the pinned source snapshot of TradingView's TechnicalRating Pine library v3 (version dated 2024-11-29): https://github.com/Tealstreet/tealchart/blob/800dafe10ebb48b8eeba53a191460d011f40a6ca/packages/tealscript/src/officialTradingViewLibrarySources.ts (see calcRatingAll(), especially lines 663–665 for ADX). That source and the exported Pine benchmark use rising ADX for both +DI and -DI directional branches. TradingView's help page currently describes falling ADX for the sell branch, so the documentation and versioned library source are inconsistent. We retained the versioned TradingView/TechnicalRating/3 library rule rather than silently substituting the help-page wording. The source comparison is an implementation cross-check, not actual chart-export parity; direct parity still requires an actual TradingView CSV for the same symbol/feed and overlapping bars.
