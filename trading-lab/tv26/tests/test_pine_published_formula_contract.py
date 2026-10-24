@@ -55,6 +55,12 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
             with self.subTest(expression=expression):
                 self.assertIn(expression, self.source)
 
+    def test_parity_workflow_runs_automatically_on_export_upload(self):
+        workflow = (ROOT.parents[1] / ".github/workflows/tv26-direct-tradingview-parity.yml").read_text(encoding="utf-8")
+        self.assertIn('      - "trading-lab/tv26/parity-input/TV26_AllTF.csv"', workflow)
+        self.assertIn("MT5_AUDIT_RUN_ID: ${{ inputs.mt5_audit_run_id || '39985703535' }}", workflow)
+        self.assertIn("MT5_UTC_OFFSET_HOURS: ${{ inputs.mt5_utc_offset_hours || '3' }}", workflow)
+
     def test_aggregate_and_closed_bar_contract(self):
         self.assertIn("floattotal=nz(ratingMA,0)+nz(ratingOther,0)", self.source)
         self.assertIn("notna(ratingMA)andnotna(ratingOther)=>total/2", self.source)
