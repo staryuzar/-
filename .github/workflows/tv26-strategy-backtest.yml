@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: tv26-sep01-strategy-backtest-${{ github.ref }}
+  group: tv26-three-summary-sep01-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
