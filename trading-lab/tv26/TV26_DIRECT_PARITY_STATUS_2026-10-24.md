@@ -5,9 +5,9 @@
 | Gate | Status | Evidence |
 |---|---|---|
 | Versioned Pine library references and source-level contract | PASS | [Exact v3 contract test](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/tests/test_exact_technicalrating_v3_contract.py) |
-| Pine exporters accepted by TradingView compiler | PASS | [CI run 40093365780](https://github.com/staryuzar/-/actions/runs/40093365780) |
-| Python comparator/splitter/regression suite | PASS — 53 tests | [CI run 40093365780](https://github.com/staryuzar/-/actions/runs/40093365780) |
-| Official MetaEditor compile | PASS | [Run 40093365794](https://github.com/staryuzar/-/actions/runs/40093365794) |
+| Pine exporters accepted by TradingView compiler | PASS | [Display-only dashboard + Pine compile and tests](https://github.com/staryuzar/-/actions/runs/40096465363) |
+| Python comparator/splitter/regression suite | PASS — 59 tests | [CI run 40096465363](https://github.com/staryuzar/-/actions/runs/40096465363) |
+| Official MetaEditor compile | PASS | [Run 40096465405](https://github.com/staryuzar/-/actions/runs/40096465405) |
 | Cloud MT5 indicator audit on the tested source commit | PASS | [Run 40093365818](https://github.com/staryuzar/-/actions/runs/40093365818); [artifact 12560305327](https://github.com/staryuzar/-/actions/runs/40093365818/artifacts/12560305327) |
 | Independent formula reference versus MT5 votes | PASS on recorded MT5 OHLCV feed | 141,232 component votes; zero mismatches |
 | Actual TradingView chart-runtime values versus MT5 | **PENDING** | No real TradingView chart-output CSV has been compared |
@@ -69,6 +69,12 @@ This addendum supersedes the earlier run IDs above where a newer source-matched 
 The new run confirms the audited candidate source and internal formulas on the recorded MT5 feed. It does **not** remove the only external-data blocker: `trading-lab/tv26/parity-input/TV26_AllTF.csv` is not present until an actual TradingView chart export is supplied. Pine compiler acceptance, local synthetic regression tests, and MT5-feed agreement cannot substitute for chart-runtime output from TradingView.
 
 The prepared one-file export script is `trading-lab/tv26/TradingView_Parity_AllTF_Export.pine`; the exact export procedure is in `trading-lab/tv26/DIRECT_TRADINGVIEW_PARITY_GUIDE_AR.md`. Once that real CSV exists at the specified path, the direct comparison workflow will compare all 26 votes plus summary ratings on M1/M5/M15/M30/H1, with strict source matching and candle-alignment gates. No live-trading approval follows from this audit.
+
+## Latest verification refresh — 24 October 2026, 13:03 UTC
+
+- [TV26 regression/Pine validation run 40096465363](https://github.com/staryuzar/-/actions/runs/40096465363): PASS; **59 Python tests passed**, including the display-only dashboard contract.
+- [MetaEditor compile run 40096465405](https://github.com/staryuzar/-/actions/runs/40096465405): PASS.
+- The current preferred review path is the display-only TradingView dashboard below. It avoids exporting or uploading TradingView market data. Human visual comparison remains pending because a reviewer must open the chart and inspect its live displayed values alongside the MT5 audit/chart.
 
 ## Display-only verification route — 2026-10-24
 
