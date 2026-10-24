@@ -34,6 +34,8 @@ class PostProfitSameDirectionCooldownTests(unittest.TestCase):
         self.assertIn("DEAL_FEE", self.handler)
         self.assertIn("HistoryDealGetInteger(trans.deal,DEAL_POSITION_ID)", self.handler)
         self.assertIn("HistorySelectByPosition(positionId)", self.handler)
+        self.assertIn("position_net_ready=", self.handler)
+        self.assertIn(";profitable_net=", self.handler)
         self.assertIn("positionNet+=HistoryDealGetDouble(dealTicket,DEAL_PROFIT)", self.handler)
         self.assertIn("g_lastExitWasProfit=(positionNetReady && positionNet>0.0);", self.handler)
         self.assertNotIn("g_lastExitWasProfit=(exitDealNet>0.0);", self.handler)
