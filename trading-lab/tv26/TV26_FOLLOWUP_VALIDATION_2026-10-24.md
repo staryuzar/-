@@ -182,3 +182,32 @@ The final 5-bar / 0.55 job completed with the following result:
 | 5-bar breakout / 0.55 | $0.00 | 0.00 | 0.00% | 0 | 0 / 0 |
 
 The 5-bar / 0.50 variant used the configured input but produced the same five accepted entries and same deal list as baseline; it reduced the minimum-volume blocks from 27 to 15 without improving outcomes. Both 0.55 variants produced zero accepted orders. Decision: reject these settings as performance improvements. The baseline remains a reference for comparisons only, not a production pass.
+
+
+## 13. Trade-list inspection and cross-experiment interpretation
+
+### What the oscillator gate actually changed
+
+The trade-by-trade HTML reports show that the September 1–10 oscillator-gate variant at 0.15 retained only the two September 8 sells: the 22:20 sell TP (+$9.01) and the 22:59 sell SL (-$5.08). Relative to the five-trade baseline, it removed:
+- September 7 sell SL (-$5.17),
+- September 10 buy SL (-$4.40),
+- September 10 sell TP (+$8.99).
+
+So the gate excluded two losses and one near-$9 winner, while retaining the immediate same-direction re-entry loss. Its net improvement was only $0.58. This makes it a weak screening lead, not an identified solution to the re-entry problem.
+
+### M15 buy-rating gate: no transfer observed in the tested holdout
+
+The M15 buy-only rating gate at 0.58 improved the October 1–23 training result from +$19.92 / PF 1.47 / 19 trades to +$30.67 / PF 1.98 / 16 trades (7 wins / 9 losses). However, on September 11–20, the 0.50 baseline and 0.58 gate had the same result: -$20.19, five trades, all five losses. This holdout did not establish an improvement. Do not promote the gate from the in-sample profit increase.
+
+### Sell-only directional check
+
+- October 1–10: allowing buys and sells produced -$6.57, PF 0.78, 12 trades (4 wins / 8 losses); sell-only produced +$0.79, PF 1.04, 10 trades (4 / 6).
+- October 14–23: allowing buys and sells produced -$1.40, PF 0.93, 9 trades (3 / 6); sell-only produced +$3.26, PF 1.31, 5 trades (2 / 3).
+
+Although the sell-only subset did better on both short windows, it reduces trade opportunities and has not been validated across a clean independent market regime. It is a diagnostic, not approval to permanently disable buys.
+
+### Next immediate test — post-exit cooldown around the October 20–22 loss cluster
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40109199896
+
+The three-day base result was +$2.74 / PF 1.40 / max equity DD 1.72% on three trades (one win, two losses). The diagnostic matrix fixes risk at 1%, stop at 2 ATR, target at 4 ATR, M1 close breakout on, and compares cooldowns of 0, 10, and 20 M1 bars on the same three dates. This is intentionally a diagnostic because the suspected cluster was observed on these dates. Any favourable outcome must then be replicated on a separate window; a lower trade count alone is not considered improvement.
