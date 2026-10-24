@@ -16,7 +16,7 @@ class M1M5OscillatorGateTests(unittest.TestCase):
         end = cls.source.index("\nint OnInit()", start)
         cls.trade = cls.source[start:end]
         aligned_start = cls.source.index("int AlignedSignal()")
-        aligned_end = cls.source.index("\nvoid DetailSignal(", aligned_start)
+        aligned_end = cls.source.index("\nstring DetailSignal(", aligned_start)
         cls.aligned = cls.source[aligned_start:aligned_end]
 
     def test_gate_defaults_to_disabled_and_has_range_validation(self):
