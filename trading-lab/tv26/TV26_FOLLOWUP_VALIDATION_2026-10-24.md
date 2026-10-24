@@ -248,3 +248,6 @@ Each stage gets a unique magic number and its own artifact folder, retaining the
 - Stage 2 did **not** run: the shared tester script clears the MT5 credential environment variable after a run. The progressive orchestrator initially failed to restore it, so stage 2 reported “Missing secret mt5; no tester run attempted.” This was an orchestration failure, not a strategy result. No claim is made about the two-day strategy outcome from this failed attempt.
 - Fix committed: `2b400508d0ccac05f03fdb41a18a5df7f4bad03c` restores the in-memory credential value before each tester attempt and fixes literal USD text in the generated gate report. The secret is not written to source files or artifacts.
 - Rerun triggered: https://github.com/staryuzar/-/actions/runs/40111025063. This rerun starts the progression over with a clean one-day test; two-day and longer windows are only reached if the preceding gate passes.
+
+
+The completed one-day evidence for run 40110879062 records 47,164 component votes checked, zero vote mismatches, zero missing/invalid comparisons, 5,442 aggregate values with zero aggregate mismatches, and 1,814 OHLC candle groups with zero integrity errors. This validates the first stage's data/formula checks on the recorded Headway-Demo MT5 feed; it does not mean the whole progressive sequence passed.
