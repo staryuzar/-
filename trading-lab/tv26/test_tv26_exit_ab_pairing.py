@@ -82,5 +82,25 @@ class ExitEventPairingTests(unittest.TestCase):
         self.assertEqual(result["summary_triggers"], [])
 
 
+    def test_zero_summary_triggers_is_inconclusive_without_failing_the_matrix_job(self):
+        self.assertFalse(MODULE.classify_exit_events([], [], [])["valid_summary_only"])
+        self.assertEqual(MODULE.comparison_exit_code(
+            settings_ok=True, off_clean=True, on_failed=False,
+            other_triggers=False, summary_triggers=False, on_valid_exit=False,
+        ), 0)
+
+    def test_unpaired_summary_trigger_still_fails_the_diagnostic(self):
+        self.assertEqual(MODULE.comparison_exit_code(
+            settings_ok=True, off_clean=True, on_failed=False,
+            other_triggers=False, summary_triggers=True, on_valid_exit=False,
+        ), 2)
+
+    def test_failed_close_still_fails_even_if_a_summary_trigger_exists(self):
+        self.assertEqual(MODULE.comparison_exit_code(
+            settings_ok=True, off_clean=True, on_failed=True,
+            other_triggers=False, summary_triggers=True, on_valid_exit=True,
+        ), 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
