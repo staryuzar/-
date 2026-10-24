@@ -585,3 +585,36 @@ Audits passed: 371,332 component votes on Sep 1–10 and 141,232 on Oct 20–22,
 ## 39. Direct TradingView parity and strategy gate remain separate
 
 The repository still has no actual live TradingView chart-output CSV from the same symbol/feed and overlapping closed-bar timestamps. Therefore direct numerical TradingView chart-runtime parity remains **PENDING** despite successful Pine compiler, MetaEditor, independent published-formula, OHLC and Ichimoku checks. Strategy robustness also remains **NOT ESTABLISHED**: the recent 3-day progressive screen stopped at +$2.74 against a +$7.50 gate. Continue on research/candidate branches only.
+
+
+## 40. Source-matched signal-latch A/B — September pair completed
+
+A/B workflow: https://github.com/staryuzar/-/actions/runs/40116024446  
+Baseline Sep 1–10 artifact: https://github.com/staryuzar/-/actions/runs/40116024446/artifacts/12568417878  
+Fixed Sep 1–10 artifact: https://github.com/staryuzar/-/actions/runs/40116024446/artifacts/12569635115
+
+The first two arms used immutable historical source commits and identical tester settings: XAUUSD M1, Model 4, $500 deposit, risk 1%, SL 2 ATR, TP 4 ATR, M1 close-breakout enabled, global cooldown 0. Both MetaEditor compile and the 26-vote formula/data audit passed.
+
+| Sep 1–10 arm | Net | PF | Max equity DD | Trades | Wins / losses | Accepted orders |
+|---|---:|---:|---:|---:|---:|---:|
+| Baseline source (`b4e80ec`) | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 | 5 |
+| Preserved-latch source (`f0f915f`) | +$8.43 | 1.88 | 2.35% | 4 | 2 / 2 | 4 |
+
+The two arms share exact audit CSV SHA-256 `880cba4d568e9e1592b721fd215ef12b4cc6487546ec1b261892f651a09cca8e` and OHLCV history SHA-256 `5fa5ea953cb7e5957bac8e5e8c3771550b58a3a56ae7a688131cd744db1cc21b`. Each formula audit checked 371,332 component votes with zero mismatches and each OHLC audit found no integrity issues. The source diff for this comparison is the neutral-consensus signal-memory change; risk, stop/target and breakout settings were matched. In the baseline Strategy Tester deal table, the sell opened at 22:59:00 on Sep 8 was stopped out at 23:01:22 for -$5.08 immediately after the preceding sell had taken profit at 22:58:59. That same-direction re-entry is absent in the fixed arm; the net result improves by exactly $5.08.
+
+This is a clean, source-matched positive result for the latch correction on the September sample, not evidence that the overall strategy is robust. Two Oct 20–22 arms are in progress for cross-checking; the baseline arm already completed at +$2.74, PF 1.40, DD 1.72%, three trades, and its audit/history hashes exactly match the previously completed fixed-source Oct arm. The formal A/B matrix must finish before we label the change independently replicated.
+
+## 41. M1/M5 oscillator confirmation filter — holdout does not improve outcome
+
+Research workflow: https://github.com/staryuzar/-/actions/runs/40114597473  
+Threshold 0.00 artifact: https://github.com/staryuzar/-/actions/runs/40114597473/artifacts/12568515266  
+Threshold 0.15 artifact: https://github.com/staryuzar/-/actions/runs/40114597473/artifacts/12568147066
+
+A matched Sep 21–30 holdout compared the optional minimum directional oscillator rating on both M1 and M5 at 0.00 (disabled) versus 0.15. Both arms used the same source SHA-256 `35e0ddb52b6967d850fdca086915b38326625e50823269ceb9fc8cc3772783b7`, the same audit CSV SHA-256 `323581c3a518b2c968a5a96223584b76174c2035430204563e268d9ab7b0f8d3`, and the same OHLCV history SHA-256 `1e5831d3f58937bcf401822e82541aed0f53318ea238e84be816b1157af023dc`. Both formula audits checked 376,402 votes with zero mismatches and the OHLC integrity audits passed.
+
+| M1/M5 oscillator threshold | Net | PF | Max equity DD | Trades | Wins / losses | Gate blocks |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.00 (disabled) | +$0.67 | 1.17 | 0.99% | 2 | 1 / 1 | 0 |
+| 0.15 | +$0.67 | 1.17 | 0.99% | 2 | 1 / 1 | 4 |
+
+The HTML order/deal table is identical between arms. Thus 0.15 blocked four candidate entry opportunities without changing accepted trades or the result on this holdout. Decision: do not enable or promote this filter on the evidence; retain its disabled default on the research branch. This period has only two executed trades, so the result is a reject/no-benefit finding for this threshold on this sample, not a universal claim about oscillator filters.
