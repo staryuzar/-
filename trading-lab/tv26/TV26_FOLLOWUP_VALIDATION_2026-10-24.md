@@ -134,3 +134,22 @@ The first Sep 1–10 trial with `InpMinDirectionalOscillatorRating=0.15` did not
 
 
 The 1-bar / threshold 0.55 holdout completed with zero trades. Its summary recorded six consensus-signal bars, four blocked by the minimum-lot risk cap and two blocked by M1 close-breakout confirmation; accepted orders = 0. The broker minimum 0.01 lot would exceed the nominal $5 risk budget at 1% for those signals ($5.15–$11.01 minimum-volume loss). This is an inconclusive no-trade result, not success. The risk cap was intentionally retained.
+
+
+## 10. Independent September holdout update — 2026-10-24
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40106562109
+
+The completed jobs so far use the same Sep 1–10 window, XAUUSD M1, MT5 Model 4, 1% risk, 2 ATR stop, 4 ATR target, and identical audited OHLCV hash. The remaining combined 5-bar/0.55 job was still running when this update was written.
+
+| Variant | Net profit | Profit factor | Max equity DD | Trades | Wins / losses | Decision |
+|---|---:|---:|---:|---:|---:|---|
+| Baseline: 1-bar breakout, 0.50 rating | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 | Reference only; too few trades |
+| 5-bar breakout, 0.50 rating | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 | No improvement; same outcomes and trade list |
+| 1-bar breakout, 0.55 rating | $0.00 | 0.00 | 0.00% | 0 | 0 / 0 | Inconclusive; do not call it a pass |
+
+For the 5-bar variant, input verification confirms that the five-bar setting was applied, while audit and OHLCV history hashes match the baseline. It did not improve the accepted trades. The 0.55 threshold generated only six consensus signal bars and four minimum-volume risk-cap blocks, but no accepted orders. The $5 risk budget at 1% of the $500 balance remains a valid protection; do not weaken it merely to create trades.
+
+The baseline's five trades comprised three losses and two wins. One specific failure was an immediate sell re-entry one second after a sell TP on 2026-09-08 22:58:59, followed by an SL at 23:01:22 (-$5.08). This is a concrete timing hypothesis, but a single case does not establish that a one-bar pause generalizes. The separate 10/20-bar cooldown experiment on Sep 11–20 did not materially change accepted trades. Any new re-entry rule must be compared with the unchanged baseline on a separate window, with trade count and lost winners explicitly reported.
+
+The oscillator-confirmation retry is tracked separately at https://github.com/staryuzar/-/actions/runs/40107875721. Its earlier 0.15 attempt failed before a valid tester export due to canceled MT5 history download, so no performance conclusion is valid until the retry completes with a complete audit. Formula-level audit PASS continues to mean consistency with the independent published-formula implementation on MT5 data; actual live TradingView chart-runtime parity remains pending.
