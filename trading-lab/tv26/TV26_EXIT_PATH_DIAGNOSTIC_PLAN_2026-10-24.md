@@ -63,3 +63,30 @@ The production candidate branch and its default stop/target settings are unchang
 ## TradingView parity
 
 The existing formula-level audit compares the EA's recorded votes with an independent implementation of published TechnicalRating v3 formulas. It does not replace a direct comparison against actual TradingView chart exports on matching symbol/feed/timestamps. Direct chart-runtime parity remains pending.
+
+
+## 12. Confirmed close-path run with diagnostic switch explicitly enabled
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40130332691  
+Artifact: https://github.com/staryuzar/-/actions/runs/40130332691/artifacts/12574199270  
+Compiled source SHA-256: `cd69daff1268ac8d908a7563ee2535d1f403d3ca79a221235e3d5922c77cc5bf`  
+Audit SHA-256: `a9cfc51942a55cb3b6c7328d0e3e6805ca0e4a69da2763c7d92700704ba3f106`  
+Reference OHLCV SHA-256: `5fa5ea953cb7e5957bac8e5e8c3771550b58a3a56ae7a688131cd744db1cc21b`
+
+The source was compiled and checked in MT5 Strategy Tester Model 4 with `InpUseRuleBasedEarlyExit=true`. The static entry/exit contract checks, MT5 exported-data integrity validation, and independent published-formula audit all passed. Audit coverage: 141,232 votes compared, zero vote mismatches; 5,432 candle groups checked with zero data integrity errors; 16,296 summary aggregates recalculated with zero mismatches.
+
+| Position | Entry | Exit | Hold | Direction | Closed by | Net |
+|---|---|---|---:|---|---|---:|
+| 1 | 2026-09-01 07:45 | 2026-09-01 07:54 | 9 min | Sell | Confirmed M1 reversal | -$1.96 |
+| 2 | 2026-09-01 09:30 | 2026-09-01 09:36 | 6 min | Sell | Confirmed M1 reversal | -$2.63 |
+| 3 | 2026-09-02 23:00 | 2026-09-02 23:08 | 8 min | Buy | Confirmed M1 reversal | -$2.88 |
+
+Total: **3 trades, 0 wins / 3 losses, -$7.47 net, 1.86% maximum equity drawdown**, risk 2%, SL 5 ATR and TP 20 ATR. These settings were deliberately widened for execution-path diagnostics and must not be compared with the default production configuration.
+
+Unique log result: `REAL_M1_REVERSAL=3`, `OPPOSITE_SUMMARY=0`, `TV26_EXIT_COMPLETED=3`, `TV26_EXIT_FAILED=0`. The MT5 report's closing orders all have comment `TV26 close opposite`, which corroborates that the EA actually issued the close. This establishes a price-reversal close path, but the result is negative on all three trades and does not establish that early exits improve performance. The opposite-summary exit path remains unverified.
+
+## 13. Latest matched A/B job
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40130429104
+
+The latest diagnostic job passed the static entry/exit contract suite and is running two sequential MT5 arms with the same compiled source, broker history, dates, model, risk, stop and target. The only intended behavioral difference is `InpUseRuleBasedEarlyExit` true versus false. At the time of this report update, the run had not yet completed; no A/B performance conclusion is claimed. A report update is required after both arms and their data/formula audits finish.
