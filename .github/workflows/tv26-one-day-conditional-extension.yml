@@ -21,12 +21,12 @@ jobs:
     timeout-minutes: 90
     env:
       MT5_CREDENTIALS: ${{ secrets.mt5 }}
-      TV26_TEST_FROM: "2026.10.23"
-      TV26_TEST_TO: "2026.10.24"
+      TV26_TEST_FROM: "2026.10.22"
+      TV26_TEST_TO: "2026.10.23"
       TV26_TEST_MODEL: "4"
       TV26_TEST_RISK_PERCENT: "1.00"
       TV26_TEST_STOP_ATR: "2.00"
-      TV26_TEST_TARGET_ATR: "3.00"
+      TV26_TEST_TARGET_ATR: "4.00"
       TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
       TV26_TEST_MAGIC: "26102327"
       PYTHONUTF8: "1"
@@ -76,7 +76,7 @@ jobs:
           if ($trades -gt 0 -and $losses -eq 0) {
             "extend=true" | Add-Content $env:GITHUB_OUTPUT
             "## Extension gate: EXTEND" | Add-Content $env:GITHUB_STEP_SUMMARY
-            "One-day result has $trades trade(s) and zero losing trades. Extending to the three-day window 2026-10-21 through 2026-10-23. This is only a screening gate, not proof of profitability." | Add-Content $env:GITHUB_STEP_SUMMARY
+            "One-day result has $trades trade(s) and zero losing trades. Extending to the three-day window 2026-10-20 through 2026-10-22. This is only a screening gate, not proof of profitability." | Add-Content $env:GITHUB_STEP_SUMMARY
           } elseif ($trades -eq 0) {
             "extend=false" | Add-Content $env:GITHUB_OUTPUT
             "## Extension gate: INCONCLUSIVE — NO TRADES" | Add-Content $env:GITHUB_STEP_SUMMARY
@@ -91,7 +91,7 @@ jobs:
         if: steps.gate.outputs.extend == 'true'
         shell: pwsh
         env:
-          TV26_TEST_FROM: "2026.10.21"
+          TV26_TEST_FROM: "2026.10.20"
           TV26_TEST_TO: "2026.10.24"
           TV26_TEST_MAGIC: "26102328"
         run: |
