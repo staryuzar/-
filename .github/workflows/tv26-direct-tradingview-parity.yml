@@ -61,10 +61,15 @@ jobs:
           overall_status=0
           for tf in M1 M5 M15 M30 H1; do
             echo "::group::Direct parity for ${tf}"
-            python trading-lab/tv26/split_tv26_alltf_export.py \
+            if ! python trading-lab/tv26/split_tv26_alltf_export.py \
               --input trading-lab/tv26/parity-input/TV26_AllTF.csv \
               --timeframe "${tf}" \
-              --output "tv26-direct-parity-results/TV26_${tf}_normalized.csv"
+              --output "tv26-direct-parity-results/TV26_${tf}_normalized.csv"; then
+              echo "::error title=Export decode failed for ${tf}::Could not decode the TradingView export for this timeframe."
+              overall_status=1
+              echo "::endgroup::"
+              continue
+            fi
             if ! python trading-lab/tv26/compare_tv26_csv.py \
               --tv "tv26-direct-parity-results/TV26_${tf}_normalized.csv" \
               --mt5 trading-lab/tv26/parity-input/MT5_Audit.csv \
