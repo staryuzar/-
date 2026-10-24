@@ -35,6 +35,8 @@ class M1M5OscillatorGateTests(unittest.TestCase):
         self.assertIn("double m5DirectionalOsc=(double)sig*g_oscRating[1];", self.trade)
         self.assertIn("if(!m1OscPass || !m5OscPass)", self.trade)
         self.assertIn("reason=M1_M5_OSCILLATOR_GATE", self.trade)
+        self.assertIn(";M1_directional=", self.trade)
+        self.assertIn(";M5_directional=", self.trade)
         self.assertIn("InpMinM1M5DirectionalOscillatorRating", self.trade)
         self.assertNotIn("InpMinM1M5DirectionalOscillatorRating", self.aligned)
         self.assertIn("if(g_rating[t]<=STRONG) allStrongBuy=false;", self.aligned)
