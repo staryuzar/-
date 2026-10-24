@@ -81,6 +81,7 @@ class TV26ExitContractTests(unittest.TestCase):
         compare_path = ROOT / "trading-lab" / "tv26" / "compare_tv26_exit_ab.py"
         compare = compare_path.read_text(encoding="utf-8")
         self.assertIn("def event_key(line: str):", compare)
+        self.assertIn('ticket = re.search(r"ticket=(\\\\d+)", line)', compare)
         self.assertIn('return (ticket.group(1), reason.group(1), bar.group(1))', compare)
         self.assertIn("key in done_keys", compare)
 
