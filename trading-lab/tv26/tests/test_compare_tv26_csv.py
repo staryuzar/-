@@ -118,6 +118,49 @@ class TV26ParityComparatorTests(unittest.TestCase):
             self.assertEqual(failed[0]["check"], "official_library_calibration")
             self.assertIn("pine_component_aggregates_match_official_library", result["pass_requirements"])
 
+    def test_small_overlap_cannot_pass_when_most_mt5_candles_are_unmatched(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            mt5, tv = self.make_fixtures(folder)
+
+            # Retain the two shared candles, then add eight valid but unmatched MT5 candles.
+            with mt5.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                fields = reader.fieldnames
+                original_rows = list(reader)
+            first_candle_rows = [row for row in original_rows if row["bar_open_time_server"] == "2026.01.01 03:00"]
+            extra_rows = []
+            for minute in range(2, 10):
+                stamp = f"2026.01.01 03:{minute:02d}"
+                for original in first_candle_rows:
+                    row = dict(original)
+                    row["bar_open_time_server"] = stamp
+                    if row["component"] == "SUMMARY":
+                        shift = minute * 0.01
+                        row["candle_open"] = str(2000.0 + shift)
+                        row["candle_high"] = str(2001.0 + shift)
+                        row["candle_low"] = str(1999.0 + shift)
+                        row["candle_close"] = str(2000.25 + shift)
+                    extra_rows.append(row)
+            with mt5.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fields)
+                writer.writeheader()
+                writer.writerows(original_rows + extra_rows)
+
+            result, _, report = compare_files(mt5, tv, "M1", 3, min_bars=2)
+            self.assertEqual(result["matched_bars"], 2)
+            self.assertEqual(result["mt5_bars"], 10)
+            self.assertAlmostEqual(result["mt5_coverage_ratio"], 0.20)
+            self.assertEqual(result["status"], "FAIL", report)
+            self.assertFalse(result["pass_requirements"]["sufficient_mt5_history_coverage"])
+            self.assertEqual(result["diagnosis_code"], "INSUFFICIENT_MT5_COVERAGE")
+
+    def test_coverage_threshold_must_be_valid_fraction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            mt5, tv = self.make_fixtures(Path(temp))
+            with self.assertRaises(ValueError):
+                compare_files(mt5, tv, "M1", 3, min_bars=2, min_mt5_coverage=1.01)
+
     def test_wrong_time_offset_never_claims_parity(self):
         with tempfile.TemporaryDirectory() as temp:
             mt5, tv = self.make_fixtures(Path(temp))
