@@ -7,6 +7,7 @@ input bool   InpDemoOnly            = true;
 input bool   InpTesterOnly          = false; // When true, refuse execution outside MT5 Strategy Tester.
 input ulong  InpMagic               = 26102326;
 input double InpRiskPercent         = 0.50;
+input double InpEntryConsensusThreshold = 0.50; // Minimum absolute overall rating required on each timeframe for entry; TV classification remains at +/-0.50.
 input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
@@ -567,8 +568,8 @@ int AlignedSignal()
    for(int t=0;t<N_TF;t++)
    {
       if(g_ready[t]!=N_RATINGS || g_maReady[t]!=15 || g_oscReady[t]!=11) return 0;
-      if(g_rating[t]<=STRONG) allStrongBuy=false;
-      if(g_rating[t]>=-STRONG) allStrongSell=false;
+      if(g_rating[t]<=InpEntryConsensusThreshold) allStrongBuy=false;
+      if(g_rating[t]>=-InpEntryConsensusThreshold) allStrongSell=false;
    }
    if(allStrongBuy) return 1;
    if(allStrongSell) return -1;
@@ -830,11 +831,12 @@ void TradeIfAligned()
    if(sig==0)
    {
       RememberSignal(0); // Re-arm after the five-timeframe consensus is no longer strong.
-      g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";
+      g_lastAction="انتظار؛ كل إطار يجب أن يتجاوز حد الدخول "+DoubleToString(InpEntryConsensusThreshold,2);
       return;
    }
    Print("TV26_CONSENSUS;signal=",SignalName(sig),
          ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+         ";entry_threshold=",DoubleToString(InpEntryConsensusThreshold,3),
          ";M1=",DoubleToString(g_rating[0],3),
          ";M5=",DoubleToString(g_rating[1],3),
          ";M15=",DoubleToString(g_rating[2],3),
@@ -1066,6 +1068,11 @@ int OnInit()
    if(InpRiskPercent<=0 || InpRiskPercent>2.0)
    {
       Print("TV26: نسبة المخاطرة يجب أن تكون أكبر من صفر ولا تتجاوز 2.0%");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(InpEntryConsensusThreshold<STRONG || InpEntryConsensusThreshold>0.90)
+   {
+      Print("TV26: حد قوة توافق الدخول يجب أن يكون بين 0.50 و0.90");
       return INIT_PARAMETERS_INCORRECT;
    }
    if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 || InpM1BreakoutBufferATR<0 ||
