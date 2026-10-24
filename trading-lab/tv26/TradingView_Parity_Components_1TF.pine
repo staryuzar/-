@@ -34,7 +34,7 @@ f_components() =>
     [kStoch, dStoch] = tvta.stochFull(14, 3, 3)
     [kStochRsi, dStochRsi] = tvta.stochRsi(14, 14, 3, 3)
     [diP, diN, adx] = ta.dmi(14, 14)
-    [macdLine, macdSignal, _] = ta.macd(close, 12, 26, 9)
+    [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
     float bullPower = high - ta.ema(close, 13)
     float bearPower = low - ta.ema(close, 13)
     float rsi = ta.rsi(close, 14)
@@ -83,7 +83,7 @@ f_components() =>
          ta.crossover(ao, 0) or (ao > 0 and ao[1] > 0 and ao > ao[1] and ao[2] > ao[1]),
          ta.crossunder(ao, 0) or (ao < 0 and ao[1] < 0 and ao < ao[1] and ao[2] < ao[1]))
     float rMomentum = f_calcRating(mom[1], mom > mom[1], mom < mom[1])
-    float rMacd = f_calcRating(macdSignal, macdLine > macdSignal, macdLine < macdSignal)
+    float rMacd = f_calcRating(macdSignal, macdLine > macdSignal and macdHist > 0, macdLine < macdSignal and macdHist < 0)
     float rStochRsi = f_calcRating(priceAvg,
          downTrend and kStochRsi < 20 and dStochRsi < 20 and kStochRsi > dStochRsi,
          upTrend and kStochRsi > 80 and dStochRsi > 80 and kStochRsi < dStochRsi)
