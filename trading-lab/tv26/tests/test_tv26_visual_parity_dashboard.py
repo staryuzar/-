@@ -53,6 +53,16 @@ class TV26VisualParityDashboardTests(unittest.TestCase):
         self.assertNotIn("file_download", self.code.lower())
         self.assertIn("var table t = table.new(position.top_right, 6, 34", self.code)
 
+    def test_macd_vote_matches_official_technical_rating_v3(self) -> None:
+        # TradingView's TechnicalRating v3 votes on MACD line vs signal only;
+        # histogram sign is not an additional condition.
+        self.assertIn(
+            "float rMacd = f_calcRating(macdSignal, macdLine > macdSignal, macdLine < macdSignal)",
+            self.code,
+        )
+        self.assertNotIn("macdHist > 0", self.code)
+        self.assertNotIn("macdHist < 0", self.code)
+
     def test_dashboard_exposes_formula_vs_library_deltas(self) -> None:
         self.assertIn("formulaTotalM1", self.code)
         self.assertIn("formulaMaM1", self.code)
