@@ -44,8 +44,9 @@ class CooldownValidationContractTests(unittest.TestCase):
         self.assertIn("$attempt -ge 2 -or !$transientTickFailure", self.workflow)
         self.assertIn("retry-attempt-1-diagnostics", self.workflow)
 
-    def test_only_five_and_ten_closed_m1_bars_are_compared(self):
-        self.assertIn("cooldown: [5, 10]", self.workflow)
+    def test_only_ten_and_twenty_closed_m1_bars_are_compared_serially(self):
+        self.assertIn("cooldown: [10, 20]", self.workflow)
+        self.assertIn("max-parallel: 1", self.workflow)
         self.assertIn("tv26_strategy_cooldown_backtest.ps1", self.workflow)
         self.assertIn("InpDemoOnly=true", self.script)
         self.assertIn("InpTesterOnly=true", self.script)
