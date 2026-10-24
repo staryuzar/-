@@ -71,6 +71,41 @@ class TV26AllTimeframeExportTests(unittest.TestCase):
             self.assertEqual(rows[0]["TV26.total"], "0.1")
             self.assertEqual(rows[0]["TV26.formula_total"], "0.1")
 
+    def test_collapses_identical_repeated_higher_timeframe_rows(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            source, _ = self.make_alltf_fixture(folder)
+            headers, rows = read_csv(source)
+            repeated = dict(rows[0])
+            repeated["time"] = "2026-09-01T00:01:00Z"  # different M1 chart bar; same M5 candle
+            with source.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=headers)
+                writer.writeheader()
+                writer.writerows([rows[0], repeated])
+
+            output = folder / "normalized_m5.csv"
+            result = split_file(source, "M5", output)
+            self.assertEqual(result["rows_written"], 1)
+            self.assertEqual(result["duplicate_rows_collapsed"], 1)
+            _, normalized = read_csv(output)
+            self.assertEqual(len(normalized), 1)
+
+    def test_rejects_repeated_timestamp_with_conflicting_payload(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            source, _ = self.make_alltf_fixture(folder)
+            headers, rows = read_csv(source)
+            repeated = dict(rows[0])
+            repeated["time"] = "2026-09-01T00:01:00Z"
+            repeated["TV26.M5.close"] = "2498.75"
+            with source.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=headers)
+                writer.writeheader()
+                writer.writerows([rows[0], repeated])
+
+            with self.assertRaisesRegex(InputError, "Conflicting repeated M5 candle"):
+                split_file(source, "M5", folder / "normalized_m5.csv")
+
     def test_rejects_out_of_range_and_non_integer_packs(self):
         with self.assertRaises(InputError):
             decode_votes(PACKED_LIMIT)
