@@ -4,9 +4,9 @@
 
 | Gate | Status | Evidence |
 |---|---|---|
-| Pine exporters accepted by the TradingView compiler | PASS | [Parity CI, 24 Oct](https://github.com/staryuzar/-/actions/runs/40079367672) |
+| Pine exporters accepted by the TradingView compiler | PASS | [Parity CI, 24 Oct](https://github.com/staryuzar/-/actions/runs/40079665993) |
 | Python comparator / splitter / regression suite | PASS | [38 deterministic tests and TradingView compiler gate](https://github.com/staryuzar/-/actions/runs/40079367672) |
-| MQL5 source compiled by official MetaEditor in cloud | PASS | [MetaEditor compile](https://github.com/staryuzar/-/actions/runs/40079349096) |
+| MQL5 source compiled by official MetaEditor in cloud | PASS | [MetaEditor compile](https://github.com/staryuzar/-/actions/runs/40079666035) |
 | Recent MT5 audit for 21–23 October 2026 | PASS | [Cloud audit](https://github.com/staryuzar/-/actions/runs/40079359327) |
 | Independent formula reference vs MT5 audit votes | PASS within the recorded MT5 feed | [Audit evidence artifact](https://github.com/staryuzar/-/actions/runs/40079359327/artifacts/12554097875) |
 | Raw Ichimoku values vs OHLC, including 26-bar cloud shift | PASS on the downloaded audit sample: 5,432 candles × 5 raw values, zero mismatches | [Cloud audit artifact](https://github.com/staryuzar/-/actions/runs/40079359327/artifacts/12554097875) |
