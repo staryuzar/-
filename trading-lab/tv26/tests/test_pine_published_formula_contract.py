@@ -67,6 +67,11 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertIn('git rev-parse "HEAD:$path"', workflow)
         self.assertIn('git rev-parse "$run_head:$path"', workflow)
         self.assertIn("Tester process exit code: 0", workflow)
+        self.assertIn("InpEnableTrading=false", workflow)
+        self.assertIn('sha256sum trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5', workflow)
+        self.assertIn('sha256sum "$audit_file"', workflow)
+        self.assertIn('Audit CSV SHA-256: $actual_audit_sha', workflow)
+        self.assertIn('Source SHA-256: $expected_source_sha', workflow)
         self.assertNotIn("40083533466", workflow)
         self.assertIn("--min-mt5-coverage 0.80", workflow)
 
