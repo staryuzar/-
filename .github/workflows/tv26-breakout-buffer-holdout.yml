@@ -28,17 +28,17 @@ jobs:
       matrix:
         include:
           - id: holdout-buffer000
-            label: "Holdout Sep 1–10; buffer 0.00 ATR"
+            label: "Holdout Sep 11–20; buffer 0.00 ATR"
             buffer: "0.00"
           - id: holdout-buffer010
-            label: "Holdout Sep 1–10; buffer 0.10 ATR"
+            label: "Holdout Sep 11–20; buffer 0.10 ATR"
             buffer: "0.10"
 
     env:
       MT5_CREDENTIALS: ${{ secrets.mt5 }}
       PYTHONUTF8: "1"
-      TV26_TEST_FROM: "2026.09.01"
-      TV26_TEST_TO: "2026.09.11"
+      TV26_TEST_FROM: "2026.09.11"
+      TV26_TEST_TO: "2026.09.21"
       TV26_TEST_MODEL: "4"
       TV26_TEST_RISK_PERCENT: "1.00"
       TV26_TEST_STOP_ATR: "2.00"
@@ -58,7 +58,7 @@ jobs:
       - name: Install formula-audit dependencies
         run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
 
-      - name: Run isolated 10-day holdout Strategy Tester
+      - name: Run isolated Sep 11–20 holdout Strategy Tester
         shell: pwsh
         run: ./.github/scripts/tv26_strategy_backtest.ps1
 
