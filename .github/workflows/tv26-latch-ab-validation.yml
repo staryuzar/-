@@ -1,0 +1,181 @@
+name: TV26 signal-latch A/B — baseline versus preserved latch
+
+on:
+  push:
+    branches:
+      - tv26-reentry-latch-preservation-study
+    paths:
+      - ".github/workflows/tv26-latch-ab-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-latch-ab-\${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    name: "\${{ matrix.label }}"
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - id: baseline-sep01-10
+            label: "Baseline latch — Sep 1–10"
+            source_ref: "b4e80ec9a2d053454b788ed84439d9d1c91bf084"
+            variant: "baseline"
+            date_from: "2026.09.01"
+            date_to: "2026.09.11"
+          - id: fixed-sep01-10
+            label: "Preserved latch — Sep 1–10"
+            source_ref: "f0f915f6c4234d5bdb090075d5fbc7da3eb1959b"
+            variant: "fixed"
+            date_from: "2026.09.01"
+            date_to: "2026.09.11"
+          - id: baseline-oct20-22
+            label: "Baseline latch — Oct 20–22"
+            source_ref: "b4e80ec9a2d053454b788ed84439d9d1c91bf084"
+            variant: "baseline"
+            date_from: "2026.10.20"
+            date_to: "2026.10.23"
+          - id: fixed-oct20-22
+            label: "Preserved latch — Oct 20–22"
+            source_ref: "f0f915f6c4234d5bdb090075d5fbc7da3eb1959b"
+            variant: "fixed"
+            date_from: "2026.10.20"
+            date_to: "2026.10.23"
+
+    env:
+      MT5_CREDENTIALS: \${{ secrets.mt5 }}
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+      TV26_TEST_FROM: \${{ matrix.date_from }}
+      TV26_TEST_TO: \${{ matrix.date_to }}
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "4.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_COOLDOWN_BARS: "0"
+
+    steps:
+      - name: Checkout research harness
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Materialize the exact baseline/fixed EA source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $sourcePath = "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+          $sourceRef = "\${{ matrix.source_ref }}"
+          $selected = @(& git show "$($sourceRef):$sourcePath")
+          if ($LASTEXITCODE -ne 0 -or $selected.Count -eq 0) { throw "Could not retrieve the selected immutable EA source ref." }
+          $sourceText = [string]::Join("\`n", $selected) + "\`n"
+          [System.IO.File]::WriteAllText((Join-Path $PWD $sourcePath), $sourceText, [System.Text.UTF8Encoding]::new($false))
+          $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $results = Join-Path $PWD "tv26-strategy-results"
+          New-Item -ItemType Directory -Path $results -Force | Out-Null
+          @(
+            "Variant: \${{ matrix.variant }}",
+            "Label: \${{ matrix.label }}",
+            "Immutable source commit: $sourceRef",
+            "EA source SHA-256: $sourceHash",
+            "Date from: $env:TV26_TEST_FROM",
+            "Date to (exclusive): $env:TV26_TEST_TO",
+            "Model: $env:TV26_TEST_MODEL",
+            "Risk percent: $env:TV26_TEST_RISK_PERCENT",
+            "Stop ATR: $env:TV26_TEST_STOP_ATR",
+            "Target ATR: $env:TV26_TEST_TARGET_ATR",
+            "M1 close breakout: $env:TV26_TEST_REQUIRE_M1_BREAKOUT",
+            "Global cooldown bars: $env:TV26_TEST_COOLDOWN_BARS"
+          ) | Set-Content -LiteralPath (Join-Path $results "latch-ab-source-manifest.txt") -Encoding utf8
+
+      - name: Run isolated MT5 Strategy Tester with one bounded history retry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $originalSecret = [string]$env:MT5_CREDENTIALS
+          if ([string]::IsNullOrWhiteSpace($originalSecret)) { throw "GitHub Actions secret mt5 is missing; no tester run attempted." }
+          $scriptPath = ".\.github\scripts\tv26_strategy_cooldown_backtest.ps1"
+          $results = Join-Path $PWD "tv26-strategy-results"
+          $completed = $false
+          for ($attempt = 1; $attempt -le 2; $attempt++) {
+            $env:MT5_CREDENTIALS = $originalSecret
+            try {
+              & $scriptPath
+              $completed = $true
+              break
+            } catch {
+              $diagDir = Join-Path $results "diagnostics"
+              $transient = $false
+              if (Test-Path -LiteralPath $diagDir) {
+                foreach ($logFile in @(Get-ChildItem -LiteralPath $diagDir -Filter "*.txt" -File -Recurse -ErrorAction SilentlyContinue)) {
+                  $logText = Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue
+                  if ($logText -match "(?i)no history data, stop testing|preliminary downloading of history ticks canceled") { $transient = $true; break }
+                }
+              }
+              if ($attempt -ge 2 -or !$transient) { throw }
+              $failedDiag = Join-Path $results "retry-attempt-1-diagnostics"
+              if (Test-Path -LiteralPath $failedDiag) { Remove-Item -LiteralPath $failedDiag -Recurse -Force }
+              if (Test-Path -LiteralPath $diagDir) { Move-Item -LiteralPath $diagDir -Destination $failedDiag -Force }
+              foreach ($name in @("TV26_Audit_XAUUSD_26102327.csv","TV26_OHLC_History_XAUUSD.csv","strategy-tester-report.html","data-integrity-report.md","data-integrity-report.json","formula-parity-report.md","formula-parity-report.json","formula-parity-details.csv")) {
+                $path = Join-Path $results $name
+                if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+              }
+              Start-Sleep -Seconds 3
+            }
+          }
+          $env:MT5_CREDENTIALS = $null
+          if (!$completed) { throw "No valid Strategy Tester result after the permitted one-time retry." }
+          if (!(Test-Path -LiteralPath (Join-Path $results "strategy-backtest-summary.txt"))) { throw "Tester summary missing." }
+
+      - name: Validate OHLC integrity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python trading-lab/tv26/validate_tv26_mt5_audit.py --csv tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv --report tv26-strategy-results/data-integrity-report.md --json tv26-strategy-results/data-integrity-report.json
+          if ($LASTEXITCODE -ne 0) { throw "OHLC integrity audit failed." }
+
+      - name: Validate all 26 votes against independent published formulas
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python trading-lab/tv26/reference_tv26_formulas.py --audit tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv --report tv26-strategy-results/formula-parity-report.md --details tv26-strategy-results/formula-parity-details.csv --json tv26-strategy-results/formula-parity-report.json
+          if ($LASTEXITCODE -ne 0) { throw "Independent formula audit failed." }
+
+      - name: Publish A/B arm summary
+        if: always()
+        shell: pwsh
+        run: |
+          "## \${{ matrix.label }}" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          "Source ref: \${{ matrix.source_ref }}; variant: \${{ matrix.variant }}; dates $env:TV26_TEST_FROM to $env:TV26_TEST_TO (exclusive end)." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          foreach ($name in @("latch-ab-source-manifest.txt","strategy-backtest-summary.txt","data-integrity-report.md","formula-parity-report.md")) {
+            $p = Join-Path "tv26-strategy-results" $name
+            if (Test-Path -LiteralPath $p) {
+              Get-Content -LiteralPath $p | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+            } else {
+              "MISSING: $name — this arm is incomplete and cannot be treated as a strategy result." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+            }
+          }
+
+      - name: Upload complete arm evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-latch-ab-\${{ matrix.id }}-\${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
