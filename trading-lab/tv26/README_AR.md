@@ -10,10 +10,11 @@ A research candidate for XAUUSD in MT5. It calculates 26 Technical-Ratings-style
 - أداة المقارنة المجربة: [compare_tv26_csv.py](compare_tv26_csv.py)
 - مؤشر Pine الموحّد الذي يخرج الأطر الخمسة بملف واحد: [TradingView_Parity_AllTF_Export.pine](TradingView_Parity_AllTF_Export.pine)
 - فك ترميز الملف الموحّد: [split_tv26_alltf_export.py](split_tv26_alltf_export.py)
+- فحص إزاحة إيشيموكو الخام على بيانات MT5: [validate_tv26_ichimoku_alignment.py](validate_tv26_ichimoku_alignment.py)
 - نسخة Pine لإطار واحد عند الحاجة: [TradingView_Parity_Components_1TF.pine](TradingView_Parity_Components_1TF.pine)
 - سير عمل GitHub للمقارنة: [tv26-direct-tradingview-parity.yml](../../.github/workflows/tv26-direct-tradingview-parity.yml)
 
-يلزم تصدير CSV واحد من TradingView يضم الأطر الخمسة معًا؛ ينزّل سير العمل ملف تدقيق MT5 من المختبر السحابي تلقائيًا. المقارنة تفحص OHLC أولًا ثم درجات الملخص وأصوات المكونات. لا يُدّعى تحقق المطابقة الفعلية قبل توفر ملفات TradingView الصادرة من Pine وتشغيل المقارنة عليها.
+يلزم تصدير CSV واحد من TradingView يضم الأطر الخمسة معًا؛ ينزّل سير العمل ملف تدقيق MT5 من المختبر السحابي تلقائيًا. المقارنة المباشرة تفحص OHLC أولًا ثم درجات الملخص وأصوات المكونات الـ26، كما يختبر تدقيق MT5 السحابي القيم الخام لإيشيموكو (خط التحويل، خط الأساس، السحابتان بعد إزاحة 26 شمعة، والإغلاق) مقابل إعادة حسابها من OHLC. لا يُدّعى تحقق المطابقة الفعلية مع TradingView قبل مقارنة CSV الحقيقي المُصدّر من مخطط TradingView.
 
 ## حالة المطابقة المباشرة
 راجع [حالة المطابقة الحالية — 24 أكتوبر 2026](TV26_DIRECT_PARITY_STATUS_2026-10-24.md) و[تقرير التدقيق السحابي التفصيلي](TV26_CLOUD_AUDIT_2026-10-24.md). المقارنة الفعلية مع TradingView لا تُعلن نجاحًا قبل إدخال CSV الحقيقي المُصدّر من Pine وتشغيل سير العمل.
