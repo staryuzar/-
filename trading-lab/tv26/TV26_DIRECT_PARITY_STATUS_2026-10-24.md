@@ -4,11 +4,12 @@
 
 | Gate | Status | Evidence |
 |---|---|---|
-| Pine exporters accepted by the TradingView compiler | PASS | [Parity CI, 24 Oct](https://github.com/staryuzar/-/actions/runs/40078002503) |
-| Python comparator / splitter / regression suite | PASS | [36 deterministic tests and TradingView compiler gate](https://github.com/staryuzar/-/actions/runs/40078002503) |
+| Pine exporters accepted by the TradingView compiler | PASS | [Parity CI, 24 Oct](https://github.com/staryuzar/-/actions/runs/40079367672) |
+| Python comparator / splitter / regression suite | PASS | [38 deterministic tests and TradingView compiler gate](https://github.com/staryuzar/-/actions/runs/40078002503) |
 | MQL5 source compiled by official MetaEditor in cloud | PASS | [MetaEditor compile](https://github.com/staryuzar/-/actions/runs/40078002533) |
 | Recent MT5 audit for 21–23 October 2026 | PASS | [Cloud audit](https://github.com/staryuzar/-/actions/runs/40077651784) |
 | Independent formula reference vs MT5 audit votes | PASS within the recorded MT5 feed | [Audit evidence artifact](https://github.com/staryuzar/-/actions/runs/40077651784/artifacts/12553559302) |
+| Raw Ichimoku values vs OHLC, including 26-bar cloud shift | PASS on the downloaded audit sample: 5,432 candles × 5 raw values, zero mismatches | [Cloud audit artifact](https://github.com/staryuzar/-/actions/runs/40077651784/artifacts/12553559302) |
 | Direct actual TradingView chart data vs MT5 | **PENDING — no TradingView CSV uploaded** | Requires `TV26_AllTF.csv` from the Pine exporter below |
 | Strategy profitability / real-tick robustness | **NOT TESTED by these parity runs** | Requires separate backtests with trading enabled in a controlled tester |
 
@@ -25,6 +26,8 @@
 - Source/data fingerprints and all limits are in [TV26_CLOUD_AUDIT_2026-10-24.md](TV26_CLOUD_AUDIT_2026-10-24.md).
 
 The result means that MT5’s recorded votes agree with the independently coded reference on the audited MT5 OHLCV. It does **not** prove that live TradingView chart values are numerically identical.
+
+A separate raw-value validation reconstructed Tenkan, Kijun, Senkou Span A/B shifted back 26 bars, and close from the actual exported OHLC. It checked 27,160 raw values over all five timeframes (5,432 Ichimoku candles) with zero mismatches. This confirms the current MT5 buffer alignment on that audited feed; it still does not substitute for the TradingView CSV comparison.
 
 ## Actual TradingView compiler check
 
