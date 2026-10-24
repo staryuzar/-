@@ -25,6 +25,11 @@ $rangeLabelEnd = $endDate.AddDays(-1).ToString("yyyy-MM-dd",$culture)
 $testRiskText = [string]$env:TV26_TEST_RISK_PERCENT
 $testStopText = [string]$env:TV26_TEST_STOP_ATR
 $testTargetText = [string]$env:TV26_TEST_TARGET_ATR
+$testMagicText = [string]$env:TV26_TEST_MAGIC
+if ([string]::IsNullOrWhiteSpace($testMagicText)) { $testMagicText = "26102327" }
+try { $testMagic = [long]::Parse($testMagicText,$culture) } catch { throw "TV26_TEST_MAGIC must be a positive integer. Value suppressed." }
+if ($testMagic -lt 1 -or $testMagic -gt 2147483647) { throw "TV26_TEST_MAGIC must be a positive integer within the supported MT5 range." }
+$testMagicText = $testMagic.ToString($culture)
 $testBreakoutText = [string]$env:TV26_TEST_REQUIRE_M1_BREAKOUT
 if ([string]::IsNullOrWhiteSpace($testBreakoutText)) { $testBreakoutText = "false" }
 $testRequireM1Breakout = [bool]::Parse($testBreakoutText)
@@ -135,7 +140,7 @@ try {
 InpEnableTrading=true||true||0||true||N
 InpDemoOnly=true||true||0||true||N
 InpTesterOnly=true||true||0||true||N
-InpMagic=26102327||26102327||1||26102327||N
+InpMagic=$testMagicText||$testMagicText||1||$testMagicText||N
 InpRiskPercent=$testRiskText||$testRiskText||0.10||$testRiskText||N
 InpATRPeriod=14||14||1||14||N
 InpStopATR=$testStopText||$testStopText||0.5||$testStopText||N
@@ -205,7 +210,7 @@ Visual=0
   $candidates = @()
   foreach ($r in $roots) {
     if (Test-Path $r) {
-      $candidates += @(Get-ChildItem -LiteralPath $r -Filter "TV26_Audit_XAUUSD_26102327.csv" -File -Recurse -ErrorAction SilentlyContinue)
+      $candidates += @(Get-ChildItem -LiteralPath $r -Filter ("TV26_Audit_XAUUSD_" + $testMagicText + ".csv") -File -Recurse -ErrorAction SilentlyContinue)
     }
   }
   $audit = $candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -232,7 +237,7 @@ Visual=0
     throw "Tester ended but audit CSV was not found; diagnostics saved. Incomplete run, not parity evidence."
   }
 
-  $auditOut = Join-Path $reports "TV26_Audit_XAUUSD_26102327.csv"
+  $auditOut = Join-Path $reports ("TV26_Audit_XAUUSD_" + $testMagicText + ".csv")
   Copy-Item -LiteralPath $audit.FullName -Destination $auditOut -Force
   "Audit CSV bytes: $((Get-Item $auditOut).Length)" | Add-Content -LiteralPath $summary -Encoding utf8
   "Audit CSV SHA-256: $((Get-FileHash -LiteralPath $auditOut -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content -LiteralPath $summary -Encoding utf8
@@ -272,7 +277,7 @@ Visual=0
     '(?is)InpEnableTrading=true</b>',
     '(?is)InpDemoOnly=true</b>',
     '(?is)InpTesterOnly=true</b>',
-    '(?is)InpMagic=26102327</b>',
+    '(?is)InpMagic=' + [regex]::Escape($testMagicText) + '</b>',
     '(?is)InpRiskPercent=' + [regex]::Escape($testRiskText) + '</b>',
     '(?is)InpStopATR=' + [regex]::Escape($testStopText) + '</b>',
     '(?is)InpTargetATR=' + [regex]::Escape($testTargetText) + '</b>',
@@ -283,7 +288,7 @@ Visual=0
       throw "Tester report does not confirm required safe backtest input pattern: $pattern"
     }
   }
-  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic 26102327; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText)." | Add-Content -LiteralPath $summary -Encoding utf8
+  "Input verification: PASS (trading enabled only for tester; demo guard on; tester-only guard on; magic=$testMagicText; risk=$testRiskText%; SL=$testStopText ATR; TP=$testTargetText ATR; M1 close-breakout=$testBreakoutText)." | Add-Content -LiteralPath $summary -Encoding utf8
   function Get-TesterMetric([string]$ReportHtml,[string]$Label) {
     $pattern = '(?is)<td[^>]*>\s*' + [regex]::Escape($Label) + '\s*</td>\s*<td[^>]*>\s*<b>(.*?)</b>'
     $match = [regex]::Match($ReportHtml,$pattern)
