@@ -57,7 +57,7 @@ class CooldownValidationContractTests(unittest.TestCase):
     def test_out_of_sample_holdout_is_fixed_and_compared_serially(self):
         self.assertIn('TV26_TEST_FROM: "2026.10.01"', self.holdout_workflow)
         self.assertIn('TV26_TEST_TO: "2026.10.11"', self.holdout_workflow)
-        self.assertIn("cooldown: [0, 10]", self.holdout_workflow)
+        self.assertIn("cooldown: [0, 10, 20]", self.holdout_workflow)
         self.assertIn("max-parallel: 1", self.holdout_workflow)
         self.assertIn("tv26-cooldown-validation-${{ github.ref }}", self.holdout_workflow)
         self.assertIn("TV26_TEST_REQUIRE_M1_BREAKOUT: \"true\"", self.holdout_workflow)
