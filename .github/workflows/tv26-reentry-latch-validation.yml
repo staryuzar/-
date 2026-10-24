@@ -25,12 +25,24 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          - id: sep01-10
-            label: "Sep 1–10 signal-latch diagnostic"
+          - id: sep01-10-baseline
+            label: "Sep 1–10 — legacy baseline"
+            latch_mode: "baseline"
             date_from: "2026.09.01"
             date_to: "2026.09.11"
-          - id: oct20-22
-            label: "Oct 20–22 cross-window check"
+          - id: sep01-10-preserve
+            label: "Sep 1–10 — latch preservation"
+            latch_mode: "preserve"
+            date_from: "2026.09.01"
+            date_to: "2026.09.11"
+          - id: oct20-22-baseline
+            label: "Oct 20–22 — legacy baseline"
+            latch_mode: "baseline"
+            date_from: "2026.10.20"
+            date_to: "2026.10.23"
+          - id: oct20-22-preserve
+            label: "Oct 20–22 — latch preservation"
+            latch_mode: "preserve"
             date_from: "2026.10.20"
             date_to: "2026.10.23"
 
@@ -45,6 +57,7 @@ jobs:
       TV26_TEST_TARGET_ATR: "4.00"
       TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
       TV26_TEST_COOLDOWN_BARS: "0"
+      TV26_TEST_LATCH_MODE: "${{ matrix.latch_mode }}"
 
     steps:
       - name: Checkout isolated signal-latch candidate
@@ -58,7 +71,7 @@ jobs:
       - name: Install formula-audit dependencies
         run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
 
-      - name: Run isolated real-tick MT5 tester with one bounded tick-history retry
+      - name: Run isolated A/B real-tick MT5 tester with one bounded tick-history retry
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
