@@ -42,14 +42,24 @@ class M1M5OscillatorGateTests(unittest.TestCase):
         self.assertIn("if(g_rating[t]<=STRONG) allStrongBuy=false;", self.aligned)
         self.assertIn("if(g_rating[t]>=-STRONG) allStrongSell=false;", self.aligned)
 
-    def test_gate_is_after_trading_disabled_check_and_before_execution_checks(self):
+    def test_gate_only_runs_for_a_new_entry_after_latch_and_cooldown_checks(self):
         disabled = self.trade.index("reason=TRADING_DISABLED")
-        gate = self.trade.index("reason=M1_M5_OSCILLATOR_GATE")
         foreign_position = self.trade.index("HasForeignNettingPosition()")
+        breakout = self.trade.index("reason=M1_CLOSE_BREAKOUT_NOT_CONFIRMED")
+        same_side = self.trade.index("reason=POSITION_ALREADY_SAME_SIDE")
+        latch = self.trade.index("reason=SAME_SIGNAL_LATCH")
+        cooldown = self.trade.index("reason=POST_EXIT_COOLDOWN")
+        gate = self.trade.index("reason=M1_M5_OSCILLATOR_GATE")
+        demo_guard = self.trade.index("reason=NOT_DEMO_ACCOUNT")
         self.assertLess(disabled, gate)
-        self.assertLess(gate, foreign_position)
+        self.assertLess(foreign_position, gate)
+        self.assertLess(breakout, gate)
+        self.assertLess(same_side, gate)
+        self.assertLess(latch, gate)
+        self.assertLess(cooldown, gate)
+        self.assertLess(gate, demo_guard)
         gate_start = self.trade.index("if(InpMinM1M5DirectionalOscillatorRating>0.0)")
-        gate_end = self.trade.index("if(HasForeignNettingPosition())", gate_start)
+        gate_end = self.trade.index("if(InpDemoOnly && AccountInfoInteger", gate_start)
         self.assertNotIn("RememberSignal(0)", self.trade[gate_start:gate_end])
 
     def test_tester_harness_applies_and_audits_requested_gate_value(self):
