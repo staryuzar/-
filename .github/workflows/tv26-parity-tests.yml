@@ -42,6 +42,7 @@ jobs:
           set -euo pipefail
           /tmp/pine-lint --human trading-lab/tv26/TradingView_Parity_AllTF_Export.pine
           /tmp/pine-lint --human trading-lab/tv26/TradingView_Parity_Components_1TF.pine
+          /tmp/pine-lint --human trading-lab/tv26/TradingView_Visual_Parity_5TF.pine
       - name: Validate Pine exporters with TradingView compiler endpoint
         id: tv_compile
         shell: bash
@@ -53,13 +54,16 @@ jobs:
           echo "Checking single-timeframe diagnostic exporter with TradingView..."
           /tmp/pine-lint --tv --human trading-lab/tv26/TradingView_Parity_Components_1TF.pine
           diagnostic_status=$?
+          echo "Checking display-only five-timeframe dashboard with TradingView..."
+          /tmp/pine-lint --tv --human trading-lab/tv26/TradingView_Visual_Parity_5TF.pine
+          visual_status=$?
           set -e
-          if [[ "$alltf_status" -eq 0 && "$diagnostic_status" -eq 0 ]]; then
+          if [[ "$alltf_status" -eq 0 && "$diagnostic_status" -eq 0 && "$visual_status" -eq 0 ]]; then
             echo "status=pass" >> "$GITHUB_OUTPUT"
             echo "Both Pine exporters passed TradingView compiler validation."
           else
             echo "status=fail" >> "$GITHUB_OUTPUT"
-            echo "::error::TradingView compiler validation failed (AllTF=$alltf_status, diagnostic=$diagnostic_status). Python tests will still run for additional diagnostics."
+            echo "::error::TradingView compiler validation failed (AllTF=$alltf_status, diagnostic=$diagnostic_status, visual=$visual_status). Python tests will still run for additional diagnostics."
           fi
       - name: Check Python syntax
         run: >-
