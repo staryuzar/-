@@ -58,20 +58,30 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p tv26-direct-parity-results
+          overall_status=0
           for tf in M1 M5 M15 M30 H1; do
+            echo "::group::Direct parity for ${tf}"
             python trading-lab/tv26/split_tv26_alltf_export.py \
               --input trading-lab/tv26/parity-input/TV26_AllTF.csv \
               --timeframe "${tf}" \
               --output "tv26-direct-parity-results/TV26_${tf}_normalized.csv"
-            python trading-lab/tv26/compare_tv26_csv.py \
+            if ! python trading-lab/tv26/compare_tv26_csv.py \
               --tv "tv26-direct-parity-results/TV26_${tf}_normalized.csv" \
               --mt5 trading-lab/tv26/parity-input/MT5_Audit.csv \
               --timeframe "${tf}" \
               --mt5-utc-offset-hours "${{ inputs.mt5_utc_offset_hours }}" \
               --min-bars 10 \
               --report "tv26-direct-parity-results/${tf}-report.md" \
-              --details "tv26-direct-parity-results/${tf}-details.csv"
+              --details "tv26-direct-parity-results/${tf}-details.csv"; then
+              echo "::error title=Parity failed for ${tf}::See the uploaded per-timeframe report and details CSV."
+              overall_status=1
+            fi
+            echo "::endgroup::"
           done
+          if [[ "${overall_status}" != "0" ]]; then
+            echo "::error title=Overall parity failed::One or more timeframes did not pass; reports for all timeframes were generated."
+            exit 1
+          fi
       - name: Upload direct parity reports
         if: always()
         uses: actions/upload-artifact@v4
