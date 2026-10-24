@@ -475,3 +475,23 @@ The exact Strategy Tester deal rows for the 0-bar and 10-bar arms are identical.
 The main concentration is the three losing sells on October 5 and the two losing buys on October 9. The 10-bar setting failed to block them because the accepted entries were not within ten M1 bars of the previous exit; the entry/deal table and diagnostic counter confirm no cooldown block occurred.
 
 The October 7 12:20 sell was a winner (+$4.47) entered 10 minutes 27 seconds after the prior sell's SL exit at 12:09:33. A 20-bar cooldown could suppress this winning entry even though it would not remove the earlier October 5 cluster. This makes the October 1–10 20-bar arm especially important: do not infer that longer cooldown is better from the October 20–22 diagnostic where it removed a loss. The 20-bar arm's actual report is still required before recording the result.
+
+
+## 32. October 1–10 cooldown holdout — all arms completed
+
+Completed workflow: https://github.com/staryuzar/-/actions/runs/40112056553  
+0-bar artifact: https://github.com/staryuzar/-/actions/runs/40112056553/artifacts/12567650766  
+10-bar artifact: https://github.com/staryuzar/-/actions/runs/40112056553/artifacts/12567186919  
+20-bar artifact: https://github.com/staryuzar/-/actions/runs/40112056553/artifacts/12567173668
+
+All three arms used the same current EA source SHA, the same October 1–10 window, identical MT5 audit CSV hash and identical OHLCV history hash. Settings: XAUUSD M1, Model 4, $500 balance, 1% risk, SL 2 ATR, TP 3 ATR, M1 close-breakout on. All three audits passed; 329,368 component votes were checked with zero formula mismatches and no OHLC integrity issues.
+
+| Cooldown | Net | PF | Max equity DD | Trades | Wins / losses | Cooldown blocks |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 bars | -$9.10 | 0.64 | 3.00% | 10 | 3 / 7 | 0 |
+| 10 bars | -$9.10 | 0.64 | 3.00% | 10 | 3 / 7 | 0 |
+| 20 bars | -$6.47 | 0.75 | 2.98% | 10 | 3 / 7 | 1 |
+
+The 0-bar and 10-bar HTML order/deal tables matched exactly. In the 20-bar arm, one re-entry at 12:20 on October 7 was blocked after an SL exit at 12:09:33; a subsequent sell was accepted at 12:31 and reached TP at 13:02:38. This shifted entry timing and improved the net result by $2.63 while leaving the seven losses and overall trade count unchanged. It did **not** make the strategy profitable: net remains negative and PF remains below 1.0.
+
+Decision: the 20-bar rule is a modest holdout improvement for this particular 3-ATR-target setup, not a general fix. Keep the default cooldown at 0 until the same rule is replicated on another clean window with matched settings; the earlier Sep 11–20 comparison showed almost no benefit (−$11.32 vs −$11.41), and the Oct 20–22 diagnostic that motivated the idea was not independent. Do not merge a global cooldown or describe the candidate as profitable from these results.
