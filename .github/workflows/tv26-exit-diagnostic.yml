@@ -8,6 +8,7 @@ on:
       - ".github/workflows/tv26-exit-diagnostic.yml"
       - ".github/scripts/tv26_strategy_backtest.ps1"
       - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+      - "trading-lab/tv26/test_tv26_exit_contract.py"
   workflow_dispatch:
 
 permissions:
@@ -34,6 +35,9 @@ jobs:
     steps:
       - name: Checkout diagnostic candidate
         uses: actions/checkout@v4
+      - name: Run TV26 entry/exit contract checks before MT5
+        shell: pwsh
+        run: python trading-lab/tv26/test_tv26_exit_contract.py
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
