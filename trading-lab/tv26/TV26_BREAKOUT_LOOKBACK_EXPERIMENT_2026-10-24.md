@@ -40,3 +40,17 @@ These audits validate code/formula behavior on this MT5 broker feed; they are no
 ## Interpretation / next gate
 
 The 5-bar screen is narrowly positive, while 1- and 3-bar settings are negative. Do not promote the 5-bar value yet: it was selected on this diagnostic window, produced just three trades, and has PF only 1.10. Test it against the unchanged 1-bar baseline on a separate untouched period before accepting any change. Preserve risk controls and the 0.01-lot minimum-risk cap; do not loosen them merely to increase trades.
+
+
+## Independent-window check (Sep 1–10, 2026)
+
+A later independent parameter holdout compared 1-bar/0.50 with 5-bar/0.50 under identical risk, SL/TP, breakout, buffer, source-history and MT5 model settings. Both compiled with 0 errors and 0 warnings; the tested input report explicitly confirmed lookback=1 versus lookback=5. Their audit SHA-256 and OHLC-history SHA-256 were identical, and both formula audits passed with 371,332 votes and zero mismatches.
+
+| Setting | Net profit | PF | Max equity DD | Trades | Wins / losses |
+|---|---:|---:|---:|---:|---:|
+| 1-bar / threshold 0.50 | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 |
+| 5-bar / threshold 0.50 | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 |
+
+Holdout workflow: https://github.com/staryuzar/-/actions/runs/40106562109 (artifacts `tv26-param-holdout-baseline-40106562109` and `tv26-param-holdout-lookback5-40106562109`).
+
+**Decision update:** the apparent improvement from 1 to 5 bars on Sep 14–18 did not transfer to this Sep 1–10 window; 5 bars did not alter accepted entries or performance here. Do not promote lookback=5 as a general improvement. The 1-bar/0.55 and combined 5-bar/0.55 results from the same holdout matrix are still required before finalizing that small grid, and any selected setting would need another unseen-period check.
