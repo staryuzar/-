@@ -126,3 +126,8 @@ These experiments were kept on separate research branches; none is merged into t
 
 
 The Sep 1–10 baseline trade list also revealed one immediate re-entry: a sell TP closed on 2026-09-08 at 22:58:59, then another sell opened at 22:59:00 and hit SL at 23:01:22 (-$5.08). This is a specific post-exit re-entry hypothesis, not proof that a cooldown is broadly beneficial; the separate Sep 11–20 test showed 10/20-bar cooldowns did not materially change accepted trades there. Any one-bar pause should be tested across a new period before adoption.
+
+
+### Oscillator-filter trial infrastructure issue and retry
+
+The first Sep 1–10 trial with `InpMinDirectionalOscillatorRating=0.15` did not produce a valid backtest: MT5 canceled preliminary real-tick history download and logged `no history data, stop testing`. Although MetaEditor compiled the EA with zero errors/warnings, no trades or performance metrics may be inferred from this run. This was an infrastructure failure, not a strategy loss. The workflow was updated to preserve the failed attempt diagnostics and retry once, only when that specific tick-history cancellation is detected. Retry run: https://github.com/staryuzar/-/actions/runs/40107875721. The original 0.00 baseline remains +$3.35 / PF 1.23 / DD 2.48% / 5 trades; no conclusion about the 0.15 filter is valid until a complete comparable tester export and audit exist.
