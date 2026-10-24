@@ -1,58 +1,46 @@
 # TV26 direct parity — current status (24 October 2026)
 
-## Gate summary
+## Latest gates
 
-| Gate | Status | Latest evidence |
+| Gate | Status | Evidence |
 |---|---|---|
-| Pine exporters accepted by the TradingView compiler | PASS | [Parity CI, TradingView compiler + regressions](https://github.com/staryuzar/-/actions/runs/40083533515) |
-| Python comparator, splitter and regression suite | PASS — 41 deterministic tests | [CI run](https://github.com/staryuzar/-/actions/runs/40083533515) |
-| MQL5 source compiled by official MetaEditor in cloud | PASS | [MetaEditor compile](https://github.com/staryuzar/-/actions/runs/40083533537) |
-| Recent MT5 audit for 21–23 October 2026 | PASS | [Cloud audit](https://github.com/staryuzar/-/actions/runs/40083533466); [artifact 12556177506](https://github.com/staryuzar/-/actions/runs/40083533466/artifacts/12556177506) |
-| Independent formula reference versus MT5 audit votes | PASS on the recorded MT5 feed | [Audit job and evidence](https://github.com/staryuzar/-/actions/runs/40083533466) |
-| Raw Ichimoku values and 26-bar cloud alignment | PASS: 27,160 values, zero mismatches | [Cloud audit artifact](https://github.com/staryuzar/-/actions/runs/40083533466/artifacts/12556177506) |
-| Direct actual TradingView chart data versus MT5 | **PENDING — no real TradingView CSV in the repository** | Requires `TV26_AllTF.csv` from the Pine exporter |
-| EA strategy profitability / real-tick robustness | **NOT TESTED by parity runs** | Requires a separate Strategy Tester campaign with trading enabled only in a controlled tester |
+| Versioned Pine library references and source-level contract | PASS | [Exact v3 contract test](https://github.com/staryuzar/-/blob/tv26-five-timeframes-arabic-candidate/trading-lab/tv26/tests/test_exact_technicalrating_v3_contract.py) |
+| Pine exporters accepted by TradingView compiler | PASS | [CI run 40092639470](https://github.com/staryuzar/-/actions/runs/40092639470) |
+| Python comparator/splitter/regression suite | PASS — 50 tests | [CI run 40092639470](https://github.com/staryuzar/-/actions/runs/40092639470) |
+| Official MetaEditor compile | PASS | [Run 40092639481](https://github.com/staryuzar/-/actions/runs/40092639481) |
+| New cloud MT5 indicator audit after the tests were added | PENDING while workflow runs | [Run 40092639444](https://github.com/staryuzar/-/actions/runs/40092639444) |
+| Previous independent formula reference versus MT5 votes | PASS on recorded MT5 OHLCV feed | 141,232 component votes; zero mismatches in [prior audit run 40091850456](https://github.com/staryuzar/-/actions/runs/40091850456) |
+| Actual TradingView chart-runtime values versus MT5 | **PENDING** | No real TradingView chart-output CSV has been compared |
+| EA profitability / robustness | **NOT ESTABLISHED by parity tests** | Separate controlled Strategy Tester evidence is required |
 
-## Verified latest MT5 audit
+## New source reconciliation
 
-- Window: 21–23 October 2026; Strategy Tester end date 24 October.
-- Symbol/broker: XAUUSD, Headway-Demo / Jarocel (Pty) Ltd.
-- Tester model: M1, 1-minute OHLC, not Real Ticks; deposit 500 USD; leverage 1:1000.
-- Trading was intentionally disabled: `InpEnableTrading=false`, `AllowLiveTrading=0`.
-- Audit CSV: 146,664 data rows; 5,432 candle groups; 141,232 component votes.
-- All 5,432 summary rows were complete on M1/M5/M15/M30/H1.
-- Aggregate arithmetic checks: 16,296 values, zero mismatches.
-- Independent implementation of the published TechnicalRating v3 rules versus MT5 votes: 141,232 checked, zero mismatches, zero missing/invalid values.
-- Raw Ichimoku validation: 27,160 values checked, zero mismatches/missing, including Tenkan, Kijun and Senkou spans shifted 26 bars.
-- Audit SHA-256: `e92d178246b76d463f366a5057729d5a73abe5d67b2ee6f56278a0fd508593b2`.
-- OHLCV history SHA-256: `a694348596d8ccca2cc82bd7ed5d82844c452656cf12fabdcdb7b27333f6c671`.
-- Full detailed record: [TV26_CLOUD_AUDIT_2026-10-24.md](TV26_CLOUD_AUDIT_2026-10-24.md).
+The exact source reconciliation is documented in [TV26_V3_SOURCE_RECONCILIATION_2026-10-24.md](TV26_V3_SOURCE_RECONCILIATION_2026-10-24.md).
 
-These results establish that the recorded MT5 votes agree with an independent implementation of the published rules on the audited MT5 feed. They do **not** show that the live TradingView chart has identical values, and do not establish strategy profitability.
+Two key clarifications are pinned in regression tests:
+- TechnicalRating v3 source uses rising ADX for both the buy and sell branches. This differs from the current Help Center wording for sell ADX. The candidate follows the explicitly versioned v3 library it imports.
+- TechnicalRating v3 calculates Bulls/Bears Power from EMA(close, 13); the candidate uses period 13.
 
-## Compiler and comparison pipeline checks
+This means the source-level contract and same-feed independent vote checks are in good shape. They do not, by themselves, establish numerical equality on a separate TradingView chart with a different provider or candle feed.
 
-Both `TradingView_Parity_AllTF_Export.pine` and `TradingView_Parity_Components_1TF.pine` passed the TradingView compiler endpoint as part of CI. The 41-test Python suite includes the CSV splitter, repeated-higher-timeframe-row validation, timestamp handling, formula contract tests, and an end-to-end synthetic comparison across all five timeframes. Its negative test deliberately corrupts one M15 RSI14 vote and confirms that the comparator returns FAIL and identifies RSI14.
+## Latest known MT5 audit scope
 
-- [Latest parity CI and compiler gate — run 40083533515](https://github.com/staryuzar/-/actions/runs/40083533515)
-- [Latest official MetaEditor compile — run 40083533537](https://github.com/staryuzar/-/actions/runs/40083533537)
-- [Latest cloud MT5 audit — run 40083533466](https://github.com/staryuzar/-/actions/runs/40083533466)
-- [Latest audit artifact — 12556177506](https://github.com/staryuzar/-/actions/runs/40083533466/artifacts/12556177506)
+The previous successful audit covered 21–23 October 2026, XAUUSD on Headway-Demo/Jarocel, with trading disabled. It contained 146,664 data rows, 5,432 candle groups and 141,232 component votes. Aggregate arithmetic checks and the independent formula-level vote check passed; the Ichimoku raw-value and 26-bar alignment check covered 27,160 values with zero mismatches. See [TV26_CLOUD_AUDIT_2026-10-24.md](TV26_CLOUD_AUDIT_2026-10-24.md).
 
-The synthetic end-to-end pass is a software integration test only. It cannot replace live chart data or Pine runtime output from the user’s TradingView chart.
+A newer cloud audit is running for the latest test commit. Do not call it passed until its actual conclusion and logs are checked:
+https://github.com/staryuzar/-/actions/runs/40092639444
 
-## Remaining input: one TradingView export
+## Important boundary
 
-1. Open XAUUSD on TradingView at M1 and add `TradingView_Parity_AllTF_Export.pine`.
-2. Export chart data, preserving the raw CSV at full precision; use the 21–23 October 2026 window where available and select the closest available XAUUSD feed to Headway-Demo.
-3. Commit the single file as `trading-lab/tv26/parity-input/TV26_AllTF.csv` on branch `tv26-five-timeframes-arabic-candidate`.
+The repository's Pine diagnostic exporter compares the reconstructed aggregates against TradingView's versioned library outputs and can emit one payload covering M1/M5/M15/M30/H1. The Python comparator is tested synthetically and fails when a component is corrupted. However, a synthetic test is not a real TradingView chart sample, and Pine compilation is not a runtime-value comparison.
 
-The workflow automatically triggers when that exact file is committed. It now searches recent successful cloud-audit runs and selects the newest one whose EA source, audit workflow, formula reference and validation scripts have the same Git blob IDs as the checked-out branch. It relies on exact Git blob IDs to prove the EA and audit scripts match the tested commit, verifies the downloaded audit CSV against its embedded SHA-256 digest, requires Strategy Tester exit code 0, and requires the explicit `InpEnableTrading=false` marker. The CSV digest is checked byte-for-byte; source identity is checked through Git objects, avoiding false mismatches caused by Windows/Linux line-ending conversion. A stale or altered artifact is rejected instead of being compared silently. For a manual run, `mt5_audit_run_id` is optional; leaving it blank enables automatic selection. The latest matching evidence before these new gates were added is run `40083533466`; the stricter workflow must pass its next CI run before its new guards are considered tested. Default MT5 server offset is UTC+3; confirm this against the broker’s actual server time before interpreting timestamps.
+No unofficial WebSocket/scraping feed was added. TradingView's current policies restrict machine-driven/non-display processing of its market data for algorithmic decisions. Use the versioned published formula source and MT5's own market history for automated computation; do not treat unauthorized scraping as a way to certify TradingView parity.
 
-Do not use another symbol such as a futures contract or a composite gold index as a substitute for spot XAUUSD. Similar ticker labels do not guarantee identical OHLC bars. If prices do not agree, the diagnostics prioritize `PRICE_FEED_OR_CANDLE_ALIGNMENT` before recommending formula changes.
+## Decision
 
-## Direct parity acceptance gates
-
-Do not mark direct parity PASS until every timeframe has at least 10 common closed bars, the matched bars cover at least 80% of the MT5 audit bars for that timeframe, OHLC differs by no more than 0.01, all three aggregate ratings are within 0.0011, the Pine-reconstructed aggregates agree with the official TradingView library, and all 26 component votes match without missing values.
-
-This stage must remain marked **PENDING** until the real `TV26_AllTF.csv` is supplied and the workflow produces actual results. Do not infer profitability from these parity checks or enable live trading based on them.
+- **Source-level formula contract:** PASS.
+- **Pine compiler and 50 deterministic tests:** PASS.
+- **Same-feed MT5 formula checks:** previously PASS, 141,232/141,232 votes.
+- **New MT5 cloud audit:** PENDING until run 40092639444 finishes.
+- **Direct numerical parity with an actual TradingView chart:** PENDING.
+- **Live trading approval:** NOT GRANTED by these checks.
