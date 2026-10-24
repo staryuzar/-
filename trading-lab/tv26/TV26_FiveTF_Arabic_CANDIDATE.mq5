@@ -827,8 +827,33 @@ void TradeIfAligned()
    datetime decisionBar=iTime(_Symbol,PERIOD_M1,1);
    if(sig==0)
    {
-      RememberSignal(0); // Re-arm after the five-timeframe consensus is no longer strong.
-      g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";
+      // A neutral consensus while a position is still open must not erase the
+      // last executed direction; otherwise the same side may re-enter immediately
+      // after that position closes if consensus briefly returns.
+      ulong neutralTicket=0;
+      ENUM_POSITION_TYPE neutralSide=POSITION_TYPE_BUY;
+      bool neutralPositionOpen=FindOurPosition(neutralTicket,neutralSide);
+      if(neutralPositionOpen)
+      {
+         if(g_lastExecutedSignal!=0)
+            Print("TV26_SIGNAL_LATCH_HELD;reason=NEUTRAL_WHILE_POSITION_OPEN;side=",
+                  EnumToString(neutralSide),";ticket=",neutralTicket,
+                  ";signal_memory=",SignalName(g_lastExecutedSignal),
+                  ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+         g_lastBlock="توافق محايد؛ ذاكرة الإشارة محفوظة أثناء بقاء الصفقة مفتوحة";
+         g_lastAction="انتظار؛ لا يوجد توافق قوي، مع الاحتفاظ بذاكرة اتجاه الصفقة القائمة";
+      }
+      else
+      {
+         if(g_lastExecutedSignal!=0)
+         {
+            RememberSignal(0);
+            Print("TV26_SIGNAL_LATCH_RESET;reason=NEUTRAL_WHILE_FLAT;bar=",
+                  TimeToString(decisionBar,TIME_DATE|TIME_MINUTES));
+         }
+         g_lastBlock="";
+         g_lastAction="انتظار؛ لا يوجد توافق قوي مكتمل بين الأطر الخمسة";
+      }
       return;
    }
    Print("TV26_CONSENSUS;signal=",SignalName(sig),
