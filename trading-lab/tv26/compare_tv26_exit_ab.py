@@ -160,6 +160,16 @@ def read_arm(key: str) -> dict:
     }
 
 
+def comparison_exit_code(settings_ok: bool, off_clean: bool, on_failed: bool,
+                        other_triggers: bool, summary_triggers: bool,
+                        on_valid_exit: bool) -> int:
+    """Return failure only for invalid evidence; zero-trigger windows remain inconclusive."""
+    hard_failure = (
+        not settings_ok or not off_clean or on_failed or other_triggers
+        or (summary_triggers and not on_valid_exit)
+    )
+    return 2 if hard_failure else 0
+
 def fmt_delta(on_value: str, off_value: str) -> str:
     a, b = first_number(on_value), first_number(off_value)
     if a is None or b is None:
@@ -232,14 +242,14 @@ def main() -> int:
     print(out.read_text(encoding="utf-8"))
     # A zero-trigger window is a valid INCONCLUSIVE observation, not a passing exit test
     # and not a pipeline failure. Fail only when the paired experiment itself is invalid.
-    hard_failure = (
-        not settings_ok
-        or not off_clean
-        or bool(on["failed"])
-        or bool(on_exit["other_triggers"])
-        or (bool(on_exit["summary_triggers"]) and not on_valid_exit)
+    return comparison_exit_code(
+        settings_ok=settings_ok,
+        off_clean=off_clean,
+        on_failed=bool(on["failed"]),
+        other_triggers=bool(on_exit["other_triggers"]),
+        summary_triggers=bool(on_exit["summary_triggers"]),
+        on_valid_exit=on_valid_exit,
     )
-    return 2 if hard_failure else 0
 
 
 if __name__ == "__main__":
