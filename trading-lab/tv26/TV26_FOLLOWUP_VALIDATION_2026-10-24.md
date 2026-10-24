@@ -602,7 +602,7 @@ The first two arms used immutable historical source commits and identical tester
 
 The two arms share exact audit CSV SHA-256 `880cba4d568e9e1592b721fd215ef12b4cc6487546ec1b261892f651a09cca8e` and OHLCV history SHA-256 `5fa5ea953cb7e5957bac8e5e8c3771550b58a3a56ae7a688131cd744db1cc21b`. Each formula audit checked 371,332 component votes with zero mismatches and each OHLC audit found no integrity issues. The source diff for this comparison is the neutral-consensus signal-memory change; risk, stop/target and breakout settings were matched. In the baseline Strategy Tester deal table, the sell opened at 22:59:00 on Sep 8 was stopped out at 23:01:22 for -$5.08 immediately after the preceding sell had taken profit at 22:58:59. That same-direction re-entry is absent in the fixed arm; the net result improves by exactly $5.08.
 
-This is a clean, source-matched positive result for the latch correction on the September sample, not evidence that the overall strategy is robust. Two Oct 20–22 arms are in progress for cross-checking; the baseline arm already completed at +$2.74, PF 1.40, DD 1.72%, three trades, and its audit/history hashes exactly match the previously completed fixed-source Oct arm. The formal A/B matrix must finish before we label the change independently replicated.
+This is a clean, source-matched positive result for the latch correction on the September sample, not evidence that the overall strategy is robust. The October 20–22 source-matched cross-check has since completed with identical baseline/fixed metrics and zero latch blocks in either arm; see section 42.
 
 ## 41. M1/M5 oscillator confirmation filter — holdout does not improve outcome
 
@@ -618,3 +618,19 @@ A matched Sep 21–30 holdout compared the optional minimum directional oscillat
 | 0.15 | +$0.67 | 1.17 | 0.99% | 2 | 1 / 1 | 4 |
 
 The HTML order/deal table is identical between arms. Thus 0.15 blocked four candidate entry opportunities without changing accepted trades or the result on this holdout. Decision: do not enable or promote this filter on the evidence; retain its disabled default on the research branch. This period has only two executed trades, so the result is a reject/no-benefit finding for this threshold on this sample, not a universal claim about oscillator filters.
+
+
+## 42. Signal-latch A/B — October cross-check completed
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40116024446  
+Baseline Oct 20–22 artifact: https://github.com/staryuzar/-/actions/runs/40116024446/artifacts/12569760354  
+Fixed Oct 20–22 artifact: https://github.com/staryuzar/-/actions/runs/40116024446/artifacts/12569650634
+
+The remaining two matrix arms completed successfully. Both used XAUUSD M1, Model 4, $500 deposit, risk 1%, SL 2 ATR, TP 4 ATR, M1 close-breakout enabled, and global cooldown 0. Their audit CSV SHA-256s are identical (`7f55e77de7dca0b2539c447dcc879f278debacb566c329d393bc67138b8af815`) and OHLCV history hashes match (`abeec9ea72700ac6f0cb821a27c2e61048a0b30c31e960b9ca86d6a2dcc36f94`). Each arm's formula audit checked 141,232 component votes with zero mismatches and the OHLC integrity audit passed.
+
+| Oct 20–22 arm | Net | PF | Max equity DD | Trades | Wins / losses | Same-signal latch blocks |
+|---|---:|---:|---:|---:|---:|---:|
+| Baseline source (`b4e80ec`) | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | 0 |
+| Preserved-latch source (`f0f915f`) | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | 0 |
+
+**A/B decision:** keep the latch correction in the candidate. It removed one identified bad same-direction re-entry on the September sample (+$5.08 net difference) and left October unchanged when no latch event needed blocking. This is evidence the state bug was real and the specific correction worked under the tested conditions; it is not a broad strategy edge or profitability proof. The progressive three-day gate remains failed at +$2.74 versus its +$7.50 threshold. No main-branch merge, live use, or general profit claim follows from this test.
