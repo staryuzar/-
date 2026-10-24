@@ -103,3 +103,12 @@ A small sequential Python scan used M5/M15/M30 strong consensus for hypothetical
 - The Oct 1–3 slice is therefore a reasonable next date window for a purpose-built summary-exit diagnostic that leaves the real opposite-summary logic active but disables only the M1 reversal branch in an isolated tester build.
 
 This is a window-selection hypothesis, not evidence that the current EA actually closes positions on opposite-summary events. A proper pass must show the real EA emitting `reason=OPPOSITE_SUMMARY` and then `TV26_EXIT_COMPLETED` in a completed MT5 tester log.
+
+
+The three trigger payloads also show the summary direction at the exit instant, explaining why the higher-timeframe rule did not fire first:
+
+- Sell ticket 2: M5 `-0.455`, M15 `-0.558`, M30 `-0.558`; M1 close `4429.12`; no opposite summary.
+- Sell ticket 4: M5 `-0.536`, M15 `-0.512`, M30 `-0.558`; M1 close `4430.99`; no opposite summary.
+- Buy ticket 6: M5 `+0.355`, M15 `+0.591`, M30 `+0.515`; M1 close `4388.25`; no opposite summary.
+
+In all three cases, the summary ratings remained aligned with the open trade at the moment the M1 structure-break rule closed it. This supports the hypothesis that the current three-candle M1 exit will often act before an M5/M15/M30 summary becomes oppositely directional. The matched A/B must still determine whether that early exit was beneficial.
