@@ -16,7 +16,7 @@ class TV26ParityComparatorTests(unittest.TestCase):
         tv_time = parse_time(str(int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)))
         self.assertEqual(mt5_time, tv_time)
 
-    def make_fixtures(self, folder: Path, mismatch: bool = False, formula_mismatch: bool = False):
+    def make_fixtures(self, folder: Path, mismatch: bool = False, formula_mismatch: bool = False, price_mismatch: bool = False):
         mt5_path = folder / "mt5.csv"
         tv_path = folder / "tv.csv"
         mt_headers = [
@@ -67,7 +67,8 @@ class TV26ParityComparatorTests(unittest.TestCase):
                 "TV26.formula_ma": "1", "TV26.formula_osc": "1",
                 "TV26.bar_open_time": str(epoch_ms),
                 "TV26.open": str(open_price), "TV26.high": str(open_price + 1),
-                "TV26.low": str(open_price - 1), "TV26.close": str(open_price + 0.25),
+                "TV26.low": str(open_price - 1),
+                "TV26.close": str(open_price + (0.5 if price_mismatch and minute == 1 else 0.25)),
                 "TV26.volume": "100",
             }
             tv_row.update({"TV26." + key: str(
@@ -123,6 +124,15 @@ class TV26ParityComparatorTests(unittest.TestCase):
             result, _, _ = compare_files(mt5, tv, "M1", 0, min_bars=1)
             self.assertEqual(result["status"], "FAIL")
             self.assertEqual(result["matched_bars"], 0)
+
+    def test_ohlc_mismatch_is_prioritized_over_component_diagnosis(self):
+        with tempfile.TemporaryDirectory() as temp:
+            mt5, tv = self.make_fixtures(Path(temp), price_mismatch=True)
+            result, details, report = compare_files(mt5, tv, "M1", 3, min_bars=2)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertEqual(result["price_mismatches"], 1)
+            self.assertEqual(result["diagnosis_code"], "PRICE_FEED_OR_CANDLE_ALIGNMENT")
+            self.assertIn("لا تعدّل الصيغ قبل حل ذلك", result["diagnosis_ar"])
 
     def test_rejects_unsupported_timeframe(self):
         with tempfile.TemporaryDirectory() as temp:
