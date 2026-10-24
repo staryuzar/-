@@ -56,14 +56,14 @@ def _canonical_value(raw: Any) -> float | str | None:
     return text.casefold()
 
 
-def _bar_key(raw: Any) -> int | None:
+def _bar_key(raw: Any, timeframe: str) -> int | None:
     text = "" if raw is None else str(raw).strip()
     if text.casefold() in BLANK_VALUES:
         return None
     try:
         return time_key(parse_time(text))
     except (InputError, OSError, OverflowError, ValueError) as exc:
-        raise InputError(f"Invalid {timeframe if False else ''} bar timestamp {text!r}: {exc}") from exc
+        raise InputError(f"Invalid {timeframe} bar timestamp {text!r}: {exc}") from exc
 
 
 def split_file(input_path: str | Path, timeframe: str, output_path: str | Path) -> dict[str, int | str]:
@@ -110,7 +110,7 @@ def split_file(input_path: str | Path, timeframe: str, output_path: str | Path) 
             }
             normalized.update({"TV26." + name: decoded[i] for i, name in enumerate(COMPONENTS)})
 
-            key = _bar_key(normalized["TV26.bar_open_time"])
+            key = _bar_key(normalized["TV26.bar_open_time"], tf)
             if key is None:
                 bars_without_timestamp += 1
                 writer.writerow(normalized)
