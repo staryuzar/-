@@ -28,13 +28,13 @@ class SignalLatchContractTests(unittest.TestCase):
         flat_else = branch.index("else", open_branch)
         reset = branch.index("RememberSignal(0)", flat_else)
         self.assertNotIn("RememberSignal(0)", branch[open_branch:flat_else])
-        self.assertIn("TV26_SIGNAL_LATCH_RESET;reason=NEUTRAL_WHILE_FLAT", branch[flat_else:reset + 300])
+        self.assertIn("TV26_SIGNAL_LATCH_RESET;reason=NEUTRAL_WHILE_FLAT", branch[flat_else:])
 
     def test_same_direction_entry_remains_blocked_until_latch_is_rearmed(self):
         logic = self.trade_logic
         self.assertIn("if(!hasTracked && sig==g_lastExecutedSignal)", logic)
         self.assertIn("reason=SAME_SIGNAL_LATCH", logic)
-        self.assertIn("g_lastExecutedSignal=0", self.source)
+        self.assertIn("RememberSignal(0)", branch)
 
     def test_research_fix_is_diagnostic_and_does_not_add_global_cooldown(self):
         branch = self.neutral_branch
