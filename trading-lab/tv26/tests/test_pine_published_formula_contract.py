@@ -56,26 +56,21 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
             with self.subTest(expression=expression):
                 self.assertIn(expression, self.source)
 
-    def test_parity_workflow_runs_automatically_on_export_upload(self):
+    def test_direct_parity_workflow_is_a_display_only_guard(self):
         workflow = (ROOT.parents[1] / ".github/workflows/tv26-direct-tradingview-parity.yml").read_text(encoding="utf-8")
-        self.assertIn('      - "trading-lab/tv26/parity-input/TV26_AllTF.csv"', workflow)
-        self.assertIn("MT5_AUDIT_RUN_ID_INPUT: ${{ github.event.inputs.mt5_audit_run_id || '' }}", workflow)
-        self.assertIn("MT5_UTC_OFFSET_HOURS: ${{ github.event.inputs.mt5_utc_offset_hours || '3' }}", workflow)
-        self.assertIn("required: false", workflow)
-        self.assertIn("gh run list --workflow tv26-cloud-audit.yml", workflow)
-        self.assertIn("run_path", workflow)
-        self.assertIn('".github/workflows/tv26-cloud-audit.yml"', workflow)
-        self.assertIn("audit_matches_checkout", workflow)
-        self.assertIn("fetch-depth: 0", workflow)
-        self.assertIn('git rev-parse "HEAD:$path"', workflow)
-        self.assertIn('git rev-parse "$run_head:$path"', workflow)
-        self.assertIn("Tester process exit code: 0", workflow)
-        self.assertIn("InpEnableTrading=false", workflow)
-        self.assertIn('sha256sum "$audit_file"', workflow)
-        self.assertIn('Audit CSV SHA-256: $actual_audit_sha', workflow)
-        self.assertIn("Git blob equality above proves the exact committed EA source was tested.", workflow)
-        self.assertNotIn("40083533466", workflow)
-        self.assertIn("--min-mt5-coverage 0.80", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("Automated TradingView market-data processing is disabled", workflow)
+        self.assertIn("TradingView_Visual_Parity_5TF.pine", workflow)
+        self.assertIn("Do not export chart data to CSV", workflow)
+        self.assertNotIn("gh run list", workflow)
+        self.assertNotIn("gh api", workflow)
+        self.assertNotIn("compare_tv26_csv.py", workflow)
+        self.assertNotIn("MT5_Audit.csv", workflow)
+        self.assertNotIn("TV26_AllTF.csv", workflow)
+        self.assertNotIn("pull_request:", workflow)
+        # No push trigger: chart market data cannot enter this workflow automatically.
+        self.assertNotRegex(workflow, r"(?m)^\s{2}push:")
+
 
     def test_strategy_diagnostic_counts_deduplicate_mirrored_mt5_events(self):
         script = (ROOT.parents[1] / ".github/scripts/tv26_strategy_backtest.ps1").read_text(encoding="utf-8")
@@ -88,25 +83,14 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertIn("$diagText = (@($diagEvents | Sort-Object) -join [Environment]::NewLine)", script)
         self.assertNotIn("$diagText += (Get-Content", script)
 
-    def test_direct_parity_audit_resolver_bash_syntax(self):
-        workflow = (ROOT.parents[1] / ".github/workflows/tv26-direct-tradingview-parity.yml").read_text(encoding="utf-8")
-        lines = workflow.splitlines()
-        step_name = "      - name: Resolve and download a source-matching cloud MT5 audit"
-        start = lines.index(step_name)
-        run_line = start + 1
-        while run_line < len(lines) and lines[run_line].strip() != "run: |":
-            run_line += 1
-        self.assertLess(run_line, len(lines), "Resolver step must contain a literal Bash block")
-        body = []
-        for line in lines[run_line + 1:]:
-            if line.startswith("      - name: "):
-                break
-            if line.strip() and not line.startswith("          "):
-                self.fail(f"Unexpected indentation in Bash block: {line!r}")
-            body.append(line[10:] if line.startswith("          ") else "")
-        script = "\n".join(body) + "\n"
-        result = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True, check=False)
-        self.assertEqual(result.returncode, 0, msg=result.stderr or "Bash syntax check failed")
+    def test_legacy_pine_exporters_are_marked_not_for_real_data_processing(self):
+        for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
+            raw = (ROOT / filename).read_text(encoding="utf-8")
+            with self.subTest(filename=filename):
+                self.assertIn("LEGACY FORMULA REFERENCE ONLY", raw)
+                self.assertIn("do not export real TradingView chart data to CSV", raw)
+                self.assertIn("TradingView_Visual_Parity_5TF.pine", raw)
+
 
     def test_exporters_discard_chikou_and_use_macd_histogram_consistently(self):
         for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
@@ -149,16 +133,16 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertIn("--tv --human trading-lab/tv26/TradingView_Parity_Components_1TF.pine", workflow)
         self.assertNotIn("--no-lint", workflow)
 
-    def test_input_readme_uses_the_same_single_file_as_workflow(self):
-        input_readme = (ROOT / "parity-input" / "README.md").read_text(encoding="utf-8")
+    def test_parity_input_docs_forbid_real_tradingview_csv_upload(self):
+        for path in (ROOT / "parity-input" / "README.md", ROOT / "parity-input" / "README_AR.md"):
+            content = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.name):
+                self.assertIn("display-only" if path.name == "README.md" else "العرض فقط", content)
+                self.assertIn("TradingView_Visual_Parity_5TF.pine", content)
+                self.assertIn("Do not upload a CSV" if path.name == "README.md" else "لا ترفع", content)
         workflow = (ROOT.parents[1] / ".github/workflows/tv26-direct-tradingview-parity.yml").read_text(encoding="utf-8")
-        self.assertIn("TV26_AllTF.csv", input_readme)
-        self.assertIn('      - "trading-lab/tv26/parity-input/TV26_AllTF.csv"', workflow)
-        self.assertNotIn("TV26_M1.csv", input_readme)
-        self.assertNotIn("TV26_M5.csv", input_readme)
-        self.assertNotIn("TV26_M15.csv", input_readme)
-        self.assertNotIn("TV26_M30.csv", input_readme)
-        self.assertNotIn("TV26_H1.csv", input_readme)
+        self.assertNotIn("TV26_AllTF.csv", workflow)
+
 
     def test_aggregate_and_closed_bar_contract(self):
         self.assertIn("floattotal=nz(ratingMA,0)+nz(ratingOther,0)", self.source)
