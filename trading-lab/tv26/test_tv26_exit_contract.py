@@ -75,6 +75,15 @@ class TV26ExitContractTests(unittest.TestCase):
         self.assertIn("input double InpStopATR", SOURCE)
         self.assertIn("input double InpTargetATR", SOURCE)
 
+    def test_exit_events_include_bar_identity_for_exact_pairing(self):
+        body = function_body("bool ManageOpenPositionExit()", "void TradeIfAligned(")
+        self.assertGreaterEqual(body.count('";bar=",TimeToString(iTime(_Symbol,PERIOD_M1,1),TIME_DATE|TIME_MINUTES)'), 3)
+        compare_path = ROOT / "trading-lab" / "tv26" / "compare_tv26_exit_ab.py"
+        compare = compare_path.read_text(encoding="utf-8")
+        self.assertIn("def event_key(line: str):", compare)
+        self.assertIn('return (ticket.group(1), reason.group(1), bar.group(1))', compare)
+        self.assertIn("key in done_keys", compare)
+
     def test_candidate_keeps_demo_guard_and_risk_ceiling(self):
         self.assertIn("input bool   InpDemoOnly            = true;", SOURCE)
         self.assertIn("InpRiskPercent>2.0", SOURCE)
