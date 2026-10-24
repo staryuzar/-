@@ -44,7 +44,7 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
             "rAo=f_calcRating(ao[1],ta.crossover(ao,0)or(ao>0andao[1]>0andao>ao[1]andao[2]>ao[1]),"
             "ta.crossunder(ao,0)or(ao<0andao[1]<0andao<ao[1]andao[2]<ao[1]))",
             "rMomentum=f_calcRating(mom[1],mom>mom[1],mom<mom[1])",
-            "rMacd=f_calcRating(macdSignal,macdLine>macdSignal,macdLine<macdSignal)",
+            "rMacd=f_calcRating(macdSignal,macdLine>macdSignalandmacdHist>0,macdLine<macdSignalandmacdHist<0)",
             "rStochRsi=f_calcRating(priceAvg,downTrendandkStochRsi<20anddStochRsi<20andkStochRsi>dStochRsi,"
             "upTrendandkStochRsi>80anddStochRsi>80andkStochRsi<dStochRsi)",
             "rWilliams=f_calcRating(wr[1],wr<-80andwr>wr[1],wr>-20andwr<wr[1])",
@@ -97,14 +97,15 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         result = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, msg=result.stderr or "Bash syntax check failed")
 
-    def test_exporters_discard_unused_ichimoku_and_macd_tuple_values(self):
+    def test_exporters_discard_chikou_and_use_macd_histogram_consistently(self):
         for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
             source = (ROOT / filename).read_text(encoding="utf-8")
             with self.subTest(filename=filename):
                 self.assertIn("[con, base, lead1, lead2, _] = tvta.ichimoku()", source)
-                self.assertIn("[macdLine, macdSignal, _] = ta.macd(close, 12, 26, 9)", source)
+                self.assertIn("[macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)", source)
+                self.assertIn("macdLine > macdSignal and macdHist > 0", source)
+                self.assertIn("macdLine < macdSignal and macdHist < 0", source)
                 self.assertNotIn("chikou", source)
-                self.assertNotIn("macdHist", source)
 
     def test_williams_r_uses_builtin_namespace_in_both_exporters(self):
         for filename in ("TradingView_Parity_AllTF_Export.pine", "TradingView_Parity_Components_1TF.pine"):
