@@ -47,9 +47,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "Checking five-timeframe exporter with TradingView..."
-          /tmp/pine-lint --tv --no-lint --human trading-lab/tv26/TradingView_Parity_AllTF_Export.pine
+          /tmp/pine-lint --tv --human trading-lab/tv26/TradingView_Parity_AllTF_Export.pine
           echo "Checking single-timeframe diagnostic exporter with TradingView..."
-          /tmp/pine-lint --tv --no-lint --human trading-lab/tv26/TradingView_Parity_Components_1TF.pine
+          /tmp/pine-lint --tv --human trading-lab/tv26/TradingView_Parity_Components_1TF.pine
       - name: Check Python syntax
         run: >-
           python -m py_compile
