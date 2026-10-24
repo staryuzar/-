@@ -30,11 +30,11 @@ f_voteText(float rating) =>
 
 // Return order: total, MA, oscillators, then all 26 component votes in TechnicalRating v3 order.
 f_components() =>
-    [con, base, lead1, lead2, chikou] = tvta.ichimoku()
+    [con, base, lead1, lead2, _] = tvta.ichimoku()
     [kStoch, dStoch] = tvta.stochFull(14, 3, 3)
     [kStochRsi, dStochRsi] = tvta.stochRsi(14, 14, 3, 3)
     [diP, diN, adx] = ta.dmi(14, 14)
-    [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+    [macdLine, macdSignal, _] = ta.macd(close, 12, 26, 9)
     float bullPower = high - ta.ema(close, 13)
     float bearPower = low - ta.ema(close, 13)
     float rsi = ta.rsi(close, 14)
