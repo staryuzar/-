@@ -1,0 +1,128 @@
+name: TV26 directional diagnostic — buys allowed vs sells only
+
+on:
+  push:
+    branches:
+      - tv26-directional-diagnostic
+    paths:
+      - ".github/workflows/tv26-directional-diagnostic.yml"
+      - ".github/scripts/tv26_strategy_cooldown_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+      - "trading-lab/tv26/tests/test_directional_diagnostic_contract.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Run sequentially: all arms use the same isolated Headway demo credential.
+concurrency:
+  group: tv26-directional-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tester:
+    name: "${{ matrix.period_label }} — ${{ matrix.direction_label }}"
+    runs-on: windows-2022
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - id: oct01-10-both
+            period_label: "Oct 1–10"
+            from: "2026.10.01"
+            to: "2026.10.11"
+            allow_buy: "true"
+            direction_label: "buys and sells allowed"
+          - id: oct01-10-sells
+            period_label: "Oct 1–10"
+            from: "2026.10.01"
+            to: "2026.10.11"
+            allow_buy: "false"
+            direction_label: "sell-only diagnostic"
+          - id: oct14-23-both
+            period_label: "Oct 14–23"
+            from: "2026.10.14"
+            to: "2026.10.24"
+            allow_buy: "true"
+            direction_label: "buys and sells allowed"
+          - id: oct14-23-sells
+            period_label: "Oct 14–23"
+            from: "2026.10.14"
+            to: "2026.10.24"
+            allow_buy: "false"
+            direction_label: "sell-only diagnostic"
+
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      TV26_TEST_FROM: "${{ matrix.from }}"
+      TV26_TEST_TO: "${{ matrix.to }}"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "3.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_COOLDOWN_BARS: "0"
+      TV26_TEST_ALLOW_BUY: "${{ matrix.allow_buy }}"
+
+    steps:
+      - name: Checkout directional diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Validate diagnostic toggle and safety contracts
+        shell: bash
+        run: python -m unittest trading-lab/tv26/tests/test_directional_diagnostic_contract.py -v
+
+      - name: Run isolated MT5 real-tick Strategy Tester (tester-only)
+        shell: pwsh
+        run: ./.github/scripts/tv26_strategy_cooldown_backtest.ps1
+
+      - name: Validate MT5 audit and complete candle bundles
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_mt5_audit.py
+          --csv tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --report tv26-strategy-results/data-integrity-report.md
+          --json tv26-strategy-results/data-integrity-report.json
+
+      - name: Compare all 26 votes against independent published formulas
+        shell: bash
+        run: >-
+          python trading-lab/tv26/reference_tv26_formulas.py
+          --audit tv26-strategy-results/TV26_Audit_XAUUSD_26102327.csv
+          --history tv26-strategy-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-strategy-results/formula-parity-report.md
+          --details tv26-strategy-results/formula-parity-details.csv
+          --json tv26-strategy-results/formula-parity-report.json
+
+      - name: Add actual tester metrics to Actions summary
+        if: always()
+        shell: pwsh
+        run: |
+          $summaryPath = "tv26-strategy-results/strategy-backtest-summary.txt"
+          "## ${{ matrix.period_label }} — ${{ matrix.direction_label }}" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          "Allow buy entries requested: ${{ matrix.allow_buy }}." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          "Tester-only: true; demo-only: true; model: Every tick based on real ticks (Model 4)." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          if (Test-Path -LiteralPath $summaryPath) {
+            Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          } else {
+            "No tester summary was produced. Treat this arm as incomplete, not as a zero-trade result." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+
+      - name: Upload all tester, trade-log, and parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-direction-${{ matrix.id }}-${{ github.run_id }}
+          path: tv26-strategy-results/
+          if-no-files-found: warn
+          retention-days: 30
