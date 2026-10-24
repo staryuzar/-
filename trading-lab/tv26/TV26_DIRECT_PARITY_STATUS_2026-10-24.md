@@ -5,7 +5,7 @@
 | Gate | Status | Evidence |
 |---|---|---|
 | Pine exporters accepted by the TradingView compiler | PASS | [Parity CI, 24 Oct](https://github.com/staryuzar/-/actions/runs/40078002503) |
-| Python comparator / splitter / regression suite | PASS | [33 deterministic tests and TradingView compiler gate](https://github.com/staryuzar/-/actions/runs/40078002503) |
+| Python comparator / splitter / regression suite | PASS | [36 deterministic tests and TradingView compiler gate](https://github.com/staryuzar/-/actions/runs/40078002503) |
 | MQL5 source compiled by official MetaEditor in cloud | PASS | [MetaEditor compile](https://github.com/staryuzar/-/actions/runs/40078002533) |
 | Recent MT5 audit for 21–23 October 2026 | PASS | [Cloud audit](https://github.com/staryuzar/-/actions/runs/40077651784) |
 | Independent formula reference vs MT5 audit votes | PASS within the recorded MT5 feed | [Audit evidence artifact](https://github.com/staryuzar/-/actions/runs/40077651784/artifacts/12553559302) |
