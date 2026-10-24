@@ -82,6 +82,8 @@ jobs:
           trading-lab/tv26/tests/test_tv26_visual_parity_dashboard.py
           trading-lab/tv26/tests/test_tv26_parity_pipeline_e2e.py
           trading-lab/tv26/tests/test_pine_published_formula_contract.py
+          trading-lab/tv26/tests/test_exact_technicalrating_v3_contract.py
+          trading-lab/tv26/tests/test_cooldown_validation_contract.py
       - name: Run deterministic parity tests
         run: python -m unittest discover -s trading-lab/tv26/tests -v
       - name: Enforce TradingView compiler result
