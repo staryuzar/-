@@ -62,6 +62,8 @@ class TV26PublishedFormulaContractTests(unittest.TestCase):
         self.assertIn("MT5_UTC_OFFSET_HOURS: ${{ github.event.inputs.mt5_utc_offset_hours || '3' }}", workflow)
         self.assertIn("required: false", workflow)
         self.assertIn("gh run list --workflow tv26-cloud-audit.yml", workflow)
+        self.assertIn("run_path", workflow)
+        self.assertIn('".github/workflows/tv26-cloud-audit.yml"', workflow)
         self.assertIn("audit_matches_checkout", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn('git rev-parse "HEAD:$path"', workflow)
