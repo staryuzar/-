@@ -634,3 +634,36 @@ The remaining two matrix arms completed successfully. Both used XAUUSD M1, Model
 | Preserved-latch source (`f0f915f`) | +$2.74 | 1.40 | 1.72% | 3 | 1 / 2 | 0 |
 
 **A/B decision:** keep the latch correction in the candidate. It removed one identified bad same-direction re-entry on the September sample (+$5.08 net difference) and left October unchanged when no latch event needed blocking. This is evidence the state bug was real and the specific correction worked under the tested conditions; it is not a broad strategy edge or profitability proof. The progressive three-day gate remains failed at +$2.74 versus its +$7.50 threshold. No main-branch merge, live use, or general profit claim follows from this test.
+
+
+## 23. Fresh progressive gate and signal-latch diagnostic (2026-10-24; runs 40115334971 and 40115390637)
+
+### Progressive gate — run 40115334971
+Workflow: https://github.com/staryuzar/-/actions/runs/40115334971
+
+| Window | Net | PF | Max equity DD | Trades (wins/losses) | Decision |
+|---|---:|---:|---:|---:|---|
+| 2026-10-22 | +$10.60 | 0.00 (no losing trades) | 0.74% | 1 (1/0) | Expand only; tiny sample |
+| 2026-10-21–22 | +$10.60 | 0.00 (no losing trades) | 0.74% | 1 (1/0) | Expand only; same single trade |
+| 2026-10-20–22 | +$2.74 | 1.40 | 1.72% | 3 (1/2) | STOP — gate failed |
+
+The three-day result did not meet the required +$7.50 net threshold, so no longer window was run. Gross profit was $9.62 and gross loss -$6.88. The trade list includes two losing sells on Oct 20 and one winning sell on Oct 22. The day-1 and day-2 figures are not independent evidence: both windows contain the same one winning trade.
+
+Audit evidence:
+- Day 1: 47,164 formula votes, zero mismatches; 1,814 OHLC candles, zero invalid/duplicate/timestamp issues.
+- Day 2: 94,198 formula votes, zero mismatches; 3,623 OHLC candles, zero invalid/duplicate/timestamp issues.
+- Day 3: 141,232 formula votes, zero mismatches; 5,432 OHLC candles, zero invalid/duplicate/timestamp issues.
+- All stages compiled to EX5 without non-zero compiler errors/warnings and ran in MT5 Strategy Tester Model 4. Tester-only/demo guards were enabled. The terminal can synthesize ticks where broker real-tick history is missing.
+
+### Signal-latch study — run 40115390637
+Workflow: https://github.com/staryuzar/-/actions/runs/40115390637
+
+- Sep 1–10: +$8.43, PF 1.88, max equity DD 2.35%, 4 trades (2 wins / 2 losses).
+- Oct 20–22: +$2.74, PF 1.40, max equity DD 1.72%, 3 trades (1 win / 2 losses).
+- Formula/data audits passed on both windows; no missing/invalid vote comparisons were reported.
+- The Oct run reports zero cooldown-blocked entries, so it provides no evidence that a cooldown would have prevented these losses.
+
+**Important experimental limitation:** the Sep and Oct artifacts record source SHA-256 `1448c417b458b78f7d69225801b44949cefb8b960bbe2a07eb68b719d64dde87`. The candidate branch and `tv26-reentry-latch-preservation-study` also currently expose the exact same MQL5 source blob SHA `ac75c47c17804c0721cbc14b3e5b568299747a9f`. Therefore these runs do **not** constitute a valid baseline-versus-fix A/B test; the numerical outcomes cannot establish that the latch change caused improvement. The source already contains neutral-while-position-open latch-preservation logic and diagnostic prints on both branches. Next step: make the baseline and candidate genuinely distinct source snapshots, verify their source hashes in each tester artifact, then compare the same Sep diagnostic and Oct holdout windows with identical settings. Do not merge based on these results.
+
+### TradingView parity status
+Formula-level audit remains a formula implementation check against the published TechnicalRating v3 rules on the Headway-Demo/Jarocel XAUUSD feed. It is not direct parity against an actual TradingView chart export. The direct parity gate remains OPEN until Pine outputs from the same TradingView symbol/feed and overlapping timestamps are exported and compared by component and timeframe.
