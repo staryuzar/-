@@ -11,6 +11,7 @@ input int    InpATRPeriod           = 14;
 input double InpStopATR             = 2.0;
 input double InpTargetATR           = 3.0;
 input int    InpCooldownBarsAfterExit = 0; // Optional cooldown on the M1 chart after a closed trade; 0 disables it.
+input int    InpSameDirectionCooldownAfterProfitBars = 0; // Research-only: pause same-direction re-entry only after a profitable exit; 0 disables it.
 input bool   InpRequireM1CloseBreakout = false; // Optional entry gate: last closed M1 candle must close beyond the prior candle high/low.
 input double InpMaxSpreadPoints     = 100.0;
 input int    InpDeviationPoints     = 20;
@@ -55,6 +56,9 @@ double g_maRating[N_TF], g_oscRating[N_TF];
 int g_ready[N_TF], g_maReady[N_TF], g_oscReady[N_TF];
 datetime g_lastM1Bar=0;
 datetime g_lastExitTime=0;
+bool g_lastExitWasProfit=false;
+int g_lastExitSignal=0; // +1 = last closed position was BUY; -1 = last closed position was SELL.
+double g_lastExitNet=0.0;
 datetime g_lastPanelUpdate=0;
 string g_lastAction="لم يُرسل أي أمر";
 string g_lastBlock="";
@@ -937,6 +941,29 @@ void TradeIfAligned()
          return;
       }
    }
+
+   // Targeted rule: only pause a new entry in the SAME direction after a profitable exit.
+   // Losing exits and opposite-direction signals remain eligible; this does not alter ratings.
+   if(!hasTracked && InpSameDirectionCooldownAfterProfitBars>0 &&
+      g_lastExitTime>0 && g_lastExitWasProfit && g_lastExitSignal==sig)
+   {
+      datetime profitAllowedFrom=g_lastExitTime+
+         (datetime)(InpSameDirectionCooldownAfterProfitBars*PeriodSeconds(PERIOD_M1));
+      datetime currentBar=iTime(_Symbol,PERIOD_M1,0);
+      if(currentBar>0 && currentBar<profitAllowedFrom)
+      {
+         g_lastBlock="فترة انتظار بعد إغلاق رابح في الاتجاه نفسه";
+         g_lastAction="انتظار؛ منع إعادة الدخول بنفس الاتجاه بعد الربح";
+         Print("TV26_ENTRY_BLOCK;reason=POST_PROFIT_SAME_DIRECTION_COOLDOWN;signal=",SignalName(sig),
+               ";bar=",TimeToString(decisionBar,TIME_DATE|TIME_MINUTES),
+               ";last_exit=",TimeToString(g_lastExitTime,TIME_DATE|TIME_SECONDS),
+               ";allowed_from=",TimeToString(profitAllowedFrom,TIME_DATE|TIME_SECONDS),
+               ";closed_signal=",SignalName(g_lastExitSignal),
+               ";exit_net=",DoubleToString(g_lastExitNet,2),
+               ";cooldown_bars=",InpSameDirectionCooldownAfterProfitBars);
+         return;
+      }
+   }
    if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO)
    {
       g_lastBlock="حماية الحساب: التداول مسموح على الحساب التجريبي فقط";
@@ -1069,8 +1096,13 @@ int OnInit()
       Print("TV26: نسبة المخاطرة يجب أن تكون أكبر من صفر ولا تتجاوز 2.0%");
       return INIT_PARAMETERS_INCORRECT;
    }
+   if(InpSameDirectionCooldownAfterProfitBars<0 || InpSameDirectionCooldownAfterProfitBars>720)
+   {
+      Print("TV26: فترة منع إعادة الدخول بعد الربح بنفس الاتجاه يجب أن تكون بين 0 و720 شمعة");
+      return INIT_PARAMETERS_INCORRECT;
+   }
    if(InpATRPeriod<1 || InpStopATR<=0 || InpTargetATR<=0 ||
-      InpMaxSpreadPoints<0 || InpDeviationPoints<0 || InpCooldownBarsAfterExit<0)
+      InpMaxSpreadPoints<0 || InpDeviationPoints<0 || InpCooldownBarsAfterExit<0 || InpCooldownBarsAfterExit>720)
    {
       Print("TV26: إعدادات ATR أو السبريد أو الانزلاق أو التهدئة غير صالحة");
       return INIT_PARAMETERS_INCORRECT;
@@ -1102,12 +1134,34 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    if((ulong)HistoryDealGetInteger(trans.deal,DEAL_MAGIC)!=InpMagic) return;
    long entryKind=HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
    if(entryKind!=DEAL_ENTRY_OUT && entryKind!=DEAL_ENTRY_OUT_BY && entryKind!=DEAL_ENTRY_INOUT) return;
+
    datetime closeTime=(datetime)HistoryDealGetInteger(trans.deal,DEAL_TIME);
-   if(closeTime>g_lastExitTime) g_lastExitTime=closeTime;
+   double exitNet=HistoryDealGetDouble(trans.deal,DEAL_PROFIT)+
+                  HistoryDealGetDouble(trans.deal,DEAL_SWAP)+
+                  HistoryDealGetDouble(trans.deal,DEAL_COMMISSION)+
+                  HistoryDealGetDouble(trans.deal,DEAL_FEE);
+   ENUM_DEAL_TYPE exitDealType=(ENUM_DEAL_TYPE)HistoryDealGetInteger(trans.deal,DEAL_TYPE);
+   int closedSignal=0;
+   // A BUY deal closes a SELL position; a SELL deal closes a BUY position.
+   if(exitDealType==DEAL_TYPE_BUY) closedSignal=-1;
+   else if(exitDealType==DEAL_TYPE_SELL) closedSignal=1;
+
+   // Use >= so a later closing deal in the same server second can update the remembered exit state.
+   if(closeTime>=g_lastExitTime)
+   {
+      g_lastExitTime=closeTime;
+      g_lastExitNet=exitNet;
+      g_lastExitWasProfit=(exitNet>0.0);
+      g_lastExitSignal=closedSignal;
+   }
    Print("TV26_POSITION_CLOSED;deal=",trans.deal,
          ";time=",TimeToString(closeTime,TIME_DATE|TIME_SECONDS),
          ";reason=",EnumToString((ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal,DEAL_REASON)),
-         ";cooldown_bars=",InpCooldownBarsAfterExit);
+         ";exit_net=",DoubleToString(exitNet,2),
+         ";closed_signal=",SignalName(closedSignal),
+         ";profitable=",(exitNet>0.0?"true":"false"),
+         ";cooldown_bars=",InpCooldownBarsAfterExit,
+         ";same_direction_profit_cooldown_bars=",InpSameDirectionCooldownAfterProfitBars);
 }
 void OnTick()
 {
