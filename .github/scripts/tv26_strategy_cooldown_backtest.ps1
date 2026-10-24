@@ -397,7 +397,9 @@ Visual=0
     "TV26_ENTRY_BLOCK;",
     "TV26_ORDER_ACCEPTED;",
     "TV26_ORDER_REJECTED;",
-    "TV26_POSITION_CLOSED;"
+    "TV26_POSITION_CLOSED;",
+    "TV26_BREAK_EVEN_SET;",
+    "TV26_BREAK_EVEN_REJECTED;"
   )
   foreach ($safeLog in @(Get-ChildItem -LiteralPath $logsOut -Filter "*.txt" -File -ErrorAction SilentlyContinue)) {
     try {
@@ -424,6 +426,8 @@ Visual=0
     "rejected_orders" = 'TV26_ORDER_REJECTED;'
     "blocked_invalid_atr" = 'reason=ATR_NOT_READY'
     "blocked_post_exit_cooldown" = 'reason=POST_EXIT_COOLDOWN'
+    "break_even_stops_set" = 'TV26_BREAK_EVEN_SET;ticket='
+    "break_even_stop_rejections" = 'TV26_BREAK_EVEN_REJECTED;ticket='
   }
   foreach ($metric in $diagnosticPatterns.Keys) {
     $count = [regex]::Matches($diagText,[regex]::Escape($diagnosticPatterns[$metric])).Count
