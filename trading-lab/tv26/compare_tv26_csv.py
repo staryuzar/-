@@ -145,7 +145,7 @@ def lookup(row: dict[str, str], headers: list[str], colname: str) -> str:
     return row.get(actual, "") if actual else ""
 
 
-def diagnose_comparison(counts: dict[str, int], min_bars: int) -> tuple[str, str]:
+def diagnose_comparison(counts: dict[str, int | float], min_bars: int, min_mt5_coverage: float) -> tuple[str, str]:
     """Return a prioritized next-step diagnosis; do not tune formulas before feed/time alignment."""
     if counts["matched_bars"] == 0:
         return ("NO_TIME_OVERLAP",
@@ -153,6 +153,9 @@ def diagnose_comparison(counts: dict[str, int], min_bars: int) -> tuple[str, str
     if counts["matched_bars"] < min_bars:
         return ("INSUFFICIENT_OVERLAP",
                 "الشموع المشتركة أقل من المطلوب: صدّر فترة أوسع وتأكد من توفر سجل MT5 للفترة نفسها.")
+    if counts["mt5_coverage_ratio"] < min_mt5_coverage:
+        return ("INSUFFICIENT_MT5_COVERAGE",
+                f"التغطية الزمنية لسجل MT5 منخفضة ({counts['mt5_coverage_ratio']:.1%} فقط)؛ المطلوب {min_mt5_coverage:.0%} على الأقل. صدّر تاريخًا أوسع أو تحقق من وقت/مصدر الرسم قبل قبول المطابقة.")
     if counts["price_mismatches"]:
         return ("PRICE_FEED_OR_CANDLE_ALIGNMENT",
                 "أسعار OHLC مختلفة؛ مصدر السعر أو توقيت الشموع أو ضبط الجلسة غير متطابق. لا تعدّل الصيغ قبل حل ذلك.")
@@ -174,11 +177,14 @@ def diagnose_comparison(counts: dict[str, int], min_bars: int) -> tuple[str, str
 
 def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
                   mt5_utc_offset_hours: float, min_bars: int = 10,
-                  price_tolerance: float = 0.01, rating_tolerance: float = 0.0011
+                  price_tolerance: float = 0.01, rating_tolerance: float = 0.0011,
+                  min_mt5_coverage: float = 0.80
                   ) -> tuple[dict[str, Any], list[dict[str, str]], str]:
     tf = canonical_tf(timeframe)
     if tf not in {"M1", "M5", "M15", "M30", "H1"}:
         raise InputError(f"Unsupported timeframe {timeframe!r}")
+    if not 0.0 <= min_mt5_coverage <= 1.0:
+        raise InputError("Minimum MT5 coverage must be between 0 and 1")
     mh, mr = read_csv(mt5_path)
     th, tr = read_csv(tv_path)
     mc = {name: find_col(mh, name) for name in (
@@ -236,6 +242,7 @@ def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
         "formula_calibration_mismatches": 0, "component_votes_checked": 0,
         "component_vote_mismatches": 0, "component_values_missing": 0,
     }
+    counts["mt5_coverage_ratio"] = len(common) / len(mt) if mt else 0.0
     details: list[dict[str, str]] = []
     max_price_delta = 0.0
     max_rating_delta = 0.0
@@ -347,20 +354,23 @@ def compare_files(mt5_path: str | Path, tv_path: str | Path, timeframe: str,
                        f"TradingView series=TV26.{tv_name}")
 
     enough = counts["matched_bars"] >= min_bars
+    coverage_ok = counts["mt5_coverage_ratio"] >= min_mt5_coverage
     complete = counts["component_values_missing"] == 0 and counts["incomplete_mt5_summary_bars"] == 0
     requirements = {
         "enough_matched_bars": enough,
+        "sufficient_mt5_history_coverage": coverage_ok,
         "all_required_values_present": complete,
         "ohlc_matches": counts["price_mismatches"] == 0,
         "summary_ratings_match": counts["summary_mismatches"] == 0,
         "pine_component_aggregates_match_official_library": counts["formula_calibration_values_checked"] > 0 and counts["formula_calibration_mismatches"] == 0,
         "all_26_component_votes_match": counts["component_vote_mismatches"] == 0,
     }
-    diagnosis_code, diagnosis_ar = diagnose_comparison(counts, min_bars)
+    diagnosis_code, diagnosis_ar = diagnose_comparison(counts, min_bars, min_mt5_coverage)
     result = {
         "status": "PASS" if all(requirements.values()) else "FAIL",
         "diagnosis_code": diagnosis_code, "diagnosis_ar": diagnosis_ar,
         "timeframe": tf, "min_bars_required": min_bars,
+        "min_mt5_coverage_required": min_mt5_coverage,
         "mt5_utc_offset_hours": mt5_utc_offset_hours, "mt5_symbols": sorted(symbols),
         "price_tolerance": price_tolerance, "rating_tolerance": rating_tolerance,
         "max_absolute_price_delta": max_price_delta,
@@ -384,6 +394,7 @@ def make_report(r: dict[str, Any], mt5_path: str | Path, tv_path: str | Path) ->
 - فرق توقيت خادم MT5 عن UTC المستخدم: **{r['mt5_utc_offset_hours']:+g} ساعة**
 - الشموع المشتركة: **{r['matched_bars']}** (الحد الأدنى المطلوب: {r['min_bars_required']})
 - شموع MT5: {r['mt5_bars']}؛ شموع TradingView: {r['tv_bars']}
+- تغطية شموع MT5 داخل TradingView: **{r['mt5_coverage_ratio']:.1%}** (الحد الأدنى: {r['min_mt5_coverage_required']:.0%})
 - شموع MT5 غير الموجودة في TradingView: {r['unmatched_mt5_bars']}
 - شموع TradingView غير الموجودة في MT5: {r['unmatched_tv_bars']}
 
@@ -444,17 +455,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mt5-utc-offset-hours", required=True, type=float,
                         help="MT5 server UTC offset: UTC+3 -> 3; UTC-2 -> -2")
     parser.add_argument("--min-bars", type=int, default=10)
+    parser.add_argument("--min-mt5-coverage", type=float, default=0.80,
+                        help="Minimum fraction of MT5 audit candles that must match TradingView (default 0.80)")
     parser.add_argument("--price-tolerance", type=float, default=0.01)
     parser.add_argument("--rating-tolerance", type=float, default=0.0011)
     parser.add_argument("--report", default="tv26-parity-report.md")
     parser.add_argument("--details", default="tv26-parity-details.csv")
     args = parser.parse_args(argv)
-    if args.min_bars < 1 or args.price_tolerance < 0 or args.rating_tolerance < 0:
-        parser.error("min-bars must be >= 1 and tolerances must be >= 0")
+    if (args.min_bars < 1 or args.price_tolerance < 0 or args.rating_tolerance < 0
+            or not 0.0 <= args.min_mt5_coverage <= 1.0):
+        parser.error("min-bars must be >= 1, tolerances must be >= 0, and min-mt5-coverage must be between 0 and 1")
     try:
         result, details, report = compare_files(
             args.mt5, args.tv, args.timeframe, args.mt5_utc_offset_hours,
-            args.min_bars, args.price_tolerance, args.rating_tolerance)
+            args.min_bars, args.price_tolerance, args.rating_tolerance, args.min_mt5_coverage)
         Path(args.report).write_text(report, encoding="utf-8")
         write_details(args.details, details)
         print(report)
