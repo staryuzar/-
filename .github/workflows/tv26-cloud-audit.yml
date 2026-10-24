@@ -8,6 +8,7 @@ on:
       - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
       - ".github/scripts/tv26_cloud_audit.ps1"
       - "trading-lab/tv26/validate_tv26_mt5_audit.py"
+      - "trading-lab/tv26/validate_tv26_ichimoku_alignment.py"
       - "trading-lab/tv26/reference_tv26_formulas.py"
       - "trading-lab/tv26/requirements-formula-audit.txt"
       - "trading-lab/tv26/tests/**"
@@ -55,6 +56,15 @@ jobs:
           --report tv26-cloud-results/formula-parity-report.md
           --details tv26-cloud-results/formula-parity-details.csv
           --json tv26-cloud-results/formula-parity-report.json
+      - name: Validate Ichimoku raw values and 26-bar cloud alignment
+        shell: bash
+        run: >-
+          python trading-lab/tv26/validate_tv26_ichimoku_alignment.py
+          --audit tv26-cloud-results/TV26_Audit_XAUUSD_26102326.csv
+          --history tv26-cloud-results/TV26_OHLC_History_XAUUSD.csv
+          --report tv26-cloud-results/ichimoku-raw-alignment-report.md
+          --details tv26-cloud-results/ichimoku-raw-alignment-details.csv
+          --json tv26-cloud-results/ichimoku-raw-alignment.json
       - name: Upload cloud audit evidence
         if: always()
         uses: actions/upload-artifact@v4
