@@ -1,0 +1,60 @@
+name: TV26 progressive daily gate — M1 oscillator confirmation 0.15
+
+on:
+  push:
+    branches:
+      - tv26-m1osc-progressive-gate-study
+    paths:
+      - ".github/workflows/tv26-m1osc-progressive-daily-gate.yml"
+      - ".github/scripts/tv26_progressive_m1osc_gate.ps1"
+      - ".github/scripts/tv26_strategy_cooldown_backtest.ps1"
+      - "trading-lab/tv26/TV26_FiveTF_Arabic_CANDIDATE.mq5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv26-m1osc-progressive-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  progressive-test:
+    name: Sequential 1-day, 2-day, 3-day... M1-oscillator screening
+    runs-on: windows-2022
+    timeout-minutes: 360
+    env:
+      MT5_CREDENTIALS: ${{ secrets.mt5 }}
+      PYTHONUTF8: "1"
+      TV26_TEST_MODEL: "4"
+      TV26_TEST_RISK_PERCENT: "1.00"
+      TV26_TEST_STOP_ATR: "2.00"
+      TV26_TEST_TARGET_ATR: "4.00"
+      TV26_TEST_REQUIRE_M1_BREAKOUT: "true"
+      TV26_TEST_COOLDOWN_BARS: "0"
+      TV26_TEST_M1_OSC_MIN: "0.15"
+
+    steps:
+      - name: Checkout isolated M1 oscillator gate study
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install formula-audit dependencies
+        run: python -m pip install -r trading-lab/tv26/requirements-formula-audit.txt
+
+      - name: Progressive one-day-first Strategy Tester screening
+        shell: pwsh
+        run: ./.github/scripts/tv26_progressive_m1osc_gate.ps1
+
+      - name: Upload each completed stage and audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv26-m1osc-progressive-gate-${{ github.run_id }}
+          path: tv26-progressive-results/
+          if-no-files-found: warn
+          retention-days: 30
