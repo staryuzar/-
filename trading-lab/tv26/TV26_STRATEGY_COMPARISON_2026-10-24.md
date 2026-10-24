@@ -29,7 +29,7 @@ All four runs recorded 14 unique strong-consensus M1 bars in the sample, all in 
 - Baseline, risk 0.50%, SL 2 ATR / TP 3 ATR: [run 40091401815](https://github.com/staryuzar/-/actions/runs/40091401815) · [artifact 12558958498](https://github.com/staryuzar/-/actions/runs/40091401815/artifacts/12558958498).
 - Risk 0.50%, SL 1 ATR / TP 1.5 ATR: [run 40091401821](https://github.com/staryuzar/-/actions/runs/40091401821) · [artifact 12558628127](https://github.com/staryuzar/-/actions/runs/40091401821/artifacts/12558628127).
 - Risk 1.00%, SL 2 ATR / TP 3 ATR: [run 40091401750](https://github.com/staryuzar/-/actions/runs/40091401750) · [artifact 12558774315](https://github.com/staryuzar/-/actions/runs/40091401750/artifacts/12558774315).
-- Risk 1.00%, SL 1 ATR / TP 1.5 ATR: [run 40091841108](https://github.com/staryuzar/-/actions/runs/40091841108) · [artifact 12558719222](https://github.com/staryuzar/-/actions/runs/40091841108/artifacts/12558719222).
+- Risk 1.00%, SL 1 ATR / TP 1.5 ATR: [run 40091841108](https://github.com/staryuzar/-/actions/runs/40091841108) · [artifact 12559002839](https://github.com/staryuzar/-/actions/runs/40091841108/artifacts/12559002839).
 - Risk 1.00%, SL 1.5 ATR / TP 2.25 ATR: [run 40091841057](https://github.com/staryuzar/-/actions/runs/40091841057).
 - Risk 1.00%, SL 2 ATR / TP 3 ATR with M1 close-breakout gate enabled: [run 40091841138](https://github.com/staryuzar/-/actions/runs/40091841138) · [artifact 12559019122](https://github.com/staryuzar/-/actions/runs/40091841138/artifacts/12559019122).
 - [Latest comparator tests — 45 tests passed](https://github.com/staryuzar/-/actions/runs/40091850547).
