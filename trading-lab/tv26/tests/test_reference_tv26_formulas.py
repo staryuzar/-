@@ -97,6 +97,14 @@ class TV26FormulaReferenceTests(unittest.TestCase):
         save_csv(audit_path, AUDIT_FIELDS, audit_rows)
         return audit_path, history_path
 
+    def test_dmi_and_ultimate_oscillator_preserve_pine_first_bar_na(self):
+        # Published Pine expressions depend on previous-bar values for TR and DM.
+        # Those inputs are unavailable on bar 0; both votes should first be ready on bar 28.
+        frame = pd.DataFrame(generated_ohlc(datetime(2026, 1, 1), 400, 1))
+        votes = compute_votes(frame)
+        self.assertEqual(votes["ADX"].first_valid_index(), 28)
+        self.assertEqual(votes["UltimateOscillator"].first_valid_index(), 28)
+
     def test_formula_engine_exposes_exactly_26_component_votes(self):
         votes = compute_votes(pd.DataFrame(generated_ohlc(datetime(2026, 1, 1), 400, 1)))
         self.assertEqual(set(votes), set(KEY_TO_LABEL))
