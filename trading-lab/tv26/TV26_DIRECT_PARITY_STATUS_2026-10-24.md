@@ -33,3 +33,20 @@ TradingView_Parity_AllTF_Export.pine, TradingView_Parity_Components_1TF.pine, th
 - Direct per-bar comparison against an actual TradingView chart: pending until a human checks matching timestamps/OHLC and visible values.
 - Strategy robustness: not established; the three-day gate failed.
 - No live-use or main-branch merge approval follows from these checks.
+
+
+## Follow-up: MACD formula discrepancy in the visual dashboard
+
+Audit found that the display-only formula reconstruction in `TradingView_Visual_Parity_5TF.pine` added a histogram-sign condition to its MACD vote:
+
+- Old dashboard formula: `macdLine > macdSignal and macdHist > 0` / `macdLine < macdSignal and macdHist < 0`.
+- Pinned TechnicalRating v3 source at lines 670–672 compares only `macd > signal` / `macd < signal`; it does not add a histogram-sign condition.
+- Corrected formula in commit [`fe8cea60`](https://github.com/staryuzar/-/commit/fe8cea60a6188354878d088b93c569152f4462c8): `float rMacd = f_calcRating(macdSignal, macdLine > macdSignal, macdLine < macdSignal)`.
+- Added regression assertion in [`e33917a8`](https://github.com/staryuzar/-/commit/e33917a8c175b410652acad5aaa1aa532d074854). The first CI run then surfaced a separate stale contract assertion expecting a 0.50% risk default while the candidate's source default is 1.00%. The test was corrected to expect `InpRiskPercent=1.00` while retaining the hard `InpRiskPercent>2.0` safety-ceiling assertion in [`f9738c7c`](https://github.com/staryuzar/-/commit/f9738c7cd5650d13f313ae2da5b36012a5078157).
+
+Verification:
+- [Parity/comparator tests on `f9738c7c`](https://github.com/staryuzar/-/actions/runs/40141782024): passed, including the pinned Pine linter, TradingView compiler endpoint validation, Python syntax checks and deterministic formula tests.
+- Official MetaEditor compile on the MACD-corrected candidate commit [run 40141707334](https://github.com/staryuzar/-/actions/runs/40141707334): success. The current source still uses the same MQL5 version; the MACD correction was in the diagnostic dashboard, not a change to the EA's order logic.
+- The dedicated tester audit is tracked in [run 40141714585](https://github.com/staryuzar/-/actions/runs/40141714585); do not record its result before it completes.
+
+This closes a false discrepancy in the **formula-side Pine dashboard**. It does not prove live same-bar parity with the user's TradingView chart. Actual per-bar comparison remains pending against the same ticker/feed, closed-candle timestamp and OHLC, and the official library values shown by the dashboard.
