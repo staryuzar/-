@@ -79,6 +79,7 @@ jobs:
           trading-lab/tv26/tests/test_reference_tv26_formulas.py
           trading-lab/tv26/tests/test_validate_tv26_mt5_audit.py
           trading-lab/tv26/tests/test_validate_tv26_ichimoku_alignment.py
+          trading-lab/tv26/tests/test_tv26_visual_parity_dashboard.py
           trading-lab/tv26/tests/test_tv26_parity_pipeline_e2e.py
           trading-lab/tv26/tests/test_pine_published_formula_contract.py
       - name: Run deterministic parity tests
