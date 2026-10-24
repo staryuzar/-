@@ -52,7 +52,7 @@ $credentialRaw = $null; $credentialObject = $null; $fields = $null; $lines = $nu
 @(
   "TV26 headless cloud MT5 indicator audit; EA trading is explicitly disabled.",
   "Symbol XAUUSD, tester timeframe M1, ratings M1/M5/M15/M30/H1.",
-  "Range 2026-09-01 to 2026-09-03 inclusive; MT5 Tester ToDate=2026.09.04.",
+  "Range 2026-10-21 to 2026-10-23 inclusive; MT5 Tester ToDate=2026.10.24.",
   "Model 1 (1-minute OHLC), deposit 500 USD, leverage 1:1000.",
   "This produces MT5 diagnostics only; it does not claim live TradingView parity or profitability.",
   "UTC start: $([DateTime]::UtcNow.ToString('o'))"
@@ -112,7 +112,7 @@ InpTF4=30||30||1||30||N
 InpTF5=16385||16385||1||16385||N
 "@
   [System.IO.File]::WriteAllText((Join-Path $setDir $setName),$setContent,[System.Text.UTF8Encoding]::new($false))
-  $reportBase = "TV26_CloudAudit_2026-09-01_to_2026-09-03"
+  $reportBase = "TV26_CloudAudit_2026-10-21_to_2026-10-23"
   $ini = @"
 [Common]
 Login=$accountLogin
@@ -136,8 +136,8 @@ Period=M1
 Model=1
 ExecutionMode=0
 Optimization=0
-FromDate=2026.09.01
-ToDate=2026.09.04
+FromDate=2026.10.21
+ToDate=2026.10.24
 ForwardMode=0
 Deposit=500
 Currency=USD
