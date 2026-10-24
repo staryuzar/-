@@ -51,6 +51,17 @@ class ExactTechnicalRatingV3ContractTests(unittest.TestCase):
         self.assertIn("iBearsPower(_Symbol,g_tfs[t],13)", ea)
         self.assertIn("bull=h-ema(c,13);bear=l-ema(c,13)", reference)
 
+    def test_risk_and_order_safety_inputs_have_hard_validation(self):
+        ea = compact("TV26_FiveTF_Arabic_CANDIDATE.mq5")
+        self.assertIn("if(InpRiskPercent<=0||InpRiskPercent>2.0)", ea)
+        self.assertIn("if(InpATRPeriod<1||InpStopATR<=0||InpTargetATR<=0||", ea)
+        self.assertIn("InpMaxSpreadPoints<0||InpDeviationPoints<0||InpCooldownBarsAfterExit<0)", ea)
+        self.assertIn("نسبة المخاطرة يجب أن تكون أكبر من صفر ولا تتجاوز 2.0%", ea)
+        # Keep the research/backtest defaults intact: this is a guard on unsafe
+        # parameter values, not a change to trading signals or risk sizing.
+        self.assertIn("InpRiskPercent=0.50", ea)
+        self.assertIn("InpDemoOnly=true", ea)
+
     def test_all_five_timeframes_use_confirmed_closed_bars_and_timestamp_shift(self):
         pine = compact("TradingView_Parity_AllTF_Export.pine")
         self.assertEqual(pine.count("request.security(syminfo.tickerid"), 5)
