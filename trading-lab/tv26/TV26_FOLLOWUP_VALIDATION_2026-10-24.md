@@ -310,3 +310,31 @@ The next test addresses a separate state-machine hypothesis, not another cooldow
 Validation was activated on that branch (push-triggered run): https://github.com/staryuzar/-/actions/runs/40111570530. The planned windows are September 1–10 and October 20–22, with the same 1% risk / 2 ATR stop / 4 ATR target / M1 close-breakout / zero cooldown baseline settings. The September window has a previously measured baseline of +$3.35, PF 1.23, five trades (two wins / three losses), including a September 8 same-direction sell re-entry one second after TP which then hit SL at -$5.08. No performance conclusion about the latch fix is valid until its two strategy-tester runs and both audits complete.
 
 No research-only fix has been merged into the candidate or main branch, and no live trading has been enabled.
+
+## 20. Signal-latch preservation — first controlled comparison (Sep 1–10)
+
+Research-only workflow: https://github.com/staryuzar/-/actions/runs/40111570530  
+Sep artifact: https://github.com/staryuzar/-/actions/runs/40111570530/artifacts/12566902328
+
+The baseline and latch-preservation build were tested on the **same date range, same broker feed, same OHLCV reference hash, same MT5 audit CSV hash, same model and risk/exit settings**. Only the signal-latch code differs. Both exported audits passed:
+- 371,332 component votes compared; 0 formula mismatches and 0 missing/invalid comparisons.
+- 42,846 summary aggregates recalculated; 0 aggregate mismatches.
+- 14,282 OHLC candle groups checked; 0 invalid rows, duplicates, or timestamp errors.
+- MetaEditor produced the EX5 with 0 errors and 0 warnings; Strategy Tester exit code 0.
+
+| Sep 1–10 variant | Net | PF | Max equity DD | Trades | Wins / losses |
+|---|---:|---:|---:|---:|---:|
+| Baseline latch | +$3.35 | 1.23 | 2.48% | 5 | 2 / 3 |
+| Preserve latch while a position is open | +$8.43 | 1.88 | 2.35% | 4 | 2 / 2 |
+
+The MT5 HTML trade tables confirm the four remaining trades and their outcomes are unchanged. The only removed trade was the same-direction sell opened at 22:59:00 on Sep 8, one second after the prior sell TP at 22:58:59; it hit SL at 23:01:22 for -$5.08. In the modified build, the log explicitly records SAME_SIGNAL_LATCH at 22:59:00. Gross profit therefore remains $18.00 while gross loss falls from -$14.65 to -$9.57, improving the net by exactly $5.08. Audit CSV hash and OHLCV history hash are identical to the baseline; this is a controlled change in the entry state, not changed prices or indicator votes.
+
+**Interpretation:** this is stronger evidence than the prior cooldown experiment because the exact suspected bad re-entry disappeared while the other four trades remained intact. It is still only a four-trade test over one already-investigated window; the change is not approved for the main candidate until the predeclared Oct 20–22 cross-window check completes. That independent window is currently running in the same workflow. No live trading or merge has been enabled.
+
+## 21. Diagnostic log isolation improvement — progressive runner retest
+
+After reviewing the completed progressive artifact, the tester report's actual deal table showed three trades in the three-day window while the aggregate diagnostic event count included an extra accepted-order event from a previous stage's terminal log. The financial metrics and per-stage audit CSVs were separate and remain the basis for the stage decisions, but the cross-stage log contamination makes those diagnostic counters unsuitable for attribution.
+
+The shared progressive helper now uses a separate portable MT5 installation/log root for each stage, keyed by that stage's unique magic number. The progressive workflow path filter was updated so the isolation change triggers a new sequential run. Retest: https://github.com/staryuzar/-/actions/runs/40111786286
+
+The rerun must reproduce the strategy metrics and demonstrate that each stage's diagnostic events match only that stage's trades before the log counters are reused. The previously completed run remains historical evidence for its Strategy Tester reports and formula/data audits; no inflated diagnostic counter is treated as a strategy fact.
