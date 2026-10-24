@@ -12,7 +12,7 @@ XAUUSD, Headway-Demo / Jarocel (Pty) Ltd; MT5 Model 4 (Every tick based on real 
 |---:|---:|---:|---:|---:|---:|---:|
 | 0 bars | -$11.41 | 0.43 | 3.39% | 6 | 1 / 5 | 0 |
 | 10 bars | -$11.41 | 0.43 | 3.39% | 6 | 1 / 5 | 4 |
-| 20 bars | Pending | Pending | Pending | Pending | Pending | Pending |
+| 20 bars | -$11.32 | 0.44 | 3.38% | 6 | 1 / 5 | 7 |
 
 Workflow: https://github.com/staryuzar/-/actions/runs/40104815052
 
@@ -20,6 +20,8 @@ The 0- and 10-bar tests had identical source SHA-256, identical exported MT5 aud
 
 The 10-bar variant recorded four POST_EXIT_COOLDOWN blocks on Sep 18 between 09:06 and 09:10 after the 09:01:18 take-profit. Its next accepted position was still the Sep 18 09:40 buy, exactly as in the baseline, so the cooldown did not change the six accepted trades or net result. A ten-bar pause therefore did not solve the observed loss cluster.
 
+The 20-bar variant recorded seven cooldown blocks but also left the six accepted trades unchanged. Net improved from -$11.41 to -$11.32 (just $0.09), PF from 0.43 to 0.44, and max equity DD from 3.39% to 3.38%. This is immaterial and does not support selecting a cooldown as a performance fix. The 20-bar test compiled with zero errors/warnings and passed the same audit: 282,334 votes, zero formula mismatches; 10,859 candle groups, zero data-integrity issues. The audit/history SHA-256 values match the zero-cooldown run.
+
 ## Interpretation
 
-Do not keep a cooldown merely because it blocks log events. It should change a harmful accepted entry or improve net outcome on held-out periods. Await the 20-bar variant before concluding whether a longer post-exit pause has a measurable effect.
+Final decision: reject post-exit cooldown as a strategy-performance enhancement on this sample. Both 10- and 20-bar variants added blocked-attempt diagnostics but did not change trade count or meaningfully improve outcome. Do not merge either change as a profit fix.
