@@ -64,6 +64,17 @@ class TV26ExitContractTests(unittest.TestCase):
         decision = function_body("void TradeIfAligned()", "int OnInit(")
         self.assertIn("if(ManageOpenPositionExit()) return;", decision)
 
+    def test_early_exit_toggle_preserves_open_position_and_sl_tp(self):
+        self.assertIn("input bool   InpUseRuleBasedEarlyExit = true;", SOURCE)
+        body = function_body("bool ManageOpenPositionExit()", "void TradeIfAligned(")
+        self.assertIn("if(!InpUseRuleBasedEarlyExit)", body)
+        skip = body.index("if(!InpUseRuleBasedEarlyExit)")
+        summary_check = body.index("int oppositeFrame=OppositeSummaryTimeframe(side);")
+        self.assertLess(skip, summary_check)
+        self.assertIn("return true;", body[skip:summary_check])
+        self.assertIn("input double InpStopATR", SOURCE)
+        self.assertIn("input double InpTargetATR", SOURCE)
+
     def test_candidate_keeps_demo_guard_and_risk_ceiling(self):
         self.assertIn("input bool   InpDemoOnly            = true;", SOURCE)
         self.assertIn("InpRiskPercent>2.0", SOURCE)
