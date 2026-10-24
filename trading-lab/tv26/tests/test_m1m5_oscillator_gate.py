@@ -64,6 +64,7 @@ class M1M5OscillatorGateTests(unittest.TestCase):
             self.harness,
         )
         self.assertIn("blocked_m1_m5_oscillator_gate", self.harness)
+        self.assertIn("minimum M1/M5 directional oscillator rating=$testM1M5OscText", self.harness)
 
 
 if __name__ == "__main__":
