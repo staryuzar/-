@@ -427,3 +427,34 @@ Fixed in commit 614afebc8998cc4e5351fb1bdbe41bb3d7ce1ca3 by asserting against se
 ## Current decision
 
 The formula implementations and data-audit tooling now have multiple clean MT5 runs, the progressive runner's isolation is validated, and the signal-latch change has one favorable diagnostic period but no lift in the October cross-check. The candidate still fails the three-day profitability gate, and the direct TradingView chart-export comparison remains open. Keep the work on the candidate/research branches; do not claim the EA is production-ready or enable live use on this evidence.
+
+
+## 28. October 1–10 same-source cooldown holdout — two arms completed
+
+Holdout workflow: https://github.com/staryuzar/-/actions/runs/40112056553  
+0-bar artifact: https://github.com/staryuzar/-/actions/runs/40112056553/artifacts/12567650766  
+10-bar artifact: https://github.com/staryuzar/-/actions/runs/40112056553/artifacts/12567186919
+
+The 0-bar and 10-bar arms completed on the same EA source hash and identical market/audit hashes. Both used XAUUSD M1, MT5 Model 4, 1% risk, 2 ATR stop, 3 ATR target, M1 close-breakout enabled, and a $500 deposit. Results were identical:
+
+| Cooldown | Net | PF | Max equity DD | Trades | Wins / losses | Cooldown blocks |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 M1 bars | -$9.10 | 0.64 | 3.00% | 10 | 3 / 7 | 0 |
+| 10 M1 bars | -$9.10 | 0.64 | 3.00% | 10 | 3 / 7 | 0 |
+
+Both runs had the same MT5 audit SHA-256 `699e66d4e046c9e9df8195f793aab3d195dcf988dd0fa734f58aafc773fc0d26` and history SHA-256 `db0447bee35ea1d59e4ad10c8c96709ca539a459d329a5bcd140ee03bf573005`. The 10-bar arm recorded zero cooldown blocks and kept the same accepted-order/trade counts. Its complete formula audit checked 329,368 votes with zero mismatches; OHLC integrity checks passed. Decision: **no evidence of benefit from 10 bars on this holdout**.
+
+The 20-bar arm in the same source-matched workflow was still in progress at the time of this update; its outcome must not be inferred from the two completed arms.
+
+## 29. Separate three-day risk diagnostic — technical history failure, not a result
+
+Workflow: https://github.com/staryuzar/-/actions/runs/40112056555  
+Diagnostic artifact: https://github.com/staryuzar/-/actions/runs/40112056555/artifacts/12567211453
+
+A separate three-day diagnostic using a 3 ATR target did not yield a valid MT5 result because the terminal reported `preliminary downloading of history ticks canceled` / `no history data, stop testing`. The workflow produced no tester trade summary and skipped the data/formula audits. Therefore it contributes **no profit, loss, or trade-count evidence** and must be treated as an infrastructure failure rather than a strategy loss. A clean completed rerun is required before using that period for conclusions.
+
+## 30. Updated CI status after regression-test repair
+
+Following the correction to the signal-latch test assertion, the current comparator suite passed all 70 Python tests and the TradingView compiler-status gate (workflow 40112887150). MetaEditor compilation also passed (workflow 40112887163). The source-matched trading-disabled cloud audit completed in workflow 40112887198: 141,232 vote comparisons with zero formula mismatches, 16,296 summary aggregate values with zero mismatch, 5,432 OHLC candle groups with no data-quality issues, and 27,160 Ichimoku raw fields with zero mismatch or missing values.
+
+These technical passes strengthen the implementation checks; they do not override the failed three-day profitability gate or establish direct numerical parity against an actual TradingView chart export.
