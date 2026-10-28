@@ -1,0 +1,538 @@
+"""Live demo-account verification for Gold Intelligence Lab.
+
+This module uses the MetaTrader 5 Python API against the running terminal and
+broker's current quotes. It does not invoke Strategy Tester or use historical
+simulated fills. In probe mode it submits one minimum-volume DEMO market order
+with server-side SL/TP, then closes only that probe position. In monitor mode
+it observes real quotes while the MQL5 EA is attached to a live DEMO chart.
+"""
+import json
+import os
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import MetaTrader5 as mt5
+
+PROBE_MAGIC = 28102027
+EA_MAGIC = 28102026
+ACCEPTED_RETCODES = {
+    getattr(mt5, "TRADE_RETCODE_DONE", 10009),
+    getattr(mt5, "TRADE_RETCODE_PLACED", 10008),
+    getattr(mt5, "TRADE_RETCODE_DONE_PARTIAL", 10010),
+}
+TERMINAL_PATH = os.environ.get("MT5_TERMINAL_PATH", "")
+LOGIN_TEXT = os.environ.get("MT5_LOGIN", "")
+PASSWORD = os.environ.get("MT5_PASSWORD", "")
+REQUESTED_SERVER = os.environ.get("MT5_SERVER", "")
+MODE = os.environ.get("GIL_MODE", "probe").lower()
+RESULT_PATH = Path(os.environ.get("GIL_RESULT_JSON", "live-demo-result.json"))
+MONITOR_SECONDS = max(60, int(os.environ.get("GIL_MONITOR_SECONDS", "360")))
+TIMEFRAME_NAME = os.environ.get("GIL_TIMEFRAME", "M1").upper()
+
+
+def emit(event, **fields):
+    data = {"event": event, "utc": datetime.now(timezone.utc).isoformat(), **fields}
+    line = json.dumps(data, ensure_ascii=False, sort_keys=True)
+    print(line, flush=True)
+    try:
+        RESULT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with RESULT_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except Exception:
+        pass
+
+
+def write_summary(**fields):
+    safe = {
+        "mode": MODE,
+        "utc": datetime.now(timezone.utc).isoformat(),
+        **fields,
+    }
+    RESULT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    RESULT_PATH.write_text(json.dumps(safe, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def account_is_demo(account):
+    server = str(getattr(account, "server", "") or "")
+    trade_mode = int(getattr(account, "trade_mode", -1))
+    server_looks_demo = any(k in server.lower() for k in ("demo", "practice", "trial", "contest"))
+    return trade_mode == 0 and server_looks_demo
+
+
+def connect():
+    if not TERMINAL_PATH or not Path(TERMINAL_PATH).is_file():
+        raise RuntimeError("MT5 terminal executable is missing.")
+    if not LOGIN_TEXT.isdigit() or not PASSWORD or not REQUESTED_SERVER:
+        raise RuntimeError("Demo credential fields are missing or malformed; values are not logged.")
+    ok = mt5.initialize(
+        path=TERMINAL_PATH,
+        login=int(LOGIN_TEXT),
+        password=PASSWORD,
+        server=REQUESTED_SERVER,
+        timeout=60000,
+        portable=True,
+    )
+    if not ok:
+        raise RuntimeError("MetaTrader5.initialize failed; error code=" + repr(mt5.last_error()))
+    account = mt5.account_info()
+    if account is None:
+        raise RuntimeError("MT5 returned no account information; error code=" + repr(mt5.last_error()))
+    if int(account.login) != int(LOGIN_TEXT):
+        raise RuntimeError("Connected account number did not match the requested demo account.")
+    if not account_is_demo(account):
+        raise RuntimeError(
+            "Safety stop: the terminal account is not explicitly reported as DEMO on a demo/practice server. No order was sent."
+        )
+    if not bool(account.trade_allowed) or not bool(account.trade_expert):
+        raise RuntimeError("Demo account or expert trading permission is disabled.")
+    emit(
+        "DEMO_ACCOUNT_VERIFIED",
+        account_mode=int(account.trade_mode),
+        server_classification="DEMO",
+        currency=str(account.currency),
+        equity=float(account.equity),
+        balance=float(account.balance),
+        leverage=int(account.leverage),
+        terminal_version=list(mt5.version() or ()),
+    )
+    return account
+
+
+def choose_gold_symbol():
+    symbols = mt5.symbols_get()
+    if symbols is None:
+        raise RuntimeError("MT5 could not enumerate broker symbols; error=" + repr(mt5.last_error()))
+    names = [str(s.name) for s in symbols]
+    exact = [n for n in names if n.upper() == "XAUUSD"]
+    prefix = [n for n in names if n.upper().startswith("XAUUSD")]
+    containing = [n for n in names if "XAUUSD" in n.upper()]
+    gold = [n for n in names if "GOLD" in n.upper()]
+    candidates = exact or prefix or containing or gold
+    if not candidates:
+        raise RuntimeError("The connected demo broker does not expose a recognisable XAUUSD/GOLD symbol.")
+    symbol = sorted(candidates, key=lambda n: (len(n), n.upper()))[0]
+    if not mt5.symbol_select(symbol, True):
+        raise RuntimeError("Could not select the broker gold symbol in Market Watch.")
+    info = mt5.symbol_info(symbol)
+    tick = mt5.symbol_info_tick(symbol)
+    if info is None or tick is None:
+        raise RuntimeError("No symbol metadata or live quote for the broker gold symbol.")
+    if int(info.trade_mode) == 0:
+        raise RuntimeError("The selected gold symbol is disabled for trading.")
+    age = time.time() - float(tick.time)
+    if age < -30 or age > 120:
+        raise RuntimeError("Gold quote is stale or unavailable; live order test was not attempted.")
+    if tick.bid <= 0 or tick.ask <= tick.bid:
+        raise RuntimeError("Gold bid/ask quote is invalid; live order test was not attempted.")
+    emit(
+        "LIVE_GOLD_QUOTE",
+        symbol=symbol,
+        bid=float(tick.bid),
+        ask=float(tick.ask),
+        spread=float(tick.ask - tick.bid),
+        quote_age_seconds=round(age, 2),
+        point=float(info.point),
+        tick_size=float(info.trade_tick_size),
+        min_volume=float(info.volume_min),
+        volume_step=float(info.volume_step),
+        broker_stop_level_points=int(info.trade_stops_level),
+        trade_mode=int(info.trade_mode),
+    )
+    return symbol, info, tick
+
+
+def filling_modes(info):
+    result = []
+    flags = int(getattr(info, "filling_mode", 0))
+    fok_flag = int(getattr(mt5, "SYMBOL_FILLING_FOK", 1))
+    ioc_flag = int(getattr(mt5, "SYMBOL_FILLING_IOC", 2))
+    if flags & ioc_flag:
+        result.append(int(mt5.ORDER_FILLING_IOC))
+    if flags & fok_flag:
+        result.append(int(mt5.ORDER_FILLING_FOK))
+    # RETURN can be rejected by Market Execution; try it only after broker flags.
+    if int(getattr(info, "trade_exemode", -1)) != int(getattr(mt5, "SYMBOL_TRADE_EXECUTION_MARKET", 2)):
+        result.append(int(mt5.ORDER_FILLING_RETURN))
+    return list(dict.fromkeys(result))
+
+
+def round_to_tick(price, info):
+    tick_size = float(info.trade_tick_size or info.point)
+    digits = int(info.digits)
+    if tick_size <= 0:
+        tick_size = float(info.point)
+    return round(round(price / tick_size) * tick_size, digits)
+
+
+def order_check(request):
+    check = mt5.order_check(request)
+    if check is None:
+        raise RuntimeError("order_check returned no result; error=" + repr(mt5.last_error()))
+    if int(check.retcode) != 0:
+        raise RuntimeError(
+            "Broker order_check rejected the demo order; retcode=" + str(check.retcode) +
+            " comment=" + str(getattr(check, "comment", ""))[:160]
+        )
+    return check
+
+
+def choose_filling_and_check(base_request, info):
+    last = None
+    for filling in filling_modes(info):
+        req = dict(base_request)
+        req["type_filling"] = filling
+        try:
+            order_check(req)
+            return req
+        except Exception as exc:
+            last = exc
+    raise RuntimeError("No broker-supported filling mode passed order_check: " + str(last))
+
+
+def positions_for(symbol, magic=None):
+    positions = mt5.positions_get(symbol=symbol)
+    if positions is None:
+        raise RuntimeError("positions_get failed; error=" + repr(mt5.last_error()))
+    if magic is None:
+        return list(positions)
+    return [p for p in positions if int(p.magic) == int(magic)]
+
+
+def orders_for(symbol):
+    orders = mt5.orders_get(symbol=symbol)
+    if orders is None:
+        raise RuntimeError("orders_get failed; error=" + repr(mt5.last_error()))
+    return list(orders)
+
+
+def send_and_check(request, stage):
+    result = mt5.order_send(request)
+    if result is None:
+        raise RuntimeError(stage + " order_send returned no result; error=" + repr(mt5.last_error()))
+    code = int(result.retcode)
+    emit(
+        "ORDER_RESPONSE",
+        stage=stage,
+        retcode=code,
+        accepted=code in ACCEPTED_RETCODES,
+        order=int(getattr(result, "order", 0) or 0),
+        deal=int(getattr(result, "deal", 0) or 0),
+        volume=float(getattr(result, "volume", 0.0) or 0.0),
+        comment=str(getattr(result, "comment", ""))[:160],
+    )
+    if code not in ACCEPTED_RETCODES:
+        raise RuntimeError(stage + " order was not accepted; retcode=" + str(code) +
+                           " comment=" + str(getattr(result, "comment", ""))[:160])
+    return result
+
+
+def close_position(position, info):
+    last_error = None
+    for attempt in range(3):
+        tick = mt5.symbol_info_tick(position.symbol)
+        if tick is None or tick.bid <= 0 or tick.ask <= tick.bid:
+            time.sleep(1)
+            last_error = "No valid quote while attempting to close demo probe position."
+            continue
+        if int(position.type) == int(mt5.POSITION_TYPE_BUY):
+            order_type = mt5.ORDER_TYPE_SELL
+            price = float(tick.bid)
+        else:
+            order_type = mt5.ORDER_TYPE_BUY
+            price = float(tick.ask)
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": position.symbol,
+            "position": int(position.ticket),
+            "volume": float(position.volume),
+            "type": order_type,
+            "price": price,
+            "deviation": 50,
+            "magic": PROBE_MAGIC,
+            "comment": "GIL_DEMO_PROBE_CLOSE",
+            "type_time": mt5.ORDER_TIME_GTC,
+        }
+        try:
+            req = choose_filling_and_check(request, info)
+            res = send_and_check(req, "demo_probe_close")
+            deadline = time.time() + 8
+            while time.time() < deadline:
+                remaining = mt5.positions_get(ticket=int(position.ticket))
+                if remaining is not None and len(remaining) == 0:
+                    emit("PROBE_POSITION_CLOSED", ticket=int(position.ticket), attempts=attempt + 1)
+                    return True
+                time.sleep(0.5)
+            last_error = "Close order accepted, but position is still visible."
+        except Exception as exc:
+            last_error = str(exc)
+            time.sleep(1)
+    emit("PROBE_CLOSE_FAILURE", message=str(last_error)[:300], ticket=int(position.ticket))
+    return False
+
+
+def run_probe():
+    started = datetime.now(timezone.utc)
+    account = connect()
+    symbol, info, tick = choose_gold_symbol()
+    open_positions = positions_for(symbol)
+    open_orders = orders_for(symbol)
+    # Never net with, close, or alter an existing user position/order in this symbol.
+    if open_positions or open_orders:
+        raise RuntimeError(
+            "Safety stop: the gold symbol already has an open position/order. The probe refused to touch existing trades."
+        )
+
+    volume = float(info.volume_min)
+    step = float(info.volume_step)
+    if volume <= 0 or step <= 0:
+        raise RuntimeError("Broker minimum volume/step is invalid.")
+    point = float(info.point)
+    tick_size = float(info.trade_tick_size or point)
+    spread = float(tick.ask - tick.bid)
+    stop_points = float(info.trade_stops_level) * point
+    distance = max(stop_points + 5.0 * tick_size, spread * 5.0, 50.0 * point, 10.0 * tick_size)
+    can_buy = int(info.trade_mode) != int(getattr(mt5, "SYMBOL_TRADE_MODE_SHORTONLY", 3))
+    is_buy = can_buy
+    entry = float(tick.ask if is_buy else tick.bid)
+    side = mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL
+    if is_buy:
+        sl = round_to_tick(entry - distance, info)
+        tp = round_to_tick(entry + distance * 1.5, info)
+    else:
+        sl = round_to_tick(entry + distance, info)
+        tp = round_to_tick(entry - distance * 1.5, info)
+    request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": symbol,
+        "volume": volume,
+        "type": side,
+        "price": entry,
+        "sl": sl,
+        "tp": tp,
+        "deviation": 50,
+        "magic": PROBE_MAGIC,
+        "comment": "GIL_DEMO_PROBE",
+        "type_time": mt5.ORDER_TIME_GTC,
+    }
+    request = choose_filling_and_check(request, info)
+    emit(
+        "DEMO_PROBE_READY",
+        symbol=symbol,
+        side="BUY" if is_buy else "SELL",
+        volume=volume,
+        entry=entry,
+        sl=sl,
+        tp=tp,
+        risk_control="server-side SL/TP attached",
+        existing_gold_positions=0,
+        existing_gold_orders=0,
+    )
+    result = send_and_check(request, "demo_probe_open")
+
+    position = None
+    deadline = time.time() + 12
+    while time.time() < deadline:
+        matches = positions_for(symbol, PROBE_MAGIC)
+        if matches:
+            position = matches[0]
+            break
+        time.sleep(0.5)
+    if position is None:
+        # Avoid closing anything by symbol alone: only this magic number can be targeted.
+        raise RuntimeError(
+            "The broker accepted the probe request but its open position could not be identified by the probe magic number. Check the demo terminal immediately."
+        )
+
+    closed = close_position(position, info)
+    if not closed:
+        raise RuntimeError(
+            "The DEMO probe position was opened but could not be confirmed closed after three attempts. It has server-side SL/TP; inspect the report and demo account."
+        )
+    deals = mt5.history_deals_get(started - timedelta(seconds=5), datetime.now(timezone.utc) + timedelta(seconds=5))
+    probe_deals = [d for d in (deals or []) if int(getattr(d, "magic", -1)) == PROBE_MAGIC and str(getattr(d, "symbol", "")) == symbol]
+    realized = sum(float(getattr(d, "profit", 0.0)) + float(getattr(d, "commission", 0.0)) +
+                   float(getattr(d, "swap", 0.0)) + float(getattr(d, "fee", 0.0)) for d in probe_deals)
+    emit(
+        "DEMO_ROUND_TRIP_PASS",
+        symbol=symbol,
+        order_result_retcode=int(result.retcode),
+        probe_deals=len(probe_deals),
+        realized_demo_pnl=round(realized, 4),
+        live_quote_used=True,
+        historical_simulation_used=False,
+    )
+    write_summary(
+        result="PASS",
+        demo_verified=True,
+        live_quote=True,
+        symbol=symbol,
+        probe_order_accepted=True,
+        probe_position_closed=True,
+        probe_deal_count=len(probe_deals),
+        probe_realized_demo_pnl=round(realized, 4),
+        historical_simulation_used=False,
+    )
+
+
+def run_monitor():
+    account = connect()
+    symbol, info, tick = choose_gold_symbol()
+    timeframe_code = getattr(mt5, "TIMEFRAME_" + TIMEFRAME_NAME, None)
+    if timeframe_code is None:
+        raise RuntimeError("Unsupported requested live chart timeframe: " + TIMEFRAME_NAME)
+
+    # Baseline positions may include the EA's first entry, because MT5 starts the chart
+    # before the Python observer attaches. Only positions with our EA magic are cleaned up.
+    started_epoch = time.time()
+    starting_position_tickets = {int(p.ticket) for p in positions_for(symbol, EA_MAGIC)}
+    starting_order_tickets = {int(o.ticket) for o in orders_for(symbol) if int(getattr(o, "magic", -1)) == EA_MAGIC}
+    deadline = time.monotonic() + MONITOR_SECONDS
+    last_tick_msc = -1
+    unique_tick_updates = 0
+    samples = 0
+    fresh_samples = 0
+    stale_samples = 0
+    new_bars = 0
+    last_bar_time = None
+    last_bid = float(tick.bid)
+    last_ask = float(tick.ask)
+    min_tick_age = 1e9
+    max_tick_age = -1.0
+
+    emit("LIVE_MONITOR_STARTED", symbol=symbol, timeframe=TIMEFRAME_NAME,
+         monitor_seconds=MONITOR_SECONDS, account_mode=int(account.trade_mode),
+         server_classification="DEMO", terminal_version=list(mt5.version() or ()))
+    while time.monotonic() < deadline:
+        current_tick = mt5.symbol_info_tick(symbol)
+        now = time.time()
+        samples += 1
+        if current_tick is not None and current_tick.time_msc > 0:
+            age = now - (float(current_tick.time_msc) / 1000.0)
+            min_tick_age = min(min_tick_age, age)
+            max_tick_age = max(max_tick_age, age)
+            last_bid = float(current_tick.bid)
+            last_ask = float(current_tick.ask)
+            if age <= 120 and age >= -30:
+                fresh_samples += 1
+            else:
+                stale_samples += 1
+            if int(current_tick.time_msc) != last_tick_msc:
+                unique_tick_updates += 1
+                last_tick_msc = int(current_tick.time_msc)
+        else:
+            stale_samples += 1
+
+        rates = mt5.copy_rates_from_pos(symbol, timeframe_code, 0, 2)
+        if rates is not None and len(rates) > 0:
+            candle_time = int(rates[-1]["time"])
+            if last_bar_time is None:
+                last_bar_time = candle_time
+            elif candle_time != last_bar_time:
+                last_bar_time = candle_time
+                new_bars += 1
+        time.sleep(5)
+
+    final_account = mt5.account_info()
+    if final_account is None or int(final_account.trade_mode) != 0:
+        raise RuntimeError("Account mode changed or account information disappeared during the live DEMO test.")
+
+    positions_before_cleanup = positions_for(symbol, EA_MAGIC)
+    cleanup_results = []
+    for position in positions_before_cleanup:
+        if int(position.ticket) in starting_position_tickets:
+            cleanup_results.append({"ticket": int(position.ticket), "result": "preserved_preexisting"})
+            continue
+        closed = close_position(position, info)
+        cleanup_results.append({"ticket": int(position.ticket), "result": "closed_by_test_cleanup" if closed else "CLOSE_FAILED"})
+    time.sleep(1)
+    remaining_ea_positions = positions_for(symbol, EA_MAGIC)
+    ea_orders = [o for o in orders_for(symbol) if int(getattr(o, "magic", -1)) == EA_MAGIC]
+    deals = mt5.history_deals_get(datetime.fromtimestamp(started_epoch, timezone.utc),
+                                  datetime.now(timezone.utc) + timedelta(seconds=2))
+    ea_deals = [d for d in (deals or []) if int(getattr(d, "magic", -1)) == EA_MAGIC and str(getattr(d, "symbol", "")) == symbol]
+    buy_deals = sum(1 for d in ea_deals if int(getattr(d, "type", -1)) == int(mt5.DEAL_TYPE_BUY))
+    sell_deals = sum(1 for d in ea_deals if int(getattr(d, "type", -1)) == int(mt5.DEAL_TYPE_SELL))
+    closed_ok = len(remaining_ea_positions) == 0 and len(ea_orders) == 0
+    live_data_ok = unique_tick_updates >= 10 and fresh_samples >= 5 and stale_samples < samples
+
+    emit(
+        "LIVE_MONITOR_FINISHED",
+        symbol=symbol,
+        timeframe=TIMEFRAME_NAME,
+        duration_seconds=MONITOR_SECONDS,
+        sampled_intervals=samples,
+        fresh_quote_samples=fresh_samples,
+        stale_quote_samples=stale_samples,
+        unique_tick_updates=unique_tick_updates,
+        new_bars_observed=new_bars,
+        last_bid=last_bid,
+        last_ask=last_ask,
+        min_tick_age_seconds=None if min_tick_age == 1e9 else round(min_tick_age, 2),
+        max_tick_age_seconds=None if max_tick_age < 0 else round(max_tick_age, 2),
+        ea_deals_during_window=len(ea_deals),
+        ea_buy_deals=buy_deals,
+        ea_sell_deals=sell_deals,
+        ea_open_positions_before_cleanup=len(positions_before_cleanup),
+        ea_cleanup=cleanup_results,
+        ea_positions_remaining=len(remaining_ea_positions),
+        ea_orders_remaining=len(ea_orders),
+        live_data_verified=live_data_ok,
+        cleanup_verified=closed_ok,
+        historical_simulation_used=False,
+    )
+    write_summary(
+        result="PASS" if live_data_ok and closed_ok else "FAIL",
+        demo_verified=True,
+        live_data_verified=live_data_ok,
+        live_quote_samples=samples,
+        fresh_quote_samples=fresh_samples,
+        stale_quote_samples=stale_samples,
+        unique_tick_updates=unique_tick_updates,
+        new_bars_observed=new_bars,
+        symbol=symbol,
+        timeframe=TIMEFRAME_NAME,
+        monitor_seconds=MONITOR_SECONDS,
+        ea_deals_during_window=len(ea_deals),
+        ea_buy_deals=buy_deals,
+        ea_sell_deals=sell_deals,
+        ea_open_positions_before_cleanup=len(positions_before_cleanup),
+        ea_cleanup=cleanup_results,
+        ea_positions_remaining=len(remaining_ea_positions),
+        ea_orders_remaining=len(ea_orders),
+        cleanup_verified=closed_ok,
+        historical_simulation_used=False,
+    )
+    if not live_data_ok:
+        raise RuntimeError("The test did not observe enough fresh changing live quotes during the window.")
+    if not closed_ok:
+        raise RuntimeError("EA positions or orders remained after demo-test cleanup.")
+
+
+def main():
+    try:
+        if MODE not in ("probe", "monitor"):
+            raise RuntimeError("GIL_MODE must be probe or monitor.")
+        if MODE == "probe":
+            run_probe()
+        else:
+            run_monitor()
+    except Exception as exc:
+        safe_message = str(exc).replace(PASSWORD, "[PASSWORD REDACTED]")
+        if LOGIN_TEXT:
+            safe_message = safe_message.replace(LOGIN_TEXT, "[LOGIN REDACTED]")
+        if REQUESTED_SERVER:
+            safe_message = safe_message.replace(REQUESTED_SERVER, "[SERVER REDACTED]")
+        emit("LIVE_DEMO_TEST_FAILURE", mode=MODE, message=safe_message[:700])
+        write_summary(result="FAIL", mode=MODE, message=safe_message[:700], historical_simulation_used=False)
+        sys.exit(2)
+    finally:
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    main()
