@@ -49,6 +49,8 @@ int DayKey(datetime t)
 
 bool SaveRiskState()
 {
+   // Keep Strategy Tester runs independent from terminal-global risk state.
+   if(MQLInfoInteger(MQL_TESTER)) return true;
    bool ok=true;
    if(GlobalVariableSet(gvInitialEquityKey,initialEquity)==0) ok=false;
    if(GlobalVariableSet(gvDayKeyKey,(double)currentDayKey)==0) ok=false;
@@ -59,6 +61,23 @@ bool SaveRiskState()
 
 bool LoadRiskState()
 {
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   currentDayKey=DayKey(TimeTradeServer());
+   if(currentDayKey<20000101 || equity<=0)
+   {
+      lastStatus="Risk state unavailable: waiting for valid server time/equity";
+      return false;
+   }
+
+   // Backtests should start from their own initial equity on each run.
+   if(MQLInfoInteger(MQL_TESTER))
+   {
+      initialEquity=equity;
+      dayStartEquity=equity;
+      tradesToday=0;
+      return true;
+   }
+
    long login=(long)AccountInfoInteger(ACCOUNT_LOGIN);
    string symbolKey=StringSubstr(_Symbol,0,8);
    StringReplace(symbolKey,".","_");
@@ -69,14 +88,6 @@ bool LoadRiskState()
    gvDayKeyKey=gvPrefix+"_Day";
    gvDayEquityKey=gvPrefix+"_DayEq";
    gvTradesTodayKey=gvPrefix+"_Trades";
-
-   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
-   currentDayKey=DayKey(TimeTradeServer());
-   if(currentDayKey<20000101 || equity<=0)
-   {
-      lastStatus="Risk state unavailable: waiting for valid server time/equity";
-      return false;
-   }
 
    if(GlobalVariableCheck(gvInitialEquityKey) && GlobalVariableGet(gvInitialEquityKey)>0)
       initialEquity=GlobalVariableGet(gvInitialEquityKey);
