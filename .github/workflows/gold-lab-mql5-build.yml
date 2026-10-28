@@ -33,24 +33,80 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Python analysis dependencies
+      - name: Install complete dashboard runtime dependencies
         shell: pwsh
         run: |
-          python -m pip install --disable-pip-version-check -r trading-lab/gold-intelligence-lab/python/requirements-analysis.txt
-          if ($LASTEXITCODE -ne 0) { throw "Python analysis dependency installation failed." }
+          python -m pip install --disable-pip-version-check -r trading-lab/gold-intelligence-lab/python/requirements-ui.txt
+          if ($LASTEXITCODE -ne 0) { throw "Dashboard dependency installation failed." }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "Dashboard dependency consistency check failed." }
 
+      - name: Import all runtime modules
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE "trading-lab/gold-intelligence-lab/python"
+          python -c "import numpy, pandas, streamlit, MetaTrader5; from goldlab import analyze_ohlcv, scan_market_structure, build_advisory, fetch_bls_calendar, fetch_cftc_gold_cot, LocalAuditLedger; print('PASS: all runtime modules imported; MT5 was not initialized.')"
+          if ($LASTEXITCODE -ne 0) { throw "A runtime module import failed." }
       - name: Compile Python source syntax
         shell: pwsh
         run: |
           python -m compileall -q trading-lab/gold-intelligence-lab/python/goldlab trading-lab/gold-intelligence-lab/app.py
           if ($LASTEXITCODE -ne 0) { throw "Python source syntax compilation failed." }
 
+      - name: Start dashboard and verify local HTTP health
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $ErrorActionPreference = "Stop"
+          $project = Join-Path $env:GITHUB_WORKSPACE "trading-lab/gold-intelligence-lab"
+          $env:PYTHONPATH = Join-Path $project "python"
+          $log = Join-Path $env:RUNNER_TEMP "goldlab-streamlit-smoke.log"
+          $err = Join-Path $env:RUNNER_TEMP "goldlab-streamlit-smoke.err"
+          $app = Join-Path $project "app.py"
+          $arguments = "-m streamlit run $app --server.headless true --server.address 127.0.0.1 --server.port 8765 --browser.gatherUsageStats false"
+          $proc = Start-Process -FilePath "python" -ArgumentList $arguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError $err
+          $healthy = $false
+          try {
+            for ($i = 0; $i -lt 30; $i++) {
+              if ($proc.HasExited) {
+                if (Test-Path $log) { Get-Content $log -Tail 80 }
+                if (Test-Path $err) { Get-Content $err -Tail 80 }
+                throw "Streamlit exited before health endpoint was ready."
+              }
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:8765/_stcore/health" -UseBasicParsing -TimeoutSec 2
+                if ($response.StatusCode -eq 200 -and $response.Content.Trim() -eq "ok") {
+                  $healthy = $true
+                  Write-Output "PASS: Streamlit health endpoint returned HTTP 200 / ok."
+                  break
+                }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (!$healthy) {
+              if (Test-Path $log) { Get-Content $log -Tail 80 }
+              if (Test-Path $err) { Get-Content $err -Tail 80 }
+              throw "Streamlit did not become healthy within 30 seconds."
+            }
+          } finally {
+            if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
       - name: Run EA safety-contract tests
         shell: pwsh
         run: |
           python -m unittest discover -s trading-lab/gold-intelligence-lab/tests -v
           if ($LASTEXITCODE -ne 0) { throw "EA contract tests failed." }
 
+      - name: Probe official public macro data sources
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = "Continue"
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE "trading-lab/gold-intelligence-lab/python"
+          python -c "from goldlab.economic_calendar import fetch_bls_calendar; r=fetch_bls_calendar(window_days=30,max_events=10,timeout_seconds=10); print('BLS_PUBLIC_SOURCE=PASS; events='+str(r['count'])+'; sha256='+r['response_sha256'][:16])"
+          $blsExit = $LASTEXITCODE
+          python -c "from goldlab.cot_data import fetch_cftc_gold_cot; r=fetch_cftc_gold_cot(rows_count=3,timeout_seconds=10); print('CFTC_PUBLIC_SOURCE=PASS; rows='+str(r['rows_count'])+'; latest_report='+r['latest_report_date']+'; sha256='+r['response_sha256'][:16])"
+          $cotExit = $LASTEXITCODE
+          if ($blsExit -ne 0 -or $cotExit -ne 0) { Write-Output "WARNING: public source probe failed or schema changed; app packaging continues." }
       - name: Install official MetaTrader 5 in isolated runner folder and compile EA
         shell: pwsh
         run: |
@@ -140,6 +196,47 @@ jobs:
           }
 
 
+      - name: Package complete Gold Intelligence Lab Windows program
+        if: success()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $project = Join-Path $env:GITHUB_WORKSPACE "trading-lab/gold-intelligence-lab"
+          $dist = Join-Path $env:GITHUB_WORKSPACE "dist"
+          $stageRoot = Join-Path $env:RUNNER_TEMP "goldlab-local-package"
+          $stage = Join-Path $stageRoot "GoldIntelligenceLab"
+          $outputZip = Join-Path $dist "GoldIntelligenceLab-Local-Windows.zip"
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+          if (Test-Path -LiteralPath $stageRoot) { Remove-Item -LiteralPath $stageRoot -Recurse -Force }
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Get-ChildItem -LiteralPath $project -Force | Where-Object { $_.Name -notin @("__pycache__", ".venv", "data", ".pytest_cache") } | Copy-Item -Destination $stage -Recurse -Force
+          $compiledZip = Join-Path $dist "GoldIntelligenceLab-MT5-Windows.zip"
+          if (!(Test-Path -LiteralPath $compiledZip)) { throw "Compiled MT5 package is missing; full package will not be marked complete." }
+          $releaseDir = Join-Path $stage "release"
+          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+          Copy-Item -LiteralPath $compiledZip -Destination (Join-Path $releaseDir "GoldIntelligenceLab-MT5-Windows.zip")
+          @(
+            "Gold Intelligence Lab — complete local Windows package"
+            "Includes the Arabic Streamlit dashboard, Python analysis modules, requirements, tests, MQL5 source, and compiled EA package."
+            "No API keys, broker passwords, account numbers, or local SQLite runtime files are included."
+            "The dashboard starts in read-only mode and only requests terminal data after the user clicks refresh."
+            "No Strategy Tester or simulated trades are used as evidence in this package."
+            "The MT5 connection must be validated on the user's logged-in terminal before market-data readiness is claimed."
+          ) | Set-Content -LiteralPath (Join-Path $stage "PACKAGE_INFO_AR.txt") -Encoding utf8
+          if (Test-Path -LiteralPath $outputZip) { Remove-Item -LiteralPath $outputZip -Force }
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $outputZip -Force
+          if (!(Test-Path -LiteralPath $outputZip) -or (Get-Item -LiteralPath $outputZip).Length -lt 20000) { throw "Complete Windows package missing or unexpectedly small." }
+          Write-Output ("FULL_PROGRAM_ZIP=" + $outputZip)
+          Write-Output ("FULL_PROGRAM_BYTES=" + (Get-Item -LiteralPath $outputZip).Length)
+
+      - name: Upload complete Gold Intelligence Lab Windows program
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldIntelligenceLab-Local-Windows
+          path: dist/GoldIntelligenceLab-Local-Windows.zip
+          if-no-files-found: error
+          retention-days: 30
       - name: Upload compiled EA package
         if: always()
         uses: actions/upload-artifact@v4
