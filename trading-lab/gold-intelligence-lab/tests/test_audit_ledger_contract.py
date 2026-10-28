@@ -30,8 +30,11 @@ class LocalAuditLedgerTests(unittest.TestCase):
             self.assertEqual(rows[0]["event_id"],saved["event_id"])
             self.assertTrue(rows[0]["payload_integrity_ok"])
             self.assertEqual(rows[0]["symbol"],"XAUUSD")
-            with sqlite3.connect(path) as conn:
-                self.assertEqual(conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0],1)
+            conn = sqlite3.connect(path)
+            try:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0], 1)
+            finally:
+                conn.close()
 
     def test_sensitive_fields_are_redacted_recursively(self):
         text=json.dumps(build_audit_payload(metadata_only_report()),ensure_ascii=False).lower()
