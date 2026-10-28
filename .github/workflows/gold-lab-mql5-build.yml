@@ -20,7 +20,7 @@ jobs:
   compile-and-package:
     name: Contract tests + MetaEditor compile
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -124,6 +124,13 @@ jobs:
             Stop-Transcript | Out-Null
           }
 
+      - name: Run historical Strategy Tester using verified demo account
+        if: success()
+        shell: pwsh
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+        run: ./.github/scripts/gold_lab_strategy_test.ps1
+
       - name: Upload compiled EA package
         if: always()
         uses: actions/upload-artifact@v4
@@ -133,5 +140,12 @@ jobs:
             dist/GoldIntelligenceLab-MT5-Windows.zip
             dist/build-report.txt
             dist/build-diagnostics.txt
+            dist/strategy-test-summary.txt
+            dist/strategy-test-diagnostics.txt
+            dist/strategy-M1.txt
+            dist/strategy-M5.txt
+            dist/strategy-M15.txt
+            dist/strategy-H1.txt
+            dist/strategy-test-reports/**
           if-no-files-found: error
           retention-days: 30
