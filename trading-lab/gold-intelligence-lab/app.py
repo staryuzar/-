@@ -60,9 +60,9 @@ with st.sidebar:
     )
     server_timezone = timezone_options[server_timezone_label]
     max_quote_age = st.number_input("أقصى عمر للسعر بالثواني", min_value=5, max_value=3600, value=120, step=15)
-    refresh = st.button("قراءة السوق وتحليل الأطر الزمنية", type="primary", use_container_width=True)
-    refresh_bls = st.button("تحديث تقويم إصدارات BLS", use_container_width=True)
-    refresh_cot = st.button("تحديث مراكز الذهب COT", use_container_width=True)
+    refresh = st.button("قراءة السوق وتحليل الأطر الزمنية", type="primary", width="stretch")
+    refresh_bls = st.button("تحديث تقويم إصدارات BLS", width="stretch")
+    refresh_cot = st.button("تحديث مراكز الذهب COT", width="stretch")
     st.caption("كل مصدر يُحدّث فقط عند الضغط على زره. المصادر العامة مستقلة عن قراءة MT5؛ لا توجد أوامر تداول.")
 
 if refresh:
@@ -137,7 +137,7 @@ if bls:
                 "ملاحظة": event["relevance_note_ar"],
                 "المصدر": event["url"] or BLS_CALENDAR_URL,
             })
-        st.dataframe(pd.DataFrame(visible), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(visible), hide_index=True, width="stretch")
     else:
         st.info("لا توجد إصدارات قادمة ضمن نافذة العرض الحالية وفق آخر ملف تقويم جرى جلبه.")
     st.caption(bls["note_ar"])
@@ -167,7 +167,7 @@ if cot:
     m4.metric("تغير الصافي", f"{delta_net:+,}" if delta_net is not None else "غير متاح")
     cot_history = [{"تاريخ التقرير": row["report_date"], "صافي مراكز Managed Money": row["managed_money_net"]} for row in reversed(cot["rows"])]
     if any(row["managed_money_net"] is not None for row in cot["rows"]):
-        st.line_chart(pd.DataFrame(cot_history).set_index("تاريخ التقرير"), use_container_width=True)
+        st.line_chart(pd.DataFrame(cot_history).set_index("تاريخ التقرير"), width="stretch")
     st.dataframe(pd.DataFrame([{
         "التاريخ": row["report_date"],
         "مراكز شراء": row["managed_money_long"],
@@ -176,7 +176,7 @@ if cot:
         "التغير الأسبوعي": row["net_change_vs_previous_report"],
         "الفائدة المفتوحة": row["open_interest"],
         "الصافي % الفائدة المفتوحة": round(row["managed_money_net_pct_open_interest"], 3) if row["managed_money_net_pct_open_interest"] is not None else None,
-    } for row in cot["rows"][:20]]), hide_index=True, use_container_width=True)
+    } for row in cot["rows"][:20]]), hide_index=True, width="stretch")
     st.caption(cot["note_ar"])
 else:
     st.info("لم يُحمّل تقرير COT بعد. اضغط زر التحديث عند الحاجة؛ لا يُستخدم مفتاح API ولا يعمل التحديث في الخلفية.")
@@ -244,7 +244,7 @@ if timeframe_reports or timeframe_errors:
             "البيانات مؤهلة للمراجعة": eligible_text,
             "ملاحظات": detail,
         })
-    st.dataframe(pd.DataFrame(display_rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(display_rows), hide_index=True, width="stretch")
     if consensus["blocked_timeframes"]:
         st.caption("أطر محجوبة بسبب نقص المؤشرات أو حداثة/جودة بيانات السوق: " + "، ".join(consensus["blocked_timeframes"]))
     if consensus["missing_timeframes"]:
@@ -313,7 +313,7 @@ else:
             "حالة المستشار": row["advisor_status"],
             "سلامة البصمة": "سليم" if row["payload_integrity_ok"] else "تحذير: فشل التحقق",
             "SHA-256": row["payload_sha256"][:16],
-        } for row in audit_rows]), hide_index=True, use_container_width=True)
+        } for row in audit_rows]), hide_index=True, width="stretch")
         st.download_button(
             "تصدير السجلات المعروضة بصيغة JSON",
             data=json.dumps(audit_rows, ensure_ascii=False, indent=2),
@@ -341,10 +341,10 @@ else:
     s1, s2 = st.columns(2)
     with s1:
         st.markdown("**أقرب مناطق دعم تقريبية**")
-        st.dataframe(pd.DataFrame(scanner["support_zones"]), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(scanner["support_zones"]), hide_index=True, width="stretch")
     with s2:
         st.markdown("**أقرب مناطق مقاومة تقريبية**")
-        st.dataframe(pd.DataFrame(scanner["resistance_zones"]), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(scanner["resistance_zones"]), hide_index=True, width="stretch")
 
     st.markdown("**النماذج والاختراقات المرصودة على شموع مكتملة**")
     if scanner["setups"]:
@@ -390,7 +390,7 @@ else:
             "التصويت": item["vote_label_ar"], "الحالة": item["status_ar"],
             "القيم التشخيصية": raw_text or "لا توجد قيم كافية",
         })
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
     with st.expander("حدود التقرير"):
         for limitation in analysis["limitations_ar"]:
