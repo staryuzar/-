@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - gold-intelligence-lab-v1
+      - gil/competitor-capability-expansion-2026-10-29
     paths:
       - "trading-lab/gold-intelligence-lab/**"
       - ".github/workflows/gold-lab-mql5-build.yml"
