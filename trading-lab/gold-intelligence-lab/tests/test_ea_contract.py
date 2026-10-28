@@ -51,5 +51,13 @@ class ExpertAdvisorContractTests(unittest.TestCase):
         self.assertIn("double lots=LotsForRisk(orderType,entry,sl);", SOURCE)
 
 
+    def test_signal_only_mode_keeps_direction_visible(self):
+        self.assertIn('signal>0?"BUY":"SELL"', SOURCE)
+        self.assertIn("signal-only mode (EnableTrading=false)", SOURCE)
+
+    def test_loss_guards_do_not_claim_to_close_open_positions(self):
+        self.assertIn("does not close open positions", SOURCE)
+
+
 if __name__ == "__main__":
     unittest.main()
