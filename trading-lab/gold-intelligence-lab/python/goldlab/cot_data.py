@@ -42,6 +42,11 @@ def parse_cftc_cot_rows(payload: Any, *, fetched_at_utc: datetime | None = None)
     for raw in payload:
         if not isinstance(raw, dict):
             raise COTDataError("Unexpected CFTC row shape.")
+        required = {"report_date_as_yyyy_mm_dd", "cftc_contract_market_code", "open_interest_all",
+                    "m_money_positions_long_all", "m_money_positions_short_all", "m_money_positions_spread_all"}
+        missing = required - set(raw)
+        if missing:
+            raise COTDataError("CFTC response schema is missing fields: " + ", ".join(sorted(missing)))
         code = str(raw.get("cftc_contract_market_code", "")).strip()
         if code != GOLD_CODE:
             raise COTDataError(f"Unexpected CFTC contract code {code!r}; expected {GOLD_CODE}.")

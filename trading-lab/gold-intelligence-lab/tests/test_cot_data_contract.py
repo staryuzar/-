@@ -26,6 +26,9 @@ class CFTCOTContracts(unittest.TestCase):
   row=dict(ROWS[0]); row["cftc_contract_market_code"]="123456"
   with self.assertRaises(COTDataError): parse_cftc_cot_rows([row])
   with self.assertRaises(COTDataError): parse_cftc_cot_rows([ROWS[0],ROWS[0]])
+ def test_missing_required_field_is_rejected(self):
+  row=dict(ROWS[0]); row.pop("m_money_positions_long_all")
+  with self.assertRaises(COTDataError): parse_cftc_cot_rows([row])
  def test_invalid_payload_or_empty_rows_are_rejected(self):
   with self.assertRaises(COTDataError): parse_cftc_cot_rows({"error":"fixture"})
   with self.assertRaises(COTDataError): parse_cftc_cot_rows([])

@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "python"))
 import pandas as pd
 import streamlit as st
 
+from goldlab.cot_data import CFTC_COT_SOURCE_URL, COTDataError, fetch_cftc_gold_cot
 from goldlab.economic_calendar import EconomicCalendarError, BLS_CALENDAR_URL, fetch_bls_calendar
 from goldlab.live_mt5 import LiveMT5Error, analyze_live_mt5
 
@@ -31,7 +32,8 @@ with st.sidebar:
     max_quote_age = st.number_input("أقصى عمر للسعر بالثواني", min_value=5, max_value=3600, value=120, step=15)
     refresh = st.button("قراءة السوق وتحليل المؤشرات", type="primary", use_container_width=True)
     refresh_bls = st.button("تحديث تقويم إصدارات BLS", use_container_width=True)
-    st.caption("تُقرأ الأسعار عند الضغط فقط. التقويم اختياري ومنفصل عن قراءة MT5؛ لا يوجد تنفيذ أوامر.")
+    refresh_cot = st.button("تحديث مراكز الذهب COT", use_container_width=True)
+    st.caption("كل مصدر يُحدّث فقط عند الضغط على زره. المصادر العامة مستقلة عن قراءة MT5؛ لا توجد أوامر تداول.")
 
 if refresh:
     try:
@@ -52,6 +54,14 @@ if refresh_bls:
             st.session_state["goldlab_bls_error"] = None
     except EconomicCalendarError as exc:
         st.session_state["goldlab_bls_error"] = str(exc)
+
+if refresh_cot:
+    try:
+        with st.spinner("جارٍ جلب تقرير مراكز الذهب الأسبوعي من CFTC..."):
+            st.session_state["goldlab_cot_report"] = fetch_cftc_gold_cot(rows_count=156)
+            st.session_state["goldlab_cot_error"] = None
+    except COTDataError as exc:
+        st.session_state["goldlab_cot_error"] = str(exc)
 
 st.subheader("تقويم الإصدارات الاقتصادية الرسمي")
 st.caption("المصدر: مكتب إحصاءات العمل الأمريكي BLS. يُعرض موعد النشر فقط؛ لا يتضمن هذا الملف القيم الفعلية أو توقعات السوق.")
@@ -85,6 +95,44 @@ if bls:
     st.caption(bls["note_ar"])
 else:
     st.info("لم يُحمّل التقويم بعد. اضغط زر التحديث عند الحاجة؛ لن يتصل البرنامج بالشبكة تلقائيًا.")
+
+
+st.divider()
+st.subheader("مراكز متداولي عقود الذهب — CFTC COT")
+st.caption("تقرير Disaggregated Futures Only لعقود الذهب الآجلة؛ بيانات أسبوعية وليست حركة سعر لحظية.")
+st.markdown(f"[مصدر بيانات CFTC الرسمي]({CFTC_COT_SOURCE_URL})")
+cot_error = st.session_state.get("goldlab_cot_error")
+if cot_error:
+    st.warning("تعذر تحديث تقرير COT. لن يؤثر ذلك في قراءة السوق أو باقي التحليل. " + cot_error)
+cot = st.session_state.get("goldlab_cot_report")
+if cot:
+    fetched_cot = datetime.fromisoformat(cot["fetched_at_utc"]).astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    st.caption(f"آخر تاريخ مراكز: {cot['latest_report_date']} · تاريخ الجلب: {fetched_cot} · الصفوف: {cot['rows_count']} · SHA-256: {cot['response_sha256'][:16]}…")
+    latest_cot = cot["rows"][0]
+    if cot["latest_report_age_days"] > 14:
+        st.warning(f"آخر تقرير عمره {cot['latest_report_age_days']} يومًا منذ تاريخ الرصد؛ تحقق من موقع CFTC للتأكد من عدم تأخر النشر.")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("شراء Managed Money", f"{latest_cot['managed_money_long']:,}" if latest_cot["managed_money_long"] is not None else "غير متاح")
+    m2.metric("بيع Managed Money", f"{latest_cot['managed_money_short']:,}" if latest_cot["managed_money_short"] is not None else "غير متاح")
+    m3.metric("الصافي (شراء − بيع)", f"{latest_cot['managed_money_net']:+,}" if latest_cot["managed_money_net"] is not None else "غير متاح")
+    delta_net = latest_cot["net_change_vs_previous_report"]
+    m4.metric("تغير الصافي", f"{delta_net:+,}" if delta_net is not None else "غير متاح")
+    cot_history = [{"تاريخ التقرير": row["report_date"], "صافي مراكز Managed Money": row["managed_money_net"]} for row in reversed(cot["rows"])]
+    if any(row["managed_money_net"] is not None for row in cot["rows"]):
+        st.line_chart(pd.DataFrame(cot_history).set_index("تاريخ التقرير"), use_container_width=True)
+    st.dataframe(pd.DataFrame([{
+        "التاريخ": row["report_date"],
+        "مراكز شراء": row["managed_money_long"],
+        "مراكز بيع": row["managed_money_short"],
+        "الصافي": row["managed_money_net"],
+        "التغير الأسبوعي": row["net_change_vs_previous_report"],
+        "الفائدة المفتوحة": row["open_interest"],
+        "الصافي % الفائدة المفتوحة": round(row["managed_money_net_pct_open_interest"], 3) if row["managed_money_net_pct_open_interest"] is not None else None,
+    } for row in cot["rows"][:20]]), hide_index=True, use_container_width=True)
+    st.caption(cot["note_ar"])
+else:
+    st.info("لم يُحمّل تقرير COT بعد. اضغط زر التحديث عند الحاجة؛ لا يُستخدم مفتاح API ولا يعمل التحديث في الخلفية.")
+
 
 st.divider()
 st.subheader("تحليل سوق الذهب من MT5")
