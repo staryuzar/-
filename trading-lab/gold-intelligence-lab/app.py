@@ -1,6 +1,7 @@
 """Gold Intelligence Lab local dashboard — read-only market analysis."""
 from __future__ import annotations
 
+import json
 import os
 import sys
 from datetime import datetime
@@ -13,6 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from goldlab.cot_data import CFTC_COT_SOURCE_URL, COTDataError, fetch_cftc_gold_cot
+from goldlab.audit_ledger import AuditLedgerError, LocalAuditLedger
 from goldlab.economic_calendar import EconomicCalendarError, BLS_CALENDAR_URL, fetch_bls_calendar
 from goldlab.live_mt5 import LiveMT5Error, analyze_live_mt5
 
@@ -161,6 +163,49 @@ else:
         f"{market['last_closed_bar_open_utc']} · الشموع المستلمة: "
         f"{report['market_source']['bars_received']}/{report['market_source']['bars_requested']}"
     )
+
+
+    st.subheader("سجل التدقيق المحلي")
+    st.caption("يحفظ لقطة التحليل عند طلبك فقط على هذا الجهاز في SQLite؛ لا يُرسل شيء إلى GitHub أو إلى خدمة خارجية.")
+    audit_col1, audit_col2 = st.columns(2)
+    with audit_col1:
+        save_audit = st.button("حفظ لقطة التحليل محليًا", key="goldlab_save_audit")
+    with audit_col2:
+        load_audit = st.button("عرض آخر السجلات", key="goldlab_load_audit")
+    if save_audit:
+        try:
+            saved_event = LocalAuditLedger(ROOT / "data" / "audit.sqlite3").append_analysis(report)
+            st.session_state["goldlab_audit_saved"] = saved_event
+            st.session_state["goldlab_audit_error"] = None
+        except (AuditLedgerError, ValueError) as exc:
+            st.session_state["goldlab_audit_error"] = str(exc)
+    saved_event = st.session_state.get("goldlab_audit_saved")
+    if saved_event:
+        st.success(f"تم حفظ السجل {saved_event['event_id']} · SHA-256: {saved_event['payload_sha256'][:16]}…")
+    audit_error = st.session_state.get("goldlab_audit_error")
+    if audit_error:
+        st.error("تعذر حفظ السجل المحلي: " + audit_error)
+    if load_audit:
+        try:
+            st.session_state["goldlab_audit_rows"] = LocalAuditLedger(ROOT / "data" / "audit.sqlite3").list_recent(50)
+            st.session_state["goldlab_audit_error"] = None
+        except AuditLedgerError as exc:
+            st.session_state["goldlab_audit_error"] = str(exc)
+    audit_rows = st.session_state.get("goldlab_audit_rows", [])
+    if audit_rows:
+        st.dataframe(pd.DataFrame([{
+            "المعرف": row["event_id"], "وقت الحفظ UTC": row["created_at_utc"],
+            "الرمز": row["symbol"], "الإطار": row["timeframe"],
+            "حالة المستشار": row["advisor_status"],
+            "سلامة البصمة": "سليم" if row["payload_integrity_ok"] else "تحذير: فشل التحقق",
+            "SHA-256": row["payload_sha256"][:16],
+        } for row in audit_rows]), hide_index=True, use_container_width=True)
+        st.download_button(
+            "تصدير السجلات المعروضة بصيغة JSON",
+            data=json.dumps(audit_rows, ensure_ascii=False, indent=2),
+            file_name="goldlab-audit-events.json",
+            mime="application/json",
+        )
 
     st.subheader("ملخص المؤشرات")
     r1, r2, r3, r4 = st.columns(4)

@@ -12,3 +12,13 @@
 
 pkg/
 src/
+
+# Gold Intelligence Lab local runtime records
+__pycache__/
+*.py[cod]
+.venv/
+**/.venv/
+trading-lab/gold-intelligence-lab/data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
