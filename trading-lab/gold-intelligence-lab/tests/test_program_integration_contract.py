@@ -12,7 +12,7 @@ class ProgramIntegrationContracts(unittest.TestCase):
     def test_all_major_modules_are_present(self):
         required = (
             "technical_rating.py", "live_mt5.py", "pattern_scanner.py",
-            "advisor.py", "economic_calendar.py", "cot_data.py", "audit_ledger.py", "multi_timeframe.py",
+            "advisor.py", "economic_calendar.py", "cot_data.py", "audit_ledger.py", "multi_timeframe.py", "market_time.py",
         )
         for filename in required:
             with self.subTest(filename=filename):
@@ -23,7 +23,7 @@ class ProgramIntegrationContracts(unittest.TestCase):
         for marker in (
             "analyze_live_mt5", "fetch_bls_calendar", "fetch_cftc_gold_cot",
             "LocalAuditLedger", "summarize_timeframe_consensus", "streamlit", "قراءة السوق وتحليل الأطر الزمنية", "تحليل الأطر الزمنية الخمسة معًا",
-            "تحديث تقويم إصدارات BLS", "تحديث مراكز الذهب COT", "حفظ لقطة التحليل محليًا",
+            "تحديث تقويم إصدارات BLS", "تحديث مراكز الذهب COT", "حفظ لقطة التحليل محليًا", "منطقة توقيت خادم MT5", "server_timezone=server_timezone",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, app)
@@ -35,6 +35,15 @@ class ProgramIntegrationContracts(unittest.TestCase):
         self.assertIn("goldlab_snapshot_id", app)
         self.assertIn("snapshot_time_consistent", live)
         self.assertIn("snapshot_captured_at_utc", live)
+
+    def test_live_adapter_has_explicit_broker_timezone_conversion(self):
+        live = (PROGRAM / "python" / "goldlab" / "live_mt5.py").read_text(encoding="utf-8")
+        time_module = (PROGRAM / "python" / "goldlab" / "market_time.py").read_text(encoding="utf-8")
+        self.assertIn("server_timestamp_to_utc", live)
+        self.assertIn("server_timestamp_sequence_to_utc", live)
+        self.assertIn("DEFAULT_SERVER_TIMEZONE", live)
+        self.assertIn("Europe/Athens", time_module)
+        self.assertIn("server_utc_offset_seconds", live)
 
     def test_runtime_manifest_contains_ui_mt5_and_windows_timezone_data(self):
         ui = (PROGRAM / "python" / "requirements-ui.txt").read_text(encoding="utf-8")
