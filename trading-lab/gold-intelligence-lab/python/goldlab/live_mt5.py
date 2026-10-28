@@ -270,8 +270,6 @@ def analyze_live_mt5_multi(symbol: str, timeframes: tuple[str, ...] = ("M1", "M5
         if terminal is None or not bool(getattr(terminal, "connected", True)):
             raise LiveMT5Error("The selected MT5 terminal is disconnected or returned no terminal information.")
 
-        # The quote and reference clock are captured once and shared by all frames.
-        now = time.time()
         info = mt5.symbol_info(clean_symbol)
         if info is None:
             raise LiveMT5Error(f"Symbol {clean_symbol!r} was not found in MT5.")
@@ -280,6 +278,9 @@ def analyze_live_mt5_multi(symbol: str, timeframes: tuple[str, ...] = ("M1", "M5
         tick = mt5.symbol_info_tick(clean_symbol)
         if tick is None:
             raise LiveMT5Error(f"MT5 returned no current tick: {mt5.last_error()!r}")
+        # Capture immediately after the shared quote so newly updated ticks are not
+        # misclassified as slightly future-dated by the local wall clock.
+        now = time.time()
         bid = float(getattr(tick, "bid", 0.0) or 0.0)
         ask = float(getattr(tick, "ask", 0.0) or 0.0)
         if not math.isfinite(bid) or not math.isfinite(ask) or bid <= 0 or ask < bid:
