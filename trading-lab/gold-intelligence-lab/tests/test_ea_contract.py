@@ -30,7 +30,8 @@ class ExpertAdvisorContractTests(unittest.TestCase):
         self.assertIn("MaxEquityDrawdownPercent", SOURCE)
 
     def test_order_result_code_is_checked_after_send(self):
-        self.assertIn("trade.ResultRetcode()", SOURCE)
+        self.assertIn("OrderSend(request,result)", SOURCE)
+        self.assertIn("uint rc=result.retcode;", SOURCE)
         self.assertIn("TRADE_RETCODE_DONE_PARTIAL", SOURCE)
 
 
