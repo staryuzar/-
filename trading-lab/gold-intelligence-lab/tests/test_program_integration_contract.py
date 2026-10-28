@@ -45,6 +45,11 @@ class ProgramIntegrationContracts(unittest.TestCase):
         self.assertIn("Europe/Athens", time_module)
         self.assertIn("server_utc_offset_seconds", live)
 
+    def test_dashboard_uses_current_streamlit_width_argument(self):
+        app = (PROGRAM / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn("use_container_width=", app)
+        self.assertIn('width="stretch"', app)
+
     def test_runtime_manifest_contains_ui_mt5_and_windows_timezone_data(self):
         ui = (PROGRAM / "python" / "requirements-ui.txt").read_text(encoding="utf-8")
         analysis = (PROGRAM / "python" / "requirements-analysis.txt").read_text(encoding="utf-8")
