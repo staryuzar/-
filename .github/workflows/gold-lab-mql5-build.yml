@@ -33,6 +33,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Python analysis dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r trading-lab/gold-intelligence-lab/python/requirements-analysis.txt
+          if ($LASTEXITCODE -ne 0) { throw "Python analysis dependency installation failed." }
+
       - name: Run EA safety-contract tests
         shell: pwsh
         run: |
