@@ -4,13 +4,14 @@
 //| Trading is disabled by default.                                  |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.001"
+#property version   "1.002"
 #property description "Auditable research EA. Trading disabled by default."
 
 // Uses native MQL5 trade requests; no external include dependency.
 
 input bool   EnableTrading=false;                // False: signals/panel only
-input bool   AllowRealAccountTrading=false;      // Additional explicit guard
+input bool   RequireDemoAccount=true;             // Hard gate: refuses to start unless account mode is DEMO
+input bool   AllowRealAccountTrading=false;       // Additional explicit guard
 input double RiskPercent=0.50;                  // Equity risk per trade (%)
 input double EstimatedRoundTurnCostPerLot=7.0;   // Estimated fees/slippage per lot in account currency
 input int    FastEMAPeriod=20;
@@ -255,6 +256,12 @@ void TryTrade(int signal,double atrValue)
    }
 
    ENUM_ACCOUNT_TRADE_MODE mode=(ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   if(RequireDemoAccount && mode!=ACCOUNT_TRADE_MODE_DEMO)
+   {
+      lastStatus="Blocked: RequireDemoAccount is enabled and account is not DEMO";
+      Print("GIL|SAFETY_BLOCK|reason=account_not_demo|mode=", (int)mode);
+      return;
+   }
    if(mode==ACCOUNT_TRADE_MODE_REAL && !AllowRealAccountTrading)
    {
       lastStatus="Blocked: real-account trading disabled by safety guard";
@@ -362,6 +369,9 @@ void TryTrade(int signal,double atrValue)
    if(sent && (rc==TRADE_RETCODE_DONE || rc==TRADE_RETCODE_PLACED || rc==TRADE_RETCODE_DONE_PARTIAL))
    {
       tradesToday++;
+      Print("GIL|ORDER_ACCEPTED|direction=",isBuy?"BUY":"SELL",
+            "|symbol=",_Symbol,"|volume=",DoubleToString(lots,VolumeDigits(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP))),
+            "|retcode=",rc,"|deal=",result.deal,"|order=",result.order);
       if(!SaveRiskState())
       {
          riskStateReady=false;
@@ -374,11 +384,26 @@ void TryTrade(int signal,double atrValue)
    {
       lastStatus=StringFormat("Order failed: sent=%s retcode=%u error=%d comment=%s",
                               sent?"true":"false",rc,GetLastError(),result.comment);
+      Print("GIL|ORDER_FAILED|sent=",sent?"true":"false","|retcode=",rc,
+            "|error=",GetLastError(),"|comment=",result.comment);
    }
 }
 
 int OnInit()
 {
+   ENUM_ACCOUNT_TRADE_MODE accountMode=(ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   string accountServer=AccountInfoString(ACCOUNT_SERVER);
+   Print("GIL|INIT|symbol=",_Symbol,"|period=",EnumToString(_Period),
+         "|account_mode=",(int)accountMode,"|server=",accountServer,
+         "|enable_trading=",EnableTrading?"true":"false",
+         "|require_demo=",RequireDemoAccount?"true":"false");
+   if(RequireDemoAccount && accountMode!=ACCOUNT_TRADE_MODE_DEMO)
+   {
+      lastStatus="Initialization refused: this EA requires a DEMO account";
+      Print("GIL|SAFETY_BLOCK|reason=init_account_not_demo|mode=",(int)accountMode);
+      return INIT_FAILED;
+   }
+
    if(FastEMAPeriod<2 || SlowEMAPeriod<=FastEMAPeriod || ATRPeriod<2 || DonchianPeriod<2 ||
       RiskPercent<=0 || RiskPercent>5 || StopATRMultiple<=0 || RewardRiskRatio<=0 ||
       MaxTradesPerDay<1 || MaxSpreadPoints<0 || MaxDailyLossPercent<=0 || MaxEquityDrawdownPercent<=0)
@@ -424,7 +449,16 @@ void OnTick()
 
    double atrValue=0,upper=0,lower=0;
    int signal=GetSignal(atrValue,upper,lower);
-   if(signal!=0) TryTrade(signal,atrValue);
+   Print("GIL|BAR|symbol=",_Symbol,"|period=",EnumToString(_Period),
+         "|signal=",signal,"|close=",DoubleToString(iClose(_Symbol,_Period,1),_Digits),
+         "|ema_fast=",DoubleToString(fast, _Digits));
+   if(signal!=0)
+   {
+      Print("GIL|SIGNAL|direction=",signal>0?"BUY":"SELL",
+            "|symbol=",_Symbol,"|period=",EnumToString(_Period),
+            "|atr=",DoubleToString(atrValue,_Digits));
+      TryTrade(signal,atrValue);
+   }
 
    double fast=0,slow=0;
    GetOne(hFast,1,fast);
