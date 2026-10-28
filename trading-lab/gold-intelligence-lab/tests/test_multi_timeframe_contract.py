@@ -6,10 +6,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
 from goldlab.multi_timeframe import TIMEFRAMES, summarize_timeframe_consensus
 
-def item(category, eligible=True, ready=True, score=0.7):
-    return {"analysis": {"ratings": {"overall_category_ar": category, "overall": score},
-        "readiness": {"complete": ready},
-        "current_market_review": {"eligible": eligible, "reason_ar": "test"}}}
+def item(category, eligible=True, ready=True, score=0.7, snapshot_id="snap-1",
+         captured_at="2026-10-29T00:00:00+00:00"):
+    return {
+        "market_source": {"snapshot_id": snapshot_id, "snapshot_captured_at_utc": captured_at,
+                          "snapshot_time_consistent": True},
+        "analysis": {"ratings": {"overall_category_ar": category, "overall": score},
+            "readiness": {"complete": ready},
+            "current_market_review": {"eligible": eligible, "reason_ar": "test"}},
+    }
+
 
 class MultiTimeframeContracts(unittest.TestCase):
     def test_missing_frames_block_summary(self):
@@ -22,6 +28,34 @@ class MultiTimeframeContracts(unittest.TestCase):
     def test_five_strong_sell_frames(self):
         result = summarize_timeframe_consensus({tf: item("بيع قوي", score=-0.8) for tf in TIMEFRAMES})
         self.assertEqual(result["status"], "STRONG_SELL_ALL_FIVE")
+    def test_different_snapshot_ids_block_consensus(self):
+        reports = {tf: item("شراء قوي") for tf in TIMEFRAMES}
+        reports["H1"] = item("شراء قوي", snapshot_id="another-snapshot")
+        result = summarize_timeframe_consensus(reports)
+        self.assertEqual(result["status"], "BLOCKED_OR_INCOMPLETE")
+        self.assertFalse(result["snapshot_integrity"]["consistent"])
+        self.assertIn("لا تنتمي إلى لقطة واحدة", result["snapshot_integrity"]["message_ar"])
+
+    def test_different_capture_times_block_consensus(self):
+        reports = {tf: item("شراء قوي") for tf in TIMEFRAMES}
+        reports["M15"] = item("شراء قوي", captured_at="2026-10-29T00:01:00+00:00")
+        result = summarize_timeframe_consensus(reports)
+        self.assertEqual(result["status"], "BLOCKED_OR_INCOMPLETE")
+        self.assertFalse(result["snapshot_integrity"]["consistent"])
+
+    def test_missing_snapshot_metadata_blocks_consensus(self):
+        reports = {tf: item("شراء قوي") for tf in TIMEFRAMES}
+        reports["M5"] = {"analysis": reports["M5"]["analysis"]}
+        result = summarize_timeframe_consensus(reports)
+        self.assertEqual(result["status"], "BLOCKED_OR_INCOMPLETE")
+        self.assertFalse(result["snapshot_integrity"]["consistent"])
+        self.assertIn("M5", result["snapshot_integrity"]["issues"])
+
+    def test_identical_snapshot_is_reported_as_consistent(self):
+        result = summarize_timeframe_consensus({tf: item("شراء قوي") for tf in TIMEFRAMES})
+        self.assertTrue(result["snapshot_integrity"]["consistent"])
+        self.assertEqual(result["snapshot_integrity"]["snapshot_id"], "snap-1")
+
     def test_bad_quality_blocks_summary(self):
         reports = {tf: item("شراء قوي") for tf in TIMEFRAMES}
         reports["M1"] = item("شراء قوي", eligible=False)
