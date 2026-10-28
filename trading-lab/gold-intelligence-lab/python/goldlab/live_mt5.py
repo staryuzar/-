@@ -237,4 +237,158 @@ def analyze_live_mt5(symbol: str, timeframe: str = "M1", bars_count: int = 500, 
     return {"market_source": snapshot, "market": market, "analysis": analysis, "scanner": scanner, "advisor": advisor}
 
 
-__all__ = ["LiveMT5Error", "analyze_live_mt5", "read_mt5_snapshot"]
+def analyze_live_mt5_multi(symbol: str, timeframes: tuple[str, ...] = ("M1", "M5", "M15", "M30", "H1"),
+                           bars_count: int = 500, *, terminal_path: str | None = None,
+                           max_quote_age_seconds: float = 120.0,
+                           adx_profile: str = "official_help") -> dict[str, Any]:
+    """Analyze several frames in one terminal session, using one quote and capture clock."""
+    clean_symbol = str(symbol).strip()
+    if not clean_symbol:
+        raise ValueError("Enter the exact gold symbol shown in MT5.")
+    if not isinstance(timeframes, (tuple, list)) or not timeframes:
+        raise ValueError("Select one or more timeframes.")
+    selected = tuple(str(tf).strip().upper() for tf in timeframes)
+    if len(set(selected)) != len(selected):
+        raise ValueError("Duplicate timeframes are not allowed.")
+    for tf in selected:
+        _validate_request(clean_symbol, tf, bars_count, max_quote_age_seconds)
+
+    clean_path = str(terminal_path or "").strip()
+    if clean_path and not Path(clean_path).is_file():
+        raise LiveMT5Error(f"MT5 terminal executable was not found: {clean_path}")
+    mt5 = _load_mt5()
+    args: dict[str, Any] = {"timeout": 60_000}
+    if clean_path:
+        args["path"] = clean_path
+    initialized = False
+    try:
+        initialized = bool(mt5.initialize(**args))
+        if not initialized:
+            raise LiveMT5Error(f"MT5 initialization failed: {mt5.last_error()!r}")
+        terminal = mt5.terminal_info()
+        if terminal is None or not bool(getattr(terminal, "connected", True)):
+            raise LiveMT5Error("The selected MT5 terminal is disconnected or returned no terminal information.")
+
+        # The quote and reference clock are captured once and shared by all frames.
+        now = time.time()
+        info = mt5.symbol_info(clean_symbol)
+        if info is None:
+            raise LiveMT5Error(f"Symbol {clean_symbol!r} was not found in MT5.")
+        if not bool(getattr(info, "visible", True)):
+            raise LiveMT5Error(f"Symbol {clean_symbol!r} is not visible in Market Watch.")
+        tick = mt5.symbol_info_tick(clean_symbol)
+        if tick is None:
+            raise LiveMT5Error(f"MT5 returned no current tick: {mt5.last_error()!r}")
+        bid = float(getattr(tick, "bid", 0.0) or 0.0)
+        ask = float(getattr(tick, "ask", 0.0) or 0.0)
+        if not math.isfinite(bid) or not math.isfinite(ask) or bid <= 0 or ask < bid:
+            raise DataQualityError("MT5 returned an invalid bid/ask quote.")
+        time_msc = int(getattr(tick, "time_msc", 0) or 0)
+        tick_epoch = time_msc / 1000.0 if time_msc > 0 else float(getattr(tick, "time", 0) or 0)
+        if tick_epoch <= 0 or not math.isfinite(tick_epoch):
+            raise DataQualityError("MT5 quote has no valid timestamp.")
+        quote_age = now - tick_epoch
+        if quote_age < -30:
+            raise DataQualityError("MT5 quote timestamp is in the future; current-market review is blocked.")
+        point = float(getattr(info, "point", 0.0) or 0.0)
+        tick_size = float(getattr(info, "trade_tick_size", 0.0) or 0.0) or point
+        if tick_size <= 0:
+            raise DataQualityError("MT5 did not provide a valid price tick size.")
+        quote = {
+            "bid": bid, "ask": ask, "spread_price": ask - bid,
+            "spread_points": (ask - bid) / point if point > 0 else None,
+            "quote_time_utc": _utc_iso(tick_epoch), "quote_age_seconds": round(quote_age, 2),
+            "quote_fresh": 0 <= quote_age <= float(max_quote_age_seconds),
+            "maximum_quote_age_seconds": float(max_quote_age_seconds),
+            "price_digits": int(getattr(info, "digits", 0) or 0),
+            "point": point, "trade_tick_size": tick_size,
+            "snapshot_captured_at_utc": _utc_iso(now),
+        }
+
+        raw_frames: dict[str, tuple[pd.DataFrame, dict[str, Any]]] = {}
+        errors: dict[str, str] = {}
+        for tf in selected:
+            try:
+                tf_attribute = TIMEFRAME_ATTRIBUTES[tf]
+                mt5_tf = getattr(mt5, tf_attribute, None)
+                if mt5_tf is None:
+                    raise LiveMT5Error(f"MT5 package lacks {tf_attribute}.")
+                rates = mt5.copy_rates_from_pos(clean_symbol, mt5_tf, CLOSED_BAR_START_POSITION, bars_count)
+                if rates is None or len(rates) == 0:
+                    raise LiveMT5Error(f"No closed {tf} bars returned: {mt5.last_error()!r}")
+                bars = pd.DataFrame(rates)
+                required = {"time", "open", "high", "low", "close", "tick_volume"}
+                missing = required - set(bars.columns)
+                if missing:
+                    raise DataQualityError(f"{tf} bars lack columns: {', '.join(sorted(missing))}")
+                if bars["time"].isna().any() or bars["time"].duplicated().any():
+                    raise DataQualityError(f"{tf} bars contain missing or duplicate timestamps.")
+                if not bars["time"].is_monotonic_increasing:
+                    raise DataQualityError(f"{tf} bars are not oldest-to-newest.")
+                interval = TIMEFRAME_SECONDS[tf]
+                last_open = float(bars.iloc[-1]["time"])
+                last_close = last_open + interval
+                bar_age = now - last_close
+                if bar_age < -30:
+                    raise DataQualityError(f"The latest closed {tf} bar timestamp is unexpectedly in the future.")
+                max_bar_age = max(float(max_quote_age_seconds), float(interval * 3))
+                frame_meta = {
+                    "bars_requested": bars_count, "bars_received": int(len(bars)),
+                    "last_closed_bar_open_utc": _utc_iso(last_open),
+                    "last_closed_bar_close_utc": _utc_iso(last_close),
+                    "last_closed_bar_age_seconds": round(bar_age, 2),
+                    "maximum_closed_bar_age_seconds": max_bar_age,
+                    "closed_bar_fresh": 0 <= bar_age <= max_bar_age,
+                }
+                raw_frames[tf] = (bars, frame_meta)
+            except (LiveMT5Error, DataQualityError, ValueError, TypeError) as exc:
+                errors[tf] = str(exc)
+
+        identity = "|".join([clean_symbol, quote["quote_time_utc"], quote["snapshot_captured_at_utc"]] +
+                            [f"{tf}:{raw_frames[tf][1]['last_closed_bar_open_utc']}"
+                             for tf in selected if tf in raw_frames])
+        snapshot_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
+        reports: dict[str, dict[str, Any]] = {}
+        for tf, (bars, meta) in raw_frames.items():
+            market = {**quote, **meta, "snapshot_id": snapshot_id}
+            try:
+                scanner = scan_market_structure(bars, tf, tick_size=tick_size)
+                analysis = analyze_ohlcv(
+                    bars, tf, adx_profile=adx_profile, tick_size=tick_size,
+                    source_label=f"MT5 terminal feed: {clean_symbol}",
+                )
+                eligible = bool(quote["quote_fresh"] and meta["closed_bar_fresh"]
+                                and analysis["readiness"]["complete"])
+                analysis["current_market_review"] = {
+                    "eligible": eligible,
+                    "status": "READY_FOR_MANUAL_REVIEW" if eligible else "BLOCKED_DATA_QUALITY",
+                    "reason_ar": (
+                        "السعر والشمعة المكتملة حديثان وجميع المؤشرات جاهزة؛ للمراجعة اليدوية فقط."
+                        if eligible else
+                        "التحليل غير مؤهل: افحص حداثة السعر والشمعة واكتمال المؤشرات."
+                    ),
+                }
+                reports[tf] = {
+                    "market_source": {
+                        "symbol": clean_symbol, "timeframe": tf, "terminal_connected": True,
+                        "bars_received": len(bars), "bars_requested": bars_count,
+                        "snapshot_id": snapshot_id, "snapshot_captured_at_utc": quote["snapshot_captured_at_utc"],
+                        "snapshot_time_consistent": True,
+                    },
+                    "market": market, "analysis": analysis, "scanner": scanner,
+                    "advisor": build_advisory(analysis, scanner),
+                }
+            except (DataQualityError, ValueError, RuntimeError) as exc:
+                errors[tf] = str(exc)
+
+        return {
+            "read_only": True, "symbol": clean_symbol, "timeframes_requested": list(selected),
+            "snapshot_id": snapshot_id, "snapshot_captured_at_utc": quote["snapshot_captured_at_utc"],
+            "reports": reports, "errors": errors, "market": quote,
+        }
+    finally:
+        if initialized:
+            mt5.shutdown()
+
+
+__all__ = ["LiveMT5Error", "analyze_live_mt5", "analyze_live_mt5_multi", "read_mt5_snapshot"]
