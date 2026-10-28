@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: gold-lab-mql5-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   compile-and-package:
