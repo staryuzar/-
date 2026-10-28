@@ -1,0 +1,121 @@
+name: Gold Intelligence Lab — MT5 build
+
+on:
+  push:
+    branches:
+      - gold-intelligence-lab-v1
+    paths:
+      - "trading-lab/gold-intelligence-lab/**"
+      - ".github/workflows/gold-lab-mql5-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gold-lab-mql5-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compile-and-package:
+    name: Contract tests + MetaEditor compile
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run EA safety-contract tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s trading-lab/gold-intelligence-lab/tests -v
+          if ($LASTEXITCODE -ne 0) { throw "EA contract tests failed." }
+
+      - name: Install official MetaTrader 5 in isolated runner folder and compile EA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $root = Join-Path $env:RUNNER_TEMP "goldlab-mt5"
+          $installDir = Join-Path $root "terminal"
+          $packageDir = Join-Path $root "package"
+          $sourcePath = Join-Path $env:GITHUB_WORKSPACE "trading-lab/gold-intelligence-lab/mql5/GoldIntelligenceLabEA.mq5"
+          $readmePath = Join-Path $env:GITHUB_WORKSPACE "trading-lab/gold-intelligence-lab/README_MT5_AR.md"
+          $sourceDir = Join-Path $installDir "MQL5\Experts\GoldIntelligenceLab"
+          $report = Join-Path $root "build-report.txt"
+          New-Item -ItemType Directory -Path $installDir,$packageDir -Force | Out-Null
+          if (!(Test-Path -LiteralPath $sourcePath)) { throw "EA source was not found in checkout." }
+
+          $installer = Join-Path $root "mt5setup.exe"
+          $uri = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
+          Invoke-WebRequest -Uri $uri -OutFile $installer -TimeoutSec 180
+          if (!(Test-Path -LiteralPath $installer) -or (Get-Item -LiteralPath $installer).Length -lt 100000) {
+            throw "Official MT5 installer download is missing or unexpectedly small."
+          }
+          "Installer bytes: $((Get-Item -LiteralPath $installer).Length)" | Set-Content -LiteralPath $report -Encoding utf8
+          $installArgs = @("/auto", ("/path:" + '"' + $installDir + '"'))
+          $install = Start-Process -FilePath $installer -ArgumentList $installArgs -PassThru -Wait
+          "Installer exit code: $($install.ExitCode)" | Add-Content -LiteralPath $report -Encoding utf8
+
+          $terminal = Get-ChildItem -LiteralPath $installDir -Filter "terminal64.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $terminal) { throw "terminal64.exe was not found after official installation." }
+          $metaEditor = Get-ChildItem -LiteralPath $installDir -Filter "metaeditor64.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $metaEditor) { throw "metaeditor64.exe was not found after official installation." }
+          "Terminal: $($terminal.FullName)" | Add-Content -LiteralPath $report -Encoding utf8
+          "MetaEditor: $($metaEditor.FullName)" | Add-Content -LiteralPath $report -Encoding utf8
+          "MT5 version: $((Get-Item -LiteralPath $terminal.FullName).VersionInfo.ProductVersion)" | Add-Content -LiteralPath $report -Encoding utf8
+
+          New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
+          $eaSource = Join-Path $sourceDir "GoldIntelligenceLabEA.mq5"
+          $eaBinary = Join-Path $sourceDir "GoldIntelligenceLabEA.ex5"
+          $compileLog = Join-Path $sourceDir "GoldIntelligenceLabEA.log"
+          [System.IO.File]::WriteAllText($eaSource, (Get-Content -LiteralPath $sourcePath -Raw), [System.Text.UTF8Encoding]::new($false))
+          $compileArgs = '/compile:"' + $eaSource + '" /log'
+          $compiler = Start-Process -FilePath $metaEditor.FullName -ArgumentList $compileArgs -WorkingDirectory $installDir -PassThru
+          if (!$compiler.WaitForExit(60000)) {
+            Stop-Process -Id $compiler.Id -Force -ErrorAction SilentlyContinue
+            throw "MetaEditor compilation timed out after 60 seconds."
+          }
+          Start-Sleep -Seconds 1
+          if (!(Test-Path -LiteralPath $compileLog)) { throw "MetaEditor did not produce the expected compile log." }
+          $compileText = Get-Content -LiteralPath $compileLog -Raw
+          "Compile log: $($compileText.Trim())" | Add-Content -LiteralPath $report -Encoding utf8
+          if (!(Test-Path -LiteralPath $eaBinary) -or (Get-Item -LiteralPath $eaBinary).Length -le 0) {
+            throw "MetaEditor did not produce a non-empty EX5 file."
+          }
+          if ($compileText -notmatch '(?i)0 errors' -or $compileText -match '(?i)[1-9][0-9]* errors') {
+            throw "MetaEditor did not confirm zero compile errors."
+          }
+          if ($compileText -notmatch '(?i)0 warnings' -or $compileText -match '(?i)[1-9][0-9]* warnings') {
+            throw "MetaEditor did not confirm zero compile warnings."
+          }
+
+          Copy-Item -LiteralPath $eaSource -Destination $packageDir
+          Copy-Item -LiteralPath $eaBinary -Destination $packageDir
+          Copy-Item -LiteralPath $compileLog -Destination $packageDir
+          Copy-Item -LiteralPath $readmePath -Destination (Join-Path $packageDir "INSTALL_AR.md")
+          $hash = (Get-FileHash -LiteralPath $eaBinary -Algorithm SHA256).Hash
+          "EX5 SHA256: $hash" | Add-Content -LiteralPath $report -Encoding utf8
+          "RESULT: PASS — MetaEditor compiled GoldIntelligenceLabEA with zero errors and zero warnings. No account was connected and no trade was placed." | Add-Content -LiteralPath $report -Encoding utf8
+          Get-Content -LiteralPath $report
+
+          $dist = Join-Path $env:GITHUB_WORKSPACE "dist"
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+          Copy-Item -LiteralPath $report -Destination (Join-Path $dist "build-report.txt")
+          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath (Join-Path $dist "GoldIntelligenceLab-MT5-Windows.zip") -Force
+          if ((Get-Item (Join-Path $dist "GoldIntelligenceLab-MT5-Windows.zip")).Length -le 1000) { throw "Build archive is unexpectedly small." }
+
+      - name: Upload compiled EA package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldIntelligenceLab-MT5-Windows
+          path: |
+            dist/GoldIntelligenceLab-MT5-Windows.zip
+            dist/build-report.txt
+          if-no-files-found: error
+          retention-days: 30
