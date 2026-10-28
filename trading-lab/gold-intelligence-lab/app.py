@@ -17,6 +17,7 @@ from goldlab.cot_data import CFTC_COT_SOURCE_URL, COTDataError, fetch_cftc_gold_
 from goldlab.audit_ledger import AuditLedgerError, LocalAuditLedger
 from goldlab.economic_calendar import EconomicCalendarError, BLS_CALENDAR_URL, fetch_bls_calendar
 from goldlab.live_mt5 import LiveMT5Error, analyze_live_mt5_multi
+from goldlab.market_time import DEFAULT_SERVER_TIMEZONE
 from goldlab.multi_timeframe import summarize_timeframe_consensus
 
 st.set_page_config(page_title="Gold Intelligence Lab", page_icon="📊", layout="wide")
@@ -36,6 +37,23 @@ with st.sidebar:
         "مسار MT5 (اختياري)", value=os.environ.get("GOLDLAB_MT5_PATH", ""),
         help="اتركه فارغًا لاستخدام الطرفية الافتراضية، أو أدخل مسار terminal64.exe للطرفية التي سجلت الدخول فيها.",
     )
+    timezone_options = {
+        "Headway: UTC+2 شتاءً / UTC+3 صيفًا": "Europe/Athens",
+        "UTC: الطوابع الزمنية مستندة إلى UTC أصلًا": "UTC",
+    }
+    timezone_labels = list(timezone_options)
+    default_timezone = os.environ.get("GOLDLAB_MT5_SERVER_TIMEZONE", DEFAULT_SERVER_TIMEZONE)
+    default_timezone_label = next(
+        (label for label, value in timezone_options.items() if value == default_timezone),
+        timezone_labels[0],
+    )
+    server_timezone_label = st.selectbox(
+        "منطقة توقيت خادم MT5",
+        timezone_labels,
+        index=timezone_labels.index(default_timezone_label),
+        help="التصحيح يخص تفسير وقت خادم الوسيط فقط؛ لا يغيّر ساعة Windows ولا أسعار OHLC.",
+    )
+    server_timezone = timezone_options[server_timezone_label]
     max_quote_age = st.number_input("أقصى عمر للسعر بالثواني", min_value=5, max_value=3600, value=120, step=15)
     refresh = st.button("قراءة السوق وتحليل الأطر الزمنية", type="primary", use_container_width=True)
     refresh_bls = st.button("تحديث تقويم إصدارات BLS", use_container_width=True)
@@ -49,6 +67,7 @@ if refresh:
             multi_result = analyze_live_mt5_multi(
                 symbol=symbol, timeframes=tuple(selected_timeframes), bars_count=int(bars_count),
                 terminal_path=terminal_path or None, max_quote_age_seconds=float(max_quote_age),
+                server_timezone=server_timezone,
             )
         completed_reports = multi_result["reports"]
         timeframe_errors = multi_result["errors"]
@@ -168,6 +187,12 @@ if timeframe_reports or timeframe_errors:
     if snapshot_id and snapshot_time:
         st.caption(f"معرّف لقطة MT5 المشتركة: {snapshot_id} · وقت الالتقاط UTC: {snapshot_time}")
     st.caption("تُستخدم لقطة سعر واحدة وساعة مرجعية واحدة للأطر المقروءة؛ أي إطار يتعذر قراءته يظهر كخطأ مستقل.")
+    if snapshot_id and timeframe_reports:
+        sample_market = next(iter(timeframe_reports.values())).get("market", {})
+        st.caption(
+            f"منطقة الخادم: {server_timezone_label if 'server_timezone_label' in globals() else server_timezone} · "
+            f"فرق خادم/UTC المقاس من الطابع: {sample_market.get('server_utc_offset_seconds', 'غير متاح')} ثانية"
+        )
     consensus = summarize_timeframe_consensus(timeframe_reports)
     snapshot_integrity = consensus["snapshot_integrity"]
     if snapshot_integrity["consistent"]:
