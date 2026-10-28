@@ -35,5 +35,21 @@ class ExpertAdvisorContractTests(unittest.TestCase):
         self.assertIn("TRADE_RETCODE_DONE_PARTIAL", SOURCE)
 
 
+    def test_risk_guards_persist_across_live_restarts(self):
+        self.assertIn("GlobalVariableSet(gvInitialEquityKey,initialEquity)", SOURCE)
+        self.assertIn("GlobalVariableSet(gvDayKeyKey,(double)currentDayKey)", SOURCE)
+        self.assertIn("GlobalVariableSet(gvTradesTodayKey,(double)tradesToday)", SOURCE)
+        self.assertIn("return SaveRiskState();", SOURCE)
+
+    def test_strategy_tester_isolated_from_terminal_global_state(self):
+        self.assertIn("if(MQLInfoInteger(MQL_TESTER)) return true;", SOURCE)
+        self.assertIn("// Backtests should start from their own initial equity on each run.", SOURCE)
+
+    def test_order_volume_and_stops_use_refreshed_execution_tick(self):
+        self.assertIn("tick=executionTick;", SOURCE)
+        self.assertIn("Blocked by refreshed spread guard", SOURCE)
+        self.assertIn("double lots=LotsForRisk(orderType,entry,sl);", SOURCE)
+
+
 if __name__ == "__main__":
     unittest.main()
