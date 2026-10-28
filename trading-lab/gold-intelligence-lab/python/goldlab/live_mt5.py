@@ -17,6 +17,7 @@ import pandas as pd
 
 from .technical_rating import DataQualityError, analyze_ohlcv
 from .pattern_scanner import scan_market_structure
+from .advisor import build_advisory
 
 TIMEFRAME_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800, "H1": 3600}
 TIMEFRAME_ATTRIBUTES = {
@@ -232,7 +233,8 @@ def analyze_live_mt5(symbol: str, timeframe: str = "M1", bars_count: int = 500, 
             "التحليل غير مؤهل لمراجعة سوق حالية: افحص حداثة السعر والشمعة واكتمال المؤشرات؛ لا يوجد أمر تداول."
         ),
     }
-    return {"market_source": snapshot, "market": market, "analysis": analysis, "scanner": scanner}
+    advisor = build_advisory(analysis, scanner)
+    return {"market_source": snapshot, "market": market, "analysis": analysis, "scanner": scanner, "advisor": advisor}
 
 
 __all__ = ["LiveMT5Error", "analyze_live_mt5", "read_mt5_snapshot"]

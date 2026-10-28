@@ -2,9 +2,10 @@
 setlocal
 cd /d "%~dp0"
 if not exist ".venv\Scripts\python.exe" (
-  py -3 -m venv .venv
+  py -3.11 -m venv .venv >nul 2>nul
+  if errorlevel 1 py -3.12 -m venv .venv >nul 2>nul
   if errorlevel 1 (
-    echo ERROR: Python 3 is required. Install Python 3.11 or 3.12, then retry.
+    echo ERROR: Install Python 3.11 or 3.12 and retry.
     pause
     exit /b 1
   )

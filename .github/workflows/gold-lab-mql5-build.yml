@@ -39,6 +39,12 @@ jobs:
           python -m pip install --disable-pip-version-check -r trading-lab/gold-intelligence-lab/python/requirements-analysis.txt
           if ($LASTEXITCODE -ne 0) { throw "Python analysis dependency installation failed." }
 
+      - name: Compile Python source syntax
+        shell: pwsh
+        run: |
+          python -m compileall -q trading-lab/gold-intelligence-lab/python/goldlab trading-lab/gold-intelligence-lab/app.py
+          if ($LASTEXITCODE -ne 0) { throw "Python source syntax compilation failed." }
+
       - name: Run EA safety-contract tests
         shell: pwsh
         run: |

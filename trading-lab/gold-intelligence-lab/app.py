@@ -108,6 +108,27 @@ else:
 for limitation in scanner["limitations_ar"]:
     st.caption(limitation)
 
+st.subheader("خلاصة المستشار التحليلي")
+advisor = report["advisor"]
+if advisor["status"] in {"BLOCKED_DATA_QUALITY", "CONFLICTING_EVIDENCE"}:
+    st.warning(advisor["title_ar"])
+else:
+    st.info(advisor["title_ar"])
+st.write(advisor["summary_ar"])
+if advisor["evidence_ar"]:
+    st.markdown("**الأدلة المتاحة**")
+    for item in advisor["evidence_ar"]:
+        st.write("• " + item)
+if advisor["conflicts_ar"]:
+    st.markdown("**التعارضات المكتشفة**")
+    for item in advisor["conflicts_ar"]:
+        st.write("• " + item)
+if advisor["missing_evidence_ar"]:
+    st.markdown("**الأدلة الناقصة**")
+    for item in advisor["missing_evidence_ar"]:
+        st.write("• " + item)
+st.caption("المستشار لا يحسب احتمال ربح ولا يحدد سعر دخول/وقف/هدف تنفيذي، ولا يرسل أوامر.")
+
 st.subheader("حالة كل مؤشر")
 rows = []
 for item in analysis["components"]:
