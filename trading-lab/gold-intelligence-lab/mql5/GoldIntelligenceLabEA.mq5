@@ -451,7 +451,7 @@ void OnTick()
    int signal=GetSignal(atrValue,upper,lower);
    Print("GIL|BAR|symbol=",_Symbol,"|period=",EnumToString(_Period),
          "|signal=",signal,"|close=",DoubleToString(iClose(_Symbol,_Period,1),_Digits),
-         "|ema_fast=",DoubleToString(fast, _Digits));
+         "|atr=",DoubleToString(atrValue,_Digits));
    if(signal!=0)
    {
       Print("GIL|SIGNAL|direction=",signal>0?"BUY":"SELL",
