@@ -70,11 +70,11 @@ def summarize_timeframe_consensus(reports: dict[str, dict[str, Any]]) -> dict[st
     all_present = not missing
     if snapshot_issues:
         snapshot_message = "بيانات اللقطة ناقصة أو غير موثقة في الأطر: " + "، ".join(snapshot_issues)
+    elif not all_present:
+        snapshot_message = "لا يمكن تأكيد اتساق اللقطة قبل توفر الأطر الخمسة."
     elif len(snapshot_ids) != 1 or len(capture_times) != 1:
         snapshot_message = "الأطر لا تنتمي إلى لقطة واحدة؛ مُنع تجميعها في توافق مشترك."
         snapshot_issues = [row["timeframe"] for row in rows if row["timeframe"] in reports]
-    elif not all_present:
-        snapshot_message = "لا يمكن تأكيد اتساق اللقطة قبل توفر الأطر الخمسة."
     else:
         snapshot_message = "معرّف اللقطة ووقت الالتقاط متطابقان في الأطر الخمسة."
     snapshot_consistent = (
