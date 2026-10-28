@@ -190,7 +190,7 @@ if timeframe_reports or timeframe_errors:
     if snapshot_id and timeframe_reports:
         sample_market = next(iter(timeframe_reports.values())).get("market", {})
         st.caption(
-            f"منطقة الخادم: {server_timezone_label if 'server_timezone_label' in globals() else server_timezone} · "
+            f"منطقة الخادم: {server_timezone_label} · "
             f"فرق خادم/UTC المقاس من الطابع: {sample_market.get('server_utc_offset_seconds', 'غير متاح')} ثانية"
         )
     consensus = summarize_timeframe_consensus(timeframe_reports)
