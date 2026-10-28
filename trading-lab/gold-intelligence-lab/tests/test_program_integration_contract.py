@@ -12,7 +12,7 @@ class ProgramIntegrationContracts(unittest.TestCase):
     def test_all_major_modules_are_present(self):
         required = (
             "technical_rating.py", "live_mt5.py", "pattern_scanner.py",
-            "advisor.py", "economic_calendar.py", "cot_data.py", "audit_ledger.py",
+            "advisor.py", "economic_calendar.py", "cot_data.py", "audit_ledger.py", "multi_timeframe.py",
         )
         for filename in required:
             with self.subTest(filename=filename):
@@ -22,7 +22,7 @@ class ProgramIntegrationContracts(unittest.TestCase):
         app = (PROGRAM / "app.py").read_text(encoding="utf-8")
         for marker in (
             "analyze_live_mt5", "fetch_bls_calendar", "fetch_cftc_gold_cot",
-            "LocalAuditLedger", "streamlit", "قراءة السوق وتحليل المؤشرات",
+            "LocalAuditLedger", "summarize_timeframe_consensus", "streamlit", "قراءة السوق وتحليل الأطر الزمنية", "تحليل الأطر الزمنية الخمسة معًا",
             "تحديث تقويم إصدارات BLS", "تحديث مراكز الذهب COT", "حفظ لقطة التحليل محليًا",
         ):
             with self.subTest(marker=marker):
