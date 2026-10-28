@@ -10,6 +10,8 @@ This folder contains the MQL5 source and a reproducible Windows CI build for the
 - Calculates position size with OrderCalcProfit, rounds volume down to the broker step, and refuses a volume below the broker minimum rather than rounding risk upward.
 - Checks spread, per-day trade count, per-day equity loss, maximum equity drawdown, current EA position, terminal/trading permissions, and the broker's stop distance.
 - Shows the current signal/state on the chart.
+- In signal-only mode, the chart status retains whether a BUY or SELL setup was detected.
+- Daily-loss and maximum-drawdown guards block new EA entries; they do not automatically close already-open positions.
 
 ## Safety defaults
 
