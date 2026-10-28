@@ -10,6 +10,8 @@ from typing import Any
 DATASET_ID = "72hh-3qpy"
 API_URL = f"https://publicreporting.cftc.gov/resource/{DATASET_ID}.json"
 SOURCE_URL = f"https://publicreporting.cftc.gov/Commitments-of-Traders/Disaggregated-Futures-Only/{DATASET_ID}"
+# Backward-compatible public name used by the dashboard.
+CFTC_COT_SOURCE_URL = SOURCE_URL
 HOST = "publicreporting.cftc.gov"
 GOLD_CODE = "088691"
 MAX_ROWS = 260
@@ -142,4 +144,4 @@ def fetch_cftc_gold_cot(*, rows_count: int = 156, timeout_seconds: float = 15.0)
     result["requested_rows"] = rows_count
     return result
 
-__all__ = ["API_URL", "SOURCE_URL", "COTDataError", "fetch_cftc_gold_cot", "parse_cftc_cot_rows"]
+__all__ = ["API_URL", "SOURCE_URL", "CFTC_COT_SOURCE_URL", "COTDataError", "fetch_cftc_gold_cot", "parse_cftc_cot_rows"]
