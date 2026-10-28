@@ -8,8 +8,8 @@ sys.path.insert(0, str(ROOT / "python"))
 from goldlab.cot_data import API_URL, SOURCE_URL, COTDataError, parse_cftc_cot_rows
 
 ROWS = [
- {"report_date_as_yyyy_mm_dd":"2026-10-20T00:00:00.000","market_and_exchange_names":"GOLD - COMMODITY EXCHANGE INC.","cftc_contract_market_code":"088691","open_interest_all":"10000","m_money_positions_long_all":"1500","m_money_positions_short_all":"900","m_money_positions_spread_all":"100"},
- {"report_date_as_yyyy_mm_dd":"2026-10-13T00:00:00.000","market_and_exchange_names":"GOLD - COMMODITY EXCHANGE INC.","cftc_contract_market_code":"088691","open_interest_all":"9800","m_money_positions_long_all":"1400","m_money_positions_short_all":"900","m_money_positions_spread_all":"90"},
+ {"report_date_as_yyyy_mm_dd":"2026-10-20T00:00:00.000","market_and_exchange_names":"GOLD - COMMODITY EXCHANGE INC.","cftc_contract_market_code":"088691","open_interest_all":"10000","m_money_positions_long_all":"1500","m_money_positions_short_all":"900","m_money_positions_spread":"100"},
+ {"report_date_as_yyyy_mm_dd":"2026-10-13T00:00:00.000","market_and_exchange_names":"GOLD - COMMODITY EXCHANGE INC.","cftc_contract_market_code":"088691","open_interest_all":"9800","m_money_positions_long_all":"1400","m_money_positions_short_all":"900","m_money_positions_spread":"90"},
 ]
 class CFTCOTContracts(unittest.TestCase):
  def test_net_position_and_weekly_change(self):

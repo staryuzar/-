@@ -43,7 +43,7 @@ def parse_cftc_cot_rows(payload: Any, *, fetched_at_utc: datetime | None = None)
         if not isinstance(raw, dict):
             raise COTDataError("Unexpected CFTC row shape.")
         required = {"report_date_as_yyyy_mm_dd", "cftc_contract_market_code", "open_interest_all",
-                    "m_money_positions_long_all", "m_money_positions_short_all", "m_money_positions_spread_all"}
+                    "m_money_positions_long_all", "m_money_positions_short_all", "m_money_positions_spread"}
         missing = required - set(raw)
         if missing:
             raise COTDataError("CFTC response schema is missing fields: " + ", ".join(sorted(missing)))
@@ -60,7 +60,7 @@ def parse_cftc_cot_rows(payload: Any, *, fetched_at_utc: datetime | None = None)
         seen.add(report_date)
         long = _count(raw.get("m_money_positions_long_all"), "m_money_positions_long_all")
         short = _count(raw.get("m_money_positions_short_all"), "m_money_positions_short_all")
-        spread = _count(raw.get("m_money_positions_spread_all"), "m_money_positions_spread_all")
+        spread = _count(raw.get("m_money_positions_spread"), "m_money_positions_spread")
         oi = _count(raw.get("open_interest_all"), "open_interest_all")
         net = long - short if long is not None and short is not None else None
         net_pct = (net / oi * 100.0) if net is not None and oi is not None and oi > 0 else None
@@ -102,7 +102,7 @@ def fetch_cftc_gold_cot(*, rows_count: int = 156, timeout_seconds: float = 15.0)
     select = ",".join([
         "report_date_as_yyyy_mm_dd", "market_and_exchange_names", "cftc_contract_market_code",
         "open_interest_all", "m_money_positions_long_all", "m_money_positions_short_all",
-        "m_money_positions_spread_all",
+        "m_money_positions_spread",
     ])
     query = urlencode({
         "$select": select, "$where": f"cftc_contract_market_code='{GOLD_CODE}'",
