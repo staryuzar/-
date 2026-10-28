@@ -17,12 +17,33 @@ from goldlab.cot_data import CFTC_COT_SOURCE_URL, COTDataError, fetch_cftc_gold_
 from goldlab.audit_ledger import AuditLedgerError, LocalAuditLedger
 from goldlab.economic_calendar import EconomicCalendarError, BLS_CALENDAR_URL, fetch_bls_calendar
 from goldlab.live_mt5 import LiveMT5Error, analyze_live_mt5_multi
+from goldlab.macro_context import MacroDataError, SOURCE_URL as TREASURY_SOURCE_URL, FRED_SOURCE_URL, SERIES as FRED_SERIES, fetch_gold_macro_context
+from goldlab.feature_catalog import get_feature_catalog, summarize_feature_catalog, STATUS_LABELS_AR
 from goldlab.market_time import DEFAULT_SERVER_TIMEZONE
 from goldlab.multi_timeframe import summarize_timeframe_consensus
 
 st.set_page_config(page_title="Gold Intelligence Lab", page_icon="📊", layout="wide")
 st.title("مختبر ذكاء الذهب — Gold Intelligence Lab")
-st.caption("البرنامج المركزي لتحليل الذهب: بيانات MT5، 26 مؤشرًا فنيًا، ماسح الرسم، المستشار التفسيري، التقويم الاقتصادي وCOT. التداول مفصول ومغلق من هذه اللوحة.")
+st.caption("البرنامج المركزي لتحليل الذهب: بيانات MT5، التحليل الفني وبنية السعر، الاقتصاد الكلي، COT، وسجل التدقيق. التنفيذ مفصول عن لوحة التحليل.")
+
+with st.expander("خريطة قدرات المختبر والميزات المرجعية", expanded=False):
+    catalog = get_feature_catalog()
+    catalog_summary = summarize_feature_catalog()
+    st.caption("سجل نطاق المنتج: يميّز بين ما هو منفذ وما هو جزئي أو مخطط أو معتمد على مصدر خارجي. إدراج ميزة لا يعني دمج خدمة خارجية.")
+    feature_cols = st.columns(5)
+    feature_cols[0].metric("إجمالي القدرات", catalog_summary["total"])
+    feature_cols[1].metric("منفذ", catalog_summary["implemented"])
+    feature_cols[2].metric("جزئي", catalog_summary["partial"])
+    feature_cols[3].metric("مخطط", catalog_summary["planned"])
+    feature_cols[4].metric("خارجي/بحث", catalog_summary["external_dependency"] + catalog_summary["research_required"])
+    feature_status_options = ["الكل", *STATUS_LABELS_AR.values()]
+    feature_status_filter = st.selectbox("تصفية حالة الميزة", feature_status_options, key="goldlab_feature_status_filter")
+    visible_catalog = catalog if feature_status_filter == "الكل" else [item for item in catalog if item["status_ar"] == feature_status_filter]
+    st.dataframe(pd.DataFrame([{
+        "المعرف": item["id"], "المجال": item["category_ar"], "الميزة": item["name_ar"],
+        "الحالة": item["status_ar"], "التفاصيل والحدود": item["detail_ar"],
+        "المصادر المرجعية": " · ".join(item["sources"]),
+    } for item in visible_catalog]), hide_index=True, width="stretch")
 
 with st.sidebar:
     st.header("إعدادات قراءة السوق")
@@ -63,7 +84,8 @@ with st.sidebar:
     refresh = st.button("قراءة السوق وتحليل الأطر الزمنية", type="primary", width="stretch")
     refresh_bls = st.button("تحديث تقويم إصدارات BLS", width="stretch")
     refresh_cot = st.button("تحديث مراكز الذهب COT", width="stretch")
-    st.caption("كل مصدر يُحدّث فقط عند الضغط على زره. المصادر العامة مستقلة عن قراءة MT5؛ لا توجد أوامر تداول.")
+    refresh_macro = st.button("تحديث العوامل الكلية من FRED", width="stretch")
+    st.caption("كل مصدر يُحدّث يدويًا عند الضغط على زره. تعطل مصدر خارجي لا ينبغي أن يمنع قراءة MT5؛ لا توجد أوامر تداول من هذه اللوحة.")
 
 if refresh:
     selected_timeframes = ["M1", "M5", "M15", "M30", "H1"] if all_timeframes else [timeframe]
@@ -110,6 +132,14 @@ if refresh_cot:
             st.session_state["goldlab_cot_error"] = None
     except COTDataError as exc:
         st.session_state["goldlab_cot_error"] = str(exc)
+
+if refresh_macro:
+    try:
+        with st.spinner("جارٍ جلب سلاسل العوائد والدولار والتقلب من FRED..."):
+            st.session_state["goldlab_macro_context"] = fetch_gold_macro_context()
+            st.session_state["goldlab_macro_error"] = None
+    except MacroDataError as exc:
+        st.session_state["goldlab_macro_error"] = str(exc)
 
 st.subheader("تقويم الإصدارات الاقتصادية الرسمي")
 st.caption("المصدر: مكتب إحصاءات العمل الأمريكي BLS. يُعرض موعد النشر فقط؛ لا يتضمن هذا الملف القيم الفعلية أو توقعات السوق.")
@@ -181,6 +211,53 @@ if cot:
 else:
     st.info("لم يُحمّل تقرير COT بعد. اضغط زر التحديث عند الحاجة؛ لا يُستخدم مفتاح API ولا يعمل التحديث في الخلفية.")
 
+
+st.divider()
+st.subheader("سياق الاقتصاد الكلي المرتبط بدراسة الذهب")
+st.caption("المصدر: FRED — سلاسل يومية للعوائد والدولار وVIX. ليست أسعارًا لحظية ولا إشارات دخول؛ لكل سلسلة تاريخ رصد مستقل.")
+st.markdown(f"[العوائد الرسمية من وزارة الخزانة]({TREASURY_SOURCE_URL}) · [السلاسل المساندة من FRED]({FRED_SOURCE_URL})")
+macro_error = st.session_state.get("goldlab_macro_error")
+if macro_error:
+    st.warning("تعذر جلب بيانات الاقتصاد الكلي. ستظل بقية أقسام المختبر مستقلة عن هذا المصدر. " + macro_error)
+macro_context = st.session_state.get("goldlab_macro_context")
+if macro_context:
+    fetched_macro = datetime.fromisoformat(macro_context["fetched_at_utc"]).astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    st.caption(f"آخر جلب ناجح: {fetched_macro} · الحالة: {macro_context['status']} · SHA-256: {macro_context['response_sha256'][:16]}…")
+    if macro_context["status"] != "ok":
+        st.warning("بعض السلاسل مفقودة أو قديمة حسب تاريخ الرصد؛ افحص حالة كل صف ولا تعامل البيانات كآنية.")
+    for macro_warning in macro_context.get("warnings_ar", []):
+        st.caption(macro_warning)
+    macro_series = macro_context["series"]
+    macro_cols = st.columns(4)
+    for column, series_id in zip(macro_cols, FRED_SERIES):
+        item = macro_series.get(series_id, {})
+        value = item.get("latest_value")
+        if value is None:
+            shown = "غير متاح"
+        elif item.get("unit_ar") == "%":
+            shown = f"{value:.3f}%"
+        elif series_id == "VIXCLS":
+            shown = f"{value:.2f} نقطة"
+        else:
+            shown = f"{value:.3f}"
+        change = item.get("change_5_display")
+        change_text = f"{change:+.2f} {item.get('change_unit_ar', '')}" if change is not None else "تغير غير متاح"
+        label = item.get("label_ar", series_id)
+        if item.get("status") == "stale":
+            label += " — قديمة"
+        column.metric(label, shown, change_text)
+        age = item.get("age_days")
+        column.caption(f"آخر رصد: {item.get('latest_observation_date') or 'غير متاح'} · العمر: {age if age is not None else '—'} يوم")
+    st.dataframe(pd.DataFrame([{
+        "السلسلة": sid, "المؤشر": item.get("label_ar"), "القيمة": item.get("latest_value"),
+        "تاريخ الرصد": item.get("latest_observation_date"), "عمر البيانات (أيام)": item.get("age_days"),
+        "التغير مقابل الرصد الخامس السابق": item.get("change_5_display"),
+        "وحدة التغير": item.get("change_unit_ar"), "حالة الحداثة": item.get("status"),
+        "المرجع": item.get("source_url"),
+    } for sid, item in macro_series.items()]), hide_index=True, width="stretch")
+    st.caption(macro_context["note_ar"])
+else:
+    st.info("لم يُحمّل سياق الاقتصاد الكلي بعد. اضغط زر التحديث؛ لن يتصل البرنامج بهذا المصدر تلقائيًا في الخلفية.")
 
 st.divider()
 st.subheader("ملخص الأطر الزمنية — Gold Intelligence Lab")
@@ -396,3 +473,5 @@ else:
         for limitation in analysis["limitations_ar"]:
             st.write("• " + limitation)
         st.write("هذا التحليل لا ينفذ صفقة ولا يثبت ربحية استراتيجية. تحقق من مصدر الرمز والتوقيت وحداثة البيانات.")
+
+[executed on device: DESKTOP-BCGR98A (28de460a-0fbe-4532-90a8-ff34da68192c)]
