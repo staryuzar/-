@@ -7,8 +7,7 @@
 #property version   "1.000"
 #property description "Auditable research EA. Trading disabled by default."
 
-#include <Trade\Trade.mqh>
-CTrade trade;
+// Uses native MQL5 trade requests; no external include dependency.
 
 input bool   EnableTrading=false;                // False: signals/panel only
 input bool   AllowRealAccountTrading=false;      // Additional explicit guard
@@ -238,13 +237,41 @@ void TryTrade(int signal,double atrValue)
    double lots=LotsForRisk(orderType,entry,sl);
    if(lots<=0) return;
 
-   trade.SetExpertMagicNumber(MagicNumber);
-   trade.SetDeviationInPoints(DeviationPoints);
-   bool sent=false;
-   if(isBuy) sent=trade.Buy(lots,_Symbol,0.0,sl,tp,"GoldLab EMA/Donchian");
-   else      sent=trade.Sell(lots,_Symbol,0.0,sl,tp,"GoldLab EMA/Donchian");
+   MqlTick executionTick;
+   if(!SymbolInfoTick(_Symbol,executionTick))
+   {
+      lastStatus="No execution tick; no order sent";
+      return;
+   }
 
-   uint rc=trade.ResultRetcode();
+   MqlTradeRequest request={};
+   MqlTradeResult result={};
+   request.action=TRADE_ACTION_DEAL;
+   request.symbol=_Symbol;
+   request.volume=lots;
+   request.type=isBuy?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
+   request.price=isBuy?executionTick.ask:executionTick.bid;
+   request.sl=sl;
+   request.tp=tp;
+   request.deviation=(ulong)DeviationPoints;
+   request.magic=MagicNumber;
+   request.comment="GoldLab EMA/Donchian";
+   request.type_time=ORDER_TIME_GTC;
+
+   long fillingFlags=SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE);
+   long executionMode=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_EXEMODE);
+   if((fillingFlags & SYMBOL_FILLING_FOK)!=0)
+      request.type_filling=ORDER_FILLING_FOK;
+   else if((fillingFlags & SYMBOL_FILLING_IOC)!=0)
+      request.type_filling=ORDER_FILLING_IOC;
+   else if(executionMode==SYMBOL_TRADE_EXECUTION_MARKET)
+      request.type_filling=ORDER_FILLING_IOC;
+   else
+      request.type_filling=ORDER_FILLING_RETURN;
+
+   ResetLastError();
+   bool sent=OrderSend(request,result);
+   uint rc=result.retcode;
    if(sent && (rc==TRADE_RETCODE_DONE || rc==TRADE_RETCODE_PLACED || rc==TRADE_RETCODE_DONE_PARTIAL))
    {
       tradesToday++;
@@ -252,7 +279,8 @@ void TryTrade(int signal,double atrValue)
    }
    else
    {
-      lastStatus=StringFormat("Order failed: retcode=%u %s",rc,trade.ResultRetcodeDescription());
+      lastStatus=StringFormat("Order failed: sent=%s retcode=%u error=%d comment=%s",
+                              sent?"true":"false",rc,GetLastError(),result.comment);
    }
 }
 
@@ -269,7 +297,6 @@ int OnInit()
    if(hFast==INVALID_HANDLE || hSlow==INVALID_HANDLE || hATR==INVALID_HANDLE)
       return INIT_FAILED;
 
-   trade.SetExpertMagicNumber(MagicNumber);
    currentDayKey=DayKey(TimeTradeServer());
    dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY);
    initialEquity=dayStartEquity;
