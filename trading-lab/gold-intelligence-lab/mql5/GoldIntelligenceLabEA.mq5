@@ -33,12 +33,70 @@ int currentDayKey=-1;
 double dayStartEquity=0.0;
 double initialEquity=0.0;
 string lastStatus="Starting";
+string gvPrefix="";
+string gvInitialEquityKey="";
+string gvDayKeyKey="";
+string gvDayEquityKey="";
+string gvTradesTodayKey="";
+bool riskStateReady=false;
 
 int DayKey(datetime t)
 {
    MqlDateTime d;
    TimeToStruct(t,d);
    return d.year*10000+d.mon*100+d.day;
+}
+
+bool SaveRiskState()
+{
+   bool ok=true;
+   if(GlobalVariableSet(gvInitialEquityKey,initialEquity)==0) ok=false;
+   if(GlobalVariableSet(gvDayKeyKey,(double)currentDayKey)==0) ok=false;
+   if(GlobalVariableSet(gvDayEquityKey,dayStartEquity)==0) ok=false;
+   if(GlobalVariableSet(gvTradesTodayKey,(double)tradesToday)==0) ok=false;
+   return ok;
+}
+
+bool LoadRiskState()
+{
+   long login=(long)AccountInfoInteger(ACCOUNT_LOGIN);
+   string symbolKey=StringSubstr(_Symbol,0,8);
+   StringReplace(symbolKey,".","_");
+   StringReplace(symbolKey,"-","_");
+   string environmentKey=(MQLInfoInteger(MQL_TESTER) ? "T" : "L");
+   gvPrefix=StringFormat("GIL_%s_%I64d_%s_%I64u",environmentKey,login,symbolKey,MagicNumber);
+   gvInitialEquityKey=gvPrefix+"_E0";
+   gvDayKeyKey=gvPrefix+"_Day";
+   gvDayEquityKey=gvPrefix+"_DayEq";
+   gvTradesTodayKey=gvPrefix+"_Trades";
+
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   currentDayKey=DayKey(TimeTradeServer());
+   if(currentDayKey<20000101 || equity<=0)
+   {
+      lastStatus="Risk state unavailable: waiting for valid server time/equity";
+      return false;
+   }
+
+   if(GlobalVariableCheck(gvInitialEquityKey) && GlobalVariableGet(gvInitialEquityKey)>0)
+      initialEquity=GlobalVariableGet(gvInitialEquityKey);
+   else
+      initialEquity=equity;
+
+   if(GlobalVariableCheck(gvDayKeyKey) &&
+      (int)GlobalVariableGet(gvDayKeyKey)==currentDayKey &&
+      GlobalVariableCheck(gvDayEquityKey))
+   {
+      dayStartEquity=GlobalVariableGet(gvDayEquityKey);
+      tradesToday=GlobalVariableCheck(gvTradesTodayKey) ? (int)GlobalVariableGet(gvTradesTodayKey) : 0;
+   }
+   else
+   {
+      dayStartEquity=equity;
+      tradesToday=0;
+   }
+
+   return SaveRiskState();
 }
 
 bool IsNewBar()
@@ -178,6 +236,12 @@ void TryTrade(int signal,double atrValue)
       return;
    }
 
+   if(!riskStateReady)
+   {
+      lastStatus="Blocked: persistent risk state is unavailable";
+      return;
+   }
+
    ENUM_ACCOUNT_TRADE_MODE mode=(ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
    if(mode==ACCOUNT_TRADE_MODE_REAL && !AllowRealAccountTrading)
    {
@@ -234,8 +298,6 @@ void TryTrade(int signal,double atrValue)
    double sl=RoundPriceToTick(isBuy?entry-stopDistance:entry+stopDistance);
    double tp=RoundPriceToTick(isBuy?entry+stopDistance*RewardRiskRatio:entry-stopDistance*RewardRiskRatio);
    ENUM_ORDER_TYPE orderType=isBuy?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
-   double lots=LotsForRisk(orderType,entry,sl);
-   if(lots<=0) return;
 
    MqlTick executionTick;
    if(!SymbolInfoTick(_Symbol,executionTick))
@@ -243,6 +305,19 @@ void TryTrade(int signal,double atrValue)
       lastStatus="No execution tick; no order sent";
       return;
    }
+   // Recompute the entry, stops, spread and volume from the same fresh tick used for sending.
+   tick=executionTick;
+   spreadPoints=(tick.ask-tick.bid)/_Point;
+   if(spreadPoints>MaxSpreadPoints)
+   {
+      lastStatus="Blocked by refreshed spread guard";
+      return;
+   }
+   entry=isBuy?tick.ask:tick.bid;
+   sl=RoundPriceToTick(isBuy?entry-stopDistance:entry+stopDistance);
+   tp=RoundPriceToTick(isBuy?entry+stopDistance*RewardRiskRatio:entry-stopDistance*RewardRiskRatio);
+   double lots=LotsForRisk(orderType,entry,sl);
+   if(lots<=0) return;
 
    MqlTradeRequest request={};
    MqlTradeResult result={};
@@ -250,7 +325,7 @@ void TryTrade(int signal,double atrValue)
    request.symbol=_Symbol;
    request.volume=lots;
    request.type=isBuy?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
-   request.price=isBuy?executionTick.ask:executionTick.bid;
+   request.price=entry;
    request.sl=sl;
    request.tp=tp;
    request.deviation=(ulong)DeviationPoints;
@@ -275,7 +350,13 @@ void TryTrade(int signal,double atrValue)
    if(sent && (rc==TRADE_RETCODE_DONE || rc==TRADE_RETCODE_PLACED || rc==TRADE_RETCODE_DONE_PARTIAL))
    {
       tradesToday++;
-      lastStatus=StringFormat("Order accepted: %s %.2f lots",isBuy?"BUY":"SELL",lots);
+      if(!SaveRiskState())
+      {
+         riskStateReady=false;
+         lastStatus="Order accepted, but risk state save failed; further entries blocked";
+      }
+      else
+         lastStatus=StringFormat("Order accepted: %s %.2f lots",isBuy?"BUY":"SELL",lots);
    }
    else
    {
@@ -297,10 +378,10 @@ int OnInit()
    if(hFast==INVALID_HANDLE || hSlow==INVALID_HANDLE || hATR==INVALID_HANDLE)
       return INIT_FAILED;
 
-   currentDayKey=DayKey(TimeTradeServer());
-   dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY);
-   initialEquity=dayStartEquity;
-   lastStatus="Initialized; trading off by default";
+   if(!LoadRiskState())
+      return INIT_FAILED;
+   riskStateReady=true;
+   lastStatus="Initialized; persistent risk state loaded; trading off by default";
    return INIT_SUCCEEDED;
 }
 
@@ -320,6 +401,11 @@ void OnTick()
       currentDayKey=today;
       tradesToday=0;
       dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY);
+      if(!SaveRiskState())
+      {
+         riskStateReady=false;
+         lastStatus="Blocked: could not persist new-day risk state";
+      }
    }
 
    if(!IsNewBar()) return;
