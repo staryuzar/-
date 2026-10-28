@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
-from goldlab.cot_data import API_URL, SOURCE_URL, COTDataError, parse_cftc_cot_rows
+from goldlab.cot_data import API_URL, SOURCE_URL, CFTC_COT_SOURCE_URL, COTDataError, parse_cftc_cot_rows
 
 ROWS = [
  {"report_date_as_yyyy_mm_dd":"2026-10-20T00:00:00.000","market_and_exchange_names":"GOLD - COMMODITY EXCHANGE INC.","cftc_contract_market_code":"088691","open_interest_all":"10000","m_money_positions_long_all":"1500","m_money_positions_short_all":"900","m_money_positions_spread":"100"},
@@ -35,6 +35,7 @@ class CFTCOTContracts(unittest.TestCase):
  def test_fixed_public_source_has_no_api_key_or_token_field(self):
   self.assertEqual(API_URL,"https://publicreporting.cftc.gov/resource/72hh-3qpy.json")
   self.assertIn("72hh-3qpy",SOURCE_URL)
+  self.assertEqual(CFTC_COT_SOURCE_URL, SOURCE_URL)
   s=(ROOT/"python"/"goldlab"/"cot_data.py").read_text(encoding="utf-8")
   self.assertIn("User-Agent",s); self.assertNotIn("api_key",s.lower()); self.assertNotIn("Authorization",s)
 if __name__=="__main__": unittest.main()
