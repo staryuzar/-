@@ -35,6 +35,34 @@ class LiveMT5ReadOnlyContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _validate_request("XAUUSD", "M1", 260, 0)
 
+    def test_multi_timeframe_request_rejects_duplicates_and_unknown_frames(self):
+        source = (ROOT / "python" / "goldlab" / "live_mt5.py").read_text(encoding="utf-8")
+        self.assertIn("def analyze_live_mt5_multi(", source)
+        self.assertIn("snapshot_captured_at_utc", source)
+        self.assertIn("snapshot_time_consistent", source)
+        self.assertIn("symbol_info_tick(clean_symbol)", source)
+        self.assertIn("mt5.initialize(**args)", source)
+
+    def test_multi_timeframe_analysis_uses_one_initialization_and_quote_call_site(self):
+        source = (ROOT / "python" / "goldlab" / "live_mt5.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        function = next(node for node in tree.body
+                        if isinstance(node, ast.FunctionDef) and node.name == "analyze_live_mt5_multi")
+        calls = [
+            node.func.attr for node in ast.walk(function)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        ]
+        self.assertEqual(calls.count("initialize"), 1)
+        self.assertEqual(calls.count("symbol_info_tick"), 1)
+        self.assertEqual(calls.count("shutdown"), 1)
+        self.assertGreaterEqual(calls.count("copy_rates_from_pos"), 1)
+
+    def test_shared_snapshot_preserves_fail_closed_future_timestamp_guards(self):
+        source = (ROOT / "python" / "goldlab" / "live_mt5.py").read_text(encoding="utf-8")
+        self.assertIn("quote_age < -30", source)
+        self.assertIn("bar_age < -30", source)
+        self.assertIn("current-market review is blocked", source)
+
     def test_module_has_no_eager_terminal_import_or_order_write_calls(self):
         source = (ROOT / "python" / "goldlab" / "live_mt5.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
