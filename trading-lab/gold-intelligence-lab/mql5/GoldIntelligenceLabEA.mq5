@@ -4,10 +4,10 @@
 //| Trading is disabled by default.                                  |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "0.10"
+#property version   "0.100"
 #property description "Auditable research EA. Trading disabled by default."
 
-#include <Trade/Trade.mqh>
+#include <Trade\\Trade.mqh>
 CTrade trade;
 
 input bool   EnableTrading=false;                // False: signals/panel only
