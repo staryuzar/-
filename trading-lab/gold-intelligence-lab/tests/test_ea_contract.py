@@ -59,5 +59,19 @@ class ExpertAdvisorContractTests(unittest.TestCase):
         self.assertIn("does not close open positions", SOURCE)
 
 
+    def test_live_mode_requires_an_actual_demo_account(self):
+        self.assertIn("input bool   RequireDemoAccount=true;", SOURCE)
+        self.assertIn("accountMode!=ACCOUNT_TRADE_MODE_DEMO", SOURCE)
+        self.assertIn("mode!=ACCOUNT_TRADE_MODE_DEMO", SOURCE)
+        self.assertIn("GIL|SAFETY_BLOCK|reason=init_account_not_demo", SOURCE)
+
+    def test_live_telemetry_records_bars_signals_and_orders(self):
+        self.assertIn("GIL|INIT|", SOURCE)
+        self.assertIn("GIL|BAR|", SOURCE)
+        self.assertIn("GIL|SIGNAL|", SOURCE)
+        self.assertIn("GIL|ORDER_ACCEPTED|", SOURCE)
+        self.assertIn("GIL|ORDER_FAILED|", SOURCE)
+
+
 if __name__ == "__main__":
     unittest.main()
