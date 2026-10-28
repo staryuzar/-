@@ -53,6 +53,16 @@ class BLSEconomicCalendarContractTests(unittest.TestCase):
         self.assertEqual(event["url"], "https://www.bls.gov/schedule/news_release/cpi.htm")
         self.assertIn("التضخم والأسعار", event["topic_tags_ar"])
 
+    def test_legacy_us_eastern_timezone_alias_is_normalized(self):
+        legacy_ics = ICS_FIXTURE.replace("America/New_York", "US-Eastern")
+        parsed = parse_bls_ics(
+            legacy_ics,
+            now_utc=datetime(2026, 10, 28, tzinfo=timezone.utc),
+            window_days=30,
+        )
+        event = parsed["events"][0]
+        self.assertEqual(event["starts_at_utc"], "2026-10-30T12:30:00+00:00")
+
     def test_all_day_events_remain_marked_as_all_day(self):
         parsed = parse_bls_ics(
             ICS_FIXTURE,

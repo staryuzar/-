@@ -81,6 +81,19 @@ def _parse_ical_datetime(
         return parsed.astimezone(timezone.utc), False, None
 
     zone_name = params.get("TZID") or default_timezone
+    # Some public iCalendar feeds use legacy aliases rather than IANA zone IDs.
+    zone_aliases = {
+        "US-Eastern": "America/New_York",
+        "US/Eastern": "America/New_York",
+        "US-Central": "America/Chicago",
+        "US/Central": "America/Chicago",
+        "US-Mountain": "America/Denver",
+        "US/Mountain": "America/Denver",
+        "US-Pacific": "America/Los_Angeles",
+        "US/Pacific": "America/Los_Angeles",
+        "GMT": "Etc/GMT",
+    }
+    zone_name = zone_aliases.get(zone_name, zone_name)
     try:
         zone = ZoneInfo(zone_name)
     except ZoneInfoNotFoundError as exc:

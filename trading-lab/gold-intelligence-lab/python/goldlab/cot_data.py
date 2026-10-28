@@ -119,7 +119,13 @@ def fetch_cftc_gold_cot(*, rows_count: int = 156, timeout_seconds: float = 15.0)
                 raise COTDataError("CFTC API redirected outside the official HTTPS host.")
             raw = response.read(MAX_BYTES + 1)
     except HTTPError as exc:
-        raise COTDataError(f"CFTC API HTTP error: {exc.code}.") from exc
+        # Preserve a bounded server diagnostic so schema/query changes can be fixed precisely.
+        try:
+            detail = " ".join(exc.read(2049).decode("utf-8", "replace").split())[:1200]
+        except Exception:
+            detail = ""
+        suffix = f" Details: {detail}" if detail else ""
+        raise COTDataError(f"CFTC API HTTP error: {exc.code}.{suffix}") from exc
     except URLError as exc:
         raise COTDataError(f"Could not reach CFTC public data: {exc.reason}.") from exc
     except TimeoutError as exc:
