@@ -1,3 +1,9 @@
+# DISABLED ARCHIVE — DO NOT EXECUTE
+
+This legacy script sends a minimum-volume DEMO market order and attempts to close it. It is preserved for audit only and has been moved out of an executable .py path because no order-probe permission was granted.
+
+Original source follows for review; no code in this archive is called by CI.
+
 """Live demo-account verification for Gold Intelligence Lab.
 
 This module uses the MetaTrader 5 Python API against the running terminal and

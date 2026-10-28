@@ -1,3 +1,9 @@
+# DISABLED ARCHIVE — DO NOT EXECUTE
+
+This legacy script runs MT5 Strategy Tester historical simulated trades. It is preserved for audit only and is not called by the current compile-only workflow, because simulated trading is not accepted as proof for this project.
+
+Original source follows for review; no code in this archive is called by CI.
+
 # Gold Intelligence Lab strategy tester smoke/backtest
 # Runs only in an isolated MT5 Strategy Tester instance. It never submits live market orders.
 $ErrorActionPreference = "Stop"
