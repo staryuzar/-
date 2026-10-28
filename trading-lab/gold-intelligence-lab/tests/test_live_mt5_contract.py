@@ -7,7 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
 
-from goldlab.live_mt5 import CLOSED_BAR_START_POSITION, MIN_HISTORY_BARS, TIMEFRAME_SECONDS, _validate_request, analyze_live_mt5_multi
+from goldlab.live_mt5 import CLOSED_BAR_START_POSITION, MIN_HISTORY_BARS, TIMEFRAME_SECONDS, _validate_request, _future_timestamp_message, analyze_live_mt5_multi
 
 
 class LiveMT5ReadOnlyContractTests(unittest.TestCase):
@@ -43,6 +43,12 @@ class LiveMT5ReadOnlyContractTests(unittest.TestCase):
         self.assertIn("symbol_info_tick(clean_symbol)", source)
         self.assertIn("mt5.initialize(**args)", source)
 
+    def test_future_timestamp_error_reports_measured_skew_without_adjusting_data(self):
+        message = _future_timestamp_message("quote", -3960)
+        self.assertIn("66.0 minutes (3960 seconds)", message)
+        self.assertIn("analysis is blocked", message)
+        self.assertIn("data was not shifted automatically", message)
+
     def test_multi_timeframe_entrypoint_rejects_duplicate_and_unsupported_frames_before_connecting(self):
         with self.assertRaises(ValueError):
             analyze_live_mt5_multi("XAUUSD", timeframes=("M1", "M1"))
@@ -67,7 +73,7 @@ class LiveMT5ReadOnlyContractTests(unittest.TestCase):
         source = (ROOT / "python" / "goldlab" / "live_mt5.py").read_text(encoding="utf-8")
         self.assertIn("quote_age < -30", source)
         self.assertIn("bar_age < -30", source)
-        self.assertIn("current-market review is blocked", source)
+        self.assertIn("data was not shifted automatically", source)
 
     def test_module_has_no_eager_terminal_import_or_order_write_calls(self):
         source = (ROOT / "python" / "goldlab" / "live_mt5.py").read_text(encoding="utf-8")
