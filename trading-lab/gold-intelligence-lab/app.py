@@ -17,37 +17,54 @@ from goldlab.cot_data import CFTC_COT_SOURCE_URL, COTDataError, fetch_cftc_gold_
 from goldlab.audit_ledger import AuditLedgerError, LocalAuditLedger
 from goldlab.economic_calendar import EconomicCalendarError, BLS_CALENDAR_URL, fetch_bls_calendar
 from goldlab.live_mt5 import LiveMT5Error, analyze_live_mt5
+from goldlab.multi_timeframe import summarize_timeframe_consensus
 
 st.set_page_config(page_title="Gold Intelligence Lab", page_icon="📊", layout="wide")
 st.title("مختبر ذكاء الذهب — Gold Intelligence Lab")
-st.caption("لوحة قراءة وتحليل فقط. لا توجد أزرار لتنفيذ الصفقات، ولا تحتاج مفتاح API خارجيًا.")
+st.caption("البرنامج المركزي لتحليل الذهب: بيانات MT5، 26 مؤشرًا فنيًا، ماسح الرسم، المستشار التفسيري، التقويم الاقتصادي وCOT. التداول مفصول ومغلق من هذه اللوحة.")
 
 with st.sidebar:
     st.header("إعدادات قراءة السوق")
     symbol = st.text_input("رمز الذهب كما يظهر في MT5", value=os.environ.get("GOLDLAB_SYMBOL", "XAUUSD"))
-    timeframe = st.selectbox("الإطار الزمني", ["M1", "M5", "M15", "M30", "H1"])
-    bars_count = st.number_input("عدد الشموع المكتملة", min_value=260, max_value=5000, value=500, step=100)
+    timeframe = st.selectbox("الإطار الزمني للتفاصيل", ["M1", "M5", "M15", "M30", "H1"])
+    all_timeframes = st.checkbox(
+        "تحليل الأطر الزمنية الخمسة معًا", value=True,
+        help="يقرأ M1 وM5 وM15 وM30 وH1 من MT5. إذا فشل إطار، يُعرض خطؤه ولا يُستبدل ببيانات مخمّنة.",
+    )
+    bars_count = st.number_input("عدد الشموع المكتملة لكل إطار", min_value=260, max_value=5000, value=500, step=100)
     terminal_path = st.text_input(
         "مسار MT5 (اختياري)", value=os.environ.get("GOLDLAB_MT5_PATH", ""),
         help="اتركه فارغًا لاستخدام الطرفية الافتراضية، أو أدخل مسار terminal64.exe للطرفية التي سجلت الدخول فيها.",
     )
     max_quote_age = st.number_input("أقصى عمر للسعر بالثواني", min_value=5, max_value=3600, value=120, step=15)
-    refresh = st.button("قراءة السوق وتحليل المؤشرات", type="primary", use_container_width=True)
+    refresh = st.button("قراءة السوق وتحليل الأطر الزمنية", type="primary", use_container_width=True)
     refresh_bls = st.button("تحديث تقويم إصدارات BLS", use_container_width=True)
     refresh_cot = st.button("تحديث مراكز الذهب COT", use_container_width=True)
     st.caption("كل مصدر يُحدّث فقط عند الضغط على زره. المصادر العامة مستقلة عن قراءة MT5؛ لا توجد أوامر تداول.")
 
 if refresh:
-    try:
-        with st.spinner("جارٍ قراءة آخر سعر والشموع المكتملة من MT5..."):
-            st.session_state["goldlab_latest_report"] = analyze_live_mt5(
-                symbol=symbol, timeframe=timeframe, bars_count=int(bars_count),
-                terminal_path=terminal_path or None, max_quote_age_seconds=float(max_quote_age),
-            )
-            st.session_state["goldlab_latest_error"] = None
-    except (LiveMT5Error, ValueError, RuntimeError) as exc:
-        st.session_state["goldlab_latest_error"] = str(exc)
+    selected_timeframes = ["M1", "M5", "M15", "M30", "H1"] if all_timeframes else [timeframe]
+    completed_reports: dict[str, dict] = {}
+    timeframe_errors: dict[str, str] = {}
+    with st.spinner("جارٍ قراءة بيانات MT5 وتحليل الأطر الزمنية المختارة..."):
+        for selected_tf in selected_timeframes:
+            try:
+                completed_reports[selected_tf] = analyze_live_mt5(
+                    symbol=symbol, timeframe=selected_tf, bars_count=int(bars_count),
+                    terminal_path=terminal_path or None, max_quote_age_seconds=float(max_quote_age),
+                )
+            except (LiveMT5Error, ValueError, RuntimeError) as exc:
+                timeframe_errors[selected_tf] = str(exc)
+    st.session_state["goldlab_timeframe_reports"] = completed_reports
+    st.session_state["goldlab_timeframe_errors"] = timeframe_errors
+    if timeframe in completed_reports:
+        st.session_state["goldlab_latest_report"] = completed_reports[timeframe]
+        st.session_state["goldlab_latest_error"] = None
+    else:
         st.session_state.pop("goldlab_latest_report", None)
+        st.session_state["goldlab_latest_error"] = timeframe_errors.get(
+            timeframe, "لم تُقرأ بيانات هذا الإطار ضمن الطلب الأخير."
+        )
 
 if refresh_bls:
     try:
@@ -137,7 +154,57 @@ else:
 
 
 st.divider()
-st.subheader("تحليل سوق الذهب من MT5")
+st.subheader("ملخص الأطر الزمنية — Gold Intelligence Lab")
+timeframe_reports = st.session_state.get("goldlab_timeframe_reports", {})
+timeframe_errors = st.session_state.get("goldlab_timeframe_errors", {})
+if timeframe_reports or timeframe_errors:
+    consensus = summarize_timeframe_consensus(timeframe_reports)
+    if consensus["status"] in {"STRONG_BUY_ALL_FIVE", "STRONG_SELL_ALL_FIVE"}:
+        st.success(consensus["title_ar"])
+    elif consensus["status"] in {"BLOCKED_OR_INCOMPLETE", "MIXED_TIMEFRAMES"}:
+        st.warning(consensus["title_ar"])
+    else:
+        st.info(consensus["title_ar"])
+    st.write(consensus["summary_ar"])
+    display_rows = []
+    consensus_by_tf = {row["timeframe"]: row for row in consensus["rows"]}
+    for tf in ("M1", "M5", "M15", "M30", "H1"):
+        row = consensus_by_tf[tf]
+        report_category = row["category"]
+        if tf in timeframe_errors:
+            state_text = "فشل القراءة"
+            detail = timeframe_errors[tf]
+            report_category = "غير متاح"
+            eligible_text = "لا"
+            readiness_text = "لا"
+        elif tf in timeframe_reports:
+            state_text = row["bias"]
+            detail = row.get("reason_ar", "")
+            eligible_text = "نعم" if row["eligible"] else "لا"
+            readiness_text = "مكتملة" if row["ready"] else "ناقصة"
+        else:
+            state_text = "لم يُطلب"
+            detail = "فعّل تحليل الأطر الخمسة لقراءة هذا الإطار."
+            eligible_text = "لا"
+            readiness_text = "غير متاح"
+        score_value = row.get("rating")
+        display_rows.append({
+            "الإطار": tf,
+            "التقييم العام": f"{float(score_value):.3f}" if score_value is not None else "غير متاح",
+            "التصنيف": report_category,
+            "الميل": state_text,
+            "جاهزية المؤشرات": readiness_text,
+            "البيانات مؤهلة للمراجعة": eligible_text,
+            "ملاحظات": detail,
+        })
+    st.dataframe(pd.DataFrame(display_rows), hide_index=True, use_container_width=True)
+    if consensus["blocked_timeframes"]:
+        st.caption("أطر محجوبة بسبب نقص المؤشرات أو حداثة/جودة بيانات السوق: " + "، ".join(consensus["blocked_timeframes"]))
+    if consensus["missing_timeframes"]:
+        st.caption("أطر لم تُقرأ: " + "، ".join(consensus["missing_timeframes"]))
+
+st.divider()
+st.subheader(f"التفاصيل التحليلية — {timeframe}")
 error = st.session_state.get("goldlab_latest_error")
 report = st.session_state.get("goldlab_latest_report")
 if error:
