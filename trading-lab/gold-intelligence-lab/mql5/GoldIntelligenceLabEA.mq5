@@ -4,7 +4,7 @@
 //| Trading is disabled by default.                                  |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.000"
+#property version   "1.001"
 #property description "Auditable research EA. Trading disabled by default."
 
 // Uses native MQL5 trade requests; no external include dependency.
@@ -20,8 +20,8 @@ input int    DonchianPeriod=20;
 input double StopATRMultiple=2.0;
 input double RewardRiskRatio=2.0;
 input int    MaxSpreadPoints=80;
-input double MaxDailyLossPercent=2.0;            // Start-of-day equity guard
-input double MaxEquityDrawdownPercent=15.0;      // Since this EA instance started
+input double MaxDailyLossPercent=2.0;            // Blocks new EA entries after daily equity loss; does not close open positions
+input double MaxEquityDrawdownPercent=15.0;      // Blocks new entries at drawdown threshold; does not close open positions
 input int    MaxTradesPerDay=3;
 input ulong  MagicNumber=28102026;
 input int    DeviationPoints=30;
@@ -243,7 +243,8 @@ void TryTrade(int signal,double atrValue)
 {
    if(!EnableTrading)
    {
-      lastStatus="Signal only: EnableTrading=false";
+      lastStatus=StringFormat("%s setup detected; signal-only mode (EnableTrading=false)",
+                              signal>0?"BUY":"SELL");
       return;
    }
 
