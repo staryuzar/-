@@ -28,6 +28,14 @@ class ProgramIntegrationContracts(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, app)
 
+    def test_dashboard_uses_one_shared_snapshot_for_selected_timeframes(self):
+        app = (PROGRAM / "app.py").read_text(encoding="utf-8")
+        live = (PROGRAM / "python" / "goldlab" / "live_mt5.py").read_text(encoding="utf-8")
+        self.assertIn("analyze_live_mt5_multi", app)
+        self.assertIn("goldlab_snapshot_id", app)
+        self.assertIn("snapshot_time_consistent", live)
+        self.assertIn("snapshot_captured_at_utc", live)
+
     def test_runtime_manifest_contains_ui_mt5_and_windows_timezone_data(self):
         ui = (PROGRAM / "python" / "requirements-ui.txt").read_text(encoding="utf-8")
         analysis = (PROGRAM / "python" / "requirements-analysis.txt").read_text(encoding="utf-8")
