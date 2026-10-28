@@ -67,6 +67,19 @@ def _utc_iso(epoch_seconds: float) -> str:
     return datetime.fromtimestamp(float(epoch_seconds), tz=timezone.utc).isoformat()
 
 
+def _future_timestamp_message(label: str, age_seconds: float) -> str:
+    """Explain future-dated terminal data without silently shifting timestamps."""
+    ahead_seconds = max(0.0, -float(age_seconds))
+    if ahead_seconds >= 60:
+        offset = f"{ahead_seconds / 60.0:.1f} minutes ({ahead_seconds:.0f} seconds)"
+    else:
+        offset = f"{ahead_seconds:.1f} seconds"
+    return (
+        f"MT5 {label} timestamp is {offset} ahead of local UTC; current-market analysis is blocked. "
+        "Verify the terminal/server clock and machine UTC before retrying; data was not shifted automatically."
+    )
+
+
 def read_mt5_snapshot(symbol: str, timeframe: str = "M1", bars_count: int = 500, *,
                       terminal_path: str | None = None,
                       max_quote_age_seconds: float = 120.0) -> dict[str, Any]:
@@ -140,7 +153,7 @@ def read_mt5_snapshot(symbol: str, timeframe: str = "M1", bars_count: int = 500,
         now = time.time()
         quote_age = now - tick_epoch
         if quote_age < -30:
-            raise DataQualityError("MT5 quote timestamp is in the future; current-market review is blocked.")
+            raise DataQualityError(_future_timestamp_message("quote", quote_age))
         quote_fresh = 0 <= quote_age <= float(max_quote_age_seconds)
 
         # Position 0 is the forming candle. Start at 1 to retrieve completed bars only.
@@ -169,7 +182,7 @@ def read_mt5_snapshot(symbol: str, timeframe: str = "M1", bars_count: int = 500,
         last_close = last_open + interval_seconds
         bar_age = now - last_close
         if bar_age < -30:
-            raise DataQualityError("The latest closed-bar timestamp is unexpectedly in the future.")
+            raise DataQualityError(_future_timestamp_message("closed bar", bar_age))
         max_bar_age = max(float(max_quote_age_seconds), float(interval_seconds * 3))
 
         point = float(getattr(info, "point", 0.0) or 0.0)
@@ -291,7 +304,7 @@ def analyze_live_mt5_multi(symbol: str, timeframes: tuple[str, ...] = ("M1", "M5
             raise DataQualityError("MT5 quote has no valid timestamp.")
         quote_age = now - tick_epoch
         if quote_age < -30:
-            raise DataQualityError("MT5 quote timestamp is in the future; current-market review is blocked.")
+            raise DataQualityError(_future_timestamp_message("quote", quote_age))
         point = float(getattr(info, "point", 0.0) or 0.0)
         tick_size = float(getattr(info, "trade_tick_size", 0.0) or 0.0) or point
         if tick_size <= 0:
@@ -332,7 +345,7 @@ def analyze_live_mt5_multi(symbol: str, timeframes: tuple[str, ...] = ("M1", "M5
                 last_close = last_open + interval
                 bar_age = now - last_close
                 if bar_age < -30:
-                    raise DataQualityError(f"The latest closed {tf} bar timestamp is unexpectedly in the future.")
+                    raise DataQualityError(_future_timestamp_message(f"closed {tf} bar", bar_age))
                 max_bar_age = max(float(max_quote_age_seconds), float(interval * 3))
                 frame_meta = {
                     "bars_requested": bars_count, "bars_received": int(len(bars)),
