@@ -19,6 +19,7 @@ import pandas as pd
 from .technical_rating import DataQualityError, analyze_ohlcv
 from .pattern_scanner import scan_market_structure
 from .advisor import build_advisory
+from .market_time import DEFAULT_SERVER_TIMEZONE, server_timestamp_to_utc, server_timestamp_sequence_to_utc
 
 TIMEFRAME_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800, "H1": 3600}
 TIMEFRAME_ATTRIBUTES = {
@@ -82,7 +83,8 @@ def _future_timestamp_message(label: str, age_seconds: float) -> str:
 
 def read_mt5_snapshot(symbol: str, timeframe: str = "M1", bars_count: int = 500, *,
                       terminal_path: str | None = None,
-                      max_quote_age_seconds: float = 120.0) -> dict[str, Any]:
+                      max_quote_age_seconds: float = 120.0,
+                      server_timezone: str = DEFAULT_SERVER_TIMEZONE) -> dict[str, Any]:
     """Read current quote and completed bars from an already configured MT5 terminal.
 
     No account credentials are accepted or logged. If a path is supplied it only
@@ -147,10 +149,16 @@ def read_mt5_snapshot(symbol: str, timeframe: str = "M1", bars_count: int = 500,
             raise DataQualityError("MT5 returned an invalid bid/ask quote; no replacement price was invented.")
 
         time_msc = int(getattr(tick, "time_msc", 0) or 0)
-        tick_epoch = time_msc / 1000.0 if time_msc > 0 else float(getattr(tick, "time", 0) or 0)
-        if tick_epoch <= 0 or not math.isfinite(tick_epoch):
+        tick_server_epoch = time_msc / 1000.0 if time_msc > 0 else float(getattr(tick, "time", 0) or 0)
+        if tick_server_epoch <= 0 or not math.isfinite(tick_server_epoch):
             raise DataQualityError("MT5 quote has no valid timestamp.")
         now = time.time()
+        try:
+            tick_epoch = server_timestamp_to_utc(
+                tick_server_epoch, server_timezone, reference_utc_epoch=now,
+            )
+        except (ValueError, OverflowError) as exc:
+            raise DataQualityError(f"Could not convert MT5 quote time using {server_timezone!r}: {exc}") from exc
         quote_age = now - tick_epoch
         if quote_age < -30:
             raise DataQualityError(_future_timestamp_message("quote", quote_age))
@@ -173,10 +181,21 @@ def read_mt5_snapshot(symbol: str, timeframe: str = "M1", bars_count: int = 500,
         missing = required - set(bars.columns)
         if missing:
             raise DataQualityError("MT5 bar data is missing columns: " + ", ".join(sorted(missing)))
+        if bars["time"].isna().any():
+            raise DataQualityError("MT5 bar data contains missing timestamps.")
+        raw_server_times = pd.to_numeric(bars["time"], errors="raise").astype(float).tolist()
+        try:
+            utc_times = server_timestamp_sequence_to_utc(
+                raw_server_times, server_timezone, expected_interval_seconds=interval_seconds,
+            )
+        except (ValueError, OverflowError) as exc:
+            raise DataQualityError(f"Could not convert MT5 {timeframe} bar times using {server_timezone!r}: {exc}") from exc
+        bars["time_server_epoch_raw"] = raw_server_times
+        bars["time"] = utc_times
         if bars["time"].duplicated().any():
-            raise DataQualityError("MT5 returned duplicate bar timestamps.")
+            raise DataQualityError("MT5 returned duplicate UTC bar timestamps after server-time conversion.")
         if not bars["time"].is_monotonic_increasing:
-            raise DataQualityError("MT5 bars are not ordered oldest-to-newest; refusing to sort silently.")
+            raise DataQualityError("MT5 bars are not ordered oldest-to-newest after server-time conversion.")
 
         last_open = float(bars.iloc[-1]["time"])
         last_close = last_open + interval_seconds
@@ -203,6 +222,9 @@ def read_mt5_snapshot(symbol: str, timeframe: str = "M1", bars_count: int = 500,
                 "bid": bid, "ask": ask, "spread_price": ask - bid,
                 "spread_points": (ask - bid) / point if point > 0 else None,
                 "quote_time_utc": _utc_iso(tick_epoch),
+                "quote_time_server_epoch_raw": tick_server_epoch,
+                "server_timezone": server_timezone,
+                "server_utc_offset_seconds": int(round(tick_server_epoch - tick_epoch)),
                 "quote_age_seconds": round(quote_age, 2), "quote_fresh": quote_fresh,
                 "last_closed_bar_open_utc": _utc_iso(last_open),
                 "last_closed_bar_close_utc": _utc_iso(last_close),
@@ -222,11 +244,13 @@ def read_mt5_snapshot(symbol: str, timeframe: str = "M1", bars_count: int = 500,
 def analyze_live_mt5(symbol: str, timeframe: str = "M1", bars_count: int = 500, *,
                       terminal_path: str | None = None,
                       max_quote_age_seconds: float = 120.0,
-                      adx_profile: str = "official_help") -> dict[str, Any]:
+                      adx_profile: str = "official_help",
+                      server_timezone: str = DEFAULT_SERVER_TIMEZONE) -> dict[str, Any]:
     """Produce a read-only analysis report from genuine terminal quotes and closed bars."""
     snapshot = read_mt5_snapshot(
         symbol, timeframe, bars_count,
         terminal_path=terminal_path, max_quote_age_seconds=max_quote_age_seconds,
+        server_timezone=server_timezone,
     )
     bars = snapshot.pop("bars")
     market = snapshot.pop("market")
@@ -254,7 +278,8 @@ def analyze_live_mt5(symbol: str, timeframe: str = "M1", bars_count: int = 500, 
 def analyze_live_mt5_multi(symbol: str, timeframes: tuple[str, ...] = ("M1", "M5", "M15", "M30", "H1"),
                            bars_count: int = 500, *, terminal_path: str | None = None,
                            max_quote_age_seconds: float = 120.0,
-                           adx_profile: str = "official_help") -> dict[str, Any]:
+                           adx_profile: str = "official_help",
+                           server_timezone: str = DEFAULT_SERVER_TIMEZONE) -> dict[str, Any]:
     """Analyze several frames in one terminal session, using one quote and capture clock."""
     clean_symbol = str(symbol).strip()
     if not clean_symbol:
@@ -299,9 +324,15 @@ def analyze_live_mt5_multi(symbol: str, timeframes: tuple[str, ...] = ("M1", "M5
         if not math.isfinite(bid) or not math.isfinite(ask) or bid <= 0 or ask < bid:
             raise DataQualityError("MT5 returned an invalid bid/ask quote.")
         time_msc = int(getattr(tick, "time_msc", 0) or 0)
-        tick_epoch = time_msc / 1000.0 if time_msc > 0 else float(getattr(tick, "time", 0) or 0)
-        if tick_epoch <= 0 or not math.isfinite(tick_epoch):
+        tick_server_epoch = time_msc / 1000.0 if time_msc > 0 else float(getattr(tick, "time", 0) or 0)
+        if tick_server_epoch <= 0 or not math.isfinite(tick_server_epoch):
             raise DataQualityError("MT5 quote has no valid timestamp.")
+        try:
+            tick_epoch = server_timestamp_to_utc(
+                tick_server_epoch, server_timezone, reference_utc_epoch=now,
+            )
+        except (ValueError, OverflowError) as exc:
+            raise DataQualityError(f"Could not convert MT5 quote time using {server_timezone!r}: {exc}") from exc
         quote_age = now - tick_epoch
         if quote_age < -30:
             raise DataQualityError(_future_timestamp_message("quote", quote_age))
@@ -312,7 +343,10 @@ def analyze_live_mt5_multi(symbol: str, timeframes: tuple[str, ...] = ("M1", "M5
         quote = {
             "bid": bid, "ask": ask, "spread_price": ask - bid,
             "spread_points": (ask - bid) / point if point > 0 else None,
-            "quote_time_utc": _utc_iso(tick_epoch), "quote_age_seconds": round(quote_age, 2),
+            "quote_time_utc": _utc_iso(tick_epoch), "quote_time_server_epoch_raw": tick_server_epoch,
+            "server_timezone": server_timezone,
+            "server_utc_offset_seconds": int(round(tick_server_epoch - tick_epoch)),
+            "quote_age_seconds": round(quote_age, 2),
             "quote_fresh": 0 <= quote_age <= float(max_quote_age_seconds),
             "maximum_quote_age_seconds": float(max_quote_age_seconds),
             "price_digits": int(getattr(info, "digits", 0) or 0),
@@ -336,11 +370,22 @@ def analyze_live_mt5_multi(symbol: str, timeframes: tuple[str, ...] = ("M1", "M5
                 missing = required - set(bars.columns)
                 if missing:
                     raise DataQualityError(f"{tf} bars lack columns: {', '.join(sorted(missing))}")
-                if bars["time"].isna().any() or bars["time"].duplicated().any():
-                    raise DataQualityError(f"{tf} bars contain missing or duplicate timestamps.")
-                if not bars["time"].is_monotonic_increasing:
-                    raise DataQualityError(f"{tf} bars are not oldest-to-newest.")
+                if bars["time"].isna().any():
+                    raise DataQualityError(f"{tf} bars contain missing timestamps.")
+                raw_server_times = pd.to_numeric(bars["time"], errors="raise").astype(float).tolist()
                 interval = TIMEFRAME_SECONDS[tf]
+                try:
+                    utc_times = server_timestamp_sequence_to_utc(
+                        raw_server_times, server_timezone, expected_interval_seconds=interval,
+                    )
+                except (ValueError, OverflowError) as exc:
+                    raise DataQualityError(f"Could not convert MT5 {tf} bar times using {server_timezone!r}: {exc}") from exc
+                bars["time_server_epoch_raw"] = raw_server_times
+                bars["time"] = utc_times
+                if bars["time"].duplicated().any():
+                    raise DataQualityError(f"{tf} bars contain duplicate UTC timestamps after server-time conversion.")
+                if not bars["time"].is_monotonic_increasing:
+                    raise DataQualityError(f"{tf} bars are not oldest-to-newest after server-time conversion.")
                 last_open = float(bars.iloc[-1]["time"])
                 last_close = last_open + interval
                 bar_age = now - last_close
