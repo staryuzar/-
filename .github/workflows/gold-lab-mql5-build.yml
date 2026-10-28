@@ -39,6 +39,12 @@ jobs:
       - name: Install official MetaTrader 5 in isolated runner folder and compile EA
         shell: pwsh
         run: |
+          $dist = Join-Path $env:GITHUB_WORKSPACE "dist"
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+          $transcript = Join-Path $dist "build-diagnostics.txt"
+          $report = Join-Path $env:RUNNER_TEMP "goldlab-mt5\build-report.txt"
+          Start-Transcript -Path $transcript -Force | Out-Null
+          try {
           $ErrorActionPreference = "Stop"
           $ProgressPreference = "SilentlyContinue"
           $root = Join-Path $env:RUNNER_TEMP "goldlab-mt5"
@@ -109,8 +115,17 @@ jobs:
           Copy-Item -LiteralPath $report -Destination (Join-Path $dist "build-report.txt")
           Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath (Join-Path $dist "GoldIntelligenceLab-MT5-Windows.zip") -Force
           if ((Get-Item (Join-Path $dist "GoldIntelligenceLab-MT5-Windows.zip")).Length -le 1000) { throw "Build archive is unexpectedly small." }
+          } catch {
+            Write-Output ("BUILD FAILED: " + $_.Exception.Message)
+            Write-Output ($_ | Out-String)
+            if ($report -and (Test-Path -LiteralPath $report)) { Copy-Item -LiteralPath $report -Destination (Join-Path $dist "build-report.txt") -Force }
+            throw
+          } finally {
+            Stop-Transcript | Out-Null
+          }
 
       - name: Upload compiled EA package
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: GoldIntelligenceLab-MT5-Windows
