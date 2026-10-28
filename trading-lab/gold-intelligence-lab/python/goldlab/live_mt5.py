@@ -6,6 +6,7 @@ a local trading terminal or its Python package.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
 import math
 import time
