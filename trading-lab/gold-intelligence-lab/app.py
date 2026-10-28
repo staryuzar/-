@@ -169,6 +169,13 @@ if timeframe_reports or timeframe_errors:
         st.caption(f"معرّف لقطة MT5 المشتركة: {snapshot_id} · وقت الالتقاط UTC: {snapshot_time}")
     st.caption("تُستخدم لقطة سعر واحدة وساعة مرجعية واحدة للأطر المقروءة؛ أي إطار يتعذر قراءته يظهر كخطأ مستقل.")
     consensus = summarize_timeframe_consensus(timeframe_reports)
+    snapshot_integrity = consensus["snapshot_integrity"]
+    if snapshot_integrity["consistent"]:
+        st.success("اتساق لقطة الأطر: سليم — " + str(snapshot_integrity["snapshot_id"]))
+    elif consensus["missing_timeframes"]:
+        st.warning("لم يكتمل فحص اتساق اللقطة: " + snapshot_integrity["message_ar"])
+    else:
+        st.error("حارس اتساق اللقطة: " + snapshot_integrity["message_ar"])
     if consensus["status"] in {"STRONG_BUY_ALL_FIVE", "STRONG_SELL_ALL_FIVE"}:
         st.success(consensus["title_ar"])
     elif consensus["status"] in {"BLOCKED_OR_INCOMPLETE", "MIXED_TIMEFRAMES"}:
