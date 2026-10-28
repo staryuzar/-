@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from .technical_rating import DataQualityError, analyze_ohlcv
+from .pattern_scanner import scan_market_structure
 
 TIMEFRAME_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800, "H1": 3600}
 TIMEFRAME_ATTRIBUTES = {
@@ -214,6 +215,7 @@ def analyze_live_mt5(symbol: str, timeframe: str = "M1", bars_count: int = 500, 
     )
     bars = snapshot.pop("bars")
     market = snapshot.pop("market")
+    scanner = scan_market_structure(bars, timeframe, tick_size=market["trade_tick_size"])
     analysis = analyze_ohlcv(
         bars, timeframe, adx_profile=adx_profile,  # type: ignore[arg-type]
         tick_size=market["trade_tick_size"],
@@ -230,7 +232,7 @@ def analyze_live_mt5(symbol: str, timeframe: str = "M1", bars_count: int = 500, 
             "التحليل غير مؤهل لمراجعة سوق حالية: افحص حداثة السعر والشمعة واكتمال المؤشرات؛ لا يوجد أمر تداول."
         ),
     }
-    return {"market_source": snapshot, "market": market, "analysis": analysis}
+    return {"market_source": snapshot, "market": market, "analysis": analysis, "scanner": scanner}
 
 
 __all__ = ["LiveMT5Error", "analyze_live_mt5", "read_mt5_snapshot"]

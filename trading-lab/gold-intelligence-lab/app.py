@@ -78,6 +78,36 @@ r3.metric("المذبذبات — 11", f"{osc_rating:.3f}" if osc_rating is not 
 r4.metric("جاهزية المؤشرات", f"{readiness['total_ready']}/26", "مكتمل" if readiness["complete"] else "بيانات غير كافية")
 st.caption(f"قاعدة ADX: {analysis['adx_profile']} — {analysis['adx_rule_note_ar']}")
 
+st.subheader("ماسح بنية الرسم")
+scanner = report["scanner"]
+t1, t2, t3, t4 = st.columns(4)
+t1.metric("الاتجاه الوصفي", scanner["trend"]["state_ar"])
+t2.metric("ATR(14)", f"{scanner['volatility']['atr14']:.3f}" if scanner["volatility"]["atr14"] is not None else "غير متاح")
+t3.metric("حالة التذبذب", scanner["volatility"]["state_ar"])
+t4.metric("المحاور المؤكدة", f"{len(scanner['confirmed_swings']['highs'])} قمم / {len(scanner['confirmed_swings']['lows'])} قيعان")
+
+s1, s2 = st.columns(2)
+with s1:
+    st.markdown("**أقرب مناطق دعم تقريبية**")
+    st.dataframe(pd.DataFrame(scanner["support_zones"]), hide_index=True, use_container_width=True)
+with s2:
+    st.markdown("**أقرب مناطق مقاومة تقريبية**")
+    st.dataframe(pd.DataFrame(scanner["resistance_zones"]), hide_index=True, use_container_width=True)
+
+st.markdown("**النماذج والاختراقات المرصودة على شموع مكتملة**")
+if scanner["setups"]:
+    for setup in scanner["setups"]:
+        st.write(f"**{setup['type']} — {setup['status']}**")
+        st.write(setup["reason_ar"])
+        st.caption(
+            f"المستوى المرجعي: {setup['reference_level']:.3f} · "
+            f"مستوى الإبطال الوصفي: {setup['invalidation_level']:.3f}"
+        )
+else:
+    st.info("لم يعثر الماسح على اختراق أو نموذج من الأنواع المعرّفة على آخر الشموع المكتملة.")
+for limitation in scanner["limitations_ar"]:
+    st.caption(limitation)
+
 st.subheader("حالة كل مؤشر")
 rows = []
 for item in analysis["components"]:
