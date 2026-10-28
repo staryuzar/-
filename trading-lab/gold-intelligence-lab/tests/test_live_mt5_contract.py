@@ -7,7 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
 
-from goldlab.live_mt5 import CLOSED_BAR_START_POSITION, MIN_HISTORY_BARS, TIMEFRAME_SECONDS, _validate_request
+from goldlab.live_mt5 import CLOSED_BAR_START_POSITION, MIN_HISTORY_BARS, TIMEFRAME_SECONDS, _validate_request, analyze_live_mt5_multi
 
 
 class LiveMT5ReadOnlyContractTests(unittest.TestCase):
@@ -42,6 +42,12 @@ class LiveMT5ReadOnlyContractTests(unittest.TestCase):
         self.assertIn("snapshot_time_consistent", source)
         self.assertIn("symbol_info_tick(clean_symbol)", source)
         self.assertIn("mt5.initialize(**args)", source)
+
+    def test_multi_timeframe_entrypoint_rejects_duplicate_and_unsupported_frames_before_connecting(self):
+        with self.assertRaises(ValueError):
+            analyze_live_mt5_multi("XAUUSD", timeframes=("M1", "M1"))
+        with self.assertRaises(ValueError):
+            analyze_live_mt5_multi("XAUUSD", timeframes=("M1", "M2"))
 
     def test_multi_timeframe_analysis_uses_one_initialization_and_quote_call_site(self):
         source = (ROOT / "python" / "goldlab" / "live_mt5.py").read_text(encoding="utf-8")
