@@ -1,5 +1,6 @@
 """Gold Intelligence Lab analysis-only Python modules."""
 from .audit_ledger import AuditLedgerError, LocalAuditLedger, build_audit_payload
+from .economic_calendar import EconomicCalendarError, fetch_bls_calendar, parse_bls_ics
 from .cot_data import COTDataError, fetch_cftc_gold_cot, parse_cftc_cot_rows
 from .advisor import build_advisory
 from .live_mt5 import LiveMT5Error, analyze_live_mt5, read_mt5_snapshot
@@ -20,6 +21,9 @@ __all__ = [
     "AuditLedgerError",
     "LocalAuditLedger",
     "build_audit_payload",
+    "EconomicCalendarError",
+    "fetch_bls_calendar",
+    "parse_bls_ics",
     "COTDataError",
     "fetch_cftc_gold_cot",
     "parse_cftc_cot_rows",
