@@ -33,9 +33,14 @@ with st.sidebar:
         help="يقرأ M1 وM5 وM15 وM30 وH1 من MT5. إذا فشل إطار، يُعرض خطؤه ولا يُستبدل ببيانات مخمّنة.",
     )
     bars_count = st.number_input("عدد الشموع المكتملة لكل إطار", min_value=260, max_value=5000, value=500, step=100)
+    default_terminal_path = os.environ.get("GOLDLAB_MT5_PATH", "").strip()
+    if not default_terminal_path and os.name == "nt":
+        headway_candidate = r"C:\Program Files\Headway MT5 Terminal\terminal64.exe"
+        if Path(headway_candidate).is_file():
+            default_terminal_path = headway_candidate
     terminal_path = st.text_input(
-        "مسار MT5 (اختياري)", value=os.environ.get("GOLDLAB_MT5_PATH", ""),
-        help="اتركه فارغًا لاستخدام الطرفية الافتراضية، أو أدخل مسار terminal64.exe للطرفية التي سجلت الدخول فيها.",
+        "مسار MT5", value=default_terminal_path,
+        help="يُكتشف مسار Headway تلقائيًا إذا كان مثبتًا في المسار الافتراضي. يمكنك تغييره إلى مسار الطرفية التي سجلت الدخول فيها.",
     )
     timezone_options = {
         "Headway: UTC+2 شتاءً / UTC+3 صيفًا": "Europe/Athens",
