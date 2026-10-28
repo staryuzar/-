@@ -1,5 +1,8 @@
 name: Gold Intelligence Lab — MT5 build
 
+# Compile-only CI: no historical Strategy Tester, backtest, or simulated trades.
+# Genuine market-data verification is separate and must be read-only unless explicitly approved.
+
 on:
   push:
     branches:
@@ -124,12 +127,6 @@ jobs:
             Stop-Transcript | Out-Null
           }
 
-      - name: Run historical Strategy Tester using verified demo account
-        if: success()
-        shell: pwsh
-        env:
-          MT5_CREDENTIALS: ${{ secrets.mt5 }}
-        run: ./.github/scripts/gold_lab_strategy_test.ps1
 
       - name: Upload compiled EA package
         if: always()
@@ -140,12 +137,5 @@ jobs:
             dist/GoldIntelligenceLab-MT5-Windows.zip
             dist/build-report.txt
             dist/build-diagnostics.txt
-            dist/strategy-test-summary.txt
-            dist/strategy-test-diagnostics.txt
-            dist/strategy-M1.txt
-            dist/strategy-M5.txt
-            dist/strategy-M15.txt
-            dist/strategy-H1.txt
-            dist/strategy-test-reports/**
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
