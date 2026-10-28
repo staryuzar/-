@@ -16,7 +16,7 @@ import streamlit as st
 from goldlab.cot_data import CFTC_COT_SOURCE_URL, COTDataError, fetch_cftc_gold_cot
 from goldlab.audit_ledger import AuditLedgerError, LocalAuditLedger
 from goldlab.economic_calendar import EconomicCalendarError, BLS_CALENDAR_URL, fetch_bls_calendar
-from goldlab.live_mt5 import LiveMT5Error, analyze_live_mt5
+from goldlab.live_mt5 import LiveMT5Error, analyze_live_mt5_multi
 from goldlab.multi_timeframe import summarize_timeframe_consensus
 
 st.set_page_config(page_title="Gold Intelligence Lab", page_icon="📊", layout="wide")
@@ -44,17 +44,22 @@ with st.sidebar:
 
 if refresh:
     selected_timeframes = ["M1", "M5", "M15", "M30", "H1"] if all_timeframes else [timeframe]
-    completed_reports: dict[str, dict] = {}
-    timeframe_errors: dict[str, str] = {}
-    with st.spinner("جارٍ قراءة بيانات MT5 وتحليل الأطر الزمنية المختارة..."):
-        for selected_tf in selected_timeframes:
-            try:
-                completed_reports[selected_tf] = analyze_live_mt5(
-                    symbol=symbol, timeframe=selected_tf, bars_count=int(bars_count),
-                    terminal_path=terminal_path or None, max_quote_age_seconds=float(max_quote_age),
-                )
-            except (LiveMT5Error, ValueError, RuntimeError) as exc:
-                timeframe_errors[selected_tf] = str(exc)
+    try:
+        with st.spinner("جارٍ أخذ لقطة واحدة من MT5 وتحليل الأطر الزمنية المختارة..."):
+            multi_result = analyze_live_mt5_multi(
+                symbol=symbol, timeframes=tuple(selected_timeframes), bars_count=int(bars_count),
+                terminal_path=terminal_path or None, max_quote_age_seconds=float(max_quote_age),
+            )
+        completed_reports = multi_result["reports"]
+        timeframe_errors = multi_result["errors"]
+        st.session_state["goldlab_snapshot_id"] = multi_result["snapshot_id"]
+        st.session_state["goldlab_snapshot_captured_at_utc"] = multi_result["snapshot_captured_at_utc"]
+        st.session_state["goldlab_latest_error"] = None
+    except (LiveMT5Error, ValueError, RuntimeError) as exc:
+        completed_reports = {}
+        timeframe_errors = {tf: str(exc) for tf in selected_timeframes}
+        st.session_state.pop("goldlab_snapshot_id", None)
+        st.session_state.pop("goldlab_snapshot_captured_at_utc", None)
     st.session_state["goldlab_timeframe_reports"] = completed_reports
     st.session_state["goldlab_timeframe_errors"] = timeframe_errors
     if timeframe in completed_reports:
@@ -158,6 +163,11 @@ st.subheader("ملخص الأطر الزمنية — Gold Intelligence Lab")
 timeframe_reports = st.session_state.get("goldlab_timeframe_reports", {})
 timeframe_errors = st.session_state.get("goldlab_timeframe_errors", {})
 if timeframe_reports or timeframe_errors:
+    snapshot_id = st.session_state.get("goldlab_snapshot_id")
+    snapshot_time = st.session_state.get("goldlab_snapshot_captured_at_utc")
+    if snapshot_id and snapshot_time:
+        st.caption(f"معرّف لقطة MT5 المشتركة: {snapshot_id} · وقت الالتقاط UTC: {snapshot_time}")
+    st.caption("تُستخدم لقطة سعر واحدة وساعة مرجعية واحدة للأطر المقروءة؛ أي إطار يتعذر قراءته يظهر كخطأ مستقل.")
     consensus = summarize_timeframe_consensus(timeframe_reports)
     if consensus["status"] in {"STRONG_BUY_ALL_FIVE", "STRONG_SELL_ALL_FIVE"}:
         st.success(consensus["title_ar"])
