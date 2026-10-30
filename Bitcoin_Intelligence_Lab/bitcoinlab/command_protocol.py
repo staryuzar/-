@@ -18,8 +18,8 @@ def build_command(
     volume: float = 0.0, stop_loss: float = 0.0, take_profit: float = 0.0,
     position_ticket: int = 0, ttl_seconds: int = 60, now: int | None = None,
 ) -> dict[str, Any]:
-    if not command_id or any(ch in command_id for ch in "|\r\n"):
-        raise ValueError("command_id must be non-empty and delimiter-safe.")
+    if not command_id or any(not (ch.isalnum() or ch in "-_") for ch in command_id):
+        raise ValueError("command_id must contain only letters, digits, hyphens or underscores.")
     if symbol != "BTC":
         raise ValueError("The BTC executor accepts only the broker's exact BTC symbol.")
     action, side = action.upper(), side.upper()
