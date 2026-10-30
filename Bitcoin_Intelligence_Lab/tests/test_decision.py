@@ -54,7 +54,7 @@ class DecisionTests(unittest.TestCase):
             derivatives={"status": "ok", "score": 0.1},
         )
         self.assertEqual(result["action"], "HOLD")
-        self.assertIn("insufficient_cross_domain_confluence", result["blockers"])
+        self.assertIn("insufficient_directional_confluence", result["blockers"])
 
 
 if __name__ == "__main__":
