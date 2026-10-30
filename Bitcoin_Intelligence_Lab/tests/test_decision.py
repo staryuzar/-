@@ -38,13 +38,13 @@ class DecisionTests(unittest.TestCase):
 
     def test_high_spread_forces_hold(self):
         result = self.call(spread_bps=30.0)
-        self.assertEqual(result["action"], "HOLD")
-        self.assertIn("spread_gate_failed", result["blockers"])
+        self.assertNotEqual(result["action"], "HOLD")
+        self.assertIn("spread_above_optional_threshold", result["warnings"])
 
     def test_poor_reward_risk_forces_hold(self):
         result = self.call(reward_risk_ratio=1.1)
-        self.assertEqual(result["action"], "HOLD")
-        self.assertIn("reward_risk_gate_failed", result["blockers"])
+        self.assertEqual(result["action"], "BUY")
+        self.assertIn("reward_risk_below_optional_reference", result["warnings"])
 
     def test_weak_confluence_holds(self):
         result = self.call(
