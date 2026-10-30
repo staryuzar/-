@@ -32,9 +32,39 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: Bitcoin_Intelligence_Lab/pyproject.toml
+      - name: Install dashboard runtime
+        run: python -m pip install "streamlit>=1.43,<2"
       - name: Compile package
         run: python -m compileall -q bitcoinlab app.py
-      - name: Run deterministic offline tests
+      - name: Run deterministic engine and provider contract tests
         run: python -m unittest discover -s tests -v
+      - name: Smoke-test real Streamlit dashboard startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m streamlit run app.py --server.headless true --server.port 8501 --browser.gatherUsageStats false > streamlit-smoke.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=2).read()" 2>/dev/null; then
+              echo "PASS: Streamlit dashboard health endpoint"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat streamlit-smoke.log
+          echo "Streamlit health endpoint did not become ready."
+          exit 1
+      - name: Check public BTC market APIs with real current data
+        continue-on-error: true
+        run: python -m bitcoinlab.live_check --symbol BTCUSDT --interval 1m --output artifacts/live_market_check.json
+      - name: Upload live market evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitcoin-live-market-check
+          path: artifacts/live_market_check.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Verify no trading execution APIs
         run: python -c "from pathlib import Path; p=list(Path('bitcoinlab').rglob('*.py')); forbidden=('order_send(', 'create_order(', 'place_order('); bad=[(str(f),x) for f in p for x in forbidden if x in f.read_text(encoding='utf-8')]; assert not bad, bad"
