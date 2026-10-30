@@ -16,6 +16,8 @@ input int    MaxOpenPositions = 0; // 0 allows multiple positions without an art
 
 CTrade trade;
 string lastCommandId = "";
+string pendingCommandId = "";
+string pendingCommandAction = "";
 string lastStatus = "Initializing";
 datetime lastHeartbeat = 0;
 
@@ -33,7 +35,8 @@ bool IsAllowedAccount()
    ENUM_ACCOUNT_TRADE_MODE mode = (ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
    string server = AccountInfoString(ACCOUNT_SERVER);
    if(RequireHeadwayDemo)
-      return (mode == ACCOUNT_TRADE_MODE_DEMO && StringFind(server, "Headway-Demo") >= 0);
+      return (mode == ACCOUNT_TRADE_MODE_DEMO &&
+              (StringFind(server, "Headway-Demo") >= 0 || StringFind(server, "demo.trade-hw.online") >= 0));
    return (mode == ACCOUNT_TRADE_MODE_DEMO);
 }
 
@@ -69,13 +72,16 @@ void WriteAck(const string commandId, const string status, const string action, 
 
 void WriteStatus()
 {
-   double bid=0, ask=0;
+   double bid=0, ask=0, point=0;
+   long stops=0;
    SymbolInfoDouble(_Symbol,SYMBOL_BID,bid);
    SymbolInfoDouble(_Symbol,SYMBOL_ASK,ask);
-   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s\n",
+   SymbolInfoDouble(_Symbol,SYMBOL_POINT,point);
+   SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL,stops);
+   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d\n",
       _Symbol,EnumToString(_Period),(long)TimeGMT(),
       TerminalInfoInteger(TERMINAL_CONNECTED)?"CONNECTED":"DISCONNECTED",
-      bid,ask,(int)PositionsTotal(),lastStatus);
+      bid,ask,(int)PositionsTotal(),lastStatus,point,(int)stops);
    WriteTextFile("ea_status.tsv",line);
 }
 
@@ -216,6 +222,8 @@ void PollProgramCommand()
 
    bool ok=false;
    string detail="";
+   pendingCommandId=commandId;
+   pendingCommandAction=action;
    if(action=="OPEN")
    {
       ok=OpenBoardPosition(side,volume,sl,tp);
@@ -273,6 +281,35 @@ void OnTimer()
    datetime now=TimeGMT();
    if(now-lastHeartbeat>=10) { WriteStatus(); lastHeartbeat=now; }
    if(ShowStatusOnChart) Comment("Bitcoin Intelligence Lab\n",lastStatus);
+}
+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+{
+   if(trans.type!=TRADE_TRANSACTION_DEAL_ADD || trans.deal==0 || pendingCommandId=="")
+      return;
+   if(!HistoryDealSelect(trans.deal)) return;
+   if(HistoryDealGetString(trans.deal,DEAL_SYMBOL)!=_Symbol ||
+      (ulong)HistoryDealGetInteger(trans.deal,DEAL_MAGIC)!=MagicNumber)
+      return;
+
+   long entry=HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
+   long type=HistoryDealGetInteger(trans.deal,DEAL_TYPE);
+   string status="FILL_CONFIRMED";
+   if(entry==DEAL_ENTRY_IN) status="OPEN_FILL_CONFIRMED";
+   else if(entry==DEAL_ENTRY_OUT || entry==DEAL_ENTRY_OUT_BY) status="CLOSE_FILL_CONFIRMED";
+   else return;
+
+   string detail=StringFormat("deal=%I64u order=%I64u volume=%.8f price=%.8f type=%d",
+      trans.deal,(ulong)HistoryDealGetInteger(trans.deal,DEAL_ORDER),
+      HistoryDealGetDouble(trans.deal,DEAL_VOLUME),
+      HistoryDealGetDouble(trans.deal,DEAL_PRICE),(int)type);
+   lastStatus=status+": "+detail;
+   WriteAck(pendingCommandId,status,pendingCommandAction,detail);
+   WriteStatus();
+   pendingCommandId="";
+   pendingCommandAction="";
 }
 
 void OnDeinit(const int reason)
