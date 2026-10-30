@@ -7,11 +7,12 @@
 input ulong  MagicNumber = 28102027;
 input bool   EnableTrading = true;
 input bool   RequireHeadwayDemo = true;
-input int    MaxSpreadPoints = 6000;
+input int    MaxSpreadPoints = 0; // 0 disables this optional filter
 input int    CommandPollSeconds = 1;
 input int    SlippagePoints = 100;
-input double MaxRiskPercent = 0.50;
+input double MaxRiskPercent = 0.0; // 0 disables the optional EA-side equity cap
 input bool   ShowStatusOnChart = true;
+input int    MaxOpenPositions = 0; // 0 allows multiple positions without an artificial count limit
 
 CTrade trade;
 string lastCommandId = "";
@@ -19,6 +20,13 @@ string lastStatus = "Initializing";
 datetime lastHeartbeat = 0;
 
 string BaseFolder() { return "BitcoinIntelligenceLab\\"; }
+
+bool IsBitcoinSymbol()
+{
+   string symbol=_Symbol;
+   StringToUpper(symbol);
+   return (StringFind(symbol,"BTC")>=0);
+}
 
 bool IsAllowedAccount()
 {
@@ -82,16 +90,17 @@ bool ValidVolume(const double volume)
    return (MathAbs((volume-minLot)/step-MathRound((volume-minLot)/step))<1e-6);
 }
 
-bool HasOwnPosition()
+int CountOwnPositions()
 {
+   int count=0;
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong ticket=PositionGetTicket(i);
       if(ticket==0) continue;
       if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
-         (ulong)PositionGetInteger(POSITION_MAGIC)==MagicNumber) return true;
+         (ulong)PositionGetInteger(POSITION_MAGIC)==MagicNumber) count++;
    }
-   return false;
+   return count;
 }
 
 bool ValidProtection(const string side,const double sl,const double tp)
@@ -134,23 +143,28 @@ bool CloseOwnPosition(const ulong ticket)
 bool OpenBoardPosition(const string side,const double volume,const double sl,const double tp)
 {
    if(!TerminalAllowsTrading()) { lastStatus="BLOCKED: Headway DEMO/terminal permission gate"; return false; }
-   if(_Symbol!="BTC" || _Period!=PERIOD_M1) { lastStatus="BLOCKED: attach to BTC M1 chart"; return false; }
-   if(HasOwnPosition()) { lastStatus="BLOCKED: EA-managed BTC position already exists"; return false; }
+   if(!IsBitcoinSymbol()) { lastStatus="BLOCKED: chart symbol is not a Bitcoin instrument"; return false; }
+   if(MaxOpenPositions>0 && CountOwnPositions()>=MaxOpenPositions)
+   { lastStatus="BLOCKED: configured maximum open positions reached"; return false; }
    if(!ValidVolume(volume)) { lastStatus="BLOCKED: volume violates broker min/max/step"; return false; }
 
    double bid=0, ask=0, point=0;
    if(!SymbolInfoDouble(_Symbol,SYMBOL_BID,bid) || !SymbolInfoDouble(_Symbol,SYMBOL_ASK,ask) ||
       !SymbolInfoDouble(_Symbol,SYMBOL_POINT,point) || point<=0 || ask<bid)
    { lastStatus="BLOCKED: broker quote unavailable"; return false; }
-   if((ask-bid)/point>MaxSpreadPoints) { lastStatus="BLOCKED: spread exceeds EA limit"; return false; }
+   if(MaxSpreadPoints>0 && (ask-bid)/point>MaxSpreadPoints)
+   { lastStatus="BLOCKED: optional spread filter exceeded"; return false; }
    if(!ValidProtection(side,sl,tp)) { lastStatus="BLOCKED: stop/target violates price or broker stops"; return false; }
 
-   double projectedLoss=0.0;
-   ENUM_ORDER_TYPE orderType=(side=="BUY")?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
-   double entry=(side=="BUY")?ask:bid;
-   if(!OrderCalcProfit(orderType,_Symbol,volume,entry,sl,projectedLoss) || projectedLoss>=0.0 ||
-      MathAbs(projectedLoss)>AccountInfoDouble(ACCOUNT_EQUITY)*MaxRiskPercent/100.0)
-   { lastStatus="BLOCKED: broker-calculated stop loss exceeds risk budget"; return false; }
+   if(MaxRiskPercent>0.0)
+   {
+      double projectedLoss=0.0;
+      ENUM_ORDER_TYPE orderType=(side=="BUY")?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
+      double entry=(side=="BUY")?ask:bid;
+      if(!OrderCalcProfit(orderType,_Symbol,volume,entry,sl,projectedLoss) || projectedLoss>=0.0 ||
+         MathAbs(projectedLoss)>AccountInfoDouble(ACCOUNT_EQUITY)*MaxRiskPercent/100.0)
+      { lastStatus="BLOCKED: optional EA-side equity risk cap exceeded"; return false; }
+   }
 
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(SlippagePoints);
@@ -232,13 +246,13 @@ void PollProgramCommand()
 
 int OnInit()
 {
-   if(_Symbol!="BTC" || _Period!=PERIOD_M1)
+   if(!IsBitcoinSymbol())
    {
-      Print("BTCIL|INIT_BLOCKED|attach to exact BTC M1 chart; current=",_Symbol,"/",EnumToString(_Period));
+      Print("BTCIL|INIT_BLOCKED|select a Bitcoin instrument; current=",_Symbol);
       return INIT_PARAMETERS_INCORRECT;
    }
    if(MagicNumber==0 || CommandPollSeconds<1 || MaxSpreadPoints<0 || SlippagePoints<0 ||
-      MaxRiskPercent<=0 || MaxRiskPercent>1.0) return INIT_PARAMETERS_INCORRECT;
+      MaxRiskPercent<0 || MaxOpenPositions<0) return INIT_PARAMETERS_INCORRECT;
    FolderCreate("BitcoinIntelligenceLab",FILE_COMMON);
    int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(store!=INVALID_HANDLE) { lastCommandId=FileReadString(store); FileClose(store); }
