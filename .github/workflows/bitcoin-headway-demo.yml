@@ -1,0 +1,56 @@
+name: Bitcoin Intelligence Lab — Headway DEMO validation
+
+on:
+  push:
+    branches: [bitcoin-intelligence-lab]
+    paths:
+      - "Bitcoin_Intelligence_Lab/**"
+      - ".github/workflows/bitcoin-headway-demo.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitcoin-headway-demo-validation
+  cancel-in-progress: false
+
+jobs:
+  headway-demo:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Bitcoin Intelligence Lab branch
+        uses: actions/checkout@v4
+        with:
+          ref: bitcoin-intelligence-lab
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile and test deterministic BTC engines
+        shell: pwsh
+        working-directory: Bitcoin_Intelligence_Lab
+        run: |
+          python -m compileall -q bitcoinlab app.py
+          python -m unittest discover -s tests -v
+
+      - name: Install Headway terminal, compile BTC EA, and verify demo authorization
+        shell: pwsh
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+        run: |
+          ./Bitcoin_Intelligence_Lab/scripts/validate_headway_demo.ps1
+
+      - name: Upload safe MT5 validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitcoin-headway-demo-validation
+          path: |
+            ${{ runner.temp }}/bitcoin-intelligence-lab-mt5/logs/bitcoin-headway-demo-report.txt
+            ${{ runner.temp }}/bitcoin-intelligence-lab-mt5/terminal/MQL5/Experts/BitcoinIntelligenceLabEA.log
+          if-no-files-found: warn
+          retention-days: 30
