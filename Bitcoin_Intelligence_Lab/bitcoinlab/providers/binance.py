@@ -80,38 +80,63 @@ def fetch_open_interest(symbol: str = "BTCUSDT") -> dict:
     return payload
 
 
-def fetch_taker_ratio(symbol: str = "BTCUSDT", period: str = "5m", limit: int = 30) -> list[dict]:
-    if not symbol.isalnum() or period not in {"5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"} or not 1 <= limit <= 500:
-        raise ValueError("Invalid taker-ratio request.")
-    payload = get_json(_url(FUTURES_BASE, "/futures/data/takerlongshortRatio", {
+def fetch_open_interest_history(symbol: str = "BTCUSDT", period: str = "5m", limit: int = 6) -> list[dict]:
+    if not symbol.isalnum() or period not in {"5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"} or not 2 <= limit <= 500:
+        raise ValueError("Invalid open-interest history request.")
+    payload = get_json(_url(FUTURES_BASE, "/futures/data/openInterestHist", {
         "symbol": symbol.upper(), "period": period, "limit": limit,
     }))
     if not isinstance(payload, list) or any(not isinstance(x, dict) for x in payload):
-        raise ValueError("Malformed taker ratio response.")
+        raise ValueError("Malformed open-interest history response.")
     return payload
 
 
-def normalize_derivatives(funding_rows: list[dict], open_interest: dict, taker_rows: list[dict], *, prior_open_interest: float | None = None) -> dict:
-    funding = float(funding_rows[-1]["fundingRate"]) if funding_rows else None
-    oi = float(open_interest["openInterest"])
+def normalize_derivatives(
+    funding_rows: list[dict], open_interest: dict, taker_rows: list[dict], *,
+    prior_open_interest: float | None = None,
+    open_interest_history: list[dict] | None = None,
+) -> dict:
+    funding_row = max(funding_rows, key=lambda row: int(row.get("fundingTime", 0))) if funding_rows else None
+    taker_row = max(taker_rows, key=lambda row: int(row.get("timestamp", 0))) if taker_rows else None
+    funding = float(funding_row["fundingRate"]) if funding_row else None
+
+    history = sorted(open_interest_history or [], key=lambda row: int(row.get("timestamp", 0)))
+    oi_change = None
+    if len(history) >= 2:
+        current_oi = float(history[-1]["sumOpenInterest"])
+        previous_oi = float(history[-2]["sumOpenInterest"])
+        if not math.isfinite(current_oi) or not math.isfinite(previous_oi) or current_oi <= 0 or previous_oi <= 0:
+            raise ValueError("Invalid open-interest history values.")
+        oi_change = (current_oi - previous_oi) / previous_oi * 100.0
+        oi = current_oi
+        oi_timestamp = int(history[-1]["timestamp"])
+    else:
+        oi = float(open_interest["openInterest"])
+        oi_timestamp = int(open_interest["time"])
+        if prior_open_interest is not None:
+            old = float(prior_open_interest)
+            if old <= 0 or not math.isfinite(old):
+                raise ValueError("Invalid prior open interest.")
+            oi_change = (oi - old) / old * 100.0
+
     if not math.isfinite(oi) or oi < 0:
         raise ValueError("Invalid open interest.")
-    oi_change = None
-    if prior_open_interest is not None:
-        old = float(prior_open_interest)
-        if old <= 0 or not math.isfinite(old):
-            raise ValueError("Invalid prior open interest.")
-        oi_change = (oi - old) / old * 100.0
-    taker = float(taker_rows[-1]["buySellRatio"]) if taker_rows else None
-    timestamp = int(open_interest["time"])
+    taker = float(taker_row["buySellRatio"]) if taker_row else None
+    taker_timestamp = int(taker_row["timestamp"]) if taker_row else 0
     if funding is not None and not math.isfinite(funding):
         raise ValueError("Invalid funding rate.")
     if taker is not None and (not math.isfinite(taker) or taker <= 0):
         raise ValueError("Invalid taker ratio.")
+    if taker is None or taker_timestamp <= 0:
+        raise ValueError("Taker ratio or its timestamp is unavailable.")
+
+    # The oldest required fast input controls the freshness gate.
+    observed_at = min(oi_timestamp, taker_timestamp)
     return {
-        "funding_rate": funding, "open_interest": oi,
-        "open_interest_change_pct": oi_change,
-        "taker_buy_sell_ratio": taker,
-        "observed_at_ms": timestamp,
-        "observed_at_utc": datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc).isoformat(),
+        "funding_rate": funding, "funding_time_ms": int(funding_row.get("fundingTime", 0)) if funding_row else None,
+        "open_interest": oi, "open_interest_change_pct": oi_change,
+        "open_interest_observed_at_ms": oi_timestamp,
+        "taker_buy_sell_ratio": taker, "taker_observed_at_ms": taker_timestamp,
+        "observed_at_ms": observed_at,
+        "observed_at_utc": datetime.fromtimestamp(observed_at / 1000, tz=timezone.utc).isoformat(),
     }
