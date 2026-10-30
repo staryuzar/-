@@ -64,8 +64,12 @@ class ProviderTests(unittest.TestCase):
         result = normalize_derivatives(
             [{"fundingRate": "0.0001"}],
             {"openInterest": "100", "time": 1700000000000},
-            [{"buySellRatio": "1.2"}],
+            [{"buySellRatio": "1.2", "timestamp": 1700000300000}],
             prior_open_interest=95,
+            open_interest_history=[
+                {"sumOpenInterest": "95", "timestamp": 1700000000000},
+                {"sumOpenInterest": "100", "timestamp": 1700000300000},
+            ],
         )
         self.assertAlmostEqual(result["open_interest_change_pct"], (100 - 95) / 95 * 100)
         self.assertAlmostEqual(result["taker_buy_sell_ratio"], 1.2)
