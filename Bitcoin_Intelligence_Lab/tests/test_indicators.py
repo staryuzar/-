@@ -31,7 +31,7 @@ class IndicatorTests(unittest.TestCase):
             Bar(1000, 10, 12, 9, 11, 1, 1999),
             Bar(2000, 15, 16, 14, 15, 1, 2999),
         ]
-        self.assertAlmostEqual(atr(bars, 2), 3.5)
+        self.assertAlmostEqual(atr(bars, 2), 4.0)
 
     def test_rsi_uptrend_is_100(self):
         self.assertEqual(rsi(list(range(1, 20)), 14), 100.0)
