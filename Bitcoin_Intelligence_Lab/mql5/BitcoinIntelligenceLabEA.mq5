@@ -224,7 +224,7 @@ void PollProgramCommand()
    else if(action=="CLOSE")
    {
       if(!TerminalAllowsTrading()) { lastStatus="BLOCKED: Headway DEMO/terminal permission gate"; ok=false; }
-      else { ok=CloseOwnPosition(ticket); lastStatus=ok?"CLOSE_ACCEPTED":"CLOSE_REJECTED"; }
+      else { ok=CloseOwnPosition(ticket); }
       detail=lastStatus;
    }
    else { lastStatus="BLOCKED: unsupported action"; detail=lastStatus; }
