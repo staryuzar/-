@@ -6,14 +6,18 @@ import math
 def calculate_position_size(
     *, equity: float, risk_fraction: float, entry: float, stop: float,
     contract_size: float, volume_min: float, volume_step: float, volume_max: float,
-    estimated_cost_per_lot: float = 0.0, max_risk_fraction: float = 0.01,
+    estimated_cost_per_lot: float = 0.0, max_risk_fraction: float | None = None,
 ) -> dict:
     """Theoretical lot sizing using broker-supplied contract specs; never executes."""
     nums = (equity, risk_fraction, entry, stop, contract_size, volume_min, volume_step, volume_max, estimated_cost_per_lot)
     if any(not math.isfinite(float(x)) for x in nums):
         raise ValueError("Risk inputs must be finite.")
-    if equity <= 0 or not 0 < risk_fraction <= max_risk_fraction:
-        raise ValueError("Equity or risk fraction is outside the permitted range.")
+    if equity <= 0 or not math.isfinite(risk_fraction) or risk_fraction <= 0:
+        raise ValueError("Equity and risk fraction must be positive.")
+    if max_risk_fraction is not None and (
+        not math.isfinite(max_risk_fraction) or max_risk_fraction <= 0 or risk_fraction > max_risk_fraction
+    ):
+        raise ValueError("Risk fraction exceeds the optional configured cap.")
     if entry <= 0 or stop <= 0 or entry == stop:
         raise ValueError("Entry and stop must be positive and distinct.")
     if contract_size <= 0 or volume_min <= 0 or volume_step <= 0 or volume_max < volume_min or estimated_cost_per_lot < 0:
