@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from .decision import central_decision
+from .derivatives import derivatives_profile
+from .indicators import technical_profile
+from .orderflow import order_book_metrics, orderflow_profile, trade_flow_metrics
+from .providers import binance
+from .quality import freshness, utc_now_ms, validate_bars
+
+
+def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms: int | None = None) -> dict[str, Any]:
+    """Fetch real public exchange data, validate each feed, and compute one explainable snapshot."""
+    if not symbol.isalnum():
+        raise ValueError("Invalid symbol.")
+    now = utc_now_ms() if now_ms is None else int(now_ms)
+
+    # Read-only source acquisition. Each domain can fail independently and is surfaced in its status.
+    errors: dict[str, str] = {}
+    bars = []
+    depth = {}
+    trades = []
+    funding = []
+    open_interest = {}
+    taker = []
+    try:
+        bars = binance.fetch_spot_klines(symbol, interval, 200, now_ms=now)
+    except Exception as exc:
+        errors["spot"] = f"{type(exc).__name__}: {exc}"[:300]
+    try:
+        depth = binance.fetch_spot_depth(symbol, 100)
+    except Exception as exc:
+        errors["orderflow"] = f"{type(exc).__name__}: {exc}"[:300]
+    try:
+        trades = binance.fetch_spot_agg_trades(symbol, 500)
+    except Exception as exc:
+        errors["trades"] = f"{type(exc).__name__}: {exc}"[:300]
+    try:
+        funding = binance.fetch_funding_history(symbol, 3)
+        open_interest = binance.fetch_open_interest(symbol)
+        taker = binance.fetch_taker_ratio(symbol, "5m", 3)
+    except Exception as exc:
+        errors["derivatives"] = f"{type(exc).__name__}: {exc}"[:300]
+
+    spot_quality = validate_bars(bars, min_bars=60, max_age_seconds=180, now_ms=now) if bars else {
+        "status": "unavailable", "reason": errors.get("spot", "No spot candles.")
+    }
+    source_states: dict[str, dict[str, Any]] = {"spot": {"status": spot_quality["status"], **spot_quality}}
+    technical = technical_profile(bars) if bars and spot_quality["status"] == "fresh" else {
+        "status": "incomplete", "score": None, "reason": spot_quality.get("reason")
+    }
+
+    book_metrics = None
+    flow_metrics = None
+    flow_engine = {"status": "incomplete", "score": None, "reason": "Order-flow source unavailable."}
+    if depth and trades:
+        try:
+            book_metrics = order_book_metrics(depth["bids"], depth["asks"], levels=20)
+            flow_metrics = trade_flow_metrics(trades)
+            flow_engine = orderflow_profile(book_metrics, flow_metrics)
+            # A depth REST snapshot is current at fetch time. Trade timestamps provide a separate sanity check.
+            observed = [int(x.get("T") or x.get("time") or 0) for x in trades if x.get("T") or x.get("time")]
+            last_trade = max(observed) if observed else None
+            flow_fresh = freshness(last_trade, 60, now_ms=now) if last_trade else {
+                "status": "unavailable", "age_seconds": None, "observed_at_utc": None
+            }
+            source_states["orderflow"] = {"status": flow_fresh["status"], **flow_fresh}
+            if flow_fresh["status"] != "fresh":
+                flow_engine = {"status": "incomplete", "score": None, "reason": "Recent public trade feed is stale or has no event timestamp."}
+        except Exception as exc:
+            errors["orderflow"] = f"{type(exc).__name__}: {exc}"[:300]
+            source_states["orderflow"] = {"status": "error"}
+
+    deriv_data = None
+    deriv_engine = {"status": "incomplete", "score": None, "reason": "Derivatives source unavailable."}
+    if open_interest and taker:
+        try:
+            deriv_data = binance.normalize_derivatives(funding, open_interest, taker)
+            deriv_age = freshness(deriv_data["observed_at_ms"], 180, now_ms=now)
+            source_states["derivatives"] = {"status": deriv_age["status"], **deriv_age}
+            deriv_engine = derivatives_profile(
+                funding_rate=deriv_data["funding_rate"],
+                open_interest_change_pct=deriv_data["open_interest_change_pct"],
+                taker_buy_sell_ratio=deriv_data["taker_buy_sell_ratio"],
+            )
+            if deriv_age["status"] != "fresh":
+                deriv_engine = {"status": "incomplete", "score": None, "reason": "Futures source is stale."}
+        except Exception as exc:
+            errors["derivatives"] = f"{type(exc).__name__}: {exc}"[:300]
+            source_states["derivatives"] = {"status": "error"}
+
+    spread_bps = float(book_metrics["spread_bps"]) if book_metrics else float("inf")
+    decision = central_decision(
+        technical=technical, orderflow=flow_engine, derivatives=deriv_engine,
+        source_states=source_states, spread_bps=spread_bps,
+    )
+    return {
+        "status": "ok" if all(source_states.get(key, {}).get("status") == "fresh" for key in ("spot", "orderflow", "derivatives")) else "partial",
+        "symbol": symbol, "interval": interval, "as_of_utc": datetime.fromtimestamp(now / 1000, tz=timezone.utc).isoformat(),
+        "source_states": source_states, "errors": errors,
+        "spot": {"bar_count": len(bars), "last_bar": bars[-1].__dict__ if bars else None},
+        "technical": technical,
+        "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
+        "derivatives_data": deriv_data, "derivatives": deriv_engine,
+        "decision": decision,
+        "limitations": [
+            "Binance is one venue, not the entire Bitcoin market.",
+            "Order-book imbalance is a snapshot and can change or be spoofed; it is not executed volume.",
+            "Recent aggregate trades are a bounded sample, not full-session CVD.",
+            "Funding, open interest and taker ratios describe one derivatives venue.",
+            "CFTC and on-chain metrics are slow context and are deliberately not used as live entry triggers.",
+            "This module is read-only and never sends or modifies orders.",
+        ],
+    }
