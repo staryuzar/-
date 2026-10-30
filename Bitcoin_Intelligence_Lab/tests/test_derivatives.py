@@ -12,13 +12,15 @@ class DerivativesTests(unittest.TestCase):
         self.assertEqual(result["state"], "bullish")
         self.assertEqual(result["open_interest_interpretation"], "rising")
 
-    def test_extreme_positive_funding_is_crowding_penalty_not_sell_vote(self):
+    def test_extreme_positive_funding_is_warning_not_automatic_sell_vote(self):
         result = derivatives_profile(
             funding_rate=0.001, open_interest_change_pct=4.0,
             taker_buy_sell_ratio=1.0,
         )
         self.assertEqual(result["crowding"], "long_crowded")
-        self.assertLess(result["score"], 0)
+        self.assertAlmostEqual(result["score"], 0.0)
+        self.assertEqual(result["state"], "balanced")
+        self.assertIsNotNone(result["crowding_warning"])
 
     def test_oi_alone_does_not_create_direction(self):
         result = derivatives_profile(
@@ -27,13 +29,13 @@ class DerivativesTests(unittest.TestCase):
         )
         self.assertAlmostEqual(result["score"], 0.0)
 
-    def test_negative_funding_flags_short_crowding(self):
+    def test_negative_funding_flags_short_crowding_without_fake_direction(self):
         result = derivatives_profile(
             funding_rate=-0.001, open_interest_change_pct=-2.0,
             taker_buy_sell_ratio=1.0,
         )
         self.assertEqual(result["crowding"], "short_crowded")
-        self.assertGreater(result["score"], 0)
+        self.assertAlmostEqual(result["score"], 0.0)
 
     def test_missing_taker_ratio_is_incomplete(self):
         self.assertEqual(derivatives_profile(
