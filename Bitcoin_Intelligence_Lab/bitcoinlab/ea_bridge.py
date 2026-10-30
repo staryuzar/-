@@ -62,12 +62,25 @@ def publish_decision_order(
     *, report: dict, common_files: str | Path | None = None,
     volume: float = 0.01, atr_stop_multiple: float = 1.2,
     reward_risk: float = 1.8, ttl_seconds: int = 60,
+    max_signal_age_seconds: int = 90,
 ) -> dict[str, Any]:
     """Publish one real command for the current signal to the connected MT5 terminal."""
     decision = report.get("decision", {})
     action = str(decision.get("action", "HOLD")).upper()
     if action not in {"BUY", "SELL"}:
         return {"status": "no_directional_decision", "reason": "The central decision is HOLD."}
+    if decision.get("blockers"):
+        return {"status": "decision_blocked", "reason": "The central decision has blocking conditions.", "blockers": decision["blockers"]}
+    if not 5 <= int(max_signal_age_seconds) <= 600:
+        raise ValueError("max_signal_age_seconds must be between 5 and 600.")
+    as_of = report.get("as_of_utc")
+    try:
+        observed_at = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - observed_at.astimezone(timezone.utc)).total_seconds()
+    except (TypeError, ValueError):
+        return {"status": "signal_timestamp_missing", "reason": "A valid report as_of_utc timestamp is required."}
+    if age < -5 or age > max_signal_age_seconds:
+        return {"status": "signal_stale", "age_seconds": round(age, 2), "max_age_seconds": max_signal_age_seconds}
     if not math.isfinite(float(volume)) or volume <= 0:
         raise ValueError("Volume must be positive.")
     directory = Path(common_files) if common_files else default_common_files()
