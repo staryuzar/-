@@ -31,9 +31,15 @@ class RiskTests(unittest.TestCase):
         result = self.base(estimated_cost_per_lot=50)
         self.assertLess(result["volume_lots"], 0.05)
 
-    def test_risk_over_cap_is_rejected(self):
+    def test_default_risk_fraction_has_no_arbitrary_cap_but_optional_cap_can_be_set(self):
+        result = self.base(risk_fraction=0.02)
+        self.assertEqual(result["status"], "calculated")
         with self.assertRaises(ValueError):
-            self.base(risk_fraction=0.02)
+            calculate_position_size(
+                equity=10_000, risk_fraction=0.02, entry=70_000, stop=69_000,
+                contract_size=1, volume_min=0.001, volume_step=0.001,
+                volume_max=10, max_risk_fraction=0.01,
+            )
 
     def test_bad_contract_specification_is_rejected(self):
         with self.assertRaises(ValueError):
