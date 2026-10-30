@@ -85,6 +85,28 @@ void WriteStatus()
    WriteTextFile("ea_status.tsv",line);
 }
 
+void WritePositions()
+{
+   string content="ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\n";
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol ||
+         (ulong)PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
+      content+=StringFormat("%I64u|%s|%d|%.8f|%.8f|%.8f|%.8f|%.8f|%.2f\n",
+         ticket,PositionGetString(POSITION_SYMBOL),
+         (int)PositionGetInteger(POSITION_TYPE),
+         PositionGetDouble(POSITION_VOLUME),
+         PositionGetDouble(POSITION_PRICE_OPEN),
+         PositionGetDouble(POSITION_PRICE_CURRENT),
+         PositionGetDouble(POSITION_SL),
+         PositionGetDouble(POSITION_TP),
+         PositionGetDouble(POSITION_PROFIT));
+   }
+   WriteTextFile("positions.tsv",content);
+}
+
 bool ValidVolume(const double volume)
 {
    double minLot=0, maxLot=0, step=0;
@@ -241,6 +263,11 @@ void PollProgramCommand()
    int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(store!=INVALID_HANDLE) { FileWriteString(store,lastCommandId); FileClose(store); }
    string ackStatus="REJECTED";
+   if(!ok)
+   {
+      pendingCommandId="";
+      pendingCommandAction="";
+   }
    if(ok)
    {
       if(StringFind(lastStatus,"ORDER_FILL_CONFIRMED")==0) ackStatus="FILLED";
@@ -269,6 +296,7 @@ int OnInit()
    if(!EventSetTimer(CommandPollSeconds)) return INIT_FAILED;
    lastStatus=TerminalAllowsTrading()?"READY: Headway demo board-execution mode":"WAITING: Headway demo / connection / Algo Trading permission";
    WriteStatus();
+   WritePositions();
    Print("BTCIL|INIT|symbol=",_Symbol,"|period=",EnumToString(_Period),
          "|server=",AccountInfoString(ACCOUNT_SERVER),"|demo=",IsAllowedAccount()?"true":"false",
          "|trade_enabled=",EnableTrading?"true":"false","|magic=",MagicNumber);
@@ -308,6 +336,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    lastStatus=status+": "+detail;
    WriteAck(pendingCommandId,status,pendingCommandAction,detail);
    WriteStatus();
+   WritePositions();
    pendingCommandId="";
    pendingCommandAction="";
 }
