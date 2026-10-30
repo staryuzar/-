@@ -102,8 +102,9 @@ def central_decision(
     else:
         action = "HOLD"
 
+    blockers = ["insufficient_directional_confluence"] if action == "HOLD" else []
     return {
-        "action": action, "score": round(score, 6), "blockers": [],
+        "action": action, "score": round(score, 6), "blockers": blockers,
         "warnings": warnings,
         "reasons": [f"{name}:{value:+.2f}" for name, value in valid.items()],
         "active_domains": list(valid), "unavailable_domains": unavailable,
