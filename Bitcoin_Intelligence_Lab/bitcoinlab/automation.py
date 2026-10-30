@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -105,6 +106,24 @@ def run_auto_management_cycle(
                 f"(الحالة: {ack_status or 'لم يصل إقرار بعد'})."
             ),
             "ack": matching_ack,
+        }
+
+    try:
+        observed_at = datetime.fromisoformat(
+            str(report.get("as_of_utc", "")).replace("Z", "+00:00")
+        )
+        signal_age = (datetime.now(timezone.utc) - observed_at.astimezone(timezone.utc)).total_seconds()
+    except (TypeError, ValueError):
+        return {
+            "state": next_state,
+            "status": "signal_timestamp_missing",
+            "message": "لا يُسمح بإدارة المراكز باستخدام لقطة بلا توقيت صالح.",
+        }
+    if signal_age < -5 or signal_age > 90:
+        return {
+            "state": next_state,
+            "status": "signal_stale",
+            "message": f"لقطة القرار قديمة ({signal_age:.1f} ثانية)؛ لا يُرسل البرنامج أمراً.",
         }
 
     intent = next_position_action(report.get("decision", {}), positions)
