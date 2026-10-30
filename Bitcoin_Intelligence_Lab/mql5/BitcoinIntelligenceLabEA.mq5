@@ -307,7 +307,12 @@ void OnTimer()
 {
    PollProgramCommand();
    datetime now=TimeGMT();
-   if(now-lastHeartbeat>=10) { WriteStatus(); lastHeartbeat=now; }
+   if(now-lastHeartbeat>=10)
+   {
+      WriteStatus();
+      WritePositions();
+      lastHeartbeat=now;
+   }
    if(ShowStatusOnChart) Comment("Bitcoin Intelligence Lab\n",lastStatus);
 }
 
