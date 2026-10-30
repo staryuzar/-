@@ -25,6 +25,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     funding = []
     open_interest = {}
     taker = []
+    oi_history = []
     try:
         bars = binance.fetch_spot_klines(symbol, interval, 200, now_ms=now)
     except Exception as exc:
@@ -41,6 +42,10 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         funding = binance.fetch_funding_history(symbol, 3)
         open_interest = binance.fetch_open_interest(symbol)
         taker = binance.fetch_taker_ratio(symbol, "5m", 3)
+        try:
+            oi_history = binance.fetch_open_interest_history(symbol, "5m", 6)
+        except Exception as history_exc:
+            errors["open_interest_history"] = f"{type(history_exc).__name__}: {history_exc}"[:240]
     except Exception as exc:
         errors["derivatives"] = f"{type(exc).__name__}: {exc}"[:300]
 
@@ -77,7 +82,9 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     deriv_engine = {"status": "incomplete", "score": None, "reason": "Derivatives source unavailable."}
     if open_interest and taker:
         try:
-            deriv_data = binance.normalize_derivatives(funding, open_interest, taker)
+            deriv_data = binance.normalize_derivatives(
+                funding, open_interest, taker, open_interest_history=oi_history,
+            )
             deriv_age = freshness(deriv_data["observed_at_ms"], 180, now_ms=now)
             source_states["derivatives"] = {"status": deriv_age["status"], **deriv_age}
             deriv_engine = derivatives_profile(
