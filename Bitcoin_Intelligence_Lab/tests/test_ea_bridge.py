@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import unittest
 from pathlib import Path
 
-from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order
+from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order, read_positions, publish_close_order
 
 
 class EABridgeTests(unittest.TestCase):
@@ -57,6 +57,36 @@ class EABridgeTests(unittest.TestCase):
             self.write_status(tmp)
             result = publish_decision_order(report=report, common_files=tmp)
         self.assertEqual(result["status"], "signal_stale")
+
+    def test_positions_are_parsed_from_mt5_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            folder.mkdir()
+            (folder / "positions.tsv").write_text(
+                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\\n"
+                "12345|BTCUSD|0|0.01|70000|70100|69800|70400|1.25\\n",
+                encoding="utf-8",
+            )
+            rows = read_positions(tmp)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["ticket"], 12345)
+        self.assertEqual(rows[0]["type"], "BUY")
+        self.assertAlmostEqual(rows[0]["profit"], 1.25)
+
+    def test_close_command_requires_position_owned_by_ea(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp)
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            (folder / "positions.tsv").write_text(
+                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\\n"
+                "12345|BTCUSD|0|0.01|70000|70100|69800|70400|1.25\\n",
+                encoding="utf-8",
+            )
+            result = publish_close_order(ticket=12345, common_files=tmp)
+            command = (folder / "trade_command.txt").read_text(encoding="ascii").strip().split("|")
+        self.assertEqual(result["status"], "published")
+        self.assertEqual(command[5], "CLOSE")
+        self.assertEqual(command[10], "12345")
 
     def test_hold_does_not_publish_command(self):
         with tempfile.TemporaryDirectory() as tmp:
