@@ -22,13 +22,16 @@ def tff_row(code, name="BITCOIN - CHICAGO MERCANTILE EXCHANGE"):
 
 class ProviderTests(unittest.TestCase):
     def test_binance_kline_adapter_excludes_open_candle(self):
-        closed = [1000, "100", "102", "99", "101", "10", 1999]
-        open_row = [2000, "101", "103", "100", "102", "11", 2999]
-        with patch("bitcoinlab.providers.binance.get_json", return_value=[closed, open_row]):
-            bars = fetch_spot_klines("BTCUSDT", "1m", 60, now_ms=2500)
-        self.assertEqual(len(bars), 1)
-        self.assertTrue(bars[0].is_closed)
-        self.assertEqual(bars[0].close, 101.0)
+        closed_rows = [
+            [1000 + i * 60_000, "100", "102", "99", "101", "10", 1000 + (i + 1) * 60_000 - 1]
+            for i in range(60)
+        ]
+        open_row = [3_601_000, "101", "103", "100", "102", "11", 3_660_999]
+        with patch("bitcoinlab.providers.binance.get_json", return_value=closed_rows + [open_row]):
+            bars = fetch_spot_klines("BTCUSDT", "1m", 61, now_ms=3_610_000)
+        self.assertEqual(len(bars), 60)
+        self.assertTrue(bars[-1].is_closed)
+        self.assertEqual(bars[-1].close, 101.0)
 
     def test_cftc_tff_parser_uses_financial_futures_field_positions(self):
         rows = parse_tff_csv(tff_row("133741") + "\n" + tff_row("133742", "MICRO BITCOIN - CME"))
