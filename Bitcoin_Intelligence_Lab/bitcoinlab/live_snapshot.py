@@ -85,7 +85,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             deriv_data = binance.normalize_derivatives(
                 funding, open_interest, taker, open_interest_history=oi_history,
             )
-            deriv_age = freshness(deriv_data["observed_at_ms"], 180, now_ms=now)
+            deriv_age = freshness(deriv_data["observed_at_ms"], 600, now_ms=now)
             source_states["derivatives"] = {"status": deriv_age["status"], **deriv_age}
             deriv_engine = derivatives_profile(
                 funding_rate=deriv_data["funding_rate"],
