@@ -6,7 +6,10 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from bitcoinlab.live_snapshot import build_live_snapshot
-from bitcoinlab.ea_bridge import current_ack, default_common_files, publish_decision_order, read_ea_status
+from bitcoinlab.ea_bridge import (
+    current_ack, default_common_files, publish_close_order, publish_decision_order,
+    read_ea_status, read_positions,
+)
 
 st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
 
@@ -84,6 +87,25 @@ if send_order:
         st.session_state["btc_last_order_result"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
 if st.session_state.get("btc_last_order_result"):
     st.json(st.session_state["btc_last_order_result"])
+
+try:
+    managed_positions = read_positions(default_common_files())
+except Exception:
+    managed_positions = []
+st.subheader("الصفقات المفتوحة التي يديرها الخبير")
+if managed_positions:
+    st.dataframe(managed_positions, use_container_width=True, hide_index=True)
+    tickets = [row["ticket"] for row in managed_positions]
+    selected_ticket = st.selectbox("اختر تذكرة لإغلاقها", tickets, format_func=lambda value: f"#{value}")
+    if st.button("إرسال أمر إغلاق إلى MT5", disabled=terminal.get("status") != "fresh"):
+        try:
+            st.session_state["btc_last_close_result"] = publish_close_order(ticket=int(selected_ticket))
+        except Exception as exc:
+            st.session_state["btc_last_close_result"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
+    if st.session_state.get("btc_last_close_result"):
+        st.json(st.session_state["btc_last_close_result"])
+else:
+    st.caption("لا توجد حاليًا صفقات مرتبطة بهذا الخبير، أو أن ملف المراكز لم يصل بعد.")
 action = decision["action"]
 if action == "BUY":
     st.success("القرار التحليلي: BUY — ليس أمر تداول")
