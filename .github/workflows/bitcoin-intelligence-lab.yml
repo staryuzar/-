@@ -1,0 +1,40 @@
+name: Bitcoin Intelligence Lab CI
+
+on:
+  push:
+    branches: [bitcoin-intelligence-lab]
+    paths:
+      - "Bitcoin_Intelligence_Lab/**"
+      - ".github/workflows/bitcoin-intelligence-lab.yml"
+  pull_request:
+    paths:
+      - "Bitcoin_Intelligence_Lab/**"
+      - ".github/workflows/bitcoin-intelligence-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: Bitcoin_Intelligence_Lab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: Bitcoin_Intelligence_Lab/pyproject.toml
+      - name: Compile package
+        run: python -m compileall -q bitcoinlab app.py
+      - name: Run deterministic offline tests
+        run: python -m unittest discover -s tests -v
+      - name: Verify no trading execution APIs
+        run: python -c "from pathlib import Path; p=list(Path('bitcoinlab').rglob('*.py')); forbidden=('order_send(', 'create_order(', 'place_order('); bad=[(str(f),x) for f in p for x in forbidden if x in f.read_text(encoding='utf-8')]; assert not bad, bad"
