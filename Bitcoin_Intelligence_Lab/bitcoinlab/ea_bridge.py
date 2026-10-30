@@ -122,3 +122,51 @@ def publish_decision_order(
 def current_ack(common_files: str | Path | None = None) -> dict[str, Any]:
     directory = Path(common_files) if common_files else default_common_files()
     return read_ack(directory)
+
+
+def read_positions(common_files: str | Path) -> list[dict[str, Any]]:
+    path = Path(common_files) / "BitcoinIntelligenceLab" / "positions.tsv"
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    positions: list[dict[str, Any]] = []
+    for line in lines[1:]:
+        fields = line.split("|")
+        if len(fields) != 9:
+            continue
+        try:
+            positions.append({
+                "ticket": int(fields[0]), "symbol": fields[1],
+                "type": "BUY" if int(fields[2]) == 0 else "SELL",
+                "volume": float(fields[3]), "price_open": float(fields[4]),
+                "price_current": float(fields[5]), "stop_loss": float(fields[6]),
+                "take_profit": float(fields[7]), "profit": float(fields[8]),
+            })
+        except (ValueError, IndexError):
+            continue
+    return positions
+
+
+def publish_close_order(
+    *, ticket: int, common_files: str | Path | None = None,
+    ttl_seconds: int = 60,
+) -> dict[str, Any]:
+    directory = Path(common_files) if common_files else default_common_files()
+    terminal = read_ea_status(directory)
+    if terminal.get("status") != "fresh":
+        return {"status": "terminal_not_ready", "terminal": terminal}
+    owned = {row["ticket"] for row in read_positions(directory)}
+    if int(ticket) not in owned:
+        return {"status": "position_not_found", "ticket": int(ticket)}
+    command = build_command(
+        command_id=f"BTC-CLOSE-{int(ticket)}-{int(time.time())}",
+        action="CLOSE", symbol="BTC", position_ticket=int(ticket),
+        ttl_seconds=ttl_seconds,
+    )
+    target = publish_command(directory, command)
+    return {
+        "status": "published", "command_id": command["id"],
+        "ticket": int(ticket), "path": str(target),
+        "message": "Close command published; wait for MT5 deal confirmation.",
+    }
