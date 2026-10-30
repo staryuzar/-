@@ -24,20 +24,21 @@ class DecisionTests(unittest.TestCase):
         self.assertGreater(result["score"], 0.28)
         self.assertNotIn("win_probability", result)
 
-    def test_stale_source_forces_hold(self):
+    def test_one_optional_stale_source_does_not_block_other_fresh_domains(self):
         sources = dict(FRESH)
         sources["derivatives"] = {"status": "stale"}
         result = self.call(source_states=sources)
-        self.assertEqual(result["action"], "HOLD")
-        self.assertIn("derivatives_not_fresh", result["blockers"])
+        self.assertEqual(result["action"], "BUY")
+        self.assertIn("derivatives_unavailable_or_stale", result["warnings"])
+        self.assertEqual(result["active_domains"], ["technical", "orderflow"])
 
     def test_strong_cross_domain_conflict_forces_hold(self):
         result = self.call(orderflow={"status": "ok", "score": -0.9})
         self.assertEqual(result["action"], "HOLD")
         self.assertIn("strong_cross_domain_conflict", result["blockers"])
 
-    def test_high_spread_forces_hold(self):
-        result = self.call(spread_bps=30.0)
+    def test_high_spread_is_advisory_when_optional_limit_is_enabled(self):
+        result = self.call(spread_bps=30.0, max_spread_bps=12.0)
         self.assertNotEqual(result["action"], "HOLD")
         self.assertIn("spread_above_optional_threshold", result["warnings"])
 
