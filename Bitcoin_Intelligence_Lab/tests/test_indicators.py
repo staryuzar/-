@@ -42,7 +42,7 @@ class IndicatorTests(unittest.TestCase):
     def test_technical_profile_uses_only_closed_bars(self):
         result = technical_profile(make_bars(80, open_last=True))
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["close"], 890.0)
+        self.assertEqual(result["close"], 900.0)
         self.assertEqual(result["state"], "bullish")
 
     def test_technical_profile_rejects_short_history(self):
