@@ -117,7 +117,18 @@ bool CloseOwnPosition(const ulong ticket)
    trade.SetDeviationInPoints(SlippagePoints);
    bool sent=trade.PositionClose(ticket);
    uint code=trade.ResultRetcode();
-   return sent && (code==TRADE_RETCODE_DONE || code==TRADE_RETCODE_DONE_PARTIAL);
+   if(!sent || (code!=TRADE_RETCODE_DONE && code!=TRADE_RETCODE_DONE_PARTIAL))
+   {
+      lastStatus=StringFormat("CLOSE_REJECTED: retcode=%u %s",code,trade.ResultRetcodeDescription());
+      return false;
+   }
+   ulong deal=trade.ResultDeal();
+   if(deal>0 && HistoryDealSelect(deal) &&
+      HistoryDealGetString(deal,DEAL_SYMBOL)==_Symbol &&
+      (ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)==MagicNumber)
+      lastStatus=StringFormat("CLOSE_FILL_CONFIRMED: deal=%I64u position=%I64u",deal,ticket);
+   else lastStatus=StringFormat("CLOSE_SUBMITTED_PENDING: retcode=%u position=%I64u",code,ticket);
+   return true;
 }
 
 bool OpenBoardPosition(const string side,const double volume,const double sl,const double tp)
@@ -205,7 +216,18 @@ void PollProgramCommand()
    else { lastStatus="BLOCKED: unsupported action"; detail=lastStatus; }
 
    lastCommandId=commandId;
-   WriteAck(commandId,ok?"ACCEPTED":"REJECTED",action,detail);
+   int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+   if(store!=INVALID_HANDLE) { FileWriteString(store,lastCommandId); FileClose(store); }
+   string ackStatus="REJECTED";
+   if(ok)
+   {
+      if(StringFind(lastStatus,"ORDER_FILL_CONFIRMED")==0) ackStatus="FILLED";
+      else if(StringFind(lastStatus,"ORDER_SUBMITTED_PENDING")==0) ackStatus="SUBMITTED_PENDING";
+      else if(StringFind(lastStatus,"CLOSE_FILL_CONFIRMED")==0) ackStatus="CLOSED";
+      else if(StringFind(lastStatus,"CLOSE_SUBMITTED_PENDING")==0) ackStatus="CLOSE_SUBMITTED_PENDING";
+      else ackStatus="ACCEPTED";
+   }
+   WriteAck(commandId,ackStatus,action,detail);
 }
 
 int OnInit()
@@ -218,6 +240,8 @@ int OnInit()
    if(MagicNumber==0 || CommandPollSeconds<1 || MaxSpreadPoints<0 || SlippagePoints<0 ||
       MaxRiskPercent<=0 || MaxRiskPercent>1.0) return INIT_PARAMETERS_INCORRECT;
    FolderCreate("BitcoinIntelligenceLab",FILE_COMMON);
+   int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
+   if(store!=INVALID_HANDLE) { lastCommandId=FileReadString(store); FileClose(store); }
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(SlippagePoints);
    if(!EventSetTimer(CommandPollSeconds)) return INIT_FAILED;
