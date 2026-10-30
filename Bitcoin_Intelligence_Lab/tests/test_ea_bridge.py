@@ -1,6 +1,7 @@
 import json
 import tempfile
 import time
+from datetime import datetime, timezone
 import unittest
 from pathlib import Path
 
@@ -17,7 +18,8 @@ class EABridgeTests(unittest.TestCase):
 
     def report(self):
         return {
-            "decision": {"action": "BUY", "score": 0.62},
+            "as_of_utc": datetime.now(timezone.utc).isoformat(),
+            "decision": {"action": "BUY", "score": 0.62, "blockers": []},
             "technical": {"atr14": 120.0},
             "spot": {"last_bar": {"close_time_ms": 1_799_000_000_000}},
         }
@@ -47,6 +49,14 @@ class EABridgeTests(unittest.TestCase):
         self.assertEqual(fields[5], "OPEN")
         self.assertEqual(fields[6], "BUY")
         self.assertGreater(float(fields[9]), 70001.0)
+
+    def test_stale_signal_does_not_publish_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self.report()
+            report["as_of_utc"] = "2020-01-01T00:00:00+00:00"
+            self.write_status(tmp)
+            result = publish_decision_order(report=report, common_files=tmp)
+        self.assertEqual(result["status"], "signal_stale")
 
     def test_hold_does_not_publish_command(self):
         with tempfile.TemporaryDirectory() as tmp:
