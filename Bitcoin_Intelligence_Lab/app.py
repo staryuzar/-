@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from bitcoinlab.live_snapshot import build_live_snapshot
+from bitcoinlab.ea_bridge import current_ack, default_common_files, publish_decision_order, read_ea_status
 
 st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
 
@@ -19,16 +20,17 @@ st.markdown("""
 div[data-testid="stMetric"] {background:white; border:1px solid #e2e8f0; border-radius:14px; padding:12px;}
 </style>
 <div class="hero"><h1>₿ Bitcoin Intelligence Lab</h1>
-<p>من بيانات بيتكوين الحقيقية إلى قراءة متعددة المحركات وقرار مركزي قابل للتفسير. وضع القراءة فقط؛ لا تُرسل هذه اللوحة أوامر تداول.</p></div>
+<p>بيانات بيتكوين الحقيقية · محركات متعددة · قرار مركزي · تنفيذ Headway-Demo عبر MT5</p></div>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("إعدادات السوق")
     symbol = st.selectbox("رمز السوق الفوري", ["BTCUSDT", "BTCUSDC"], index=0)
     interval = st.selectbox("الفاصل", ["1m", "5m", "15m", "1h", "4h"], index=0)
+    volume = st.number_input("حجم الصفقة باللوت", min_value=0.001, max_value=10.0, value=0.01, step=0.001, format="%.3f")
     st.caption("المصدر الأساسي Binance Spot وUSDⓈ-M Futures. بيانات الشبكة وCOT والخيارات سياق إضافي.")
     refresh = st.button("قراءة السوق الحقيقية الآن", type="primary", use_container_width=True)
-    st.caption("لا توجد أسعار افتراضية. عند فشل مصدر يظهر كغير متاح أو خطأ.")
+    st.caption("تُعرض البيانات الحقيقية وحالة كل مصدر. اتصال EA يتم عبر MT5 Common Files.")
 
 if "btc_report" not in st.session_state:
     st.session_state["btc_report"] = None
@@ -47,6 +49,41 @@ if not report:
 
 st.caption(f"الرمز: {report['symbol']} · آخر تحديث: {report['as_of_utc']} · حالة اللقطة: {report['status']}")
 decision = report["decision"]
+
+st.subheader("اتصال خبير MT5")
+try:
+    terminal = read_ea_status(default_common_files())
+    ack = current_ack(default_common_files())
+except Exception as exc:
+    terminal = {"status": "unavailable", "reason": str(exc)}
+    ack = {}
+terminal_cols = st.columns(4)
+terminal_cols[0].metric("حالة الخبير", terminal.get("status", "unavailable"))
+terminal_cols[1].metric("رمز الوسيط", terminal.get("symbol", "غير متصل"))
+terminal_cols[2].metric("Bid", f"{terminal['bid']:.2f}" if terminal.get("bid") else "—")
+terminal_cols[3].metric("Ask", f"{terminal['ask']:.2f}" if terminal.get("ask") else "—")
+if terminal.get("reason"):
+    st.caption(terminal["reason"])
+if ack:
+    st.caption(f"آخر إقرار MT5: {ack.get('status')} · الأمر {ack.get('id')} · {ack.get('detail', '')}")
+exec_col1, exec_col2 = st.columns([1, 2])
+with exec_col1:
+    send_order = st.button(
+        "إرسال القرار إلى Headway-Demo",
+        type="primary",
+        disabled=decision.get("action") not in {"BUY", "SELL"} or terminal.get("status") != "fresh",
+        use_container_width=True,
+    )
+with exec_col2:
+    st.caption("ينشئ أمرًا حقيقيًا على حساب Headway-Demo المتصل فقط بعد جاهزية EA؛ يعتمد وقف الخسارة والهدف على ATR وسعر الوسيط.")
+if send_order:
+    try:
+        result = publish_decision_order(report=report, volume=float(volume))
+        st.session_state["btc_last_order_result"] = result
+    except Exception as exc:
+        st.session_state["btc_last_order_result"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
+if st.session_state.get("btc_last_order_result"):
+    st.json(st.session_state["btc_last_order_result"])
 action = decision["action"]
 if action == "BUY":
     st.success("القرار التحليلي: BUY — ليس أمر تداول")
@@ -90,7 +127,7 @@ with right:
 with st.expander("حدود اللقطة ومصادرها"):
     for item in report["limitations"]:
         st.write("• " + item)
-    st.caption("لا يوجد في هذه النسخة تنفيذ تلقائي أو تداول تجريبي اصطناعي. المخرجات قراءة وتحليل بيانات حقيقية من واجهات السوق.")
+    st.caption("الإرسال متاح عبر Headway-Demo عند اتصال EA. فشل مصدر أو غياب إقرار الوسيط يظهر صراحة ولا يُعتبر تنفيذًا.")
     st.download_button(
         "تصدير لقطة JSON",
         data=json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False),
