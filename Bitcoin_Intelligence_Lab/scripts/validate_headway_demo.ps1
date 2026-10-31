@@ -234,6 +234,9 @@ finally {
     if ($runtimeConfig -and (Test-Path -LiteralPath $runtimeConfig)) {
         Remove-Item -LiteralPath $runtimeConfig -Force -ErrorAction SilentlyContinue
     }
+    if ($runtimeConfig -and (Test-Path -LiteralPath $runtimeConfig)) {
+        Remove-Item -LiteralPath $runtimeConfig -Force -ErrorAction SilentlyContinue
+    }
     if ($loginConfig -and (Test-Path -LiteralPath $loginConfig)) {
         Remove-Item -LiteralPath $loginConfig -Force -ErrorAction SilentlyContinue
     }
