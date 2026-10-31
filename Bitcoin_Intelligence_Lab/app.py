@@ -148,6 +148,7 @@ def render_live_dashboard():
         st.session_state.get("btc_report") is None
         or st.session_state.get("btc_report_key") != report_key
         or st.session_state.get("btc_report_revision") != revision
+        or st.session_state.get("btc_refresh_pending")
         or auto_refresh
     )
     if needs_refresh:
@@ -204,6 +205,7 @@ def render_live_dashboard():
         if completed:
             st.session_state["btc_refresh_pending"] = False
             st.success("اكتملت اللقطة الجديدة ووصلت من محرك البيانات المشترك.")
+            st.rerun()
         elif timed_out:
             st.session_state["btc_refresh_pending"] = False
             st.warning("لم يصل تحديث جديد خلال 90 ثانية؛ نحتفظ باللقطة السابقة.")
