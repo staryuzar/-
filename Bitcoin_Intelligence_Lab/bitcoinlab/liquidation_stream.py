@@ -65,7 +65,15 @@ async def _run_binance(store: MarketDataStore, symbol: str) -> None:
                 )
                 last_status = 0.0
                 while True:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=60)
+                    try:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=25)
+                    except asyncio.TimeoutError:
+                        heartbeat = int(time.time() * 1000)
+                        store.record_status(
+                            venue=venue, symbol=symbol, status="connected",
+                            updated_at_ms=heartbeat, reconnects=reconnects,
+                        )
+                        continue
                     payload = json.loads(raw)
                     if not isinstance(payload, dict) or payload.get("e") != "forceOrder":
                         continue
@@ -119,6 +127,11 @@ async def _run_bybit(store: MarketDataStore, symbol: str) -> None:
                     while True:
                         raw = await asyncio.wait_for(ws.recv(), timeout=60)
                         if raw == "pong":
+                            heartbeat = int(time.time() * 1000)
+                            store.record_status(
+                                venue=venue, symbol=symbol, status="connected",
+                                updated_at_ms=heartbeat, reconnects=reconnects,
+                            )
                             continue
                         payload = json.loads(raw)
                         if isinstance(payload, dict) and payload.get("op") == "subscribe":
@@ -189,6 +202,11 @@ async def _run_okx(store: MarketDataStore, symbol: str) -> None:
                     while True:
                         raw = await asyncio.wait_for(ws.recv(), timeout=40)
                         if raw == "pong":
+                            heartbeat = int(time.time() * 1000)
+                            store.record_status(
+                                venue=venue, symbol=symbol, status="connected",
+                                updated_at_ms=heartbeat, reconnects=reconnects,
+                            )
                             continue
                         payload = json.loads(raw)
                         if not isinstance(payload, dict):
