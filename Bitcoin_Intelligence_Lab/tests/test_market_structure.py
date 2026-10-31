@@ -47,7 +47,7 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(result["vah"], 101.0)
         self.assertAlmostEqual(result["total_buy_volume_btc"], 5.0)
         self.assertAlmostEqual(result["total_sell_volume_btc"], 2.0)
-        self.assertAlmostEqual(result["delta_ratio"], 3 / 7)
+        self.assertAlmostEqual(result["delta_ratio"], 3 / 7, places=6)
 
     def test_trade_profile_rejects_missing_aggressor_side(self):
         with self.assertRaisesRegex(ValueError, "buyer-maker"):
