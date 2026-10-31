@@ -328,21 +328,22 @@ def render_live_dashboard():
             pending_command=pending,
             snapshot_service=service_state,
         )
-        readiness_cols = st.columns(6)
-        readiness_cols[0].metric(
+        readiness_top = st.columns(3)
+        readiness_bottom = st.columns(3)
+        readiness_top[0].metric(
             "سلامة بيانات السوق",
             {"live": "حي", "partial": "جزئي", "unavailable": "غير متاح"}.get(
                 system_readiness["market_data"]["status"], "غير متاح"
             ),
             f"{system_readiness['market_data']['live_orderbook_venues']} دفاتر حية",
         )
-        readiness_cols[1].metric(
+        readiness_top[1].metric(
             "قرار مركز البرنامج",
             system_readiness["central_decision"]["action"],
             f"درجة: {system_readiness['central_decision']['score']}"
             if system_readiness["central_decision"]["score"] is not None else "لا توجد درجة صالحة",
         )
-        readiness_cols[2].metric(
+        readiness_top[2].metric(
             "محرك اللقطات المشتركة",
             "سليم" if system_readiness["snapshot_service"]["status"] == "healthy"
             and system_readiness["snapshot_service"]["freshness_status"] == "fresh"
@@ -350,12 +351,12 @@ def render_live_dashboard():
             f"عمر النبض: {system_readiness['snapshot_service']['age_seconds']} ث"
             if system_readiness["snapshot_service"]["age_seconds"] is not None else "لا يوجد نبض",
         )
-        readiness_cols[3].metric(
+        readiness_bottom[0].metric(
             "جاهزية Headway / MT5",
             "جاهز" if system_readiness["headway_mt5"]["status"] == "ready"
             else str(system_readiness["headway_mt5"]["status"]),
         )
-        readiness_cols[4].metric(
+        readiness_bottom[1].metric(
             "مواصفات حساب المخاطرة",
             "جاهزة" if system_readiness["headway_mt5"]["risk_sizing_ready"] else "غير متاحة",
             (
@@ -363,7 +364,7 @@ def render_live_dashboard():
                 f"حجم اللوت: {system_readiness['headway_mt5']['volume_step']}"
             ) if system_readiness["headway_mt5"]["risk_sizing_ready"] else "تُمنع المداخل الجديدة؛ الإغلاق يبقى متاحاً",
         )
-        readiness_cols[5].metric(
+        readiness_bottom[2].metric(
             "حلقة التنفيذ",
             "نشطة" if system_readiness["execution_loop"]["status"] == "active"
             else str(system_readiness["execution_loop"]["status"]),
