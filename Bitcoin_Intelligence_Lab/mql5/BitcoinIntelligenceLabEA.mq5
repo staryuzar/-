@@ -351,7 +351,7 @@ void PollProgramCommand()
    }
    else if(action=="CLOSE")
    {
-      if(!TerminalAllowsTrading()) { lastStatus="BLOCKED: Headway DEMO/terminal permission gate"; ok=false; }
+      if(!TerminalAllowsTrading()) { lastStatus="BLOCKED: Headway server/terminal permission gate"; ok=false; }
       else { ok=CloseOwnPosition(ticket); }
       detail=lastStatus;
    }
@@ -496,8 +496,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 
    // A partially filled IOC order is commonly followed by ORDER_DELETE.
    // Finalize the cumulative fill only after the broker signals order finality.
-   if((trans.type==TRADE_TRANSACTION_ORDER_DELETE ||
-       trans.type==TRADE_TRANSACTION_HISTORY_ADD) &&
+   if(trans.type==TRADE_TRANSACTION_ORDER_DELETE &&
       trans.order==pendingOrderTicket)
    {
       FinalizePendingOrder(true);
