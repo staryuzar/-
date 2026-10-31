@@ -15,13 +15,14 @@ def _finite(value: object) -> float | None:
 
 def market_structure_signal(profile: Mapping[str, Any]) -> dict[str, Any]:
     """
-    Build a cautious direction score from session VWAP location and sampled
-    aggressor delta. The two inputs are separately labelled and never
-    represented as a full-session footprint.
+    Build the directional market-structure score from session VWAP location.
+    Sampled aggressor delta remains a context metric because it belongs to the
+    separate Orderflow domain and must not be counted a second time.
     """
     bars = profile.get("bars") or {}
     volume_profile = profile.get("volume_profile") or {}
     components: dict[str, float] = {}
+    context_components: dict[str, float] = {}
     warnings: list[str] = []
 
     close = _finite(bars.get("last_close"))
@@ -49,39 +50,36 @@ def market_structure_signal(profile: Mapping[str, Any]) -> dict[str, Any]:
         and delta_ratio is not None and -1 <= delta_ratio <= 1
         and sample_count >= 30
     ):
-        components["sampled_trade_delta"] = delta_ratio
+        context_components["sampled_trade_delta"] = delta_ratio
     else:
         warnings.append("trade_profile_sample_insufficient")
 
-    if not components:
+    if "session_vwap_location" not in components:
         return {
             "status": "incomplete",
             "score": None,
             "components": {},
+            "context_components": context_components,
             "warnings": warnings,
-            "reason": "Insufficient session VWAP coverage and recent trade profile depth.",
+            "reason": "Insufficient session VWAP coverage or baseline.",
         }
 
-    weights = {
-        "session_vwap_location": 0.65,
-        "sampled_trade_delta": 0.35,
-    }
-    active_total = sum(weights[name] for name in components)
-    normalized = {name: weights[name] / active_total for name in components}
-    score = sum(components[name] * normalized[name] for name in components)
+    # VWAP is the only directional component in this domain. Trade delta is
+    # displayed as context but is already counted by Orderflow.
+    normalized = {"session_vwap_location": 1.0}
+    score = components["session_vwap_location"]
     return {
         "status": "ok",
         "score": max(-1.0, min(1.0, score)),
         "components": components,
+        "context_components": context_components,
         "weights": normalized,
         "warnings": warnings,
-        "evidence": [
-            "closed_bar_session_vwap_position",
-            "bounded_recent_aggregate_trade_delta",
-        ],
+        "evidence": ["closed_bar_session_vwap_position"],
+        "context_evidence": ["bounded_recent_aggregate_trade_delta"],
         "limitations": [
             "The session VWAP is bar-derived and depends on selected chart interval.",
-            "The trade delta is a bounded sample, not a full-session CVD.",
+            "The sampled trade delta is context only; Orderflow owns the directional trade-flow vote.",
             "This domain is low-weight and requires independent confirmation.",
         ],
     }
