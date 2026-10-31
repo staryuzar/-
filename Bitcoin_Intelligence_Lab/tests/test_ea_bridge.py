@@ -9,7 +9,7 @@ from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order, read_po
 
 
 class EABridgeTests(unittest.TestCase):
-    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway demo board-execution mode", trading="TRADE_READY", server="Headway-Demo", account_mode=0):
+    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway board-execution mode", trading="TRADE_READY", server="Headway-Demo", account_mode=0):
         folder = Path(root) / "BitcoinIntelligenceLab"
         folder.mkdir(parents=True, exist_ok=True)
         stamp = int(time.time()) if when is None else when
@@ -53,14 +53,17 @@ class EABridgeTests(unittest.TestCase):
         self.assertEqual(result["status"], "wrong_broker")
         self.assertFalse(result["headway_server_ok"])
 
-    def test_status_rejects_headway_live_account(self):
+    def test_status_accepts_headway_server_without_inspecting_account_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.write_status(
-                tmp, server="Headway-Live", account_mode=2,
+                tmp, message="READY: Headway board-execution mode",
+                server="Headway-Live", account_mode=2,
             )
             result = read_ea_status(tmp)
-        self.assertEqual(result["status"], "wrong_broker")
-        self.assertFalse(result["demo_account_ok"])
+        self.assertEqual(result["status"], "fresh")
+        self.assertTrue(result["headway_server_ok"])
+        self.assertNotIn("demo_account_ok", result)
+        self.assertNotIn("account_mode", result)
 
     def test_status_accepts_headway_demo_endpoint_alias(self):
         with tempfile.TemporaryDirectory() as tmp:
