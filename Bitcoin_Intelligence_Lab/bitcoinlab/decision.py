@@ -46,7 +46,9 @@ def central_decision(
         if engine.get("status") != "ok":
             unavailable.append(name)
             continue
-        if name != "technical" and source_states.get(name, {}).get("status") != "fresh":
+        # Every voting domain, including the technical multi-timeframe engine,
+        # must carry an explicit fresh source state before its score can vote.
+        if source_states.get(name, {}).get("status") != "fresh":
             unavailable.append(name)
             continue
         try:
@@ -60,9 +62,15 @@ def central_decision(
         valid[name] = value
 
     if "technical" not in valid:
+        technical_state = source_states.get("technical", {})
+        blocker = (
+            "technical_source_not_fresh"
+            if technical_state.get("status") != "fresh"
+            else "technical_engine_unavailable"
+        )
         return {
-            "action": "HOLD", "score": None, "blockers": ["technical_engine_unavailable"],
-            "warnings": [f"{name}_unavailable" for name in unavailable],
+            "action": "HOLD", "score": None, "blockers": [blocker],
+            "warnings": [f"{name}_unavailable_or_stale" for name in unavailable],
             "reasons": [], "weights": DEFAULT_WEIGHTS.copy(),
         }
     # New auxiliary engines cannot replace the two original independent
