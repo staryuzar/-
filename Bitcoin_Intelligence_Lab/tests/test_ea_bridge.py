@@ -9,11 +9,11 @@ from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order, read_po
 
 
 class EABridgeTests(unittest.TestCase):
-    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway demo board-execution mode"):
+    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway demo board-execution mode", trading="TRADE_READY"):
         folder = Path(root) / "BitcoinIntelligenceLab"
         folder.mkdir(parents=True, exist_ok=True)
         stamp = int(time.time()) if when is None else when
-        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0\n"
+        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0|{trading}\n"
         (folder / "ea_status.tsv").write_text(line, encoding="utf-8")
 
     def report(self):
@@ -23,6 +23,28 @@ class EABridgeTests(unittest.TestCase):
             "technical": {"atr14": 120.0},
             "spot": {"last_bar": {"close_time_ms": 1_799_000_000_000}},
         }
+
+    def test_status_stays_ready_after_trade_fill_message_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(
+                tmp,
+                message="OPEN_FILL_CONFIRMED: deal=123",
+                trading="TRADE_READY",
+            )
+            result = read_ea_status(tmp)
+        self.assertEqual(result["status"], "fresh")
+        self.assertTrue(result["trading_ready"])
+
+    def test_trade_blocked_marker_is_not_ready_even_if_message_says_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(
+                tmp,
+                message="READY: old message",
+                trading="TRADE_BLOCKED",
+            )
+            result = read_ea_status(tmp)
+        self.assertEqual(result["status"], "not_ready")
+        self.assertFalse(result["trading_ready"])
 
     def test_status_accepts_broker_suffix_symbol(self):
         with tempfile.TemporaryDirectory() as tmp:
