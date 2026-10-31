@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -26,7 +27,7 @@ def read_market_stream_dashboard(
         raise ValueError("limit must be between 1 and 20.")
     uri = db_path.resolve().as_uri() + "?mode=ro"
     try:
-        with sqlite3.connect(uri, uri=True, timeout=2.0) as connection:
+        with closing(sqlite3.connect(uri, uri=True, timeout=2.0)) as connection:
             connection.row_factory = sqlite3.Row
             tables = {
                 row[0] for row in connection.execute(
