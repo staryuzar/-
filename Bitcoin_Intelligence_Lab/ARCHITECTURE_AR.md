@@ -8,9 +8,9 @@ Binance وBybit وOKX وDeribit مصادر بيانات عامة للقراءة 
 
 ## خط التحليل والقرار الحالي
 
-مصادر BTC العامة → adapters → توحيد الوقت والرمز والوحدات → Feed Health Monitor (freshness/coverage/heartbeat) → المحركات المستقلة → مركز القرار → تفسير الأدلة والتحذيرات → لوحة Streamlit.
+مصادر BTC العامة → adapters وتوحيد الوقت/الرمز/الوحدات → Feed Health Monitor → محركات الاتجاه والأوامر والمشتقات والبنية متعددة المنصات → Screener للأحداث → مركز القرار الخماسي → التفسير والتحذيرات → لوحة Streamlit.
 
-كل محرك يعيد status وscore عند توفرها وevidence وwarnings وlimitations. لا يحق لمحرك واحد إرسال أمر تداول، ولا يحسم BUY/SELL/ HOLD منفرداً.
+كل محرك يعيد status وscore عند توفرها وevidence وwarnings وlimitations. محرك CVD يندمج داخل Orderflow؛ وScreener وHeatmap وسياق المشتقات المتعدد لا يصوتون مستقلاً. لا يحق لمحرك إرسال أمر تداول ولا يحسم BUY/SELL/HOLD منفرداً.
 
 ## خطوط البيانات الحية المساندة
 
@@ -19,6 +19,15 @@ Binance/Bybit/OKX WebSocket → موائم بروتوكول كل منصة → د
 
 ### التصفيات
 Binance USDⓈ-M forceOrder + Bybit allLiquidation + OKX liquidation-orders → تطبيع جهة المركز المصفّى ووحدة الحجم والسعر المرجعي → إزالة التكرار → SQLite → تجميع آخر 5 دقائق للمخاطر وآخر 60 دقيقة للوحة.
+
+### الصفقات وCVD وFootprint
+Binance USDⓈ-M aggTrade + Bybit Linear publicTrade + OKX Spot trades → تطبيع جهة Taker والسعر والحجم والوقت → dedup ذري → SQLite trade_flow_minutes + trade_footprint → دلتا متحركة لكل منصة/نوع سوق → CVD 5m متعدد المنصات → يندمج 35% داخل Orderflow القائم عند حداثة منصتين على الأقل.
+
+### تاريخ العمق وHeatmap
+لقطات دفاتر الأوامر المتزامنة → SQLite orderbook_snapshots → تجميع مستويات السعر بنطاقات USD → persistence/mean/median/current size → Pull/Stack عند مقارنة النطاق نفسه بين لقطات متتابعة ضمن فجوة زمنية محددة. هذه مؤشرات سيولة ظاهرة وسياقية وليست إثباتاً لإلغاء الأوامر.
+
+### مقارنة المشتقات وScreener
+Binance USDⓈ-M + Bybit Linear + OKX SWAP → per-venue Spot/Perpetual basis وMark/Index وFunding موحد إلى 8h حسب فترة التسوية وOI محفوظ بوحدته الأصلية → سياق مشتقات غير تصويتي. ثم يقرأ Screener الإطارات المكتملة وCVD والسبريد والعمق والتمويل والتصفيات ليولد أحداثاً ذات وقت/مصدر/خطورة/دليل، ويرسل التحذيرات عالية/متوسطة إلى مركز القرار دون تغيير الدرجة أو الأوزان.
 
 ### الخيارات
 Deribit public instruments + book summaries + DVOL → ربط instrument metadata بالـOI والـmark IV والـunderlying price → Greeks وصفية وATM IV Term Structure و25-delta Risk Reversal وPut/Call OI وGamma-weighted OI → سياق خيارات بطيء داخل اللوحة. لا يدخل هذا الإصدار الخيارات كتصويت BUY/SELL.
@@ -37,11 +46,17 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - `venue_books.py`: موائم دفتر Bybit وOKX، مع update ID في Bybit وseqId/prevSeqId في OKX.
 - `market_store.py`: تخزين عينات العمق وأحداث التصفية وحالة كل منصة في SQLite وقراءتها بوضع read-only. يمنع تكرار event_key، ويجمع التصفية حسب المنصة والجهة ووحدة العقد.
 - `market_stream.py`: عامل WebSocket مستقل لـBinance Spot وBybit Linear وOKX Spot، مع reconnect وتدرج زمني وإعادة مزامنة وتسجيل تاريخ العمق؛ ويطلق `liquidation_stream.py` بالتوازي عند تفعيل التصفية.
+- `trade_stream.py`: بث صفقات Binance USDⓈ-M وBybit Linear وOKX Spot، مع reconnect وheartbeat مستقل عن وصول الصفقات.
+- `trade_analytics.py`: dedup وتخزين CVD وFootprint ذرياً، وقراءة تاريخ الصفقات بوضع read-only وتطبيق مدة الاحتفاظ.
+- `trade_profile.py`: CVD متعدد المنصات بحدود حداثة وعينة دنيا، وفصل Spot/Perpetual وبناء POC/VAH/VAL لكل منصة.
+- `depth_analytics.py`: Heatmap تاريخية واستمرار مستويات السعر وPull/Stack proxy من لقطات متتالية مع تغطية وحداثة.
+- `cross_venue_derivatives.py` و`providers/cross_venue.py`: مقارنة Basis وMark/Index وFunding 8h وOI حسب الوحدات الأصلية؛ بلا تجميع OI عبر وحدات مختلفة.
+- `screener.py`: اكتشاف أحداث متعددة الأطر والبيانات الحية المكتملة؛ لا ينشئ أوامر، ويعيد تحذيرات سياقية فقط إلى مركز القرار.
 - `liquidations.py`: يحول رسائل التصفية إلى عقد موحد مع إبقاء وحدة الحجم والسعر المرجعي الخاصين بكل منصة.
 - `liquidation_stream.py`: موائمات WebSocket للتصفية من Binance USDⓈ-M وBybit Linear وOKX SWAP.
 - `options_surface.py`: Black-Scholes Delta/Gamma وصفي، وATM IV حسب الانتهاء، و25-delta Risk Reversal، وPut/Call OI وGamma-weighted OI proxy. هذا ليس SVI arbitrage-free ولا dealer GEX.
 - `slow_context.py`: يجمع Mempool وCFTC وCoin Metrics وDVOL وخيارات Deribit بشكل مستقل؛ لا يوقف فشل أحدها بقية المصادر.
-- `decision.py`: يجمع خمسة مجالات: Technical 35%، Orderflow 25%، Derivatives 20%، Market Structure 10%، Cross-Venue 10%. يعيد تطبيع الأوزان حسب توافر المجالات وحداثتها. يفرض وجود Technical مع واحد على الأقل من المجالات الأساسية Orderflow أو Derivatives؛ ولا تستبدل الإضافات المساندة هذين المجالين.
+- `decision.py`: يجمع خمسة مجالات: Technical 35%، Orderflow 25%، Derivatives 20%، Market Structure 10%، Cross-Venue 10%. يضيف تحذيرات Cross-Venue derivatives وScreener دون تغيير score أو weights. يعيد تطبيع الأوزان حسب توافر المجالات وحداثتها، ويفرض Technical مع واحد على الأقل من Orderflow أو Derivatives.
 - `live_snapshot.py`: يجلب بيانات المصادر السريعة، يحقق حداثتها، يبني كل محركات اللقطة، يقرأ حالة الجامع محلياً بوضع read-only ويرسل أدلة المحركات إلى مركز القرار.
 - `app.py`: لوحة Streamlit الحالية، تعرض القرار وأدلة كل محرك ومصادر السوق والتصفية والخيارات، ولا تتصل بـMT5.
 - `ea_bridge.py` و`command_protocol.py` و`automation.py` و`position_manager.py` و`mql5/BitcoinIntelligenceLabEA.mq5`: ملفات محفوظة لمرحلة ربط Headway المستقبلية؛ ليست جزءاً من تشغيل اللوحة الآن.
@@ -104,7 +119,7 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - تنظيف البيانات الأقدم من مدة الاحتفاظ يجري دورياً؛ الافتراضي 24 ساعة والحد الأقصى 30 يوماً.
 - اللوحة ولقطة السوق تقرآن SQLite بوضع read-only.
 - وحدات التصفية والخيارات والدفتر ومراقب صحة المصادر لها اختبارات بيانات مصطنعة deterministic، وCI يتحقق من Python compile واختبارات الوحدات وبدء Streamlit واستدعاء بيانات BTC العامة. الاختبارات الأخيرة غطت حالات توقف heartbeat مع استمرار صمت أحداث التصفية.
-- الاختبار المحلي لقواعد البروتوكول لا يثبت اتصالاً حياً مستقراً لساعات على Windows. يجب تشغيل الجامع على جهاز المستخدم لفحص مدة التشغيل والذاكرة والقرص والتعافي من انقطاع الشبكة.
+- CI #328 يمر على Python 3.12 و3.13 مع 205 اختبارات، ويفحص Python compile وبدء Streamlit ومصادر BTC العامة وعدم وجود واجهات تنفيذ تداول. هذا لا يثبت اتصالاً حياً مستقراً لساعات على Windows؛ يجب قياس مدة التشغيل والذاكرة والقرص والتغطية والتعافي من انقطاع الشبكة على جهاز المستخدم.
 
 ## مرحلة MT5 المستقبلية — ليست نشطة الآن
 
@@ -120,11 +135,9 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 
 ## نقاط التطوير التالية
 
-1. تشغيل WebSocket الحي على Windows والتحقق من تغطية كل منصة وقياسات الاستهلاك وإعادة الاتصال.
-2. إضافة تاريخ trades المستمر إلى SQLite ثم بناء Footprint وCVD وPull/Stack وHeatmap.
-3. تطوير مقارنة السعر وBasis بين Spot/Perpetual عبر المنصات مع تطبيع العقد ووحدته.
-4. تطوير خرائط تجميع التصفية السعرية بعد تثبيت Contract multipliers والتغطية.
-5. رفع مستوى خيارات Deribit إلى SVI/Calendar consistency والسطح التاريخي بعد توثيق حدود بياناته.
-6. On-chain metrics مثل MVRV/NUPL/SOPR من Bitcoin Core أو مصدر مرخص، وETF flow عند مصدر موثوق.
-7. إضافة Screener وكواشف أحداث متعددة الأطر مع درجة ودليل وتوقيت لكل حدث.
-8. تدقيق شامل للوحة والمصادر والتعامل مع حالات stale/error/partial، ثم فقط فتح مرحلة Headway.
+1. تشغيل WebSocket الحي على Windows والتحقق من التغطية الفعلية ومدة التشغيل والذاكرة والقرص وإعادة الاتصال.
+2. معايرة حدود Screener وCVD/Footprint وHeatmap تاريخياً، وقياس الإنذارات الكاذبة وتكرار الإشارات قبل اعتماد قيم تشغيل نهائية.
+3. تطوير خرائط تجميع التصفية السعرية بعد تثبيت Contract multipliers والتغطية لكل منصة.
+4. رفع محرك خيارات Deribit إلى SVI/Calendar consistency وسجل تاريخي واختبارات no-arbitrage.
+5. إضافة MVRV/NUPL/SOPR/Realized Cap من Bitcoin Core أو مصدر موثق ومرخص، وETF flows عند توفر مصدر صالح.
+6. تدقيق شامل للوحة والمصادر وحالات stale/error/partial وسجل القرار، ثم فقط فتح مرحلة Headway.
