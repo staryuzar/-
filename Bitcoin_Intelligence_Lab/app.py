@@ -7,6 +7,12 @@ import streamlit as st
 
 from bitcoinlab.live_snapshot import build_live_snapshot
 from bitcoinlab.slow_context import build_slow_context
+from bitcoinlab.ea_bridge import (
+    default_common_files,
+    read_ea_status,
+    read_execution_loop_status,
+    read_positions,
+)
 
 st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
 
@@ -35,8 +41,8 @@ with st.sidebar:
     )
     refresh_now = st.button("قراءة السوق الآن", type="primary", use_container_width=True)
     st.caption(
-        "Binance وBybit وOKX مصادر بيانات فقط. هذه النسخة في مرحلة استكمال المحركات والقرار؛ "
-        "لا يوجد اتصال أو إرسال أوامر إلى MT5 في هذه المرحلة."
+        "Binance وBybit وOKX مصادر بيانات فقط. Headway عبر MT5 هو منفذ التنفيذ الوحيد؛ "
+        "حلقة التنفيذ عملية مستقلة لا تعمل إلا عند تشغيلها صراحةً على الجهاز المتصل بالطرفية."
     )
 
 if "btc_report" not in st.session_state:
@@ -62,11 +68,76 @@ def render_live_dashboard():
                 )
 
     report = st.session_state.get("btc_report")
-    st.subheader("مرحلة تطوير النظام")
-    st.info(
-        "ربط الخبير بمنصة MT5 مؤجل عمداً حتى اكتمال المحركات وتوصيلها بمركز القرار "
-        "والانتهاء من تدقيق واختبار اللوحة. هذه النسخة لا تقرأ ملفات MT5 ولا تنشر "
-        "أوامر تداول؛ Headway سيبقى وسيط التنفيذ عند بدء مرحلة الربط لاحقاً."
+    st.subheader("مركز التنفيذ — Headway / MT5")
+    try:
+        common_files = default_common_files()
+        ea_status = read_ea_status(common_files)
+        loop_status = read_execution_loop_status(common_files)
+        managed_positions = read_positions(common_files)
+        ea_state_label = (
+            f"متصل · {ea_status.get('symbol')}"
+            if ea_status.get("status") == "fresh" else
+            "غير متصل / بيانات قديمة"
+        )
+        loop_state_label = (
+            f"نشطة · {loop_status.get('age_seconds')}s"
+            if loop_status.get("status") == "fresh" else
+            "متوقفة أو نبضها قديم"
+        )
+        execution_cols = st.columns(3)
+        execution_cols[0].metric("حالة خبير MT5", ea_state_label)
+        execution_cols[1].metric("حلقة القرار والتنفيذ", loop_state_label)
+        execution_cols[2].metric(
+            "مراكز الخبير",
+            str(len(managed_positions)) if ea_status.get("status") == "fresh" else "غير متاح",
+        )
+        if ea_status.get("status") != "fresh":
+            st.warning(
+                "حالة الخبير: " + str(ea_status.get("status")) + " — "
+                + str(ea_status.get("reason", ea_status.get("ea_message", "لا توجد نبضة حديثة")))
+            )
+        elif not ea_status.get("headway_server_ok"):
+            st.error("الخادم المتصل ليس خادم Headway.")
+        else:
+            st.caption(
+                f"الخادم: {ea_status.get('account_server')} · "
+                f"عمر النبضة: {ea_status.get('age_seconds')} ثانية · "
+                f"حالة الإذن: {ea_status.get('readiness_marker')}"
+            )
+        if loop_status.get("status") == "fresh":
+            st.caption(
+                f"آخر دورة: {loop_status.get('updated_at_utc')} · "
+                f"النتيجة: {loop_status.get('status')} · "
+                f"الإجراء المخطط: {loop_status.get('plan', {}).get('action', 'HOLD')} · "
+                f"معرّف الأمر: {loop_status.get('command_id') or 'لا يوجد'}"
+            )
+        if managed_positions and ea_status.get("status") == "fresh":
+            st.dataframe(
+                [
+                    {
+                        "التذكرة": row["ticket"],
+                        "الرمز": row["symbol"],
+                        "الاتجاه": row["type"],
+                        "الحجم": row["volume"],
+                        "سعر الفتح": row["price_open"],
+                        "السعر الحالي": row["price_current"],
+                        "وقف الخسارة": row["stop_loss"],
+                        "جني الربح": row["take_profit"],
+                        "الربح العائم": row["profit"],
+                    }
+                    for row in managed_positions
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+    except Exception as exc:
+        st.info(
+            "تعذر قراءة ملفات حالة MT5 من مجلد Common Files: "
+            + f"{type(exc).__name__}: {exc}"
+        )
+    st.caption(
+        "اللوحة تقرأ حالة الطرفية والمراكز للعرض فقط. نشر الأوامر يتم من "
+        "bitcoinlab.execution_loop كعملية مستقلة، ولا تُرسل أوامر من إعادة تحميل Streamlit."
     )
 
     st.subheader("تدفق دفاتر الأوامر الحي — Binance / Bybit / OKX")
