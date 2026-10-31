@@ -372,7 +372,8 @@ def _next_open_command_id(common_files: str | Path, signal_id: str) -> str:
 
 def publish_decision_order(
     *, report: dict, common_files: str | Path | None = None,
-    volume: float = 0.01, atr_stop_multiple: float = 1.2,
+    volume: float = 0.01, risk_fraction: float = 0.0025,
+    max_risk_fraction: float = 0.005, atr_stop_multiple: float = 1.2,
     reward_risk: float = 1.8, ttl_seconds: int = 60,
     max_signal_age_seconds: int = 90,
 ) -> dict[str, Any]:
@@ -399,6 +400,12 @@ def publish_decision_order(
     terminal = read_ea_status(directory)
     if terminal.get("status") != "fresh":
         return {"status": "terminal_not_ready", "terminal": terminal}
+    if not terminal.get("risk_specs_ready"):
+        return {
+            "status": "risk_specs_unavailable",
+            "reason": "The connected EA has not supplied valid equity, tick-value and broker volume specifications.",
+            "terminal": terminal,
+        }
 
     technical = report.get("technical", {})
     atr_value = technical.get("atr14")
@@ -417,9 +424,30 @@ def publish_decision_order(
     bar_key = int(bar.get("close_time_ms") or 0)
     if bar_key <= 0:
         return {"status": "scenario_unavailable", "reason": "Latest completed candle timestamp is missing."}
+    sizing = calculate_position_size_from_tick_value(
+        equity=float(terminal["account_equity"]),
+        risk_fraction=float(risk_fraction),
+        entry=entry,
+        stop=float(levels["stop_loss"]),
+        tick_size=float(terminal["tick_size"]),
+        tick_value_loss=float(terminal["tick_value_loss"]),
+        volume_min=float(terminal["volume_min"]),
+        volume_step=float(terminal["volume_step"]),
+        volume_max=float(terminal["volume_max"]),
+        max_volume=float(volume),
+        max_risk_fraction=float(max_risk_fraction),
+    )
+    if sizing.get("status") != "calculated":
+        return {
+            "status": "risk_size_blocked",
+            "reason": sizing.get("status"),
+            "risk_sizing": sizing,
+            "levels": levels,
+        }
+    sized_volume = float(sizing["volume_lots"])
     command = build_command(
         command_id=_next_open_command_id(directory, f"BTC-{bar_key}"), action="OPEN", symbol="BTC", side=side,
-        volume=float(volume), stop_loss=float(levels["stop_loss"]),
+        volume=sized_volume, stop_loss=float(levels["stop_loss"]),
         take_profit=float(levels["take_profit"]), ttl_seconds=ttl_seconds,
     )
     completed_ack = _completed_command_ack(directory, command["id"])
@@ -433,8 +461,8 @@ def publish_decision_order(
     target = publish_command(directory, command)
     return {
         "status": "published", "command_id": command["id"],
-        "symbol": terminal["symbol"], "side": side, "volume": volume,
-        "levels": levels, "path": str(target),
+        "symbol": terminal["symbol"], "side": side, "volume": sized_volume,
+        "levels": levels, "risk_sizing": sizing, "path": str(target),
         "message": "A real Headway execution command was published; wait for the EA acknowledgment and broker deal confirmation.",
     }
 
