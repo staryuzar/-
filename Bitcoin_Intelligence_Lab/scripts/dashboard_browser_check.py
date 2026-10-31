@@ -79,6 +79,7 @@ def wait_for_health(process: subprocess.Popen[str], url: str, log_path: Path) ->
 
 def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> dict[str, Any]:
     page_errors: list[str] = []
+    console_messages: list[str] = []
     context = browser.new_context(
         viewport={"width": 1440, "height": 1000},
         device_scale_factor=1,
@@ -86,6 +87,7 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
     )
     page = context.new_page()
     page.on("pageerror", lambda error: page_errors.append(str(error)[:500]))
+    page.on("console", lambda message: console_messages.append(f"{message.type}: {message.text[:400]}") if message.type == "error" else None)
 
     root_response = page.goto(base_url, wait_until="domcontentloaded", timeout=45_000)
     if root_response is None or root_response.status != 200:
@@ -113,8 +115,21 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
     refresh.wait_for(state="visible", timeout=20_000)
     refresh.scroll_into_view_if_needed()
     refresh.click(timeout=15_000)
-    # Streamlit callback reruns the script asynchronously; wait for its atomic file.
-    page.wait_for_timeout(1_000)
+    # A successful Streamlit callback sets pending state and renders this message.
+    callback_message = "أُرسل طلب التحديث إلى محرك اللقطات"
+    try:
+        page.get_by_text(callback_message, exact=False).wait_for(state="visible", timeout=15_000)
+    except Exception as exc:
+        page.screenshot(
+            path=str(scratch / f"bitcoin-dashboard-{name}-after-refresh-click-failed.png"),
+            full_page=True,
+            animations="disabled",
+        )
+        body_text = page.locator("body").inner_text(timeout=5_000)
+        raise AssertionError(
+            f"{name}: click did not reach the dashboard callback; "
+            f"body={body_text[-3000:]!r}; console={console_messages}; page_errors={page_errors}"
+        ) from exc
 
     refresh_file = scratch / "refresh-request.json"
     deadline = time.monotonic() + 20
@@ -135,9 +150,11 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
             log_tail = (scratch / "streamlit.log").read_text(encoding="utf-8", errors="replace")[-5000:]
         except OSError:
             pass
+        body_text = page.locator("body").inner_text(timeout=5_000)
         raise AssertionError(
-            f"{name}: manual refresh button did not publish {refresh_file}. "
-            f"Button text={refresh.inner_text(timeout=3000)!r}. Streamlit log tail: {log_tail}"
+            f"{name}: callback rendered but did not publish {refresh_file}. "
+            f"Button text={refresh.inner_text(timeout=3000)!r}; body={body_text[-3000:]!r}; "
+            f"console={console_messages}; Streamlit log tail: {log_tail}"
         )
     if payload.get("symbol") != "BTCUSDT" or payload.get("interval") != "1m":
         raise AssertionError(f"{name}: refresh request did not preserve selected market/timeframe: {payload}")
