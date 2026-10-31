@@ -15,6 +15,10 @@ input int    MaxOpenPositions = 1; // one BTCIL-managed position at a time
 string lastCommandId = "";
 string pendingCommandId = "";
 string pendingCommandAction = "";
+ulong pendingOrderTicket = 0;
+ulong pendingPositionTicket = 0;
+double pendingRequestedVolume = 0.0;
+double pendingFilledVolume = 0.0;
 string lastStatus = "Initializing";
 datetime lastHeartbeat = 0;
 bool hasInstanceLock = false;
@@ -216,7 +220,7 @@ bool CloseOwnPosition(const ulong ticket)
    request.volume=volume;
    request.type=(positionType==POSITION_TYPE_BUY)?ORDER_TYPE_SELL:ORDER_TYPE_BUY;
    request.price=(positionType==POSITION_TYPE_BUY)?bid:ask;
-   request.comment="Bitcoin Intelligence Lab close";
+   request.comment="BTCIL close";
    if(!PrepareTradeRequest(request))
    {
       lastStatus="CLOSE_REJECTED: broker exposes no supported filling policy";
@@ -231,13 +235,17 @@ bool CloseOwnPosition(const ulong ticket)
       lastStatus="CLOSE_REJECTED: "+TradeResultText(result);
       return false;
    }
-   ulong deal=result.deal;
-   if(deal>0 && HistoryDealSelect(deal) &&
-      HistoryDealGetString(deal,DEAL_SYMBOL)==_Symbol &&
-      (ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)==MagicNumber)
-      lastStatus=StringFormat("CLOSE_FILL_CONFIRMED: deal=%I64u position=%I64u",deal,ticket);
-   else
-      lastStatus=StringFormat("CLOSE_SUBMITTED_PENDING: retcode=%u position=%I64u",code,ticket);
+   if(result.order==0)
+   {
+      lastStatus="CLOSE_REJECTED: broker returned no order ticket for acknowledgment tracking";
+      return false;
+   }
+   pendingOrderTicket=result.order;
+   pendingPositionTicket=ticket;
+   pendingRequestedVolume=volume;
+   pendingFilledVolume=0.0;
+   lastStatus=StringFormat("CLOSE_SUBMITTED_PENDING: order=%I64u position=%I64u retcode=%u",
+      result.order,ticket,code);
    return true;
 }
 
@@ -291,15 +299,17 @@ bool OpenBoardPosition(const string side,const double volume,const double sl,con
       lastStatus="ORDER_REJECTED: "+TradeResultText(result);
       return false;
    }
-   ulong deal=result.deal;
-   if(deal>0 && HistoryDealSelect(deal))
+   if(result.order==0)
    {
-      if(HistoryDealGetString(deal,DEAL_SYMBOL)==_Symbol &&
-         (ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)==MagicNumber)
-         lastStatus=StringFormat("ORDER_FILL_CONFIRMED: deal=%I64u order=%I64u",deal,result.order);
-      else lastStatus="ORDER_SUBMITTED: deal identity mismatch; inspect terminal history";
+      lastStatus="ORDER_REJECTED: broker returned no order ticket for acknowledgment tracking";
+      return false;
    }
-   else lastStatus=StringFormat("ORDER_SUBMITTED_PENDING: retcode=%u order=%I64u",code,result.order);
+   pendingOrderTicket=result.order;
+   pendingPositionTicket=0;
+   pendingRequestedVolume=volume;
+   pendingFilledVolume=0.0;
+   lastStatus=StringFormat("ORDER_SUBMITTED_PENDING: order=%I64u retcode=%u",
+      result.order,code);
    return true;
 }
 
@@ -355,14 +365,14 @@ void PollProgramCommand()
    {
       pendingCommandId="";
       pendingCommandAction="";
+      pendingOrderTicket=0;
+      pendingPositionTicket=0;
+      pendingRequestedVolume=0.0;
+      pendingFilledVolume=0.0;
    }
-   if(ok)
+   else
    {
-      if(StringFind(lastStatus,"ORDER_FILL_CONFIRMED")==0) ackStatus="FILLED";
-      else if(StringFind(lastStatus,"ORDER_SUBMITTED_PENDING")==0) ackStatus="SUBMITTED_PENDING";
-      else if(StringFind(lastStatus,"CLOSE_FILL_CONFIRMED")==0) ackStatus="CLOSED";
-      else if(StringFind(lastStatus,"CLOSE_SUBMITTED_PENDING")==0) ackStatus="CLOSE_SUBMITTED_PENDING";
-      else ackStatus="ACCEPTED";
+      ackStatus=(action=="OPEN")?"SUBMITTED_PENDING":"CLOSE_SUBMITTED_PENDING";
    }
    WriteAck(commandId,ackStatus,action,detail);
 }
@@ -415,30 +425,55 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result)
 {
-   if(trans.type!=TRADE_TRANSACTION_DEAL_ADD || trans.deal==0 || pendingCommandId=="")
+   if(trans.type!=TRADE_TRANSACTION_DEAL_ADD || trans.deal==0 || pendingCommandId=="" ||
+      pendingOrderTicket==0)
       return;
    if(!HistoryDealSelect(trans.deal)) return;
+   ulong dealOrder=(ulong)HistoryDealGetInteger(trans.deal,DEAL_ORDER);
+   if(dealOrder!=pendingOrderTicket) return;
    if(HistoryDealGetString(trans.deal,DEAL_SYMBOL)!=_Symbol ||
       (ulong)HistoryDealGetInteger(trans.deal,DEAL_MAGIC)!=MagicNumber)
       return;
 
    long entry=HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
    long type=HistoryDealGetInteger(trans.deal,DEAL_TYPE);
-   string status="FILL_CONFIRMED";
-   if(entry==DEAL_ENTRY_IN) status="OPEN_FILL_CONFIRMED";
-   else if(entry==DEAL_ENTRY_OUT || entry==DEAL_ENTRY_OUT_BY) status="CLOSE_FILL_CONFIRMED";
+   double dealVolume=HistoryDealGetDouble(trans.deal,DEAL_VOLUME);
+   double dealPrice=HistoryDealGetDouble(trans.deal,DEAL_PRICE);
+   pendingFilledVolume+=dealVolume;
+
+   string status="";
+   if(pendingCommandAction=="OPEN" && entry==DEAL_ENTRY_IN)
+   {
+      status=(pendingFilledVolume+1e-8>=pendingRequestedVolume)
+         ?"OPEN_FILL_CONFIRMED":"OPEN_PARTIAL_FILL_CONFIRMED";
+   }
+   else if(pendingCommandAction=="CLOSE" &&
+           (entry==DEAL_ENTRY_OUT || entry==DEAL_ENTRY_OUT_BY))
+   {
+      bool stillOpen=PositionSelectByTicket(pendingPositionTicket);
+      double remainingVolume=stillOpen?PositionGetDouble(POSITION_VOLUME):0.0;
+      status=(stillOpen && remainingVolume>1e-8)
+         ?"CLOSE_PARTIAL_FILL_CONFIRMED":"CLOSE_FILL_CONFIRMED";
+   }
    else return;
 
-   string detail=StringFormat("deal=%I64u order=%I64u volume=%.8f price=%.8f type=%d",
-      trans.deal,(ulong)HistoryDealGetInteger(trans.deal,DEAL_ORDER),
-      HistoryDealGetDouble(trans.deal,DEAL_VOLUME),
-      HistoryDealGetDouble(trans.deal,DEAL_PRICE),(int)type);
+   string detail=StringFormat(
+      "deal=%I64u order=%I64u fill_volume=%.8f requested_volume=%.8f cumulative_fill=%.8f remaining_position=%.8f price=%.8f type=%d",
+      trans.deal,dealOrder,dealVolume,pendingRequestedVolume,pendingFilledVolume,
+      (pendingPositionTicket>0 && PositionSelectByTicket(pendingPositionTicket))
+         ?PositionGetDouble(POSITION_VOLUME):0.0,
+      dealPrice,(int)type);
    lastStatus=status+": "+detail;
-   WriteAck(pendingCommandId,status,pendingCommandAction,detail);
+   string ackStatus=status;
+   WriteAck(pendingCommandId,ackStatus,pendingCommandAction,detail);
    WriteStatus();
    WritePositions();
    pendingCommandId="";
    pendingCommandAction="";
+   pendingOrderTicket=0;
+   pendingPositionTicket=0;
+   pendingRequestedVolume=0.0;
+   pendingFilledVolume=0.0;
 }
 
 void OnDeinit(const int reason)
