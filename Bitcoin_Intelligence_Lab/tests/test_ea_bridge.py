@@ -199,8 +199,8 @@ class EABridgeTests(unittest.TestCase):
             self.write_status(tmp, include_risk_specs=False)
             folder = Path(tmp) / "BitcoinIntelligenceLab"
             (folder / "positions.tsv").write_text(
-                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\\n"
-                "12345|BTCUSD|0|0.01|70000|70100|69800|70400|1.25\\n",
+                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\n"
+                "12345|BTCUSD|0|0.01|70000|70100|69800|70400|1.25\n",
                 encoding="utf-8",
             )
             terminal = read_ea_status(tmp)
