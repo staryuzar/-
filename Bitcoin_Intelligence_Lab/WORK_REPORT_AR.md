@@ -3,112 +3,105 @@
 **تاريخ التقرير:** 31 أكتوبر 2026  
 **المستودع:** [staryuzar/-](https://github.com/staryuzar/-)  
 **الفرع:** `bitcoin-intelligence-lab`  
-**طلب المراجعة:** [PR #9 — Draft: Build independent Bitcoin Intelligence Lab](https://github.com/staryuzar/-/pull/9)  
-**آخر commit في الفرع:** `38fa3a591c2ced268803487e8c35a07968da7060`
+**طلب المراجعة:** [PR #9 — Draft](https://github.com/staryuzar/-/pull/9)  
+**آخر commit موثق في هذا التقرير:** `919456c08efe6036b4dd6caf979c6b2d9008b78d`
 
 ---
 
 ## 1. القرار التنفيذي المعتمد
 
-تم اعتماد تأجيل ربط خبير MT5 حتى تكتمل محركات البرنامج واللوحة ومركز القرار وتنجح مراجعة الأكواد والاختبارات. بناءً على ذلك:
+تم تأجيل ربط خبير MT5 حتى تكتمل محركات البرنامج واللوحة ومركز القرار ويجتازوا التدقيق والاختبارات. لذلك:
 
-- أزيلت من `app.py` جميع استدعاءات جسر MT5 وقراءة حالته ومراكزه ونشر أوامر OPEN/CLOSE والإدارة الآلية.
-- لا تقرأ اللوحة حالياً ملفات MT5، ولا تتصل بحساب Headway، ولا ترسل أي أمر تداول.
-- حُذف سير عمل Headway-Demo الآلي من فرع المختبر، كي لا يكون ربط الخبير أو تجميعه شرطاً لتطوير بقية البرنامج.
-- بقيت ملفات الخبير والجسر وإدارة المراكز محفوظة في المستودع للمراجعة والمرحلة اللاحقة، لكنها غير موصولة بالتطبيق الحالي.
-- عند اكتمال البرنامج، يكون Headway عبر MT5 وسيط التنفيذ الوحيد. Binance وBybit وOKX وDeribit مصادر بيانات فقط.
+- أزيلت من `app.py` جميع استدعاءات جسر MT5 وقراءة حالة الحساب والمراكز ونشر أوامر OPEN/CLOSE والإدارة التلقائية.
+- لا تتصل اللوحة حالياً بحساب Headway، ولا تقرأ ملفات MT5، ولا ترسل أي أمر تداول.
+- حُذف سير عمل Headway-Demo الآلي من الفرع؛ لا يوجد اتصال أو تجميع EA مطلوب لتطوير النسخة الحالية.
+- ملفات EA والجسر وإدارة المراكز محفوظة في المستودع للمرحلة اللاحقة فقط، لكنها غير موصولة بالتطبيق الحالي.
+- عندما تكتمل المحركات واللوحة، يكون Headway عبر MT5 وسيط التنفيذ الوحيد. Binance وBybit وOKX وDeribit مصادر بيانات فقط.
 
-## 2. حالة الفرع والاختبارات
+## 2. حالة GitHub والاختبارات
 
-- الفرع: `bitcoin-intelligence-lab`.
-- PR #9 ما زال مفتوحاً وDraft، ولم يُدمج في الفرع الرئيسي.
-- آخر حالة PR عند تحديث التقرير: 74 ملفاً متغيراً ونحو 9,162 إضافة.
-- آخر نسخة برمجية خضعت لاختبار شامل: commit `904e591ef21186669ab5c5604216cf7fa04cd256`.
-- CI رقم **#278** اكتمل بنجاح على Python 3.12 و3.13؛ سجل الاختبارات **161 اختباراً ناجحاً**، وشملت الخطوات تجميع Python، والاختبارات، وتشغيل Streamlit smoke test، وقراءة بيانات BTC العامة الحية.
-- بعد commit `904e591` تغيرت ثلاثة ملفات توثيق فقط: README وArchitecture وOpen Source Research؛ لا توجد تغييرات كود بين النسخة التي اجتازت 161 اختباراً وآخر رأس الفرع `38fa3a5`.
-- شُغلت كذلك CI على تحديثات التوثيق السابقة، وبعض تشغيلات CI للـcommit التوثيقي الأخير كانت لا تزال جارية وقت إعداد التقرير.
+- الفرع المستقل: `bitcoin-intelligence-lab`.
+- PR #9 مفتوح وDraft ولم يُدمج في الفرع الرئيسي.
+- آخر حالة PR عند إعداد التقرير: 76 ملفاً متغيراً ونحو 9,627 إضافة.
+- آخر commit برمجي اختُبر بالكامل: `1fe65e4ad4a6c058d85703a2ec3bdfcee1063b0e`.
+- CI رقم **#302** نجح على Python 3.12 و3.13، وشغّل **169 اختباراً ناجحاً** لكل إصدار.
+- شملت CI: Compile package، واختبارات المحركات والموائمات، وبدء Streamlit smoke test، وفحص مصادر BTC العامة الحية، والتحقق من عدم وجود APIs تنفيذ تداول في موائمات Python.
+- بعد commit الاختبار `1fe65e4` تغيرت ملفات توثيق فقط في آخر تحديثين: README وArchitecture. لم يتغير كود البرنامج بعد الاختبار الأخير.
 
-رابط CI الذي ثبت فيه رقم 161 اختباراً:  
-https://github.com/staryuzar/-/actions/runs/41154681144
+رابط CI الناجح:  
+https://github.com/staryuzar/-/actions/runs/41155218329
 
-## 3. ما تم بناؤه في البرنامج
+## 3. المحركات التي تم بناؤها
 
-### أ. محركات البيانات الأساسية
-
-- Binance Spot: شموع مكتملة، دفتر أوامر، وصفقات مجمعة.
+### أ. بيانات السوق الأساسية
+- Binance Spot: شموع مكتملة ودفتر أوامر وصفقات مجمعة.
 - Binance USDⓈ-M: Funding وOpen Interest وTaker Buy/Sell وتاريخ OI.
-- Bybit V5: مصدر مشتقات احتياطي عند فشل بيانات Binance أو تقادمها.
-- mempool.space: حالة الشبكة والتعدين والرسوم والـMempool.
+- Bybit V5: مشتقات احتياطية عند تقادم أو تعذر مصادر Binance.
+- mempool.space: بيانات الشبكة والتعدين والرسوم والـMempool.
 - CFTC TFF: تمركز عقود CME Bitcoin وMicro Bitcoin الأسبوعي.
-- Coin Metrics Community: بيانات شبكة محددة وفق شروط Community non-commercial.
-- Deribit: DVOL وبيانات سلسلة خيارات BTC العامة.
+- Coin Metrics Community: مقاييس شبكة وفق شروط الاستخدام المجتمعي.
+- Deribit: DVOL وسلسلة خيارات BTC العامة.
 
-### ب. التحليل الفني ومتعدد الأطر
-
+### ب. الاتجاه والتحليل الفني
 - EMA وRSI وATR والزخم والكسر من الشموع المكتملة.
-- الأطر 1D و4H و1H و15M و5M و1M بأوزان حسب الدور.
-- التحقق من حداثة كل إطار؛ البيانات الناقصة أو القديمة لا تتحول إلى تصويت صفري أو إيجابي مصطنع.
-- الاتجاه متعدد الأطر هو المدخل الفني الأساسي للقرار المركزي، لا مجرد اختيار فاصل واحد.
+- أطر 1D و4H و1H و15M و5M و1M بأوزان مختلفة حسب الدور.
+- يتم رفض الأطر القديمة أو الناقصة بدلاً من تحويلها إلى تصويت وهمي.
+- محرك Multi-Timeframe هو المدخل الفني الأساسي لمركز القرار.
 
-### ج. السيولة وتدفق الأوامر وبنية السوق
-
+### ج. تدفق الأوامر وبنية السوق
 - Order Book Imbalance وDepth وSpread.
 - Aggressor Buy/Sell وTrade Delta من الصفقات المجمعة.
-- Volume Profile مع POC وVAH وVAL وDelta وNotional من العينة المتاحة.
-- VWAP جلسة UTC من Typical Price للشموع، وRelative Volume وRealized Volatility وRange Expansion.
-- أضيفت إشارة Market Structure مبنية على موقع السعر بالنسبة إلى Session VWAP ودلتا عينة الصفقات، ولا تعمل إلا عند توافر تغطية وحداثة كافيتين.
+- Volume Profile مع POC وVAH وVAL وDelta وNotional من العينة الحالية.
+- VWAP مشتق من الشموع، وRelative Volume، وRealized Volatility، وRange Expansion.
+- إشارة بنية السوق في مركز القرار تستخدم موقع السعر بالنسبة إلى Session VWAP ودلتا عينة الصفقات، ولا تعتمد إلا عند كفاية التغطية وحداثة المدخلات.
 
-**الحد الحالي:** Volume Profile ليس جلسة كاملة؛ هو عينة صفقات REST محدودة. وVWAP محسوب من الشموع، لا من كل تنفيذ منفرد في السوق.
+**الحدود الحالية:** Volume Profile ليس جلسة كاملة؛ هو عينة REST محدودة. وVWAP يحسب من Typical Price للشموع لا من كل تنفيذ منفرد.
 
-### د. دفاتر أوامر حية متعددة المنصات
-
-| المنصة | السوق | قاعدة المزامنة |
+### د. دفاتر الأوامر متعددة المنصات
+| المنصة | السوق | التزامن |
 |---|---|---|
-| Binance | BTCUSDT Spot | REST Snapshot + Diff باستخدام U/u |
-| Bybit | BTCUSDT Linear Perpetual | Snapshot/Delta مع update ID وإعادة Snapshot عند restart |
-| OKX | BTC-USDT Spot | Snapshot/Update باستخدام seqId/prevSeqId |
+| Binance | BTCUSDT Spot | Snapshot REST + Diff باستخدام U/u |
+| Bybit | BTCUSDT Linear Perpetual | Snapshot/Delta وupdate ID |
+| OKX | BTC-USDT Spot | Snapshot/Update وseqId/prevSeqId |
 
-- `orderbook_sync.py` يعيد بناء Binance L2 ويتحقق من فجوات التسلسل.
-- `venue_books.py` يعالج اختلافات رسائل Bybit وOKX بما فيها مستويات OKX ذات الأربعة حقول.
-- الدفتر المتقاطع أو الذي تعرض لفجوة يُبطل ولا يستخدم كبيانات صالحة حتى إعادة المزامنة.
-- يستخدم OKX WebSocket المنفذ العام 443.
-- `market_stream.py` يجمع بيانات المنصات ويعيد الاتصال بتدرج زمني ويحفظ عينات العمق في SQLite.
+- `orderbook_sync.py` يعيد بناء Binance L2 ويكشف فجوات التسلسل.
+- `venue_books.py` يطبع رسائل Bybit وOKX وفق اختلاف البروتوكول، بما فيها مستويات OKX ذات الأربعة حقول.
+- عند فجوة أو دفتر متقاطع، يبطل الدفتر حتى تتم إعادة المزامنة.
+- OKX WebSocket يستخدم المنفذ 443.
+- `market_stream.py` يجمع التدفق الحي ويعيد الاتصال بتدرج زمني ويحفظ عينات العمق في SQLite.
 
-### هـ. التخزين المحلي
-
-- `market_store.py` يحفظ عينات دفتر الأوامر كل نحو خمس ثوانٍ، وحالة الاتصال، والأحداث التي تحتاج حفظاً.
-- يحتفظ بسجل SQLite محدود افتراضياً بـ24 ساعة مع تنظيف دوري.
-- تقرأ اللقطة واللوحة القاعدة بوضع read-only.
-- عولج إغلاق اتصالات SQLite لتجنب قفل الملف على Windows.
-- لا يزال تشغيل جامع WebSocket لوقت طويل على جهاز Windows واختبار إعادة الاتصال الحقيقي يحتاج تحققاً ميدانياً؛ نجاح اختبارات الرسائل لا يثبت ذلك.
-
-### و. محرك التصفية
-
+### هـ. محرك التصفية
 - Binance USDⓈ-M forceOrder.
 - Bybit allLiquidation.
 - OKX liquidation-orders على BTC-USDT-SWAP.
-- تطبيع LONG/SHORT، والتمييز بين متوسط تنفيذ Binance وسعر الإفلاس/السعر المرجعي في Bybit/OKX.
-- حفظ الحدث وإزالة التكرار وتجميع آخر 5 دقائق لمخاطر مركز القرار وآخر 60 دقيقة للعرض في اللوحة.
-- يمنع المحرك جمع كميات BTC مع عدد العقود، ولا يخترع Notional USD حين لا تتوافر معادلة عقد موثوقة.
-- التصفية تحذير مخاطر وسياق، وليست تصويتاً اتجاهياً ولا دليلاً على انعكاس مضمون.
+- تطبيع LONG/SHORT والتمييز بين متوسط تنفيذ Binance وسعر الإفلاس/السعر المرجعي في Bybit وOKX.
+- إزالة تكرار الأحداث وحفظها في SQLite؛ ملخص آخر 5 دقائق يستخدم كسياق مخاطر، وآخر 60 دقيقة يعرض في اللوحة.
+- لا يجمع المحرك BTC مع عدد العقود، ولا يخترع Notional USD حين لا تتوفر معادلة عقد موثقة.
+- التصفية تحذير مخاطر، لا تصويت اتجاهي منفرد ولا ضمان انعكاس.
 
-### ز. محرك خيارات Deribit
-
-موجود في `options_surface.py` وموصول بسياق `slow_context.py`، ويشمل:
-
-- ATM IV تقريبياً حسب تاريخ الانتهاء.
+### و. محرك خيارات Deribit
+موجود في `options_surface.py` وموصول بالسياق الأبطأ:
+- ATM IV تقريبي لكل expiry.
 - 25-delta Risk Reversal من Black-Scholes spot delta.
 - Put/Call Open Interest وTotal OI بوحدة BTC.
-- Delta وGamma، وGamma-weighted OI proxy حسب strike.
-- اختبارات لحالات صلاحية/رفض السلسلة ووحدات البيانات.
+- Greeks وGamma-weighted OI proxy حسب strike.
 
-**حدوده:** ليس SVI fitted arbitrage-free surface، ولا يقدّر مخزون dealer، ولا يجوز تسمية Gamma-weighted OI بأنه Dealer GEX أو Net Gamma. لذلك هو سياق تقلب ومراكز بطيء، وليس تصويت BUY/SELL مباشراً.
+**الحدود:** ليس SVI fitted arbitrage-free surface، ولا يقدر مخزون dealer. قيمة Gamma-weighted OI ليست Dealer GEX أو Net Gamma؛ لذلك الخيارات سياق تقلب ومراكز بطيء لا صوت BUY/SELL.
 
-## 4. مركز القرار — ما تم ربطه فعلياً
+### ز. مراقب صحة مصادر البيانات والاتصال
 
-تم توصيل المحركات الجديدة داخل `live_snapshot.py` و`decision.py`:
+أُضيف `feed_health.py` وربط باللقطة واللوحة. وهو يراقب:
+- freshness للمصادر الأساسية Spot وOrderflow وDerivatives.
+- عمر آخر دفتر أوامر لكل Venue، وحالة WebSocket وآخر heartbeat وعدد محاولات reconnect.
+- التمييز بين `live` و`connected_quiet_ok` و`stale` و`recovering` و`unavailable`.
+- تدفقات التصفية Event-driven: غياب حدث تصفية لا يعني تعطل المصدر ما دام heartbeat حياً؛ وإذا تقادم heartbeat تصنف القناة stale.
+- المراقب أداة جودة بيانات ولا يصوت للاتجاه.
 
-| المحرك | الوزن الأساسي |
+## 4. مركز القرار — الربط الفعلي
+
+تم ربط خمسة مجالات في `decision.py`:
+
+| المجال | الوزن |
 |---|---:|
 | Technical / Multi-timeframe | 35% |
 | Orderflow | 25% |
@@ -116,75 +109,67 @@ https://github.com/staryuzar/-/actions/runs/41154681144
 | Market Structure | 10% |
 | Cross-Venue Order Book | 10% |
 
-- يعيد المركز تطبيع الأوزان عندما لا تتوافر أدلة اختيارية حديثة.
-- يجب أن يكون المحرك الفني صالحاً ومعه على الأقل Orderflow أو Derivatives. لا تستطيع الإضافات المساندة وحدها إنتاج قرار تداول.
-- يقارن محرك Cross-Venue قيم Imbalance بعد التحقق من حداثة دفاتر منصتين على الأقل، ويخفض الثقة عند تعارض Spot مع Perpetual.
-- لا يجمع أحجام دفاتر المنصات المختلفة كأنها وحدة واحدة.
-- ضغط التصفيات يضاف إلى warnings/risks فقط، ولا يزيد عدد الأصوات الاتجاهية.
-- خيارات Deribit وDVOL وCFTC وOn-chain تبقى سياقاً أبطأ، لا محفزاً لحظياً.
+- يعيد المركز تطبيع الأوزان وفق المجالات المتاحة والحديثة.
+- يجب توافر Technical ومعه واحد على الأقل من Orderflow أو Derivatives. لا تستطيع المحركات الإضافية وحدها إنتاج قرار.
+- يقارن Cross-Venue Imbalance بعد التحقق من حداثة دفاتر منصتين على الأقل، ويخفض الثقة عند تعارض Spot مع Perpetual.
+- لا تُجمع أحجام الدفاتر غير المتجانسة.
+- ضغط التصفية يدخل التحذيرات فقط، لا عدد الأصوات الاتجاهية.
+- الخيارات وDVOL وCFTC وOn-chain سياق بطيء لا محفز دخول لحظي.
 
-الدرجة النهائية Score اتجاهي وقابل للتفسير، وليست احتمال ربح إحصائياً.
+النتيجة Score اتجاهي قابل للتفسير وليست احتمال ربح إحصائياً.
 
 ## 5. اللوحة الحالية
 
-- لوحة Streamlit مستقلة لتحديث لقطة السوق والاتجاه متعدد الأطر.
-- تعرض حالة دفاتر Binance/Bybit/OKX وBid/Ask/Spread/Imbalance.
-- تعرض تصفيات آخر ساعة بحسب المنصة والجهة ووحدة الحجم.
-- تعرض أدلة Market Structure وCross-Venue وملخص ضغط التصفيات بجوار القرار المركزي.
-- تعرض حالة مصادر البيانات وأخطاءها وحدود كل محرك.
-- سياق الشبكة وCFTC وCoin Metrics وDVOL وخيارات Deribit يظهر منفصلاً كسياق بطيء.
-- لا تعرض حالة MT5 أو الصفقات المفتوحة، ولا تقرأ حساب Headway، ولا تحتوي أزرار إرسال أوامر.
+- لوحة Streamlit مستقلة عن MT5 بالكامل.
+- تعرض القرار المركزي والأطر الستة وأدلة Technical/Orderflow/Derivatives/Market Structure/Cross-Venue.
+- تعرض دفاتر Binance/Bybit/OKX وحالة اتصالها وBid/Ask/Spread/Imbalance.
+- تعرض ملخص التصفيات وأحداثها الأخيرة مع الوحدات والأسعار المرجعية.
+- تعرض مراقب جودة البيانات مع عمر heartbeat والدفتر وتفاصيل مصادر WebSocket.
+- تعرض خيارات Deribit وسياق الشبكة وCFTC وCoin Metrics وDVOL في مساحة السياق الأبطأ.
+- لا تحتوي أزرار إرسال أو إغلاق، ولا تقرأ حساب Headway أو حالة MT5.
 
-## 6. البحث في محركات ومشاريع إضافية
+## 6. البحث عن محركات إضافية
 
-أضيفت إلى `OPEN_SOURCE_RESEARCH_AR.md` مراجعة ثانية تتضمن:
-
-- **HyperData Terminal — Apache-2.0:** مرجع لبث التصفيات وCVD حسب المنصة وHeatmap وFeed Health وLIVE/PARTIAL/STALE/DRIFT وإزالة التكرار بعد reconnect. لا نضيف التطبيق كاملاً؛ نأخذ الدروس الهندسية.
-- **Deribit BTC Options Dashboard — MIT:** مرجع لمعادلات Black-Scholes وSVI وTerm Structure و25-delta Skew وMax Pain والاختبارات الرقمية. لا ننسخ افتراض Dealer GEX دون معلومات مخزون dealer.
-
-محركات الإكمال الإضافية المقترحة من هذه المراجعة:
-1. Feed Health Monitor مركزي للتغطية والحداثة وwarmup وdrift ومقارنة المصادر.
-2. CVD وFootprint مستمر لكل Venue مع dedup وتوقيتات exchange event.
-3. Heatmap تاريخية للعمق وPull/Stack، وليس snapshot فقط.
-4. Cross-Venue price/basis monitor وتطبيع العقد ووحدات Spot/Perpetual.
-5. تصنيف أحداث السوق/سوق العملات Screener بكواشف متعددة الأطر.
-6. خيارات أعمق: SVI fit وsurface history وCalendar consistency بعد تثبيت دقة الوحدات.
-7. On-chain MVRV/NUPL/SOPR/Realized Cap من Bitcoin Core أو مصدر موثق ومرخص، وإضافة ETF flows عند وجود مصدر صالح.
+تم توسيع مراجعة المشاريع في `OPEN_SOURCE_RESEARCH_AR.md`:
+- **HyperData Terminal — Apache-2.0:** مرجع لبث تصفيات متعدد المنصات، CVD حسب Venue، Heatmap وFeed Health وتمييز LIVE/PARTIAL/STALE/DRIFT وإزالة التكرار بعد reconnect. استفدنا من الدروس الهندسية دون إضافة التطبيق كاملاً.
+- **Deribit BTC Options Dashboard — MIT:** مرجع لمعادلات Black-Scholes وSVI وTerm Structure و25-delta Skew وMax Pain والاختبارات الرقمية. افتراض Dealer GEX يحتاج حذراً ولا يعتمد دون بيانات inventory.
 
 ## 7. ما تبقى قبل اعتبار البرنامج جاهزاً
 
-### أولوية 1 — جودة البيانات والتشغيل المستمر
-1. إنشاء Feed Health Monitor موحد يميز Live/Partial/Stale/Drift/Warmup لكل مصدر.
-2. تشغيل جامع WebSocket على Windows لساعات والتحقق من reconnect وresync واستهلاك الذاكرة والقرص.
-3. إضافة سجل صفقات مستمر وdedup إلى SQLite.
+### الأولوية 1 — إثبات صحة وتشغيل البيانات
+1. تشغيل جامع WebSocket على Windows لفترة طويلة والتحقق من memory/disk/reconnect/resync.
+2. قياس تغطية كل Venue وevent rate وheartbeat وtimestamp drift.
+3. إضافة سجل Trades مستمر مع dedup إلى SQLite.
 
-### أولوية 2 — محركات السوق المتقدمة
-4. بناء Footprint وCVD حسب المنصة والفاصل من الصفقات المتصلة.
-5. بناء تاريخ عمق Heatmap وPull/Stack وLiquidity persistence.
-6. إضافة Cross-Venue price/basis/funding/OI comparison بعد تطبيع أنواع العقود.
-7. تطوير Liquidation Heatmap بحسب السعر مع الإبقاء على جودة التغطية والتمييز بين السعر المرجعي وسعر التنفيذ.
-8. تطوير Options SVI/term surface/Greeks واختبارات no-arbitrage المناسبة.
-9. استكمال On-chain/ETF/Institutional context بمصادر موثقة.
+### الأولوية 2 — محركات Microstructure وCross-Venue
+4. بناء Footprint وCVD لكل منصة وفاصل من تدفق الصفقات المستمر.
+5. إنشاء Heatmap تاريخية للعمق وPull/Stack وLiquidity persistence.
+6. تطوير Cross-Venue price/basis/funding/OI بعد توحيد نوع العقد والوحدة والعملة.
+7. تطوير Liquidation Heatmap سعرياً مع وصف التغطية لكل Venue.
 
-### أولوية 3 — تدقيق مركز القرار واللوحة
-10. مراجعة كل محرك على حدة: inputs، outputs، freshness، score، warnings، fallbacks، unit tests.
-11. اختبارات توافق وتعارض المحركات ووزن الأدلة المفقودة والتغطية المنخفضة.
-12. مراجعة كل عناصر Streamlit، وسلوك stale/error/partial، وزمن التحديث، والذاكرة، وإمكانية تصدير سجل القرار.
-13. اختبار smoke على Windows وعلى جلسة تشغيل فعلية للجامع واللوحة.
+### الأولوية 3 — الخيارات وOn-chain وScreener
+8. تطوير Options SVI/Calendar surface history واختبارات No-Arbitrage.
+9. إضافة MVRV/NUPL/SOPR/Realized Cap من Bitcoin Core أو مصدر موثق ومرخص، وETF flows إن توفر مصدر صالح.
+10. بناء Screener وكواشف أحداث متعددة الأطر؛ كل كاشف يعرض درجة ودليلاً ووقتاً ولا يرسل أمراً.
 
-### أولوية 4 — مرحلة Headway لاحقاً فقط
-14. بعد اعتماد البرنامج واللوحة، يعاد فتح ربط EA بوسيط Headway عبر MT5.
-15. التحقق من Headway-Demo ونوع الحساب والرمز الحقيقي وخصائص العقد.
-16. اختبار دورة OPEN/ACK/position/reversal/CLOSE/ACK على Headway-Demo.
-17. تسجيل slippage والعمولة وأوقات التنفيذ ونتائج الصفقات قبل أي ادعاء ربحية.
+### الأولوية 4 — تدقيق البرنامج واللوحة
+11. مراجعة كل محرك: المدخلات والمخرجات والحداثة والوحدات والـfallback والاختبارات.
+12. اختبار توافق/تعارض المحركات وتغطية البيانات المنخفضة.
+13. تدقيق حالات stale/error/partial، وزمن التحديث واستهلاك الموارد، وتصدير سجل القرار.
+14. تشغيل smoke على Windows للوحة والجامع معاً.
+
+### الأولوية 5 — Headway لاحقاً فقط
+15. بعد اعتماد المحركات واللوحة، يعاد فتح ربط EA مع Headway عبر MT5.
+16. اختبار Headway-Demo والرمز الحقيقي وخصائص العقد ثم دورة OPEN/ACK/Position/Reversal/CLOSE/ACK.
+17. قياس الانزلاق والعمولة وأوقات التعبئة والنتائج قبل أي تقييم ربحية.
 
 ## 8. ما لم يثبت بعد
 
-- لم يثبت التشغيل الحي المتواصل لدفاتر WebSocket الثلاثة على جهاز Windows للمستخدم.
-- لم يكتمل Feed Health Monitor العام، وFootprint/CVD المستمر، وHeatmap التاريخية، وPull/Stack.
+- لم يثبت التشغيل الحي المتواصل لدفاتر WebSocket والتصفية على جهاز Windows الخاص بالمستخدم.
+- لم يكتمل Footprint/CVD المستمر وHeatmap التاريخية وPull/Stack.
 - لم يكتمل Cross-Venue basis/funding/OI normalization.
-- لم يكتمل Options SVI/Calendar surface history ولا on-chain advanced.
-- لم يُنفذ اختبار تداول Headway في المرحلة الحالية؛ وهذا مؤجل عمداً بناءً على خطة التطوير المعتمدة.
+- لم يكتمل SVI/Options historical surface ولا On-chain advanced.
+- لم ينفذ أي اختبار تداول Headway في المرحلة الحالية؛ وهذا تأجيل مقصود، لا نقص غير معروف.
 - لا توجد نتائج ربحية موثقة.
 
-**الخلاصة:** المختبر الآن برنامج تحليل وقرار مركزي قيد الاستكمال، وليس خبير MT5 نشطاً. تم ربط خمسة مجالات أدلة في القرار، وتم اختبار النسخة البرمجية ذات الصلة بـ161 اختباراً ناجحاً على Python 3.12 و3.13. الأولوية التالية هي تدقيق جودة البيانات والتدفق المستمر ثم إكمال محركات السوق المتقدمة واللوحة. لا يبدأ ربط Headway إلا بعد إتمام هذه المراحل.
+**الخلاصة:** البرنامج الآن لوحة تحليل وقرار مركزي متعدد المجالات، منفصلة عن MT5. تم ربط خمسة مجالات أدلة في القرار، وإضافة مراقب صحة المصادر والـheartbeat، واجتازت النسخة البرمجية الحالية 169 اختباراً على Python 3.12 و3.13. الخطوة التالية هي تشغيل الجامع واللوحة باستمرارية على Windows، ثم تطوير Footprint/CVD وHeatmap وPull/Stack وتوسيع التوحيد بين المنصات. لا يعاد ربط Headway قبل اكتمال هذه المراحل.
