@@ -152,6 +152,19 @@ int CountOwnPositions()
    return count;
 }
 
+bool HasForeignPositionsOnSymbol()
+{
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
+         (ulong)PositionGetInteger(POSITION_MAGIC)!=MagicNumber)
+         return true;
+   }
+   return false;
+}
+
 bool ValidProtection(const string side,const double sl,const double tp)
 {
    double bid=0, ask=0, point=0;
@@ -259,6 +272,11 @@ bool OpenBoardPosition(const string side,const double volume,const double sl,con
 {
    if(!TerminalAllowsTrading()) { lastStatus="BLOCKED: Headway server/terminal permission gate"; return false; }
    if(!IsBitcoinSymbol()) { lastStatus="BLOCKED: chart symbol is not a Bitcoin instrument"; return false; }
+   if(HasForeignPositionsOnSymbol())
+   {
+      lastStatus="BLOCKED: another position exists on this symbol outside BTCIL MagicNumber";
+      return false;
+   }
    if(MaxOpenPositions>0 && CountOwnPositions()>=MaxOpenPositions)
    { lastStatus="BLOCKED: configured maximum open positions reached"; return false; }
    if(!ValidVolume(volume)) { lastStatus="BLOCKED: volume violates broker min/max/step"; return false; }
