@@ -7,6 +7,73 @@ import sqlite3
 from typing import Any, Mapping
 
 
+def read_market_stream_dashboard(
+    path: str | Path,
+    *,
+    symbol: str = "BTCUSDT",
+    limit: int = 6,
+) -> dict[str, Any]:
+    """Read collector health and latest venue books without creating a database."""
+    db_path = Path(path)
+    if not db_path.is_file():
+        return {
+            "status": "not_started",
+            "reason": "Local market stream database was not found.",
+            "venues": [],
+            "latest_books": [],
+        }
+    if not 1 <= limit <= 20:
+        raise ValueError("limit must be between 1 and 20.")
+    uri = db_path.resolve().as_uri() + "?mode=ro"
+    try:
+        with sqlite3.connect(uri, uri=True, timeout=2.0) as connection:
+            connection.row_factory = sqlite3.Row
+            tables = {
+                row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if not {"stream_status", "orderbook_snapshots"}.issubset(tables):
+                return {
+                    "status": "unavailable",
+                    "reason": "Market stream database schema is incomplete.",
+                    "venues": [],
+                    "latest_books": [],
+                }
+            venue_rows = connection.execute(
+                """SELECT venue,symbol,status,updated_at_ms,last_message_ms,
+                reconnects,last_error FROM stream_status
+                WHERE symbol IN (?, 'BTC-USDT') ORDER BY venue LIMIT ?""",
+                (symbol.upper(), limit),
+            ).fetchall()
+            latest_rows = connection.execute(
+                """SELECT s.venue,s.symbol,s.observed_at_ms,s.best_bid,s.best_ask,
+                s.spread_bps,s.imbalance
+                FROM orderbook_snapshots AS s
+                JOIN (
+                    SELECT venue,symbol,MAX(observed_at_ms) AS latest
+                    FROM orderbook_snapshots WHERE symbol IN (?, 'BTC-USDT')
+                    GROUP BY venue,symbol
+                ) AS x
+                ON s.venue=x.venue AND s.symbol=x.symbol AND s.observed_at_ms=x.latest
+                ORDER BY s.venue LIMIT ?""",
+                (symbol.upper(), limit),
+            ).fetchall()
+        return {
+            "status": "ok",
+            "venues": [dict(row) for row in venue_rows],
+            "latest_books": [dict(row) for row in latest_rows],
+            "database_path": str(db_path),
+        }
+    except sqlite3.Error as exc:
+        return {
+            "status": "unavailable",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "venues": [],
+            "latest_books": [],
+        }
+
+
 class MarketDataStore:
     """Small local SQLite store for sampled live order-book history and feed health."""
 
