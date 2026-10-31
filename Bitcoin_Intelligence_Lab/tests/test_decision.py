@@ -148,6 +148,7 @@ class DecisionTests(unittest.TestCase):
     def test_weak_countertrend_buy_is_blocked_when_technical_opposes(self):
         sources = dict(FRESH)
         sources["derivatives"] = {"status": "stale"}
+        sources["market_structure"] = {"status": "fresh"}
         result = self.call(
             technical={"status": "ok", "score": -0.30},
             orderflow={"status": "ok", "score": 0.60},
