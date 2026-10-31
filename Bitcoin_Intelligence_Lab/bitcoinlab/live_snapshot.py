@@ -7,7 +7,7 @@ from .decision import central_decision
 from .derivatives import derivatives_profile
 from .indicators import technical_profile
 from .orderflow import order_book_metrics, orderflow_profile, trade_flow_metrics
-from .providers import binance
+from .providers import binance, bybit
 from .quality import freshness, utc_now_ms, validate_bars
 
 
@@ -95,8 +95,31 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             if deriv_age["status"] != "fresh":
                 deriv_engine = {"status": "incomplete", "score": None, "reason": "Futures source is stale."}
         except Exception as exc:
-            errors["derivatives"] = f"{type(exc).__name__}: {exc}"[:300]
-            source_states["derivatives"] = {"status": "error"}
+            errors["derivatives_binance"] = f"{type(exc).__name__}: {exc}"[:300]
+            source_states["derivatives"] = {"status": "error", "venue": "Binance"}
+
+    # A second, independent venue is used only when Binance derivatives are unavailable/stale.
+    if deriv_engine.get("status") != "ok":
+        try:
+            fallback = bybit.fetch_derivatives_snapshot(symbol, interval_time="5min")
+            deriv_age = freshness(fallback["observed_at_ms"], 600, now_ms=now)
+            source_states["derivatives"] = {
+                "status": deriv_age["status"], **deriv_age, "venue": "Bybit",
+            }
+            deriv_data = fallback
+            deriv_engine = derivatives_profile(
+                funding_rate=deriv_data["funding_rate"],
+                open_interest_change_pct=deriv_data["open_interest_change_pct"],
+                taker_buy_sell_ratio=deriv_data["taker_buy_sell_ratio"],
+            )
+            if deriv_age["status"] != "fresh":
+                deriv_engine = {
+                    "status": "incomplete", "score": None,
+                    "reason": "Bybit futures source is stale.",
+                }
+        except Exception as exc:
+            errors["derivatives_bybit"] = f"{type(exc).__name__}: {exc}"[:300]
+            source_states["derivatives"] = {"status": "error", "venue": "Binance/Bybit"}
 
     spread_bps = float(book_metrics["spread_bps"]) if book_metrics else float("inf")
     decision = central_decision(
