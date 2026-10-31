@@ -92,6 +92,14 @@ def central_decision(
         warnings.extend(
             str(item) for item in cross_venue.get("warnings", [])
         )
+    # Cross-venue derivatives are context attached to the derivatives
+    # domain; their warnings are surfaced but they add no independent vote.
+    if isinstance(derivatives, Mapping):
+        derivatives_context = derivatives.get("cross_venue_context_only")
+        if isinstance(derivatives_context, Mapping):
+            warnings.extend(
+                str(item) for item in derivatives_context.get("warnings", [])
+            )
     if spread_bps is not None:
         if not math.isfinite(float(spread_bps)) or spread_bps < 0:
             warnings.append("spread_data_invalid")

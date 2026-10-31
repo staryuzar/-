@@ -87,6 +87,21 @@ class DecisionTests(unittest.TestCase):
         self.assertIn("cross_venue_long_liquidation_pressure", result["warnings"])
         self.assertEqual(result["risk_context_only"], "risk_context_only_not_directional_vote")
 
+    def test_cross_venue_derivatives_warnings_do_not_change_vote_or_weights(self):
+        context = {
+            "status": "ok",
+            "warnings": ["funding_rate_dispersion_across_venues"],
+            "funding_8h_equivalent": {"median": 0.0001},
+        }
+        enriched_derivatives = dict(DERIV)
+        enriched_derivatives["cross_venue_context_only"] = context
+        base = self.call()
+        enriched = self.call(derivatives=enriched_derivatives)
+        self.assertEqual(enriched["action"], base["action"])
+        self.assertEqual(enriched["score"], base["score"])
+        self.assertEqual(enriched["weights"], base["weights"])
+        self.assertIn("funding_rate_dispersion_across_venues", enriched["warnings"])
+
     def test_weak_confluence_holds(self):
         result = self.call(
             technical={"status": "ok", "score": 0.1},

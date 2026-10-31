@@ -143,6 +143,8 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             "status": "unavailable",
         }
 
+    deriv_engine["cross_venue_context_only"] = cross_derivatives_context
+
     # A second, independent venue is used only when Binance derivatives are unavailable/stale.
     if deriv_engine.get("status") != "ok":
         try:
