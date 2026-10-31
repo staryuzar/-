@@ -93,6 +93,7 @@ def build_system_readiness(
         and "BTC" in symbol
     )
     execution_loop_ready = loop.get("status") == "fresh"
+    risk_specs_ready = bool(ea.get("risk_specs_ready"))
     pending_now = bool(pending.get("pending"))
     snapshot_service_ready = (
         service.get("status") == "healthy"
@@ -126,6 +127,8 @@ def build_system_readiness(
         if service_problem == "healthy":
             service_problem = service.get("freshness_status", "stale")
         blockers.append(f"snapshot_service_{service_problem}")
+    if terminal_ready and not risk_specs_ready:
+        blockers.append("mt5_broker_risk_specs_unavailable")
     if pending_now:
         blockers.append("broker_command_pending_acknowledgement")
 
@@ -183,6 +186,13 @@ def build_system_readiness(
             "server": ea.get("account_server"),
             "age_seconds": ea.get("age_seconds"),
             "trading_ready": bool(ea.get("trading_ready")),
+            "risk_sizing_ready": risk_specs_ready,
+            "account_equity": ea.get("account_equity"),
+            "tick_size": ea.get("tick_size"),
+            "tick_value_loss": ea.get("tick_value_loss"),
+            "volume_min": ea.get("volume_min"),
+            "volume_step": ea.get("volume_step"),
+            "volume_max": ea.get("volume_max"),
         },
         "execution_loop": {
             "status": "active" if execution_loop_ready else str(loop.get("status", "unavailable")),
@@ -201,12 +211,13 @@ def build_system_readiness(
             execution_pipeline_ready
             and decision_ready
             and action in {"BUY", "SELL"}
+            and risk_specs_ready
             and not pending_now
         ),
         "blockers": list(dict.fromkeys(blockers)),
         "interpretation": (
             "Execution components are fresh; a new entry still requires a current "
-            "unblocked BUY/SELL decision and no unconfirmed command."
+            "unblocked BUY/SELL decision, valid Headway tick-value/volume specifications, and no unconfirmed command."
             if execution_pipeline_ready else
             "Market analysis and trade execution are separate readiness stages. "
             "A working dashboard does not mean the MT5 execution loop is active."
