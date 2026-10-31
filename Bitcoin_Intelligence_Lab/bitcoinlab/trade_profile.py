@@ -224,7 +224,11 @@ def blend_orderflow_evidence(
     base_orderflow: Mapping[str, Any],
     streamed_orderflow: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Blend existing order-book/REST evidence with the independent multi-venue tape."""
+    """Blend bounded REST trade-delta evidence with independent multi-venue CVD.
+
+    Visible book imbalance and spread remain context only; orderflow_profile does
+    not include them in its directional score.
+    """
     if streamed_orderflow.get("status") != "ok":
         return dict(base_orderflow)
     stream_score = _finite(streamed_orderflow.get("score"))
@@ -235,9 +239,9 @@ def blend_orderflow_evidence(
     warnings.extend(streamed_orderflow.get("warnings") or [])
     if base_score is not None and -1 <= base_score <= 1:
         score = 0.65 * base_score + 0.35 * stream_score
-        components = {"book_and_bounded_rest_flow": round(base_score, 6),
+        components = {"bounded_rest_trade_delta": round(base_score, 6),
                       "multi_venue_cvd_5m": round(stream_score, 6)}
-        weights = {"book_and_bounded_rest_flow": 0.65, "multi_venue_cvd_5m": 0.35}
+        weights = {"bounded_rest_trade_delta": 0.65, "multi_venue_cvd_5m": 0.35}
     else:
         score = stream_score
         components = {"multi_venue_cvd_5m": round(stream_score, 6)}
@@ -249,8 +253,9 @@ def blend_orderflow_evidence(
         "state": "buy_pressure" if score >= 0.15 else ("sell_pressure" if score <= -0.15 else "balanced"),
         "components": components, "weights": weights,
         "streamed_trade_flow": dict(streamed_orderflow), "warnings": warnings,
-        "evidence": ["existing_book_and_bounded_rest_sample", "rolling_multi_venue_cvd"],
+        "evidence": ["bounded_rest_trade_sample", "rolling_multi_venue_cvd"],
         "limitations": [
+            "The bounded REST component is executed trade delta only; visible book imbalance and spread remain context.",
             "CVD covers only selected public venues, not all Bitcoin markets.",
             "Binance USDⓈ-M and Bybit linear are derivatives evidence; OKX is spot evidence.",
             "Directional evidence is not a probability of profit.",

@@ -89,7 +89,7 @@ class StreamedTradeProfileTests(unittest.TestCase):
             {"status": "ok", "score": 0.8},
         )
         self.assertAlmostEqual(result["score"], 0.41)
-        self.assertAlmostEqual(result["weights"]["book_and_bounded_rest_flow"], 0.65)
+        self.assertAlmostEqual(result["weights"]["bounded_rest_trade_delta"], 0.65)
         self.assertAlmostEqual(result["weights"]["multi_venue_cvd_5m"], 0.35)
 
     def test_streamed_cvd_can_supply_orderflow_when_rest_sample_missing(self):
