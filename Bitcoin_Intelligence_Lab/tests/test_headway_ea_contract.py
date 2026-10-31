@@ -35,6 +35,12 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertNotIn("OrderSend", on_tick)
         self.assertIn("centralized board is the only decision authority", on_tick)
 
+    def test_broker_fill_policy_is_not_guessed_when_market_execution_has_no_supported_mode(self):
+        self.assertIn("bool PrepareTradeRequest(MqlTradeRequest &request)", self.source)
+        self.assertIn("return false; // Market execution forbids RETURN", self.source)
+        self.assertIn("if(!PrepareTradeRequest(request))", self.source)
+        self.assertIn("request.type_filling=ORDER_FILLING_RETURN;", self.source)
+
     def test_trade_requests_bind_to_actual_headway_chart_symbol_and_magic(self):
         self.assertIn("request.symbol=_Symbol", self.source)
         self.assertIn("request.magic=MagicNumber", self.source)
