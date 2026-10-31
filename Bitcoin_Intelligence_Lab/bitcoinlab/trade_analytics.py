@@ -38,7 +38,6 @@ def record_trade_batch(
     received_at_ms: int,
 ) -> int:
     """Persist deduplicated CVD and per-price footprint in one SQLite transaction."""
-    ensure_trade_footprint_schema(store)
     inserted = 0
     with store.db:
         for event in events:

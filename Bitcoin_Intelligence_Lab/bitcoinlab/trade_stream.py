@@ -52,15 +52,20 @@ def _record_trade_batch(
     events: list[dict[str, Any]],
     received_at_ms: int,
     reconnects: int,
-) -> None:
+    last_status_write: float,
+) -> float:
     if events:
         record_trade_batch(store, events=events, received_at_ms=received_at_ms)
-    store.record_status(
-        venue=status_venue, symbol=symbol, status="live",
-        updated_at_ms=received_at_ms,
-        last_message_ms=received_at_ms if events else None,
-        reconnects=reconnects,
-    )
+    now_monotonic = time.monotonic()
+    if now_monotonic - last_status_write >= 2.0:
+        store.record_status(
+            venue=status_venue, symbol=symbol, status="live",
+            updated_at_ms=received_at_ms,
+            last_message_ms=received_at_ms if events else None,
+            reconnects=reconnects,
+        )
+        return now_monotonic
+    return last_status_write
 
 
 async def _run_binance_trades(store: MarketDataStore, symbol: str) -> None:
@@ -81,14 +86,16 @@ async def _run_binance_trades(store: MarketDataStore, symbol: str) -> None:
                     store, venue=status_venue, symbol=symbol, reconnects=reconnects,
                 ))
                 try:
+                    last_status_write = 0.0
                     while True:
                         raw = await asyncio.wait_for(ws.recv(), timeout=65)
                         payload = json.loads(raw)
                         event = normalize_binance_usdm_agg_trade(payload)
                         received = int(time.time() * 1000)
-                        _record_trade_batch(
+                        last_status_write = _record_trade_batch(
                             store, status_venue=status_venue, symbol=symbol,
                             events=[event], received_at_ms=received, reconnects=reconnects,
+                            last_status_write=last_status_write,
                         )
                 finally:
                     heartbeat.cancel()
@@ -128,6 +135,7 @@ async def _run_bybit_trades(store: MarketDataStore, symbol: str) -> None:
                 ))
                 backoff = 1
                 try:
+                    last_status_write = 0.0
                     while True:
                         raw = await asyncio.wait_for(ws.recv(), timeout=65)
                         if raw == "pong":
@@ -147,9 +155,10 @@ async def _run_bybit_trades(store: MarketDataStore, symbol: str) -> None:
                         if not events:
                             continue
                         received = int(time.time() * 1000)
-                        _record_trade_batch(
+                        last_status_write = _record_trade_batch(
                             store, status_venue=status_venue, symbol=symbol,
                             events=events, received_at_ms=received, reconnects=reconnects,
+                            last_status_write=last_status_write,
                         )
                 finally:
                     ping_task.cancel()
@@ -193,6 +202,7 @@ async def _run_okx_trades(store: MarketDataStore, symbol: str) -> None:
                 ))
                 backoff = 1
                 try:
+                    last_status_write = 0.0
                     while True:
                         raw = await asyncio.wait_for(ws.recv(), timeout=65)
                         if raw == "pong":
@@ -206,9 +216,10 @@ async def _run_okx_trades(store: MarketDataStore, symbol: str) -> None:
                         if not events:
                             continue
                         received = int(time.time() * 1000)
-                        _record_trade_batch(
+                        last_status_write = _record_trade_batch(
                             store, status_venue=status_venue, symbol=symbol,
                             events=events, received_at_ms=received, reconnects=reconnects,
+                            last_status_write=last_status_write,
                         )
                 finally:
                     ping_task.cancel()
