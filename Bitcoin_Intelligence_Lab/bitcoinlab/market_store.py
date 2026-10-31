@@ -87,6 +87,19 @@ def read_market_stream_dashboard(
                     ORDER BY event_time_ms DESC,id DESC LIMIT 20""",
                     (symbol.upper(),),
                 ).fetchall()
+                liquidation_short_window = connection.execute(
+                    """SELECT venue,market_type,liquidated_side,quantity_unit,
+                    COUNT(*) AS event_count,
+                    MAX(event_time_ms) AS latest_event_time_ms
+                    FROM liquidation_events
+                    WHERE event_time_ms>=? AND symbol IN (?, 'BTC-USDT-SWAP')
+                    GROUP BY venue,market_type,liquidated_side,quantity_unit
+                    ORDER BY venue,liquidated_side""",
+                    (
+                        int(datetime.now(timezone.utc).timestamp() * 1000) - 300_000,
+                        symbol.upper(),
+                    ),
+                ).fetchall()
         return {
             "status": "ok",
             "venues": [dict(row) for row in venue_rows],
@@ -102,6 +115,9 @@ def read_market_stream_dashboard(
                 for row in liquidation_groups
             ],
             "recent_liquidations": [dict(row) for row in recent_liquidations],
+            "liquidation_short_window_summary": [
+                dict(row) for row in liquidation_short_window
+            ],
             "database_path": str(db_path),
         }
     except sqlite3.Error as exc:
