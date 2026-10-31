@@ -25,13 +25,26 @@ def _finish_cycle(directory: Path, result: dict[str, Any]) -> dict[str, Any]:
     folder = directory / "BitcoinIntelligenceLab"
     folder.mkdir(parents=True, exist_ok=True)
     command = result.get("command", {})
+    previous: dict[str, Any] = {}
+    try:
+        previous = json.loads((folder / "execution_loop_status.json").read_text(encoding="utf-8"))
+        if not isinstance(previous, dict):
+            previous = {}
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        previous = {}
+    last_command_id = command.get("command_id") or previous.get("last_command_id") or previous.get("command_id")
+    decision_action = (
+        result.get("decision", {}).get("action")
+        or previous.get("decision_action")
+    )
     payload = {
         "schema": "BTCIL-EXEC1",
         "updated_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": result.get("status"),
         "plan": result.get("plan", {}),
-        "command_id": command.get("command_id"),
-        "decision_action": result.get("decision", {}).get("action"),
+        "command_id": last_command_id,
+        "last_command_id": last_command_id,
+        "decision_action": decision_action,
     }
     target = folder / "execution_loop_status.json"
     temp_path = None
