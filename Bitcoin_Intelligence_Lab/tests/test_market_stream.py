@@ -3,10 +3,14 @@ import unittest
 from pathlib import Path
 
 from bitcoinlab.market_store import MarketDataStore
-from bitcoinlab.market_stream import _install_binance_snapshot, _parse_binance_depth
+from bitcoinlab.market_stream import OKX_WS, _install_binance_snapshot, _parse_binance_depth
 
 
 class MarketStreamTests(unittest.TestCase):
+    def test_okx_websocket_uses_port_443_not_retired_8443(self):
+        self.assertEqual(OKX_WS, "wss://ws.okx.com/ws/v5/public")
+        self.assertNotIn(":8443", OKX_WS)
+
     def test_binance_depth_message_is_normalized(self):
         event = _parse_binance_depth({
             "e": "depthUpdate", "E": 1_800_000_000_000,
