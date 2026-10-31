@@ -1,0 +1,129 @@
+import unittest
+
+from bitcoinlab.system_status import build_system_readiness
+
+
+class SystemReadinessTests(unittest.TestCase):
+    def test_market_and_decision_can_be_ready_while_execution_is_not_running(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "market_stream": {
+                    "status": "ok",
+                    "venues": [
+                        {"venue": "binance_spot", "status": "live"},
+                        {"venue": "bybit_linear", "status": "live"},
+                    ],
+                },
+                "decision": {
+                    "action": "BUY", "score": 0.42, "blockers": [],
+                    "active_domains": ["technical", "orderflow"],
+                },
+            },
+            terminal={"status": "unavailable"},
+            execution_loop={"status": "unavailable"},
+        )
+        self.assertEqual(result["status"], "analysis_ready")
+        self.assertEqual(result["central_decision"]["status"], "direction_ready")
+        self.assertEqual(result["market_data"]["status"], "live")
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("execution_loop_unavailable", result["blockers"])
+
+    def test_execution_pipeline_can_be_ready_while_central_decision_holds(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "partial",
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "stale"},
+                },
+                "market_stream": {"status": "ok", "venues": []},
+                "decision": {
+                    "action": "HOLD", "score": 0.08,
+                    "blockers": ["insufficient_directional_confluence"],
+                    "active_domains": ["technical", "orderflow"],
+                },
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSDm",
+                "account_server": "HeadwayMarkets-Demo", "age_seconds": 2,
+            },
+            execution_loop={"status": "fresh", "age_seconds": 5, "cycle_status": "no_command"},
+            positions=[],
+        )
+        self.assertEqual(result["status"], "execution_ready")
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertEqual(result["central_decision"]["status"], "hold")
+
+    def test_pending_broker_ack_blocks_new_entry_without_marking_components_offline(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "market_stream": {"status": "ok", "venues": []},
+                "decision": {"action": "SELL", "score": -0.4, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+            },
+            execution_loop={"status": "fresh", "age_seconds": 1},
+            pending_command={
+                "pending": True, "status": "pending",
+                "command_id": "BTC-123", "ack_status": "PARTIAL_FILL_PENDING",
+            },
+        )
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertTrue(result["position_management"]["pending_command"])
+        self.assertIn("broker_command_pending_acknowledgement", result["blockers"])
+
+    def test_stale_core_domain_is_visible_and_never_counted_as_ready(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "partial",
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "stale"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {
+                    "action": "HOLD", "score": None,
+                    "blockers": ["insufficient_fresh_core_evidence_domains"],
+                },
+            },
+            terminal={"status": "not_ready"},
+            execution_loop={"status": "stale"},
+        )
+        self.assertIn("orderflow", result["market_data"]["core_missing_domains"])
+        self.assertIn("orderflow_evidence_not_fresh", result["blockers"])
+        self.assertFalse(result["new_entry_ready"])
+
+    def test_missing_snapshot_is_system_degraded(self):
+        result = build_system_readiness(
+            snapshot=None, terminal=None, execution_loop=None,
+        )
+        self.assertEqual(result["status"], "system_degraded")
+        self.assertIn("market_snapshot_unavailable", result["blockers"])
+        self.assertFalse(result["execution_pipeline_ready"])
+
+
+if __name__ == "__main__":
+    unittest.main()
