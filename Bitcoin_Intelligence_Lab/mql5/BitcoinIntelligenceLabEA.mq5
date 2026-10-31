@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.006"
+#property version   "1.007"
 #property description "Bitcoin Intelligence Lab — Headway BTC centralized command executor"
 
 input ulong  MagicNumber = 28102027;
@@ -127,10 +127,17 @@ void WriteAck(const string commandId, const string status, const string action, 
 void WriteStatus()
 {
    double bid=0, ask=0, point=0;
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   double tickSize=0, tickValueLoss=0, volumeMin=0, volumeStep=0, volumeMax=0;
    long stops=0;
    SymbolInfoDouble(_Symbol,SYMBOL_BID,bid);
    SymbolInfoDouble(_Symbol,SYMBOL_ASK,ask);
    SymbolInfoDouble(_Symbol,SYMBOL_POINT,point);
+   SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE,tickSize);
+   SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE_LOSS,tickValueLoss);
+   SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN,volumeMin);
+   SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP,volumeStep);
+   SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX,volumeMax);
    SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL,stops);
    string accountServer=AccountInfoString(ACCOUNT_SERVER);
    StringReplace(accountServer,"|","/");
@@ -142,12 +149,13 @@ void WriteStatus()
       if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
          (ulong)PositionGetInteger(POSITION_MAGIC)==MagicNumber) ownPositions++;
    }
-   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%.4f|%.4f\n",
+   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%.4f|%.4f|%.2f|%.10f|%.10f|%.8f|%.8f|%.8f\n",
       _Symbol,EnumToString(_Period),(long)TimeGMT(),
       TerminalInfoInteger(TERMINAL_CONNECTED)?"CONNECTED":"DISCONNECTED",
       bid,ask,ownPositions,lastStatus,point,(int)stops,
       TerminalAllowsTrading()?"TRADE_READY":"TRADE_BLOCKED",
-      accountServer,CurrentDailyDrawdownPercent(),MaxDailyLossPercent);
+      accountServer,CurrentDailyDrawdownPercent(),MaxDailyLossPercent,
+      equity,tickSize,tickValueLoss,volumeMin,volumeStep,volumeMax);
    WriteTextFile("ea_status.tsv",line);
 }
 
