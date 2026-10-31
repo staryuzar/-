@@ -84,7 +84,7 @@ class TradeAnalyticsStoreTests(unittest.TestCase):
     def test_old_footprint_schema_is_archived_before_new_market_type_table(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "legacy-footprint.sqlite"
-            with MarketDataStore(path) as store:
+            with MarketDataStore(path, retention_hours=1) as store:
                 store.db.execute(
                     """CREATE TABLE trade_footprint (
                         venue TEXT NOT NULL, symbol TEXT NOT NULL, market_type TEXT NOT NULL,
@@ -117,6 +117,12 @@ class TradeAnalyticsStoreTests(unittest.TestCase):
                 archived_rows = store.db.execute(
                     "SELECT COUNT(*) FROM trade_footprint_legacy_pk_v1"
                 ).fetchone()[0]
+                removed = store.prune(now_ms=NOW + 2 * 3_600_000)
+                archived_after_prune = store.db.execute(
+                    "SELECT COUNT(*) FROM trade_footprint_legacy_pk_v1"
+                ).fetchone()[0]
+        self.assertEqual(removed["trade_footprint_legacy_pk_v1"], 1)
+        self.assertEqual(archived_after_prune, 0)
         self.assertEqual(
             primary_key,
             ("venue", "symbol", "market_type", "bucket_start_ms", "price_bucket_usd"),

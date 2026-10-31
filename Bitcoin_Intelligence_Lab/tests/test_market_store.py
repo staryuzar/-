@@ -168,6 +168,44 @@ class MarketDataStoreTests(unittest.TestCase):
         self.assertEqual(active_rows, 0)
         self.assertEqual(archived_rows, 1)
 
+    def test_legacy_flow_archive_uses_configured_retention(self):
+        now = 1_800_000_000_000
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy-retention.sqlite"
+            connection = sqlite3.connect(path)
+            connection.execute(
+                """CREATE TABLE trade_flow_minutes (
+                    venue TEXT NOT NULL, symbol TEXT NOT NULL, market_type TEXT NOT NULL,
+                    bucket_start_ms INTEGER NOT NULL,
+                    buy_base_volume_btc REAL NOT NULL DEFAULT 0,
+                    sell_base_volume_btc REAL NOT NULL DEFAULT 0,
+                    buy_notional_usd REAL NOT NULL DEFAULT 0,
+                    sell_notional_usd REAL NOT NULL DEFAULT 0,
+                    buy_trade_count INTEGER NOT NULL DEFAULT 0,
+                    sell_trade_count INTEGER NOT NULL DEFAULT 0,
+                    last_trade_time_ms INTEGER NOT NULL,
+                    PRIMARY KEY(venue,symbol,bucket_start_ms)
+                )"""
+            )
+            connection.execute(
+                "INSERT INTO trade_flow_minutes VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ("binance_usdm", "BTCUSDT", "linear_perpetual", now, 0.1, 0.0,
+                 7000.0, 0.0, 1, 0, now),
+            )
+            connection.execute(
+                "CREATE INDEX trade_flow_minutes_venue_time ON trade_flow_minutes(venue,symbol,bucket_start_ms)"
+            )
+            connection.commit()
+            connection.close()
+
+            with MarketDataStore(path, retention_hours=1) as store:
+                removed = store.prune(now_ms=now + 2 * 3_600_000)
+                archived = store.db.execute(
+                    "SELECT COUNT(*) FROM trade_flow_minutes_legacy_pk_v1"
+                ).fetchone()[0]
+        self.assertEqual(removed["trade_flow_minutes_legacy_pk_v1"], 1)
+        self.assertEqual(archived, 0)
+
     def test_invalid_snapshot_is_not_persisted(self):
         with tempfile.TemporaryDirectory() as tmp:
             with MarketDataStore(Path(tmp) / "book.sqlite") as store:

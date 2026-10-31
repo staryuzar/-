@@ -305,6 +305,10 @@ class MarketDataStore:
                 else "trade_footprint_venue_time"
             )
             self.db.execute(f"DROP INDEX IF EXISTS {legacy_index}")
+            self.db.execute(
+                f"CREATE INDEX IF NOT EXISTS {legacy_table}_retention_idx "
+                f"ON {legacy_table}(bucket_start_ms)"
+            )
             self.db.execute(create_sql)
             self.db.execute(index_sql)
             self.db.commit()
@@ -405,6 +409,21 @@ class MarketDataStore:
         ):
             cursor = self.db.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
             removed[table] = cursor.rowcount
+
+        existing_tables = {
+            row[0] for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        for table in (
+            "trade_flow_minutes_legacy_pk_v1",
+            "trade_footprint_legacy_pk_v1",
+        ):
+            if table in existing_tables:
+                cursor = self.db.execute(
+                    f"DELETE FROM {table} WHERE bucket_start_ms < ?", (cutoff,)
+                )
+                removed[table] = cursor.rowcount
         self.db.commit()
         return removed
 
