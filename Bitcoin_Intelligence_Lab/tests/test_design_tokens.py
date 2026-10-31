@@ -11,6 +11,15 @@ from bitcoinlab.design_tokens import (
 
 
 class DashboardDesignTokenTests(unittest.TestCase):
+    def test_default_project_token_file_matches_figma_semantic_palette(self):
+        colors, warning = load_dashboard_colors()
+        self.assertIsNone(warning)
+        self.assertEqual(len(colors), 12)
+        self.assertEqual(colors["canvas"], "#0B1220")
+        self.assertEqual(colors["surface"], "#111C2D")
+        self.assertEqual(colors["bull"], "#2CCB9A")
+        self.assertEqual(colors["warning"], "#EAB85C")
+
     def test_loads_all_figma_authored_colors(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "tokens.json"
