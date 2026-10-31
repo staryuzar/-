@@ -41,6 +41,16 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertIn("another position exists on this symbol outside BTCIL MagicNumber", self.source)
         self.assertIn("POSITION_MAGIC)!=MagicNumber", self.source)
 
+    def test_daily_equity_loss_cap_blocks_new_entries_only(self):
+        self.assertIn("input double MaxDailyLossPercent = 2.00;", self.source)
+        self.assertIn("bool DailyRiskAllowsNewEntry()", self.source)
+        open_body = self.source.split("bool OpenBoardPosition(", 1)[1].split("void PollProgramCommand()", 1)[0]
+        close_body = self.source.split("bool CloseOwnPosition(", 1)[1].split("bool OpenBoardPosition(", 1)[0]
+        self.assertIn("DailyRiskAllowsNewEntry()", open_body)
+        self.assertNotIn("DailyRiskAllowsNewEntry()", close_body)
+        self.assertIn("MaxDailyLossPercent>10.0", self.source)
+        self.assertIn("TimeTradeServer()", self.source)
+
     def test_single_ea_instance_lock_prevents_duplicate_chart_executors(self):
         self.assertIn("GlobalVariableSetOnCondition", self.source)
         self.assertIn("GlobalVariableDel", self.source)
