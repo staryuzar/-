@@ -53,7 +53,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     try:
         depth = binance.fetch_spot_depth(symbol, 100)
     except Exception as exc:
-        errors["orderflow"] = f"{type(exc).__name__}: {exc}"[:300]
+        errors["order_book"] = f"{type(exc).__name__}: {exc}"[:300]
     try:
         trades = binance.fetch_spot_agg_trades(symbol, 500)
     except Exception as exc:
@@ -86,24 +86,42 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
 
     book_metrics = None
     flow_metrics = None
-    flow_engine = {"status": "incomplete", "score": None, "reason": "Order-flow source unavailable."}
-    if depth and trades:
+    flow_engine = {"status": "incomplete", "score": None, "reason": "Recent public trade-flow source unavailable."}
+
+    # Depth and executed trades are independent observations. A failed REST book
+    # must not suppress a valid trade-delta vote; cross-venue depth has its own domain.
+    if depth:
         try:
             book_metrics = order_book_metrics(depth["bids"], depth["asks"], levels=20)
+        except Exception as exc:
+            errors["order_book"] = f"{type(exc).__name__}: {exc}"[:300]
+
+    if trades:
+        try:
             flow_metrics = trade_flow_metrics(trades)
             flow_engine = orderflow_profile(book_metrics, flow_metrics)
-            # A depth REST snapshot is current at fetch time. Trade timestamps provide a separate sanity check.
-            observed = [int(x.get("T") or x.get("time") or 0) for x in trades if x.get("T") or x.get("time")]
+            observed = [
+                int(x.get("T") or x.get("time") or 0)
+                for x in trades if x.get("T") or x.get("time")
+            ]
             last_trade = max(observed) if observed else None
             flow_fresh = freshness(last_trade, 60, now_ms=now) if last_trade else {
                 "status": "unavailable", "age_seconds": None, "observed_at_utc": None
             }
             source_states["orderflow"] = {"status": flow_fresh["status"], **flow_fresh}
             if flow_fresh["status"] != "fresh":
-                flow_engine = {"status": "incomplete", "score": None, "reason": "Recent public trade feed is stale or has no event timestamp."}
+                flow_engine = {
+                    "status": "incomplete", "score": None,
+                    "reason": "Recent public trade feed is stale or has no event timestamp.",
+                }
         except Exception as exc:
             errors["orderflow"] = f"{type(exc).__name__}: {exc}"[:300]
             source_states["orderflow"] = {"status": "error"}
+    else:
+        source_states["orderflow"] = {
+            "status": "unavailable",
+            "reason": errors.get("trades", "No recent aggregate trades returned."),
+        }
 
     deriv_data = None
     deriv_engine = {"status": "incomplete", "score": None, "reason": "Derivatives source unavailable."}
@@ -314,14 +332,14 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "active_venues": cross_venue_engine.get("active_venues", []),
     }
 
-    spread_bps = float(book_metrics["spread_bps"]) if book_metrics else float("inf")
+    spread_bps = float(book_metrics["spread_bps"]) if book_metrics else None
     screener = build_market_screener(
         multi_timeframe=multi_timeframe,
         market_structure=market_structure,
         market_interval=interval,
         order_book={
             **(book_metrics or {}),
-            "observed_at_ms": depth.get("fetched_at_ms"),
+            "observed_at_ms": depth.get("fetched_at_ms") if isinstance(depth, dict) else None,
         },
         streamed_trade_flow=streamed_trade_flow,
         derivatives=deriv_engine,
