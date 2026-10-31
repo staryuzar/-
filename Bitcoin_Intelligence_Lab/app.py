@@ -368,6 +368,12 @@ def render_live_dashboard():
                 st.warning("تنبيهات توافق تدفق الشراء والبيع: " + "، ".join(cvd["warnings"]))
         else:
             st.caption("تصويت CVD غير نشط: " + str(cvd.get("reason", "بيانات غير كافية.")))
+        if cvd.get("active_venues") or cvd.get("rejected_venues"):
+            st.caption(
+                "منصات مستوفية: " + ("، ".join(cvd.get("active_venues", [])) or "لا يوجد") +
+                " · منصات مستبعدة: " + ("، ".join(cvd.get("rejected_venues", [])) or "لا يوجد") +
+                " · شروط التفعيل: 5 صفقات على الأقل لكل منصة، آخر صفقة خلال 35 ثانية، ومنصتان على الأقل."
+            )
 
         footprint_profiles = report.get("streamed_footprint_profiles", [])
         if footprint_profiles:
