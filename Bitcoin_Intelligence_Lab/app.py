@@ -432,6 +432,21 @@ def render_live_dashboard():
                 f"الإجراء المخطط: {loop_status.get('plan', {}).get('action', 'HOLD')} · "
                 f"معرّف الأمر: {loop_status.get('command_id') or 'لا يوجد'}"
             )
+            if loop_status.get("last_risk_sizing"):
+                last_sizing = loop_status["last_risk_sizing"]
+                risk_budget = last_sizing.get("risk_budget")
+                estimated_loss = last_sizing.get("estimated_loss")
+                st.caption(
+                    f"آخر حجم محسوب: {loop_status.get('last_command_volume')} لوت · "
+                    f"ميزانية المخاطرة: {risk_budget:.2f} · "
+                    f"الخسارة المقدرة عند الوقف: {estimated_loss:.2f}"
+                    if isinstance(risk_budget, (int, float)) and isinstance(estimated_loss, (int, float))
+                    else "تم حفظ تفاصيل آخر حساب للمخاطرة."
+                )
+                st.caption(
+                    f"مستويات الأمر الأخير — SL: {loop_status.get('last_stop_loss')} · "
+                    f"TP: {loop_status.get('last_take_profit')}"
+                )
             if loop_status.get("command_id"):
                 if broker_ack.get("id") == loop_status.get("command_id"):
                     ack_state = str(broker_ack.get("status", "UNKNOWN"))
