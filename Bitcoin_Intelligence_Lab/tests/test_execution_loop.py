@@ -76,8 +76,27 @@ class ExecutionLoopTests(unittest.TestCase):
             time.sleep(1)
             second = execute_once(common_files=tmp, report=self.report("SELL"))
             second_id = second["command"]["command_id"]
-            self.assertEqual(first_id, "BTC-CLOSE-4321")
+            self.assertEqual(first_id, "BTC-CLOSE-4321-V1000000")
             self.assertEqual(second_id, first_id)
+
+    def test_partial_close_remainder_gets_a_new_volume_scoped_command_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_terminal(tmp)
+            positions = folder / "positions.tsv"
+            header = "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\n"
+            positions.write_text(
+                header + "4321|BTCUSD|0|0.01|70000|69900|69800|70400|-1.0\n",
+                encoding="utf-8",
+            )
+            first = execute_once(common_files=tmp, report=self.report("SELL"))
+            positions.write_text(
+                header + "4321|BTCUSD|0|0.005|70000|69900|69800|70400|-0.5\n",
+                encoding="utf-8",
+            )
+            second = execute_once(common_files=tmp, report=self.report("SELL"))
+            self.assertEqual(first["command"]["command_id"], "BTC-CLOSE-4321-V1000000")
+            self.assertEqual(second["command"]["command_id"], "BTC-CLOSE-4321-V500000")
+            self.assertNotEqual(first["command"]["command_id"], second["command"]["command_id"])
 
     def test_execution_loop_writes_fresh_dashboard_heartbeat(self):
         with tempfile.TemporaryDirectory() as tmp:
