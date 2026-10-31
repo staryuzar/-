@@ -29,10 +29,10 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertIn("input double MaxRiskPercent = 0.50;", self.source)
         self.assertIn("input int    MaxOpenPositions = 1;", self.source)
 
-    def test_headway_server_and_account_mode_are_published_to_python(self):
+    def test_headway_server_identity_is_published_without_account_classification(self):
         self.assertIn("string accountServer=AccountInfoString(ACCOUNT_SERVER)", self.source)
-        self.assertIn("int accountMode=(int)AccountInfoInteger(ACCOUNT_TRADE_MODE)", self.source)
-        self.assertIn("accountServer,accountMode", self.source)
+        self.assertIn("accountServer);", self.source)
+        self.assertNotIn("ACCOUNT_TRADE_MODE", self.source)
         self.assertIn('"TRADE_READY":"TRADE_BLOCKED"', self.source)
 
     def test_ea_does_not_generate_independent_orders_on_tick(self):
