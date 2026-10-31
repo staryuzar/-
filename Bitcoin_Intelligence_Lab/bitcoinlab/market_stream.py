@@ -141,7 +141,6 @@ async def _run_binance(store: MarketDataStore, symbol: str, depth: int) -> None:
                 close_timeout=5, max_size=2_000_000,
             ) as ws:
                 LOG.info("Connected: %s %s", venue, symbol)
-                reconnects = 0
                 backoff = 1
                 book = BinanceOrderBook()
                 buffered: deque[dict[str, Any]] = deque(maxlen=20_000)
@@ -275,13 +274,15 @@ async def _run_bybit(store: MarketDataStore, symbol: str, depth: int) -> None:
                 ping_task = asyncio.create_task(_ping_application(ws, json.dumps({"op": "ping"})))
                 book = IncrementalOrderBook("Bybit", symbol)
                 last_saved, last_status, last_event_log = 0.0, 0.0, 0.0
-                reconnects, backoff = 0, 1
+                backoff = 1
                 try:
                     while True:
                         raw = await asyncio.wait_for(ws.recv(), timeout=40)
                         if raw == "pong":
                             continue
                         payload = json.loads(raw)
+                        if isinstance(payload, dict) and payload.get("op") == "subscribe" and payload.get("success") is False:
+                            raise RuntimeError(str(payload.get("ret_msg", "Bybit subscription was rejected.")))
                         if not isinstance(payload, dict) or "type" not in payload or "data" not in payload:
                             continue
                         event_time = int(payload.get("ts") or time.time() * 1000)
