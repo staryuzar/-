@@ -46,12 +46,23 @@ def _source_state(name: str, row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _feed_type(name: str) -> str:
+    if name in BOOK_VENUES:
+        return "orderbook"
+    if name.endswith("_liquidations"):
+        return "liquidations"
+    if name.endswith("_trades"):
+        return "trades"
+    return "event"
+
+
 def _stream_states(
     venues: Sequence[Mapping[str, Any]],
     latest_books: Sequence[Mapping[str, Any]],
     *,
     now_ms: int,
     book_stale_seconds: int,
+    trade_stale_seconds: int,
 ) -> list[dict[str, Any]]:
     status_rows = {
         str(row.get("venue", "")): row
@@ -70,7 +81,8 @@ def _stream_states(
         heartbeat_age = _age_seconds(status_row.get("updated_at_ms"), now_ms)
         book = latest_by_venue.get(name)
         book_age = _age_seconds(book.get("observed_at_ms"), now_ms) if book else None
-        is_book_feed = name in BOOK_VENUES
+        feed_type = _feed_type(name)
+        is_book_feed = feed_type == "orderbook"
         if status in {"reconnecting", "connecting", "error"}:
             health = "recovering" if status in {"reconnecting", "connecting"} else "error"
         elif is_book_feed:
@@ -79,10 +91,15 @@ def _stream_states(
             else:
                 health = "live"
         elif status in {"live", "connected"}:
-            # Liquidation feeds are event-driven: event silence is acceptable,
-            # but an old heartbeat means the collector itself may have stopped.
+            # Liquidations are sparse event feeds; a fresh heartbeat is enough.
+            # BTC trade feeds are high-frequency and must also deliver recent trades.
             if heartbeat_age is None or heartbeat_age < -5 or heartbeat_age > 45:
                 health = "stale"
+            elif feed_type == "trades":
+                if last_message is None or last_message < -5 or last_message > trade_stale_seconds:
+                    health = "stale"
+                else:
+                    health = "live"
             elif status == "connected" or last_message is None or last_message > 45:
                 health = "connected_quiet_ok"
             else:
@@ -91,6 +108,7 @@ def _stream_states(
             health = "unavailable"
         result.append({
             "name": name,
+            "feed_type": feed_type,
             "symbol": status_row.get("symbol"),
             "status": health,
             "reported_status": status,
@@ -119,6 +137,7 @@ def build_data_health(
     stream_state: Mapping[str, Any] | None = None,
     now_ms: int,
     book_stale_seconds: int = 30,
+    trade_stale_seconds: int = 45,
 ) -> dict[str, Any]:
     """
     Audit source coverage, freshness and WebSocket state without creating a
@@ -129,6 +148,8 @@ def build_data_health(
         raise ValueError("now_ms must be positive.")
     if not 5 <= book_stale_seconds <= 180:
         raise ValueError("book_stale_seconds must be between 5 and 180.")
+    if not 5 <= trade_stale_seconds <= 180:
+        raise ValueError("trade_stale_seconds must be between 5 and 180.")
 
     normalized_sources = {
         name: _source_state(name, row if isinstance(row, Mapping) else {})
@@ -167,11 +188,20 @@ def build_data_health(
         stream.get("latest_books", []) if isinstance(stream, Mapping) else [],
         now_ms=now_ms,
         book_stale_seconds=book_stale_seconds,
+        trade_stale_seconds=trade_stale_seconds,
     )
     live_books = [row["name"] for row in stream_rows if row["status"] == "live"]
     quiet_event_feeds = [
         row["name"] for row in stream_rows
         if row["status"] == "connected_quiet_ok"
+    ]
+    quiet_liquidation_feeds = [
+        row["name"] for row in stream_rows
+        if row["status"] == "connected_quiet_ok" and row["feed_type"] == "liquidations"
+    ]
+    quiet_trade_feeds = [
+        row["name"] for row in stream_rows
+        if row["status"] == "stale" and row["feed_type"] == "trades"
     ]
     stale_or_down = [
         row["name"] for row in stream_rows
@@ -185,8 +215,10 @@ def build_data_health(
         warnings.append("one_or_more_websocket_feeds_not_live")
     if not stream_rows:
         warnings.append("market_stream_not_started")
-    if quiet_event_feeds:
+    if quiet_liquidation_feeds:
         warnings.append("event_driven_feeds_connected_no_recent_liquidation_events")
+    if quiet_trade_feeds:
+        warnings.append("trade_feeds_missing_recent_trade_events")
 
     if not core_ready:
         overall = "degraded"
@@ -209,12 +241,15 @@ def build_data_health(
         "stream_feeds": stream_rows,
         "live_orderbook_venues": live_books,
         "connected_quiet_event_feeds": quiet_event_feeds,
+        "connected_quiet_liquidation_feeds": quiet_liquidation_feeds,
+        "trade_feeds_missing_recent_events": quiet_trade_feeds,
         "non_live_stream_feeds": stale_or_down,
         "warnings": warnings,
         "use_in_decision": "quality_monitor_only_no_directional_vote",
         "limitations": [
             "A fresh HTTP snapshot does not prove a continuously healthy WebSocket.",
             "Liquidation feeds are event-driven; no event is not the same as a disconnected socket.",
+            "Trade feeds are expected to deliver frequent BTC trades; a fresh heartbeat without recent trades is reported stale.",
             "A book freshness threshold is a monitoring rule, not proof of market liquidity or feed completeness.",
         ],
     }
