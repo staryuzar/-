@@ -108,6 +108,20 @@ class ExecutionLoopTests(unittest.TestCase):
             self.assertEqual(state["schema"], "BTCIL-EXEC1")
             self.assertEqual(state["plan"]["action"], "HOLD")
 
+    def test_last_command_id_survives_later_hold_cycles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_terminal(tmp)
+            opened = execute_once(
+                common_files=tmp, report=self.report("BUY"), volume=0.01
+            )
+            command_id = opened["command"]["command_id"]
+            execute_once(common_files=tmp, report=self.report("HOLD"))
+            state = read_execution_loop_status(tmp)
+            self.assertEqual(state["status"], "fresh")
+            self.assertEqual(state["cycle_status"], "no_command")
+            self.assertEqual(state["command_id"], command_id)
+            self.assertEqual(state["last_command_id"], command_id)
+
     def test_stale_execution_heartbeat_is_reported_as_stale(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "BitcoinIntelligenceLab"
