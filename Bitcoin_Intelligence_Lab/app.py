@@ -96,7 +96,7 @@ def render_live_dashboard():
         managed_positions = []
 
     st.subheader("اتصال خبير MT5")
-    terminal_cols = st.columns(4)
+    terminal_cols = st.columns(5)
     terminal_cols[0].metric("حالة الخبير", terminal.get("status", "unavailable"))
     terminal_cols[1].metric("رمز الوسيط", terminal.get("symbol", "غير متصل"))
     terminal_cols[2].metric(
@@ -105,8 +105,16 @@ def render_live_dashboard():
     terminal_cols[3].metric(
         "Ask", f"{terminal['ask']:.2f}" if terminal.get("ask") else "—"
     )
+    terminal_cols[4].metric(
+        "وسيط التنفيذ",
+        terminal.get("account_server") or "غير موثق",
+    )
     if terminal.get("reason"):
         st.caption(terminal["reason"])
+    if terminal.get("status") == "wrong_broker":
+        st.error("تم منع التنفيذ: الخبير ليس متصلاً بخادم Headway-Demo المصرح به.")
+    elif terminal.get("status") == "not_demo_account":
+        st.error("تم منع التنفيذ: الحساب ليس حساب Headway تجريبياً.")
     if ack:
         st.caption(
             f"آخر إقرار MT5: {ack.get('status')} · الأمر {ack.get('id')} · "
