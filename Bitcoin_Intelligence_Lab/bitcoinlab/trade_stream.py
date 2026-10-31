@@ -16,7 +16,7 @@ from .trade_flow import (
 
 LOG = logging.getLogger("bitcoinlab.trade_stream")
 
-BINANCE_USDM_TRADE_WS = "wss://fstream.binance.com/ws/{symbol}@aggTrade"
+BINANCE_USDM_TRADE_WS = "wss://fstream.binance.com/market/ws/{symbol}@aggTrade"
 BYBIT_LINEAR_TRADE_WS = "wss://stream.bybit.com/v5/public/linear"
 OKX_SPOT_TRADE_WS = "wss://ws.okx.com/ws/v5/public"
 
