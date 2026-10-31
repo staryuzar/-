@@ -328,7 +328,7 @@ def render_live_dashboard():
             pending_command=pending,
             snapshot_service=service_state,
         )
-        readiness_cols = st.columns(5)
+        readiness_cols = st.columns(6)
         readiness_cols[0].metric(
             "سلامة بيانات السوق",
             {"live": "حي", "partial": "جزئي", "unavailable": "غير متاح"}.get(
@@ -356,6 +356,14 @@ def render_live_dashboard():
             else str(system_readiness["headway_mt5"]["status"]),
         )
         readiness_cols[4].metric(
+            "مواصفات حساب المخاطرة",
+            "جاهزة" if system_readiness["headway_mt5"]["risk_sizing_ready"] else "غير متاحة",
+            (
+                f"Tick: {system_readiness['headway_mt5']['tick_size']} · "
+                f"حجم اللوت: {system_readiness['headway_mt5']['volume_step']}"
+            ) if system_readiness["headway_mt5"]["risk_sizing_ready"] else "تُمنع المداخل الجديدة؛ الإغلاق يبقى متاحاً",
+        )
+        readiness_cols[5].metric(
             "حلقة التنفيذ",
             "نشطة" if system_readiness["execution_loop"]["status"] == "active"
             else str(system_readiness["execution_loop"]["status"]),
