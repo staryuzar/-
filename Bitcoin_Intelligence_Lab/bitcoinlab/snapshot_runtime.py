@@ -189,13 +189,14 @@ def _consume_refresh_request(path: Path, *, max_age_seconds: int = 600) -> bool:
         return False
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Refresh request must be a JSON object.")
         observed = datetime.fromisoformat(
             str(payload.get("requested_at_utc", "")).replace("Z", "+00:00")
         ).astimezone(timezone.utc)
         age = (_utc_now() - observed).total_seconds()
         valid = (
-            isinstance(payload, dict)
-            and payload.get("schema") == "BTCIL-SNAPSHOT-REFRESH1"
+            payload.get("schema") == "BTCIL-SNAPSHOT-REFRESH1"
             and -5 <= age <= max_age_seconds
         )
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
