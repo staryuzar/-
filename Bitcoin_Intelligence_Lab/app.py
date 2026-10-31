@@ -11,6 +11,7 @@ from bitcoinlab.ea_bridge import (
     publish_decision_order, read_ea_status, read_positions,
 )
 from bitcoinlab.live_snapshot import build_live_snapshot
+from bitcoinlab.market_store import read_market_stream_dashboard
 from bitcoinlab.slow_context import build_slow_context
 
 st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
@@ -110,6 +111,51 @@ def render_live_dashboard():
         st.caption(
             f"آخر إقرار MT5: {ack.get('status')} · الأمر {ack.get('id')} · "
             f"{ack.get('detail', '')}"
+        )
+
+    st.subheader("تدفق دفاتر الأوامر الحي — Binance / Bybit / OKX")
+    stream_state = read_market_stream_dashboard(
+        "data/market_stream.sqlite", symbol=symbol,
+    )
+    if stream_state.get("status") == "ok" and stream_state.get("venues"):
+        venue_rows = [
+            {
+                "المنصة": row["venue"],
+                "الرمز": row["symbol"],
+                "الحالة": row["status"],
+                "آخر رسالة UTC": (
+                    datetime.fromtimestamp(row["last_message_ms"] / 1000, timezone.utc).isoformat()
+                    if row.get("last_message_ms") else "—"
+                ),
+                "إعادات الاتصال": row["reconnects"],
+                "آخر خطأ": row.get("last_error") or "—",
+            }
+            for row in stream_state["venues"]
+        ]
+        st.dataframe(venue_rows, use_container_width=True, hide_index=True)
+        if stream_state.get("latest_books"):
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "Bid": row["best_bid"],
+                        "Ask": row["best_ask"],
+                        "Spread bps": row["spread_bps"],
+                        "Book imbalance": row["imbalance"],
+                        "توقيت لقطة UTC": datetime.fromtimestamp(
+                            row["observed_at_ms"] / 1000, timezone.utc,
+                        ).isoformat(),
+                    }
+                    for row in stream_state["latest_books"]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+    else:
+        st.info(
+            "جامع WebSocket لا يعمل أو لم تُنشأ قاعدة بياناته بعد. "
+            "شغّل جامع السوق في نافذة طرفية ثانية بالأمر الموضح في README_AR.md. "
+            + str(stream_state.get("reason", ""))
         )
 
     if not report:
