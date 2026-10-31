@@ -93,6 +93,15 @@ class EABridgeTests(unittest.TestCase):
         self.assertAlmostEqual(result["daily_loss_percent"], 0.25)
         self.assertAlmostEqual(result["daily_loss_limit_percent"], 2.0)
 
+    def test_malformed_daily_risk_fields_block_ea_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp)
+            path = Path(tmp) / "BitcoinIntelligenceLab" / "ea_status.tsv"
+            line = path.read_text(encoding="utf-8")
+            path.write_text(line.replace("|0.25|2.00", "|not-a-number|2.00"), encoding="utf-8")
+            result = read_ea_status(tmp)
+        self.assertEqual(result["status"], "invalid")
+
     def test_status_accepts_broker_suffix_symbol(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.write_status(tmp)
