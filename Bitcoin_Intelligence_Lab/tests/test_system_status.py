@@ -73,6 +73,7 @@ class SystemReadinessTests(unittest.TestCase):
                 "status": "fresh", "headway_server_ok": True,
                 "trading_ready": True, "symbol": "BTCUSDm",
                 "account_server": "HeadwayMarkets-Demo", "age_seconds": 2,
+                "risk_specs_ready": True,
             },
             snapshot_service=self.fresh_service(),
             execution_loop={"status": "fresh", "age_seconds": 5, "cycle_status": "no_command"},
@@ -99,6 +100,7 @@ class SystemReadinessTests(unittest.TestCase):
             terminal={
                 "status": "fresh", "headway_server_ok": True,
                 "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
             },
             snapshot_service=self.fresh_service(),
             execution_loop={"status": "fresh", "age_seconds": 1},
@@ -150,6 +152,7 @@ class SystemReadinessTests(unittest.TestCase):
             terminal={
                 "status": "fresh", "headway_server_ok": True,
                 "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
             },
             execution_loop={"status": "fresh"},
             snapshot_service={"status": "healthy", "freshness_status": "stale"},
@@ -157,6 +160,36 @@ class SystemReadinessTests(unittest.TestCase):
         self.assertFalse(result["execution_pipeline_ready"])
         self.assertFalse(result["new_entry_ready"])
         self.assertIn("snapshot_service_stale", result["blockers"])
+
+    def test_missing_broker_risk_specs_blocks_new_entries_but_keeps_close_pipeline_ready(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.45, "blockers": []},
+            },
+            terminal={
+                "status": "fresh",
+                "headway_server_ok": True,
+                "trading_ready": True,
+                "symbol": "BTCUSD",
+                "risk_specs_ready": False,
+            },
+            execution_loop={"status": "fresh"},
+            snapshot_service=self.fresh_service(),
+            positions=[{"ticket": 12345, "symbol": "BTCUSD", "type": "BUY"}],
+        )
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertEqual(result["headway_mt5"]["status"], "ready")
+        self.assertFalse(result["headway_mt5"]["risk_sizing_ready"])
+        self.assertIn("mt5_broker_risk_specs_unavailable", result["blockers"])
+        self.assertEqual(result["position_management"]["managed_btc_positions"], 1)
 
     def test_missing_snapshot_is_system_degraded(self):
         result = build_system_readiness(
