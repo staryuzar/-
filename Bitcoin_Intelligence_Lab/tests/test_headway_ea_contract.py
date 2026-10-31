@@ -41,6 +41,18 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertIn("InstanceLockName()", self.source)
         self.assertIn("another EA instance already owns this symbol/magic lock", self.source)
 
+    def test_broker_fills_are_matched_to_the_exact_order_ticket(self):
+        self.assertIn("pendingOrderTicket=result.order", self.source)
+        self.assertIn("dealOrder!=pendingOrderTicket", self.source)
+        self.assertIn("trans.order==pendingOrderTicket", self.source)
+
+    def test_partial_fills_are_not_reported_as_full_execution(self):
+        self.assertIn("OPEN_PARTIAL_FILL_CONFIRMED", self.source)
+        self.assertIn("CLOSE_PARTIAL_FILL_CONFIRMED", self.source)
+        self.assertIn("TRADE_TRANSACTION_ORDER_DELETE", self.source)
+        self.assertIn("pendingFilledVolume+=dealVolume", self.source)
+        self.assertIn("requested=%.8f", self.source)
+
     def test_ea_does_not_generate_independent_orders_on_tick(self):
         on_tick = self.source.split("void OnTick()", 1)[1]
         self.assertNotIn("OrderSend", on_tick)
