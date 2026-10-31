@@ -152,96 +152,103 @@ async def _run_binance(store: MarketDataStore, symbol: str, depth: int) -> None:
                 last_event_log = 0.0
                 synced = False
                 last_status_write = 0.0
-                while True:
-                    wait_set = {reader_task}
-                    if snapshot_task is not None:
-                        wait_set.add(snapshot_task)
-                    done, _pending = await asyncio.wait(
-                        wait_set, timeout=40, return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    if not done:
-                        raise TimeoutError("Binance depth stream was silent for 40 seconds.")
-
-                    if snapshot_task is not None and snapshot_task in done:
-                        snapshot = snapshot_task.result()
-                        buffered_copy = list(buffered)
-                        buffered.clear()
-                        synced = _install_binance_snapshot(book, snapshot, buffered_copy)
-                        snapshot_task = None
-                        if not synced:
-                            book.mark_stale("snapshot_buffer_bridge_failed")
-                            snapshot_task = asyncio.create_task(
-                                asyncio.to_thread(fetch_spot_depth, symbol, 5000)
-                            )
-                        else:
-                            now_ms = int(time.time() * 1000)
-                            store.record_status(
-                                venue=venue, symbol=symbol, status="live",
-                                updated_at_ms=now_ms, last_message_ms=now_ms,
-                                reconnects=reconnects,
-                            )
-                            last_saved = _maybe_save_book(
-                                store, venue=venue, symbol=symbol, book=book,
-                                depth=depth, received_at_ms=now_ms,
-                                last_saved_monotonic=last_saved,
-                            )
-
-                    if reader_task in done:
-                        raw = reader_task.result()
-                        reader_task = asyncio.create_task(ws.recv())
-                        payload = json.loads(raw)
-                        event = _parse_binance_depth(payload, symbol)
-                        received_at = int(time.time() * 1000)
-                        should_log, last_event_log = _should_log_event(last_event_log, "delta")
-                        if should_log:
-                            store.record_event(
-                                venue=venue, symbol=symbol,
-                                event_time_ms=event["event_time_ms"],
-                                received_at_ms=received_at,
-                                event_type="depth_delta_sample",
-                                sequence_id=event["final_update_id"],
-                                payload={
-                                    "first_update_id": event["first_update_id"],
-                                    "final_update_id": event["final_update_id"],
-                                    "bid_level_updates": len(event["bids"]),
-                                    "ask_level_updates": len(event["asks"]),
-                                },
-                            )
-                        if not synced:
-                            if len(buffered) == buffered.maxlen:
-                                raise RuntimeError("Binance bootstrap event buffer overflow.")
-                            buffered.append(event)
-                        else:
-                            result = book.apply_diff(
-                                first_update_id=event["first_update_id"],
-                                final_update_id=event["final_update_id"],
-                                bids=event["bids"], asks=event["asks"],
-                                event_time_ms=event["event_time_ms"],
-                            )
-                            if result["status"] == "resync_required":
-                                synced = False
-                                book.mark_stale(result.get("reason", "sequence_gap"))
-                                buffered.clear()
-                                buffered.append(event)
+                try:
+                    while True:
+                        wait_set = {reader_task}
+                        if snapshot_task is not None:
+                            wait_set.add(snapshot_task)
+                        done, _pending = await asyncio.wait(
+                            wait_set, timeout=40, return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if not done:
+                            raise TimeoutError("Binance depth stream was silent for 40 seconds.")
+    
+                        if snapshot_task is not None and snapshot_task in done:
+                            snapshot = snapshot_task.result()
+                            buffered_copy = list(buffered)
+                            buffered.clear()
+                            synced = _install_binance_snapshot(book, snapshot, buffered_copy)
+                            snapshot_task = None
+                            if not synced:
+                                book.mark_stale("snapshot_buffer_bridge_failed")
                                 snapshot_task = asyncio.create_task(
                                     asyncio.to_thread(fetch_spot_depth, symbol, 5000)
                                 )
-                            elif result["status"] == "applied":
+                            else:
+                                now_ms = int(time.time() * 1000)
+                                store.record_status(
+                                    venue=venue, symbol=symbol, status="live",
+                                    updated_at_ms=now_ms, last_message_ms=now_ms,
+                                    reconnects=reconnects,
+                                )
                                 last_saved = _maybe_save_book(
                                     store, venue=venue, symbol=symbol, book=book,
-                                    depth=depth, received_at_ms=received_at,
+                                    depth=depth, received_at_ms=now_ms,
                                     last_saved_monotonic=last_saved,
                                 )
-                        if time.monotonic() - last_status_write >= 5:
-                            store.record_status(
-                                venue=venue, symbol=symbol,
-                                status="live" if synced else "synchronizing",
-                                updated_at_ms=received_at,
-                                last_message_ms=received_at,
-                                reconnects=reconnects,
-                                last_error=book.last_error,
-                            )
-                            last_status_write = time.monotonic()
+    
+                        if reader_task in done:
+                            raw = reader_task.result()
+                            reader_task = asyncio.create_task(ws.recv())
+                            payload = json.loads(raw)
+                            event = _parse_binance_depth(payload, symbol)
+                            received_at = int(time.time() * 1000)
+                            should_log, last_event_log = _should_log_event(last_event_log, "delta")
+                            if should_log:
+                                store.record_event(
+                                    venue=venue, symbol=symbol,
+                                    event_time_ms=event["event_time_ms"],
+                                    received_at_ms=received_at,
+                                    event_type="depth_delta_sample",
+                                    sequence_id=event["final_update_id"],
+                                    payload={
+                                        "first_update_id": event["first_update_id"],
+                                        "final_update_id": event["final_update_id"],
+                                        "bid_level_updates": len(event["bids"]),
+                                        "ask_level_updates": len(event["asks"]),
+                                    },
+                                )
+                            if not synced:
+                                if len(buffered) == buffered.maxlen:
+                                    raise RuntimeError("Binance bootstrap event buffer overflow.")
+                                buffered.append(event)
+                            else:
+                                result = book.apply_diff(
+                                    first_update_id=event["first_update_id"],
+                                    final_update_id=event["final_update_id"],
+                                    bids=event["bids"], asks=event["asks"],
+                                    event_time_ms=event["event_time_ms"],
+                                )
+                                if result["status"] == "resync_required":
+                                    synced = False
+                                    book.mark_stale(result.get("reason", "sequence_gap"))
+                                    buffered.clear()
+                                    buffered.append(event)
+                                    snapshot_task = asyncio.create_task(
+                                        asyncio.to_thread(fetch_spot_depth, symbol, 5000)
+                                    )
+                                elif result["status"] == "applied":
+                                    last_saved = _maybe_save_book(
+                                        store, venue=venue, symbol=symbol, book=book,
+                                        depth=depth, received_at_ms=received_at,
+                                        last_saved_monotonic=last_saved,
+                                    )
+                            if time.monotonic() - last_status_write >= 5:
+                                store.record_status(
+                                    venue=venue, symbol=symbol,
+                                    status="live" if synced else "synchronizing",
+                                    updated_at_ms=received_at,
+                                    last_message_ms=received_at,
+                                    reconnects=reconnects,
+                                    last_error=book.last_error,
+                                )
+                                last_status_write = time.monotonic()
+                finally:
+                    cleanup = [task for task in (reader_task, snapshot_task) if task is not None]
+                    for task in cleanup:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*cleanup, return_exceptions=True)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -345,7 +352,7 @@ async def _run_okx(store: MarketDataStore, symbol: str, depth: int) -> None:
     instrument = "BTC-USDT"
     while True:
         now = int(time.time() * 1000)
-        store.record_status(venue=venue, symbol=symbol, status="connecting", updated_at_ms=now, reconnects=reconnects)
+        store.record_status(venue=venue, symbol=instrument, status="connecting", updated_at_ms=now, reconnects=reconnects)
         try:
             async with connect(
                 OKX_WS, ping_interval=20, ping_timeout=20,
