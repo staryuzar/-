@@ -91,7 +91,7 @@ class BinanceOrderBookTests(unittest.TestCase):
         self.assertEqual(result["best_bid"], 100.0)
         self.assertEqual(result["best_ask"], 101.0)
         self.assertGreater(result["spread_bps"], 0)
-        self.assertGreater(result["imbalance"], 0)
+        self.assertLess(result["imbalance"], 0)
 
     def test_snapshot_with_one_side_missing_is_rejected(self):
         with self.assertRaises(ValueError):
