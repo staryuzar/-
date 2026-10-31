@@ -20,6 +20,16 @@ def _positive(value: object) -> float | None:
     return number
 
 
+def _non_negative(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    return number
+
+
 def _normal_cdf(value: float) -> float:
     return 0.5 * (1.0 + math.erf(value / math.sqrt(2.0)))
 
@@ -106,7 +116,7 @@ def build_btc_options_surface(
         expiry = _positive(instrument.get("expiration_timestamp"))
         spot = _positive(summary.get("underlying_price"))
         mark_iv = _positive(summary.get("mark_iv"))
-        open_interest = _positive(summary.get("open_interest"))
+        open_interest = _non_negative(summary.get("open_interest"))
         if (
             kind is None or strike is None or expiry is None
             or spot is None or mark_iv is None or open_interest is None
