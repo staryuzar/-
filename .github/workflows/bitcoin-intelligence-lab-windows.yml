@@ -18,7 +18,7 @@ permissions:
 jobs:
   windows-market-runtime:
     runs-on: windows-latest
-    timeout-minutes: 9
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: Bitcoin_Intelligence_Lab
@@ -35,6 +35,9 @@ jobs:
         run: |
           python -m compileall -q bitcoinlab app.py scripts
           python -m unittest discover -s tests -v
+      - name: Compile the real Bitcoin EA with MetaEditor (no login or trading)
+        shell: pwsh
+        run: ./scripts/compile_mql5_ea.ps1
       - name: Run live Windows WebSocket, SQLite and Streamlit integration
         run: python scripts/windows_runtime_smoke.py --duration-seconds 180 --port 8502
       - name: Upload Windows runtime logs and SQLite report
@@ -47,5 +50,8 @@ jobs:
             Bitcoin_Intelligence_Lab/artifacts/windows_market_stream.log
             Bitcoin_Intelligence_Lab/artifacts/windows_streamlit.log
             Bitcoin_Intelligence_Lab/data/windows_runtime.sqlite
+            Bitcoin_Intelligence_Lab/artifacts/mql5_compile_report.txt
+            Bitcoin_Intelligence_Lab/artifacts/BitcoinIntelligenceLabEA_metaeditor.log
+            Bitcoin_Intelligence_Lab/artifacts/BitcoinIntelligenceLabEA.ex5
           if-no-files-found: warn
           retention-days: 7
