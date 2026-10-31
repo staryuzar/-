@@ -83,9 +83,9 @@ def read_market_stream_dashboard(
                     """SELECT venue,symbol,event_time_ms,liquidated_side,order_side,
                     raw_size,quantity_unit,reference_price,reference_price_kind,notional_usd
                     FROM liquidation_events
-                    WHERE symbol IN (?, 'BTC-USDT-SWAP')
+                    WHERE event_time_ms>=? AND symbol IN (?, 'BTC-USDT-SWAP')
                     ORDER BY event_time_ms DESC,id DESC LIMIT 20""",
-                    (symbol.upper(),),
+                    (since_ms, symbol.upper()),
                 ).fetchall()
                 liquidation_short_window = connection.execute(
                     """SELECT venue,market_type,liquidated_side,quantity_unit,
@@ -570,7 +570,10 @@ class MarketDataStore:
         ):
             raise ValueError("Trade-flow windows must contain positive whole seconds >= 60.")
         largest_window = max(windows_seconds)
-        since_ms = int(now_ms) - largest_window * 1000
+        largest_bucket_count = (largest_window + 59) // 60
+        since_bucket_ms = (
+            int(now_ms) // 60_000 - largest_bucket_count + 1
+        ) * 60_000
         self.db.row_factory = sqlite3.Row
         rows = self.db.execute(
             """SELECT venue,symbol,market_type,bucket_start_ms,
@@ -580,7 +583,7 @@ class MarketDataStore:
             FROM trade_flow_minutes
             WHERE symbol=? AND bucket_start_ms>=?
             ORDER BY venue,bucket_start_ms""",
-            (symbol.upper(), since_ms // 60_000 * 60_000),
+            (symbol.upper(), since_bucket_ms),
         ).fetchall()
         by_venue: dict[tuple[str, str], list[sqlite3.Row]] = {}
         for row in rows:
@@ -590,8 +593,14 @@ class MarketDataStore:
         result: list[dict[str, Any]] = []
         for (venue, market_type), venue_rows in sorted(by_venue.items()):
             for window in windows_seconds:
-                start = int(now_ms) - window * 1000
-                selected = [row for row in venue_rows if row["bucket_start_ms"] >= start // 60_000 * 60_000]
+                bucket_count = (window + 59) // 60
+                first_bucket_ms = (
+                    int(now_ms) // 60_000 - bucket_count + 1
+                ) * 60_000
+                selected = [
+                    row for row in venue_rows
+                    if row["bucket_start_ms"] >= first_bucket_ms
+                ]
                 buy_btc = sum(float(row["buy_base_volume_btc"]) for row in selected)
                 sell_btc = sum(float(row["sell_base_volume_btc"]) for row in selected)
                 buy_usd = sum(float(row["buy_notional_usd"]) for row in selected)

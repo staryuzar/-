@@ -39,31 +39,42 @@ class MarketDataStoreTests(unittest.TestCase):
             self.assertEqual(result["venues"][0]["status"], "live")
             self.assertEqual(result["latest_books"][0]["best_bid"], 100.0)
 
-    def test_liquidations_persist_dedupe_and_are_exposed_to_dashboard(self):
+    def test_liquidations_persist_dedupe_and_recent_dashboard_excludes_old_events(self):
+        now = int(datetime.now(timezone.utc).timestamp() * 1000)
         event = normalize_binance_force_order({
             "e": "forceOrder",
             "o": {
                 "s": "BTCUSDT", "S": "SELL", "X": "FILLED",
-                "z": "0.1", "ap": "67000", "T": 1_800_000_000_000,
+                "z": "0.1", "ap": "67000", "T": now,
             },
         })
+        old_event = {
+            **event,
+            "event_key": event["event_key"] + "-old",
+            "event_time_ms": now - 2 * 60 * 60_000,
+        }
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "market.sqlite"
             with MarketDataStore(db_path) as store:
                 self.assertTrue(store.record_liquidation(
-                    event=event, received_at_ms=1_800_000_000_010,
+                    event=event, received_at_ms=now + 10,
                 ))
                 self.assertFalse(store.record_liquidation(
-                    event=event, received_at_ms=1_800_000_000_020,
+                    event=event, received_at_ms=now + 20,
                 ))
-                summary = store.liquidation_summary(since_ms=1_799_000_000_000)
+                self.assertTrue(store.record_liquidation(
+                    event=old_event, received_at_ms=now + 30,
+                ))
+                summary = store.liquidation_summary(since_ms=now - 60 * 60_000)
             dashboard = read_market_stream_dashboard(db_path)
         self.assertEqual(len(summary), 1)
         self.assertEqual(summary[0]["event_count"], 1)
         self.assertEqual(summary[0]["quantity_unit"], "BTC")
         self.assertEqual(summary[0]["notional_usd"], 6700.0)
         self.assertEqual(dashboard["liquidation_summary"][0]["event_count"], 1)
+        self.assertEqual(len(dashboard["recent_liquidations"]), 1)
         self.assertEqual(dashboard["recent_liquidations"][0]["liquidated_side"], "LONG")
+        self.assertEqual(dashboard["recent_liquidations"][0]["event_time_ms"], now)
 
     def test_trade_flow_summary_includes_total_btc_base_volume(self):
         now = 1_800_000_000_000
@@ -205,6 +216,32 @@ class MarketDataStoreTests(unittest.TestCase):
                 ).fetchone()[0]
         self.assertEqual(removed["trade_flow_minutes_legacy_pk_v1"], 1)
         self.assertEqual(archived, 0)
+
+    def test_one_minute_flow_window_excludes_previous_minute_bucket(self):
+        now = 1_800_000_059_000
+        with tempfile.TemporaryDirectory() as tmp:
+            with MarketDataStore(Path(tmp) / "market.sqlite") as store:
+                for key, event_time, quantity in (
+                    ("outside", 1_799_999_945_000, 0.5),
+                    ("inside", 1_800_000_000_000, 0.1),
+                ):
+                    store.record_trade_event(
+                        event={
+                            "event_key": key, "venue": "binance_usdm",
+                            "symbol": "BTCUSDT", "market_type": "linear_perpetual",
+                            "event_time_ms": event_time, "aggressor_side": "BUY",
+                            "price": 70000.0, "base_quantity": quantity,
+                            "quantity_unit": "BTC", "notional_usd": 70000.0 * quantity,
+                            "trade_count": 1,
+                        },
+                        received_at_ms=now,
+                    )
+                summary = store.trade_flow_summary(
+                    symbol="BTCUSDT", now_ms=now, windows_seconds=(60,),
+                )
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0]["trade_count"], 1)
+        self.assertAlmostEqual(summary[0]["total_base_volume_btc"], 0.1)
 
     def test_invalid_snapshot_is_not_persisted(self):
         with tempfile.TemporaryDirectory() as tmp:

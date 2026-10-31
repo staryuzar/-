@@ -140,7 +140,11 @@ def read_trade_analytics(
                 ORDER BY venue,bucket_start_ms""",
                 (
                     symbol.upper(),
-                    (now - max(windows_seconds) * 1000) // 60_000 * 60_000,
+                    (
+                        now // 60_000
+                        - (max(windows_seconds) + 59) // 60
+                        + 1
+                    ) * 60_000,
                     now // 60_000 * 60_000,
                 ),
             ).fetchall()
@@ -152,8 +156,14 @@ def read_trade_analytics(
                 grouped.setdefault((str(row["venue"]), str(row["market_type"])), []).append(row)
             for (venue, market_type), venue_rows in sorted(grouped.items()):
                 for window in windows_seconds:
-                    start = (now - window * 1000) // 60_000 * 60_000
-                    selected = [row for row in venue_rows if int(row["bucket_start_ms"]) >= start]
+                    bucket_count = (window + 59) // 60
+                    first_bucket_ms = (
+                        now // 60_000 - bucket_count + 1
+                    ) * 60_000
+                    selected = [
+                        row for row in venue_rows
+                        if int(row["bucket_start_ms"]) >= first_bucket_ms
+                    ]
                     buy_btc = sum(float(row["buy_base_volume_btc"]) for row in selected)
                     sell_btc = sum(float(row["sell_base_volume_btc"]) for row in selected)
                     buy_usd = sum(float(row["buy_notional_usd"]) for row in selected)
@@ -191,7 +201,10 @@ def read_trade_analytics(
 
             footprint_rows: list[dict[str, Any]] = []
             if "trade_footprint" in tables:
-                since = (now - footprint_seconds * 1000) // 60_000 * 60_000
+                footprint_bucket_count = (footprint_seconds + 59) // 60
+                since = (
+                    now // 60_000 - footprint_bucket_count + 1
+                ) * 60_000
                 footprint_rows = [
                     dict(row) for row in connection.execute(
                         """SELECT venue,symbol,market_type,price_bucket_usd,

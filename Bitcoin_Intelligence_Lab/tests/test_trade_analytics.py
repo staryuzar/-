@@ -130,6 +130,28 @@ class TradeAnalyticsStoreTests(unittest.TestCase):
         self.assertEqual(active_rows, 0)
         self.assertEqual(archived_rows, 1)
 
+    def test_cvd_and_footprint_exclude_previous_minute_from_one_minute_window(self):
+        now = 1_800_000_059_000
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "market.sqlite"
+            with MarketDataStore(path) as store:
+                ensure_trade_footprint_schema(store)
+                events = [
+                    trade_event("outside-window", "binance_usdm", "BUY", 1_799_999_945_000, qty=0.5),
+                    trade_event("inside-window", "binance_usdm", "SELL", 1_800_000_000_000, qty=0.1),
+                ]
+                self.assertEqual(record_trade_batch(store, events=events, received_at_ms=now), 2)
+                result = read_trade_analytics(
+                    path, now_ms=now, windows_seconds=(60,), footprint_seconds=60,
+                )
+        self.assertEqual(len(result["trade_flow_summary"]), 1)
+        self.assertEqual(result["trade_flow_summary"][0]["trade_count"], 1)
+        self.assertAlmostEqual(result["trade_flow_summary"][0]["total_notional_usd"], 7000.0)
+        self.assertEqual(len(result["trade_footprint"]), 1)
+        self.assertAlmostEqual(
+            result["trade_footprint"][0]["sell_base_volume_btc"], 0.1,
+        )
+
     def test_price_footprint_uses_configured_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "market.sqlite"
