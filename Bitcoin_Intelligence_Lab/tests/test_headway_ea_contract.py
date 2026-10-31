@@ -18,12 +18,12 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertIn("OrderSend(request,result)", self.source)
         self.assertNotIn("CTrade trade", self.source)
 
-    def test_headway_broker_is_required_without_account_mode_gate(self):
-        self.assertIn("input bool   RequireHeadwayServer = true;", self.source)
+    def test_headway_broker_is_mandatory_without_account_mode_gate(self):
         self.assertIn('StringFind(server, "headway")', self.source)
         self.assertIn('StringFind(server, "trade-hw.online")', self.source)
-        self.assertNotIn("ACCOUNT_TRADE_MODE_DEMO", self.source)
-        self.assertNotIn("RequireHeadwayDemo", self.source)
+        self.assertNotIn("RequireHeadwayServer", self.source)
+        self.assertNotIn("ACCOUNT_TRADE_MODE", self.source)
+        self.assertNotIn("demo", self.source.lower())
 
     def test_default_position_and_equity_risk_limits_are_conservative(self):
         self.assertIn("input double MaxRiskPercent = 0.50;", self.source)
