@@ -33,7 +33,7 @@ jobs:
           cache: pip
           cache-dependency-path: Bitcoin_Intelligence_Lab/pyproject.toml
       - name: Install dashboard runtime
-        run: python -m pip install "streamlit>=1.43,<2"
+        run: python -m pip install "streamlit>=1.43,<2" "websockets>=14,<16"
       - name: Compile package
         run: python -m compileall -q bitcoinlab app.py
       - name: Run deterministic engine and provider contract tests
