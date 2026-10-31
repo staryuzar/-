@@ -90,13 +90,13 @@ def _load_dashboard_design_tokens():
 
 
 _DESIGN_COLORS, _DESIGN_TOKEN_WARNING = _load_dashboard_design_tokens()
-_CSS_VARIABLES = "\\n".join(
+_CSS_VARIABLES = "\n".join(
     f"--btc-{name}: {value};" for name, value in _DESIGN_COLORS.items()
 )
 st.markdown(f"""
 <style>
 :root {{
-    {{_CSS_VARIABLES}}
+    {_CSS_VARIABLES}
     color-scheme: dark;
 }}
 html, body, [data-testid="stAppViewContainer"] {{
