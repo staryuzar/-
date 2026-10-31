@@ -50,7 +50,14 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     except Exception as exc:
         errors["derivatives"] = f"{type(exc).__name__}: {exc}"[:300]
 
-    spot_quality = validate_bars(bars, min_bars=60, max_age_seconds=180, now_ms=now) if bars else {
+    interval_max_age = {
+        "1m": 180, "3m": 540, "5m": 900, "15m": 2700,
+        "30m": 5400, "1h": 10800, "2h": 21600, "4h": 43200,
+        "6h": 64800, "8h": 86400, "12h": 129600, "1d": 172800,
+    }.get(interval, 180)
+    spot_quality = validate_bars(
+        bars, min_bars=60, max_age_seconds=interval_max_age, now_ms=now,
+    ) if bars else {
         "status": "unavailable", "reason": errors.get("spot", "No spot candles.")
     }
     source_states: dict[str, dict[str, Any]] = {"spot": {"status": spot_quality["status"], **spot_quality}}
@@ -126,6 +133,23 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     multi_timeframe = build_multi_timeframe_profile(
         symbol=symbol, now_ms=now, preloaded_bars=timeframe_inputs,
     )
+    # The spot gate and command de-duplication timestamp always use the latest 1m candle,
+    # irrespective of the chart interval currently selected by the user.
+    one_minute = multi_timeframe["frames"].get("1m", {})
+    if one_minute.get("status") == "fresh":
+        source_states["spot"] = {
+            "status": "fresh",
+            "age_seconds": one_minute.get("age_seconds"),
+            "observed_at_utc": one_minute.get("observed_at_utc"),
+            "timeframe": "1m",
+        }
+    else:
+        source_states["spot"] = {
+            "status": one_minute.get("status", "unavailable"),
+            "age_seconds": one_minute.get("age_seconds"),
+            "reason": one_minute.get("reason", "Latest 1m completed candle is unavailable."),
+            "timeframe": "1m",
+        }
     # The central technical vote is the weighted six-frame trend, not a single chart interval.
     decision_technical = {
         "status": "ok" if multi_timeframe["status"] == "ok" else "incomplete",
@@ -144,7 +168,9 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "source_states": source_states, "errors": errors,
         "spot": {
             "bar_count": len(bars),
-            "last_bar": bars[-1].__dict__ if bars else None,
+            "chart_last_bar": bars[-1].__dict__ if bars else None,
+            "last_bar": one_minute.get("last_bar"),
+            "last_price": one_minute.get("close"),
             "price_history": {
                 "time_utc": [
                     datetime.fromtimestamp(bar.close_time_ms / 1000, tz=timezone.utc).isoformat()
