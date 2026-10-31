@@ -59,7 +59,7 @@ class DepthAnalyticsTests(unittest.TestCase):
                 save_snapshot(store, "binance_spot", NOW - 10_000, 0.5, 0.4)
                 save_snapshot(
                     store, "binance_spot", NOW - 5_000, 0.5, 0.4,
-                    bid_price=66940, ask_price=67060,
+                    bid_price=66880, ask_price=67120,
                 )
             result = read_depth_liquidity_context(path, now_ms=NOW)
         profile = result["venues"][0]
