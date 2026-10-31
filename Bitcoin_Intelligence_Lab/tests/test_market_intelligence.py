@@ -9,7 +9,7 @@ from bitcoinlab.market_intelligence import (
 
 
 class MarketStructureSignalTests(unittest.TestCase):
-    def test_vwap_location_and_sampled_delta_produce_bounded_direction_score(self):
+    def test_vwap_is_directional_and_sampled_trade_delta_remains_context_only(self):
         result = market_structure_signal({
             "bars": {
                 "status": "ok", "last_close": 70_500,
@@ -27,7 +27,22 @@ class MarketStructureSignalTests(unittest.TestCase):
         self.assertGreater(result["score"], 0)
         self.assertLessEqual(result["score"], 1)
         self.assertIn("session_vwap_location", result["components"])
-        self.assertIn("sampled_trade_delta", result["components"])
+        self.assertNotIn("sampled_trade_delta", result["components"])
+        self.assertAlmostEqual(result["weights"]["session_vwap_location"], 1.0)
+        self.assertAlmostEqual(result["context_components"]["sampled_trade_delta"], 0.6)
+
+        opposite_delta = market_structure_signal({
+            "bars": {
+                "status": "ok", "last_close": 70_500,
+                "session_vwap_utc": 70_000, "last_true_range": 500,
+                "session_vwap_coverage_minutes": 90, "session_vwap_bars": 90,
+            },
+            "volume_profile": {
+                "status": "ok", "delta_ratio": -0.6,
+                "sample_trade_count": 400,
+            },
+        })
+        self.assertEqual(result["score"], opposite_delta["score"])
 
     def test_short_session_and_small_trade_sample_do_not_create_signal(self):
         result = market_structure_signal({
