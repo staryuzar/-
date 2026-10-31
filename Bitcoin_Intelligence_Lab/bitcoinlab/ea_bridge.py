@@ -49,6 +49,8 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
     detail = fields[8]
     readiness_marker = fields[11] if len(fields) > 11 else None
     account_server = fields[12] if len(fields) > 12 else None
+    daily_loss_percent = float(fields[13]) if len(fields) > 13 else None
+    daily_loss_limit_percent = float(fields[14]) if len(fields) > 14 else None
     server_normalized = (account_server or "").lower()
     # Broker identity is verified independently of the account trade mode.
     # Do not inspect or gate execution based on DEMO/LIVE classification.
@@ -69,6 +71,8 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
         "point": point, "stops_level_points": stops_points,
         "trading_ready": trading_ready, "readiness_marker": readiness_marker,
         "account_server": account_server,
+        "daily_loss_percent": daily_loss_percent,
+        "daily_loss_limit_percent": daily_loss_limit_percent,
         "headway_server_ok": headway_server_ok,
         "observed_at_utc": datetime.fromtimestamp(timestamp, timezone.utc).isoformat(),
     }
@@ -81,6 +85,14 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
         result["status"] = "not_ready"
     elif not all(math.isfinite(x) and x > 0 for x in (bid, ask)) or ask < bid:
         result["status"] = "invalid_quote"
+    elif daily_loss_percent is not None and (
+        not math.isfinite(daily_loss_percent) or daily_loss_percent < 0
+    ):
+        result["status"] = "invalid_risk_status"
+    elif daily_loss_limit_percent is not None and (
+        not math.isfinite(daily_loss_limit_percent) or daily_loss_limit_percent <= 0
+    ):
+        result["status"] = "invalid_risk_status"
     return result
 
 
