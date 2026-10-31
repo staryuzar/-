@@ -22,6 +22,7 @@ from bitcoinlab.ea_bridge import (
 )
 
 from bitcoinlab.system_status import build_system_readiness
+from bitcoinlab.design_tokens import build_css_variables, load_dashboard_colors
 
 st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
 
@@ -58,41 +59,8 @@ def _friendly_provider_error(name, error):
         return "تعذر تحليل أو جلب تقرير CFTC في هذه القراءة؛ راجع التفاصيل التشخيصية."
     return "تعذر تحديث هذا المصدر؛ لم تُنشأ بيانات بديلة أو تقديرية."
 
-def _load_dashboard_design_tokens():
-    token_path = Path(__file__).resolve().parent / "design" / "bitcoin_dashboard.tokens.json"
-    fallback = {
-        "canvas": "#0B1220", "surface": "#111C2D", "raised": "#17253A",
-        "subtle": "#1E2E45", "border": "#2B3C54", "text": "#F4F7FB",
-        "secondary": "#A9B8CC", "muted": "#7E91AA", "bull": "#2CCB9A",
-        "bear": "#F16D75", "warning": "#EAB85C", "info": "#65A8E8",
-    }
-    names = {
-        "Canvas/Background": "canvas", "Surface/Default": "surface",
-        "Surface/Raised": "raised", "Surface/Subtle": "subtle",
-        "Border/Default": "border", "Text/Primary": "text",
-        "Text/Secondary": "secondary", "Text/Muted": "muted",
-        "Signal/Bull": "bull", "Signal/Bear": "bear",
-        "Signal/Warning": "warning", "Signal/Info": "info",
-    }
-    try:
-        payload = json.loads(token_path.read_text(encoding="utf-8"))
-        raw = payload.get("colors", {})
-        colors = {
-            target: raw[source]
-            for source, target in names.items()
-            if isinstance(raw.get(source), str) and raw[source].startswith("#")
-        }
-        if len(colors) != len(names):
-            raise ValueError("Design token palette is incomplete.")
-        return colors, None
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
-        return fallback, f"{type(exc).__name__}: {exc}"
-
-
-_DESIGN_COLORS, _DESIGN_TOKEN_WARNING = _load_dashboard_design_tokens()
-_CSS_VARIABLES = "\n".join(
-    f"--btc-{name}: {value};" for name, value in _DESIGN_COLORS.items()
-)
+_DESIGN_COLORS, _DESIGN_TOKEN_WARNING = load_dashboard_colors()
+_CSS_VARIABLES = build_css_variables(_DESIGN_COLORS)
 st.markdown(f"""
 <style>
 :root {{
