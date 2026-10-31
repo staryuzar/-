@@ -63,17 +63,29 @@ div[data-testid="stMetric"] {background:white; border:1px solid #e2e8f0; border-
 <p>بيانات بيتكوين الحقيقية · محركات متعددة · قرار مركزي · تدقيق جودة البيانات</p></div>
 """, unsafe_allow_html=True)
 
+def _queue_snapshot_refresh():
+    st.session_state["btc_snapshot_revision"] = int(
+        st.session_state.get("btc_snapshot_revision", 0)
+    ) + 1
+
+
+if "btc_snapshot_revision" not in st.session_state:
+    st.session_state["btc_snapshot_revision"] = 0
+
 with st.sidebar:
     st.header("إعدادات السوق")
     symbol = st.selectbox("رمز السوق الفوري", ["BTCUSDT", "BTCUSDC"], index=0)
     interval = st.selectbox("الإطار الزمني", ["1m", "5m", "15m", "1h", "4h"], index=0)
     st.divider()
-    auto_refresh = st.toggle("تحديث بيانات السوق تلقائياً", value=True)
+    auto_refresh = st.toggle("تحديث اللقطة الكاملة تلقائياً", value=False)
     refresh_seconds = st.select_slider(
-        "الفاصل بين التحديثات (ثانية)", options=[5, 10, 15, 30], value=15,
+        "الفاصل بين التحديثات الكاملة (ثانية)", options=[30, 60, 120], value=60,
         disabled=not auto_refresh,
     )
-    refresh_now = st.button("قراءة السوق الآن", type="primary", use_container_width=True)
+    st.button(
+        "تحديث بيانات السوق الآن", type="primary", use_container_width=True,
+        on_click=_queue_snapshot_refresh,
+    )
     st.caption(
         "Binance وBybit وOKX مصادر بيانات فقط. Headway عبر MT5 هو منفذ التنفيذ الوحيد؛ "
         "حلقة التنفيذ عملية مستقلة لا تعمل إلا عند تشغيلها صراحةً على الجهاز المتصل بالطرفية."
@@ -81,6 +93,17 @@ with st.sidebar:
 
 if "btc_report" not in st.session_state:
     st.session_state["btc_report"] = None
+if "btc_report_key" not in st.session_state:
+    st.session_state["btc_report_key"] = None
+if "btc_report_revision" not in st.session_state:
+    st.session_state["btc_report_revision"] = None
+
+
+@st.cache_data(ttl=20, max_entries=12, show_spinner=False)
+def cached_live_snapshot(symbol: str, interval: str, revision: int):
+    """Avoid refetching every exchange feed on incidental Streamlit reruns."""
+    return build_live_snapshot(symbol=symbol, interval=interval)
+
 
 @st.cache_data(ttl=900, show_spinner=False)
 def cached_slow_context():
@@ -89,12 +112,21 @@ def cached_slow_context():
 
 @st.fragment(run_every=f"{refresh_seconds}s" if auto_refresh else None)
 def render_live_dashboard():
-    if refresh_now or auto_refresh or st.session_state.get("btc_report") is None:
-        with st.spinner("جلب بيانات السوق الحقيقية والتحقق من حداثتها..."):
+    report_key = (symbol, interval)
+    revision = int(st.session_state.get("btc_snapshot_revision", 0))
+    needs_refresh = (
+        st.session_state.get("btc_report") is None
+        or st.session_state.get("btc_report_key") != report_key
+        or st.session_state.get("btc_report_revision") != revision
+        or auto_refresh
+    )
+    if needs_refresh:
+        with st.spinner("قراءة لقطة السوق والتحقق من حداثة المصادر..."):
             try:
-                st.session_state["btc_report"] = build_live_snapshot(
-                    symbol=symbol, interval=interval,
-                )
+                snapshot = cached_live_snapshot(symbol, interval, revision)
+                st.session_state["btc_report"] = snapshot
+                st.session_state["btc_report_key"] = report_key
+                st.session_state["btc_report_revision"] = revision
                 st.session_state["btc_refresh_error"] = None
             except Exception as exc:
                 st.session_state["btc_refresh_error"] = (
@@ -102,6 +134,14 @@ def render_live_dashboard():
                 )
 
     report = st.session_state.get("btc_report")
+    if report:
+        st.caption(
+            f"آخر لقطة تحليل: {report.get('as_of_utc', 'غير متاح')} · "
+            + ("تحديث تلقائي كامل" if auto_refresh else "التحديث الكامل يدوي للحفاظ على استقرار اللوحة")
+        )
+    if st.session_state.get("btc_refresh_error"):
+        st.warning("تعذر تحديث آخر لقطة؛ نحتفظ بآخر بيانات ناجحة بدلاً من تفريغ اللوحة. "
+                   + st.session_state["btc_refresh_error"])
     st.subheader("مركز التنفيذ — Headway / MT5")
     try:
         common_files = default_common_files()
