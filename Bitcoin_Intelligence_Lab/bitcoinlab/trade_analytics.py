@@ -10,7 +10,9 @@ from .market_store import MarketDataStore
 
 
 def ensure_trade_footprint_schema(store: MarketDataStore) -> None:
-    """Create the additive footprint table without altering prior database schema."""
+    """Create the additive footprint table once per store connection."""
+    if getattr(store, "_trade_footprint_schema_ready", False):
+        return
     store.db.executescript("""
     CREATE TABLE IF NOT EXISTS trade_footprint (
         venue TEXT NOT NULL,
@@ -29,6 +31,7 @@ def ensure_trade_footprint_schema(store: MarketDataStore) -> None:
         ON trade_footprint(venue,symbol,bucket_start_ms);
     """)
     store.db.commit()
+    store._trade_footprint_schema_ready = True
 
 
 def record_trade_batch(
@@ -38,6 +41,7 @@ def record_trade_batch(
     received_at_ms: int,
 ) -> int:
     """Persist deduplicated CVD and per-price footprint in one SQLite transaction."""
+    ensure_trade_footprint_schema(store)
     inserted = 0
     with store.db:
         for event in events:
