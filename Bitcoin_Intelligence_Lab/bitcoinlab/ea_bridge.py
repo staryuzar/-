@@ -179,7 +179,7 @@ def publish_close_order(
     if int(ticket) not in owned:
         return {"status": "position_not_found", "ticket": int(ticket)}
     command = build_command(
-        command_id=f"BTC-CLOSE-{int(ticket)}-{int(time.time())}",
+        command_id=f"BTC-CLOSE-{int(ticket)}",
         action="CLOSE", symbol="BTC", position_ticket=int(ticket),
         ttl_seconds=ttl_seconds,
     )
