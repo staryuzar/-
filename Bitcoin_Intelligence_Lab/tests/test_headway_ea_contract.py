@@ -35,6 +35,12 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertNotIn("ACCOUNT_TRADE_MODE", self.source)
         self.assertIn('"TRADE_READY":"TRADE_BLOCKED"', self.source)
 
+    def test_single_ea_instance_lock_prevents_duplicate_chart_executors(self):
+        self.assertIn("GlobalVariableSetOnCondition", self.source)
+        self.assertIn("GlobalVariableDel", self.source)
+        self.assertIn("InstanceLockName()", self.source)
+        self.assertIn("another EA instance already owns this symbol/magic lock", self.source)
+
     def test_ea_does_not_generate_independent_orders_on_tick(self):
         on_tick = self.source.split("void OnTick()", 1)[1]
         self.assertNotIn("OrderSend", on_tick)
