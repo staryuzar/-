@@ -35,6 +35,12 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertNotIn("ACCOUNT_TRADE_MODE", self.source)
         self.assertIn('"TRADE_READY":"TRADE_BLOCKED"', self.source)
 
+    def test_open_is_blocked_when_foreign_position_exists_on_same_symbol(self):
+        self.assertIn("bool HasForeignPositionsOnSymbol()", self.source)
+        self.assertIn("HasForeignPositionsOnSymbol()", self.source)
+        self.assertIn("another position exists on this symbol outside BTCIL MagicNumber", self.source)
+        self.assertIn("POSITION_MAGIC)!=MagicNumber", self.source)
+
     def test_single_ea_instance_lock_prevents_duplicate_chart_executors(self):
         self.assertIn("GlobalVariableSetOnCondition", self.source)
         self.assertIn("GlobalVariableDel", self.source)
