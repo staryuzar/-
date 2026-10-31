@@ -11,7 +11,7 @@ NOW = 1_800_000_000_000
 
 def row(venue, *, spot=100_000, perp=100_100, mark=100_120, index=100_000,
         rate=0.0001, interval=480, oi_btc=None, oi_native=None,
-        native_unit=None, oi_quote=None, quote_currency=None, age_ms=5_000):
+        native_unit=None, oi_quote=None, quote_currency=None, funding_kind="source_reported_rate", age_ms=5_000):
     return {
         "venue": venue,
         "symbol": "BTCUSDT",
@@ -25,6 +25,7 @@ def row(venue, *, spot=100_000, perp=100_100, mark=100_120, index=100_000,
         "index_price": index,
         "funding_rate": rate,
         "funding_interval_minutes": interval,
+        "funding_rate_kind": funding_kind,
         "open_interest_btc": oi_btc,
         "open_interest_native": oi_native,
         "open_interest_native_unit": native_unit,
@@ -54,6 +55,13 @@ class CrossVenueDerivativesTests(unittest.TestCase):
         self.assertAlmostEqual(first["funding_rate_per_8h_equivalent"], 0.0001)
         second = next(item for item in result["venues"] if item["venue"] == "bybit_linear")
         self.assertAlmostEqual(second["funding_rate_per_8h_equivalent"], 0.0004)
+
+    def test_okx_funding_settlement_state_is_preserved(self):
+        result = build_cross_venue_derivatives_context([
+            row("okx_swap", funding_kind="settled"),
+        ], now_ms=NOW)
+        venue = result["venues"][0]
+        self.assertEqual(venue["funding_rate_kind"], "settled")
 
     def test_open_interest_units_are_retained_and_never_summed(self):
         result = build_cross_venue_derivatives_context([
