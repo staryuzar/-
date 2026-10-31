@@ -1,0 +1,44 @@
+{
+  "name": "Bitcoin Intelligence Lab",
+  "version": 1,
+  "theme": "midnight-quant",
+  "colors": {
+    "canvas": "#0B1220",
+    "surface": "#111C2D",
+    "surfaceRaised": "#17253A",
+    "surfaceSubtle": "#1E2E45",
+    "border": "#2B3C54",
+    "textPrimary": "#F4F7FB",
+    "textSecondary": "#A9B8CC",
+    "textMuted": "#7E91AA",
+    "bull": "#2CCB9A",
+    "bear": "#F16D75",
+    "warning": "#EAB85C",
+    "info": "#65A8E8",
+    "neutral": "#8C9CAF"
+  },
+  "typography": {
+    "family": "Inter, Segoe UI, Tahoma, sans-serif",
+    "arabicFallback": "Tahoma, Arial, sans-serif",
+    "pageTitlePx": 26,
+    "sectionTitlePx": 17,
+    "bodyPx": 14,
+    "captionPx": 12,
+    "metricPx": 24
+  },
+  "radiiPx": {
+    "card": 16,
+    "control": 10,
+    "pill": 999
+  },
+  "spacingPx": {
+    "page": 24,
+    "section": 20,
+    "card": 16,
+    "compact": 8
+  },
+  "motion": {
+    "enabled": false,
+    "reason": "Keep the market dashboard calm and avoid distracting transitions during rapid market changes."
+  }
+}
