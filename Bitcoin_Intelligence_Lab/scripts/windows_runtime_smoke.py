@@ -129,6 +129,9 @@ def main() -> int:
 
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
+    # Point the actual Streamlit live-snapshot path at the same DB the
+    # collector writes, rather than its normal developer default.
+    env["BTCIL_MARKET_DB"] = str(DB_PATH)
     collector = dashboard = None
     report: dict = {
         "started_at_utc": utc_now(),
