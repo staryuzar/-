@@ -116,6 +116,69 @@ def render_live_dashboard():
             + str(stream_state.get("reason", ""))
         )
 
+    st.subheader("محرك تدفق الصفقات المستمر — CVD متعدد المنصات")
+    if isinstance(report, dict):
+        trade_analytics = report.get("trade_analytics", {})
+        trade_rows = [
+            row for row in trade_analytics.get("trade_flow_summary", [])
+            if row.get("timeframe") == "5m" and row.get("status") == "ok"
+        ]
+        if trade_rows:
+            st.caption(
+                "الجدول يعرض كل منصة ونوع سوق منفصلين. لا نجمع أحجام Spot مع العقود الدائمة، "
+                "ولا نجمع أحجام المنصات بعضها مع بعض."
+            )
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "نوع السوق": "فوري" if row["market_type"] == "spot" else "دائم خطي",
+                        "شراء BTC": row["buy_base_volume_btc"],
+                        "بيع BTC": row["sell_base_volume_btc"],
+                        "دلتا BTC": row["delta_base_volume_btc"],
+                        "دلتا USD": row["delta_notional_usd"],
+                        "CVD نسبة": row["delta_notional_ratio"],
+                        "عدد الصفقات": row["trade_count"],
+                        "آخر صفقة UTC": datetime.fromtimestamp(
+                            row["last_trade_time_ms"] / 1000, timezone.utc,
+                        ).isoformat() if row.get("last_trade_time_ms") else "—",
+                    }
+                    for row in trade_rows
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.caption(
+                "لم تكتمل بعد تغطية تدفق الصفقات خلال نافذة 5 دقائق، أو أن الجامع لم يبدأ. "
+                "لن يصدر المحرك تصويت CVD حتى تتوفر منصتان حديثتان على الأقل."
+            )
+        cvd = report.get("streamed_trade_flow", {})
+        if cvd.get("status") == "ok":
+            cvd_cols = st.columns(3)
+            cvd_cols[0].metric("CVD الاتجاهي (5m)", f"{cvd['score']:+.3f}")
+            cvd_cols[1].metric("عدد المنصات", str(cvd.get("venue_count", 0)))
+            cvd_cols[2].metric("الصفقات المجمعة", str(cvd.get("trade_count", 0)))
+            if cvd.get("warnings"):
+                st.warning("تنبيهات توافق تدفق الشراء والبيع: " + "، ".join(cvd["warnings"]))
+        else:
+            st.caption("تصويت CVD غير نشط: " + str(cvd.get("reason", "بيانات غير كافية.")))
+
+        footprint_profiles = report.get("streamed_footprint_profiles", [])
+        if footprint_profiles:
+            st.markdown("**Footprint المستمر حسب السعر والمنصة — آخر 15 دقيقة**")
+            for profile in footprint_profiles:
+                label = f"{profile['venue']} · {'Spot' if profile['market_type'] == 'spot' else 'Linear Perpetual'}"
+                with st.expander(label):
+                    fp_cols = st.columns(4)
+                    fp_cols[0].metric("POC", f"{profile['poc']:.2f}")
+                    fp_cols[1].metric("VAH", f"{profile['vah']:.2f}")
+                    fp_cols[2].metric("VAL", f"{profile['val']:.2f}")
+                    fp_cols[3].metric("Delta USD", f"{profile['delta_notional_usd']:+.2f}")
+                    st.dataframe(profile.get("bins", []), use_container_width=True, hide_index=True)
+    else:
+        st.caption("سيظهر محرك CVD وFootprint بعد إنشاء لقطة السوق.")
+
     st.subheader("محرك رصد تصفيات المشتقات — آخر 60 دقيقة")
     liquidation_groups = stream_state.get("liquidation_summary", [])
     if liquidation_groups:
@@ -424,8 +487,10 @@ def render_live_dashboard():
         st.subheader("محرك السيولة وتدفق الأوامر")
         st.json({
             "order_book": report["order_book"],
-            "trade_flow": report["trade_flow"],
-            "profile": report["orderflow"],
+            "trade_flow_rest_sample": report["trade_flow"],
+            "streamed_multi_venue_cvd": report.get("streamed_trade_flow", {}),
+            "streamed_footprint_profiles": report.get("streamed_footprint_profiles", []),
+            "integrated_orderflow_profile": report["orderflow"],
         })
         st.subheader("أسباب القرار والحواجز")
         st.write("الحواجز:", decision["blockers"] or "لا يوجد")

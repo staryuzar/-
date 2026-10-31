@@ -14,6 +14,12 @@ from .market_structure import market_structure_profile
 from .market_intelligence import build_market_intelligence
 from .market_store import read_market_stream_dashboard
 from .feed_health import build_data_health
+from .trade_analytics import read_trade_analytics
+from .trade_profile import (
+    blend_orderflow_evidence,
+    build_streamed_footprint_profiles,
+    build_streamed_trade_flow_profile,
+)
 
 
 def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms: int | None = None) -> dict[str, Any]:
@@ -169,8 +175,38 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
 
     # Read the local read-only market collector. Its data is never connected to MT5.
     stream_state = read_market_stream_dashboard(
-        "data/market_stream.sqlite", symbol=symbol,
+        "data/market_stream.sqlite", symbol=symbol, limit=20,
     )
+    trade_analytics = read_trade_analytics(
+        "data/market_stream.sqlite", symbol=symbol, now_ms=now,
+    )
+    stream_state["trade_feed_status"] = trade_analytics.get("trade_feed_status", [])
+    streamed_trade_flow = build_streamed_trade_flow_profile(
+        trade_analytics.get("trade_flow_summary", []),
+        now_ms=now,
+        timeframe="5m",
+        max_age_seconds=35,
+        minimum_trade_count=5,
+        minimum_venues=2,
+    )
+    streamed_footprint_profiles = build_streamed_footprint_profiles(
+        trade_analytics.get("trade_footprint", []),
+    )
+    if streamed_trade_flow.get("status") == "ok":
+        flow_engine = blend_orderflow_evidence(flow_engine, streamed_trade_flow)
+        streamed_flow_age = freshness(
+            streamed_trade_flow.get("last_trade_time_ms"),
+            35,
+            now_ms=now,
+        )
+        if streamed_flow_age.get("status") == "fresh":
+            source_states["orderflow"] = {
+                **streamed_flow_age,
+                "status": "fresh",
+                "source": "multi_venue_streamed_cvd",
+                "venue_count": streamed_trade_flow.get("venue_count", 0),
+                "active_venues": streamed_trade_flow.get("active_venues", []),
+            }
     market_intelligence = build_market_intelligence(
         stream_state, market_structure, now_ms=now,
     )
@@ -250,6 +286,9 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "market_structure": market_structure,
         "market_intelligence": market_intelligence,
         "market_stream": stream_state,
+        "trade_analytics": trade_analytics,
+        "streamed_trade_flow": streamed_trade_flow,
+        "streamed_footprint_profiles": streamed_footprint_profiles,
         "data_health": data_health,
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
@@ -257,7 +296,8 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "limitations": [
             "Binance is one venue, not the entire Bitcoin market.",
             "Order-book imbalance is a snapshot and can change or be spoofed; it is not executed volume.",
-            "Recent aggregate trades are a bounded sample, not full-session CVD.",
+            "The REST trade sample is bounded; streamed CVD is limited to selected public venues and its displayed window.",
+            "Spot and linear perpetual trade volumes remain separate and are never summed into a single market-wide size.",
             "Funding, open interest and taker ratios describe one derivatives venue.",
             "CFTC and on-chain metrics are slow context and are deliberately not used as live entry triggers.",
             "This module is read-only and never sends or modifies orders.",

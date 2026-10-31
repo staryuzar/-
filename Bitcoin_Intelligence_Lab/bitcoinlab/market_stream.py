@@ -12,6 +12,8 @@ from typing import Any
 
 from .market_store import MarketDataStore
 from .liquidation_stream import run_liquidation_streams
+from .trade_stream import run_trade_streams
+from .trade_analytics import prune_trade_footprint
 from .orderbook_sync import BinanceOrderBook
 from .providers.binance import fetch_spot_depth
 from .venue_books import IncrementalOrderBook, apply_bybit_message, apply_okx_message
@@ -99,7 +101,10 @@ def _maybe_save_book(
 
 
 def _maybe_prune(store: MarketDataStore, *, now_ms: int | None = None) -> dict[str, int]:
-    return store.prune(now_ms=int(time.time() * 1000) if now_ms is None else now_ms)
+    observed = int(time.time() * 1000) if now_ms is None else int(now_ms)
+    removed = store.prune(now_ms=observed)
+    removed["trade_footprint"] = prune_trade_footprint(store, now_ms=observed)
+    return removed
 
 
 async def _periodic_prune(store: MarketDataStore, interval_seconds: int = 300) -> None:
@@ -438,6 +443,7 @@ async def run_market_stream(
     depth: int = 50,
     retention_hours: int = 24,
     liquidations_enabled: bool = True,
+    trades_enabled: bool = True,
 ) -> None:
     symbol = symbol.upper().strip()
     if not symbol.isalnum() or not symbol.startswith("BTC"):
@@ -450,7 +456,7 @@ async def run_market_stream(
     if not venues or set(venues) - supported:
         raise ValueError(f"venues must be selected from {sorted(supported)}.")
     with MarketDataStore(db_path, retention_hours=retention_hours) as store:
-        store.prune(now_ms=int(time.time() * 1000))
+        _maybe_prune(store, now_ms=int(time.time() * 1000))
         tasks = []
         if "binance" in venues:
             tasks.append(_run_binance(store, symbol, depth))
@@ -460,6 +466,8 @@ async def run_market_stream(
             tasks.append(_run_okx(store, symbol, depth))
         if liquidations_enabled:
             tasks.append(run_liquidation_streams(store, symbol=symbol, venues=venues))
+        if trades_enabled:
+            tasks.append(run_trade_streams(store, symbol=symbol, venues=venues))
         cleanup_task = asyncio.create_task(_periodic_prune(store))
         try:
             await asyncio.gather(*tasks)
@@ -470,7 +478,7 @@ async def run_market_stream(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Read-only BTC multi-exchange order-book collector."
+        description="Read-only BTC multi-exchange order-book, trade and liquidation collector."
     )
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--db", default="data/market_stream.sqlite")
@@ -480,6 +488,10 @@ def main() -> None:
     parser.add_argument(
         "--liquidations", action=argparse.BooleanOptionalAction, default=True,
         help="Enable public liquidation feeds from Binance, Bybit and OKX.",
+    )
+    parser.add_argument(
+        "--trades", action=argparse.BooleanOptionalAction, default=True,
+        help="Enable public BTC trade feeds for continuous CVD and footprint.",
     )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     args = parser.parse_args()
@@ -493,6 +505,7 @@ def main() -> None:
             symbol=args.symbol, db_path=args.db, venues=venues,
             depth=args.depth, retention_hours=args.retention_hours,
             liquidations_enabled=args.liquidations,
+            trades_enabled=args.trades,
         ))
     except KeyboardInterrupt:
         LOG.info("Market data collector stopped by user.")
