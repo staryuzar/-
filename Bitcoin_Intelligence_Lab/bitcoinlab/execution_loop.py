@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import time
+from pathlib import Path
+from typing import Any, Callable
+
+from .ea_bridge import (
+    default_common_files,
+    publish_close_order,
+    publish_decision_order,
+    read_ea_status,
+    read_positions,
+)
+from .live_snapshot import build_live_snapshot
+from .position_manager import next_position_action
+
+
+def execute_once(
+    *,
+    common_files: str | Path | None = None,
+    report: dict[str, Any] | None = None,
+    report_builder: Callable[[], dict[str, Any]] = build_live_snapshot,
+    volume: float = 0.01,
+) -> dict[str, Any]:
+    """
+    Run one central-decision -> EA command cycle.
+
+    This module only publishes an expiring command to MT5 Common\Files.
+    The EA validates broker permissions, price protection, broker volume,
+    and the 0.5% equity-risk cap before sending an order to the terminal.
+    """
+    directory = Path(common_files) if common_files is not None else default_common_files()
+    snapshot = report if report is not None else report_builder()
+    terminal = read_ea_status(directory)
+    if terminal.get("status") != "fresh":
+        return {
+            "status": "terminal_not_ready",
+            "terminal": terminal,
+            "action": "HOLD",
+        }
+
+    positions = read_positions(directory)
+    plan = next_position_action(snapshot.get("decision", {}), positions)
+    action = str(plan.get("action", "HOLD")).upper()
+
+    if action == "OPEN":
+        published = publish_decision_order(
+            report=snapshot,
+            common_files=directory,
+            volume=volume,
+        )
+        return {
+            "status": published.get("status", "unknown"),
+            "plan": plan,
+            "command": published,
+            "decision": snapshot.get("decision", {}),
+        }
+
+    if action == "CLOSE":
+        published = publish_close_order(
+            ticket=int(plan["ticket"]),
+            common_files=directory,
+        )
+        return {
+            "status": published.get("status", "unknown"),
+            "plan": plan,
+            "command": published,
+            "decision": snapshot.get("decision", {}),
+        }
+
+    return {
+        "status": "no_command",
+        "plan": plan,
+        "decision": snapshot.get("decision", {}),
+        "positions": positions,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Persistent Bitcoin Intelligence Lab -> MT5 shared-file executor."
+    )
+    parser.add_argument("--interval-seconds", type=int, default=30)
+    parser.add_argument("--volume", type=float, default=0.01)
+    parser.add_argument("--once", action="store_true")
+    args = parser.parse_args()
+
+    if not 15 <= args.interval_seconds <= 300:
+        parser.error("interval-seconds must be between 15 and 300.")
+    if not 0 < args.volume <= 100:
+        parser.error("volume must be greater than zero and at most 100.")
+    if os.environ.get("BTCIL_ENABLE_EXECUTION") != "1":
+        print(json.dumps({
+            "status": "blocked",
+            "reason": "Set BTCIL_ENABLE_EXECUTION=1 only when the Headway MT5 terminal is intentionally running.",
+            "orders_sent": False,
+        }, ensure_ascii=False))
+        return 2
+
+    try:
+        while True:
+            try:
+                result = execute_once(volume=args.volume)
+                print(json.dumps(result, ensure_ascii=False, default=str), flush=True)
+            except Exception as exc:
+                print(json.dumps({
+                    "status": "cycle_error",
+                    "reason": f"{type(exc).__name__}: {str(exc)[:300]}",
+                    "orders_sent": False,
+                }, ensure_ascii=False), flush=True)
+            if args.once:
+                return 0
+            time.sleep(args.interval_seconds)
+    except KeyboardInterrupt:
+        print(json.dumps({
+            "status": "stopped",
+            "reason": "Execution loop stopped by operator; open positions remain protected by broker-side SL/TP.",
+        }, ensure_ascii=False))
+        return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
