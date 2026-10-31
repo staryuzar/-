@@ -118,7 +118,7 @@ def cross_venue_orderbook_profile(
         age = (now_ms - observed) / 1000 if observed else math.inf
         if (
             status.get("status") != "live"
-            or not (0 <= age <= max_age_seconds)
+            or not (-5 <= age <= max_age_seconds)
             or imbalance is None or not -1 <= imbalance <= 1
             or spread is None or spread < 0
         ):
@@ -134,7 +134,7 @@ def cross_venue_orderbook_profile(
             "market_type": market_type,
             "imbalance": imbalance,
             "spread_bps": spread,
-            "age_seconds": round(age, 2),
+            "age_seconds": round(max(0.0, age), 2),
             "observed_at_ms": observed,
         })
 
