@@ -78,7 +78,7 @@ def execute_once(
     """
     Run one central-decision -> EA command cycle.
 
-    This module only publishes an expiring command to MT5 Common\Files.
+    This module only publishes an expiring command to MT5 Common\\Files.
     The EA validates broker permissions, price protection, broker volume,
     and the 0.5% equity-risk cap before sending an order to the terminal.
     """
