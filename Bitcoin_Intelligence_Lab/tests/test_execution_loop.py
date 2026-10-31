@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from bitcoinlab.execution_loop import execute_once
+from bitcoinlab.ea_bridge import read_execution_loop_status
 
 
 class ExecutionLoopTests(unittest.TestCase):
@@ -77,6 +78,16 @@ class ExecutionLoopTests(unittest.TestCase):
             second_id = second["command"]["command_id"]
             self.assertEqual(first_id, "BTC-CLOSE-4321")
             self.assertEqual(second_id, first_id)
+
+    def test_execution_loop_writes_fresh_dashboard_heartbeat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_terminal(tmp)
+            execute_once(common_files=tmp, report=self.report("HOLD"))
+            state = read_execution_loop_status(tmp)
+            self.assertEqual(state["status"], "fresh")
+            self.assertEqual(state["schema"], "BTCIL-EXEC1")
+            self.assertEqual(state["status"], "fresh")
+            self.assertEqual(state["plan"]["action"], "HOLD")
 
     def test_blocked_central_decision_never_opens(self):
         with tempfile.TemporaryDirectory() as tmp:
