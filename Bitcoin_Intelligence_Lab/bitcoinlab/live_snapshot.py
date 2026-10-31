@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .decision import central_decision
-from .derivatives import derivatives_profile
+from .derivatives import attach_cross_venue_context, derivatives_profile
 from .indicators import technical_profile
 from .orderflow import order_book_metrics, orderflow_profile, trade_flow_metrics
 from .providers import binance, bybit
@@ -145,8 +145,6 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             "status": "unavailable",
         }
 
-    deriv_engine["cross_venue_context_only"] = cross_derivatives_context
-
     # A second, independent venue is used only when Binance derivatives are unavailable/stale.
     if deriv_engine.get("status") != "ok":
         try:
@@ -170,16 +168,29 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             errors["derivatives_bybit"] = f"{type(exc).__name__}: {exc}"[:300]
             source_states["derivatives"] = {"status": "error", "venue": "Binance/Bybit"}
 
+    # Preserve context-only cross-venue diagnostics after any Binance -> Bybit
+    # fallback replacement; they remain attached to the selected derivatives domain.
+    deriv_engine = attach_cross_venue_context(deriv_engine, cross_derivatives_context)
+
     timeframe_inputs = {interval: bars} if interval in {"1d", "4h", "1h", "15m", "5m", "1m"} and bars else {}
     multi_timeframe = build_multi_timeframe_profile(
         symbol=symbol, now_ms=now, preloaded_bars=timeframe_inputs,
     )
     # Publish technical freshness as a first-class source state so the central
     # decision engine can reject stale/incomplete MTF evidence independently.
+    technical_frames = multi_timeframe.get("frames", {})
+    fresh_technical_frames = int(multi_timeframe.get("coverage", {}).get("fresh_frames", 0))
+    macro_context_fresh = any(
+        technical_frames.get(frame, {}).get("status") == "fresh"
+        for frame in ("1d", "4h")
+    )
     source_states["technical"] = {
         "status": "fresh" if multi_timeframe.get("status") == "ok" else "incomplete",
-        "fresh_frames": multi_timeframe.get("coverage", {}).get("fresh_frames", 0),
-        "required_frames": 6,
+        "fresh_frames": fresh_technical_frames,
+        "total_frames": len(technical_frames),
+        "minimum_fresh_frames": 3,
+        "macro_context_required": ["1d", "4h"],
+        "macro_context_met": macro_context_fresh,
         "blockers": list(multi_timeframe.get("blockers", [])),
     }
     # The spot gate and command de-duplication timestamp always use the latest 1m candle,
