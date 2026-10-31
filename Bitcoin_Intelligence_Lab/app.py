@@ -116,6 +116,86 @@ def render_live_dashboard():
             + str(stream_state.get("reason", ""))
         )
 
+    st.subheader("خريطة عمق السيولة التاريخية — Heatmap وPull/Stack")
+    if isinstance(report, dict):
+        liquidity = report.get("liquidity_context", {})
+        depth_profiles = liquidity.get("venues", [])
+        if depth_profiles:
+            st.caption(
+                "العرض لكل منصة منفصلة. Heatmap يقيس حجم العمق الظاهر واستمراره في اللقطات؛ "
+                "Pull/Stack يقارن السعر نفسه بين لقطتين متتاليتين ولا يعد اختفاء المستوى وحده سحباً مؤكداً."
+            )
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "نوع السوق": row["market_type"],
+                        "الحالة": row["status"],
+                        "عدد اللقطات": row["snapshot_count"],
+                        "عمر آخر لقطة (ث)": row["last_snapshot_age_seconds"],
+                        "تغطية تقريبية": row["sample_coverage_ratio"],
+                    }
+                    for row in depth_profiles
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            for profile in depth_profiles:
+                with st.expander(
+                    f"{profile['venue']} · {profile['market_type']} · {profile['snapshot_count']} لقطة"
+                ):
+                    for side, label in (("bid", "طلب Bid"), ("ask", "عرض Ask")):
+                        levels = sorted(
+                            profile.get("heatmap", {}).get(side, []),
+                            key=lambda item: item["mean_visible_size_btc"],
+                            reverse=True,
+                        )[:10]
+                        if levels:
+                            st.markdown(f"**أكبر مستويات العمق الظاهر — {label}**")
+                            st.dataframe(
+                                [
+                                    {
+                                        "نطاق السعر USD": item["price_bucket_usd"],
+                                        "متوسط الحجم الظاهر BTC": item["mean_visible_size_btc"],
+                                        "الوسيط عند الظهور BTC": item["median_when_visible_btc"],
+                                        "نسبة الاستمرار": item["persistence_ratio"],
+                                        "الحجم الحالي BTC": item["current_size_btc"],
+                                    }
+                                    for item in levels
+                                ],
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                    changes = profile.get("pull_stack", [])
+                    if changes:
+                        st.markdown("**Pull/Stack proxy — تغيّر الحجم عند السعر نفسه**")
+                        st.dataframe(
+                            [
+                                {
+                                    "الجانب": item["side"],
+                                    "نطاق السعر USD": item["price_bucket_usd"],
+                                    "أحداث Stack": item["stack_events"],
+                                    "أحداث Pull": item["pull_events"],
+                                    "حجم Stack BTC": item["stacked_btc"],
+                                    "حجم Pull BTC": item["pulled_btc"],
+                                    "آخر تغير %": item["last_change_pct"],
+                                }
+                                for item in changes
+                            ],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    else:
+                        st.caption("لم تُرصد تغيرات Pull/Stack تتجاوز حد المقارنة في العينات المتاحة.")
+            st.caption("هذا محرك سيولة سياقي؛ لا يضيف صوتاً اتجاهياً مستقلاً إلى مركز القرار.")
+        else:
+            st.caption(
+                "لا توجد بعد عينات عمق تاريخية كافية. شغّل جامع السوق ليحفظ لقطات متتابعة؛ "
+                "تحتاج الخريطة إلى ثلاث لقطات حديثة على الأقل لكل منصة."
+            )
+    else:
+        st.caption("سيظهر سجل Heatmap بعد إنشاء لقطة السوق.")
+
     st.subheader("محرك تدفق الصفقات المستمر — CVD متعدد المنصات")
     if isinstance(report, dict):
         trade_analytics = report.get("trade_analytics", {})
@@ -490,6 +570,7 @@ def render_live_dashboard():
             "trade_flow_rest_sample": report["trade_flow"],
             "streamed_multi_venue_cvd": report.get("streamed_trade_flow", {}),
             "streamed_footprint_profiles": report.get("streamed_footprint_profiles", []),
+            "historical_depth_liquidity_context": report.get("liquidity_context", {}),
             "integrated_orderflow_profile": report["orderflow"],
         })
         st.subheader("أسباب القرار والحواجز")

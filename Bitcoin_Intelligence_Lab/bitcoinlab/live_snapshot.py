@@ -15,6 +15,7 @@ from .market_intelligence import build_market_intelligence
 from .market_store import read_market_stream_dashboard
 from .feed_health import build_data_health
 from .trade_analytics import read_trade_analytics
+from .depth_analytics import read_depth_liquidity_context
 from .trade_profile import (
     blend_orderflow_evidence,
     build_streamed_footprint_profiles,
@@ -181,6 +182,10 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "data/market_stream.sqlite", symbol=symbol, now_ms=now,
     )
     stream_state["trade_feed_status"] = trade_analytics.get("trade_feed_status", [])
+    liquidity_context = read_depth_liquidity_context(
+        "data/market_stream.sqlite", symbol=symbol, now_ms=now,
+        lookback_minutes=30, bucket_step_usd=50.0,
+    )
     streamed_trade_flow = build_streamed_trade_flow_profile(
         trade_analytics.get("trade_flow_summary", []),
         now_ms=now,
@@ -210,6 +215,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     market_intelligence = build_market_intelligence(
         stream_state, market_structure, now_ms=now,
     )
+    market_intelligence["historical_depth_context"] = liquidity_context
     market_structure_signal = market_intelligence["market_structure_signal"]
     cross_venue_engine = market_intelligence["cross_venue_orderbook"]
     liquidation_risk = market_intelligence["liquidation_risk"]
@@ -289,6 +295,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "trade_analytics": trade_analytics,
         "streamed_trade_flow": streamed_trade_flow,
         "streamed_footprint_profiles": streamed_footprint_profiles,
+        "liquidity_context": liquidity_context,
         "data_health": data_health,
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
@@ -298,6 +305,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             "Order-book imbalance is a snapshot and can change or be spoofed; it is not executed volume.",
             "The REST trade sample is bounded; streamed CVD is limited to selected public venues and its displayed window.",
             "Spot and linear perpetual trade volumes remain separate and are never summed into a single market-wide size.",
+            "Historical depth heatmap and Pull/Stack are sampled context proxies, not proof of executable liquidity or confirmed cancellations.",
             "Funding, open interest and taker ratios describe one derivatives venue.",
             "CFTC and on-chain metrics are slow context and are deliberately not used as live entry triggers.",
             "This module is read-only and never sends or modifies orders.",
