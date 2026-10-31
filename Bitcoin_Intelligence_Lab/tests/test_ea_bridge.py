@@ -65,7 +65,7 @@ class EABridgeTests(unittest.TestCase):
         self.assertNotIn("demo_account_ok", result)
         self.assertNotIn("account_mode", result)
 
-    def test_status_accepts_headway_demo_endpoint_alias(self):
+    def test_status_accepts_headway_server_dns_alias(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.write_status(tmp, server="demo.trade-hw.online")
             result = read_ea_status(tmp)
@@ -79,7 +79,7 @@ class EABridgeTests(unittest.TestCase):
             folder.mkdir(parents=True)
             stamp = int(time.time())
             (folder / "ea_status.tsv").write_text(
-                f"BTCIL1|BTCUSD|PERIOD_M1|{stamp}|CONNECTED|70000|70001|0|READY: Headway demo|0.01|0|TRADE_READY\\n",
+                f"BTCIL1|BTCUSD|PERIOD_M1|{stamp}|CONNECTED|70000|70001|0|READY: Headway|0.01|0|TRADE_READY\\n",
                 encoding="utf-8",
             )
             result = read_ea_status(tmp)
