@@ -8,7 +8,7 @@ Binance وBybit وOKX وDeribit مصادر بيانات عامة للقراءة 
 
 ## خط التحليل والقرار الحالي
 
-مصادر BTC العامة → adapters → توحيد الوقت والرمز والوحدات → فحوص الجودة والحداثة → المحركات المستقلة → مركز القرار → تفسير الأدلة والتحذيرات → لوحة Streamlit.
+مصادر BTC العامة → adapters → توحيد الوقت والرمز والوحدات → Feed Health Monitor (freshness/coverage/heartbeat) → المحركات المستقلة → مركز القرار → تفسير الأدلة والتحذيرات → لوحة Streamlit.
 
 كل محرك يعيد status وscore عند توفرها وevidence وwarnings وlimitations. لا يحق لمحرك واحد إرسال أمر تداول، ولا يحسم BUY/SELL/ HOLD منفرداً.
 
@@ -32,6 +32,7 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - `derivatives.py`: Funding وOpen Interest وTaker ratios؛ التمويل وOI سياق تمركز ولا يحددان الاتجاه منفردين.
 - `market_structure.py`: Volume Profile لعينة الصفقات المجمعة، VWAP مشتق من الشموع، Relative Volume، Realized Volatility وRange Expansion.
 - `market_intelligence.py`: إشارة موقع السعر بالنسبة إلى Session VWAP وعينة Delta، وتوافق دفاتر الأوامر عبر المنصات، وضغط التصفية كتحذير مخاطر.
+- `feed_health.py`: يراجع freshness للمصادر الأساسية، وعمر آخر دفتر، وحالة الاتصال وheartbeat لكل WebSocket. يميز `live` و`connected_quiet_ok` و`stale` و`recovering` و`unavailable`. قنوات التصفية event-driven؛ غياب حدث جديد لا يصنفها stale ما دام heartbeat مستمراً.
 - `orderbook_sync.py`: إعادة بناء Binance Spot L2 من REST Snapshot وتحديثات Diff مع كشف فجوات update IDs.
 - `venue_books.py`: موائم دفتر Bybit وOKX، مع update ID في Bybit وseqId/prevSeqId في OKX.
 - `market_store.py`: تخزين عينات العمق وأحداث التصفية وحالة كل منصة في SQLite وقراءتها بوضع read-only. يمنع تكرار event_key، ويجمع التصفية حسب المنصة والجهة ووحدة العقد.
@@ -102,7 +103,7 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - SQLite في WAL mode، ويحفظ عينات العمق تقريباً كل خمس ثوانٍ، وأحداث التصفية بعد إزالة التكرار.
 - تنظيف البيانات الأقدم من مدة الاحتفاظ يجري دورياً؛ الافتراضي 24 ساعة والحد الأقصى 30 يوماً.
 - اللوحة ولقطة السوق تقرآن SQLite بوضع read-only.
-- وحدات التصفية والخيارات والدفتر لها اختبارات بيانات مصطنعة deterministic، وCI يتحقق من Python compile واختبارات الوحدات وبدء Streamlit واستدعاء بيانات BTC العامة.
+- وحدات التصفية والخيارات والدفتر ومراقب صحة المصادر لها اختبارات بيانات مصطنعة deterministic، وCI يتحقق من Python compile واختبارات الوحدات وبدء Streamlit واستدعاء بيانات BTC العامة. الاختبارات الأخيرة غطت حالات توقف heartbeat مع استمرار صمت أحداث التصفية.
 - الاختبار المحلي لقواعد البروتوكول لا يثبت اتصالاً حياً مستقراً لساعات على Windows. يجب تشغيل الجامع على جهاز المستخدم لفحص مدة التشغيل والذاكرة والقرص والتعافي من انقطاع الشبكة.
 
 ## مرحلة MT5 المستقبلية — ليست نشطة الآن
