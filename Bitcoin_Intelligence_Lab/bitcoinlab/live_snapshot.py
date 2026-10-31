@@ -8,6 +8,7 @@ from .derivatives import attach_cross_venue_context, derivatives_profile
 from .indicators import technical_profile
 from .orderflow import order_book_metrics, orderflow_profile, trade_flow_metrics
 from .providers import binance, bybit
+from .providers.okx import fetch_derivatives_snapshot as fetch_okx_derivatives_snapshot
 from .quality import freshness, utc_now_ms, validate_bars
 from .multi_timeframe import (
     MINIMUM_FRESH_TIMEFRAMES,
@@ -190,8 +191,45 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             errors["derivatives_bybit"] = f"{type(exc).__name__}: {exc}"[:300]
             source_states["derivatives"] = {"status": "error", "venue": "Binance/Bybit"}
 
-    # Preserve context-only cross-venue diagnostics after any Binance -> Bybit
-    # fallback replacement; they remain attached to the selected derivatives domain.
+    # Third source: OKX BTC-USDT-SWAP public trade tape. It provides a
+    # separate derivatives venue when Binance USDⓈ-M and Bybit are blocked.
+    if deriv_engine.get("status") != "ok":
+        try:
+            okx_fallback = fetch_okx_derivatives_snapshot(
+                symbol,
+                cross_venue_context=cross_derivatives_context,
+                trade_limit=500,
+            )
+            deriv_age = freshness(okx_fallback["observed_at_ms"], 180, now_ms=now)
+            source_states["derivatives"] = {
+                "status": deriv_age["status"], **deriv_age, "venue": "OKX",
+                "instrument": okx_fallback.get("symbol"),
+                "trade_count": okx_fallback.get("trade_count", 0),
+            }
+            deriv_data = okx_fallback
+            deriv_engine = derivatives_profile(
+                funding_rate=deriv_data.get("funding_rate"),
+                open_interest_change_pct=deriv_data.get("open_interest_change_pct"),
+                taker_buy_sell_ratio=deriv_data.get("taker_buy_sell_ratio"),
+            )
+            deriv_engine["venue"] = "OKX"
+            deriv_engine["funding_rate_kind"] = deriv_data.get("funding_rate_kind")
+            deriv_engine["taker_trade_count"] = deriv_data.get("trade_count", 0)
+            deriv_engine["warnings"] = list(deriv_data.get("warnings", []))
+            deriv_engine["limitations"] = list(deriv_data.get("limitations", []))
+            if deriv_age["status"] != "fresh":
+                deriv_engine = {
+                    **deriv_engine,
+                    "status": "incomplete", "score": None,
+                    "reason": "OKX perpetual trade sample is stale.",
+                }
+        except Exception as exc:
+            errors["derivatives_okx"] = f"{type(exc).__name__}: {exc}"[:300]
+            source_states["derivatives"] = {
+                "status": "error", "venue": "Binance/Bybit/OKX",
+            }
+
+    # Preserve context-only cross-venue diagnostics after any fallback replacement.
     deriv_engine = attach_cross_venue_context(deriv_engine, cross_derivatives_context)
 
     timeframe_inputs = {interval: bars} if interval in {"1d", "4h", "1h", "15m", "5m", "1m"} and bars else {}
