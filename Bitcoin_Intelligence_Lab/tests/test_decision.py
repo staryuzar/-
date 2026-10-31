@@ -3,7 +3,12 @@ import unittest
 from bitcoinlab.decision import central_decision
 
 
-FRESH = {"spot": {"status": "fresh"}, "orderflow": {"status": "fresh"}, "derivatives": {"status": "fresh"}}
+FRESH = {
+    "spot": {"status": "fresh"},
+    "technical": {"status": "fresh"},
+    "orderflow": {"status": "fresh"},
+    "derivatives": {"status": "fresh"},
+}
 TECH = {"status": "ok", "score": 0.8}
 FLOW = {"status": "ok", "score": 0.7}
 DERIV = {"status": "ok", "score": 0.5}
@@ -23,6 +28,15 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(result["action"], "BUY")
         self.assertGreater(result["score"], 0.28)
         self.assertNotIn("win_probability", result)
+
+    def test_stale_technical_source_forces_hold_even_with_valid_engine_score(self):
+        sources = dict(FRESH)
+        sources["technical"] = {"status": "stale"}
+        result = self.call(source_states=sources)
+        self.assertEqual(result["action"], "HOLD")
+        self.assertIsNone(result["score"])
+        self.assertIn("technical_source_not_fresh", result["blockers"])
+        self.assertIn("technical_unavailable_or_stale", result["warnings"])
 
     def test_one_optional_stale_source_does_not_block_other_fresh_domains(self):
         sources = dict(FRESH)
