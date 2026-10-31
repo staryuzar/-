@@ -22,11 +22,14 @@ class SystemReadinessTests(unittest.TestCase):
                     "orderflow": {"status": "fresh"},
                     "derivatives": {"status": "fresh"},
                 },
-                "market_stream": {
-                    "status": "ok",
-                    "venues": [
-                        {"venue": "binance_spot", "status": "live"},
-                        {"venue": "bybit_linear", "status": "live"},
+                "market_stream": {"status": "ok", "venues": []},
+                "data_health": {
+                    "stream_feeds": [
+                        {"name": "binance_spot", "feed_type": "orderbook", "status": "live"},
+                        {"name": "bybit_linear", "feed_type": "orderbook", "status": "live"},
+                        {"name": "bybit_linear_trades", "feed_type": "trades", "status": "live"},
+                        {"name": "okx_swap_liquidations", "feed_type": "liquidations", "status": "connected_quiet_ok"},
+                        {"name": "binance_usdm_trades", "feed_type": "trades", "status": "stale"},
                     ],
                 },
                 "decision": {
@@ -41,6 +44,10 @@ class SystemReadinessTests(unittest.TestCase):
         self.assertEqual(result["status"], "analysis_ready")
         self.assertEqual(result["central_decision"]["status"], "direction_ready")
         self.assertEqual(result["market_data"]["status"], "live")
+        self.assertEqual(result["market_data"]["live_orderbook_venues"], 2)
+        self.assertEqual(result["market_data"]["live_trade_venues"], ["bybit_linear_trades"])
+        self.assertIn("okx_swap_liquidations", result["market_data"]["connected_quiet_liquidation_feeds"])
+        self.assertEqual(result["market_data"]["non_live_stream_feeds"][0]["name"], "binance_usdm_trades")
         self.assertFalse(result["execution_pipeline_ready"])
         self.assertFalse(result["new_entry_ready"])
         self.assertIn("execution_loop_unavailable", result["blockers"])
