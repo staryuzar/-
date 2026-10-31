@@ -62,14 +62,16 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - `providers/coinmetrics.py`: Core network metrics مع مجموعات MVRV/Realized Cap وMVRV Z اختيارية؛ فشل مجموعة اختيارية لا يسقط نشاط الشبكة الأساسي.
 - `decision.py`: يجمع خمسة مجالات: Technical 35%، Orderflow 25%، Derivatives 20%، Market Structure 10%، Cross-Venue 10%. يضيف تحذيرات Cross-Venue derivatives وScreener دون تغيير score أو weights. يعيد تطبيع الأوزان حسب توافر المجالات وحداثتها، ويفرض Technical مع واحد على الأقل من Orderflow أو Derivatives.
 - `live_snapshot.py`: يفصل جلب عمق REST عن جلب الصفقات؛ تعذر العمق لا يلغي صوت Orderflow إذا كانت الصفقات حديثة. كما يعيد إرفاق سياق المشتقات المتعددة بعد اختيار بديل Bybit حتى لا تضيع تحذيراته، ويقرأ حالة الجامع محلياً بوضع read-only.
+- `snapshot_runtime.py`: محرك اللقطات المشترك الوحيد؛ يجمع `build_live_snapshot`، وينشر JSON ذرياً في `data/live_snapshot.json`، ويكتب heartbeat منفصلاً ويحافظ على آخر لقطة ناجحة عند فشل دورة لاحقة. يستقبل طلب تحديث من اللوحة دون أن تجعل Streamlit يعيد جلب مصادر السوق.
+- `execution_loop.py`: يقرأ اللقطة المشتركة نفسها التي تعرضها اللوحة، ولا يستدعي موائمات السوق أو يبني قراراً مستقلاً. يرفض اللقطة المفقودة/المتقادمة قبل تخطيط OPEN أو CLOSE؛ حد الحداثة الافتراضي 90 ثانية.
 - `ea_bridge.py`: يقرأ نبض EA وملف المراكز وإقرار الأمر، ويتحقق من خادم Headway وحداثة السعر، وينشر أوامر OPEN/CLOSE ذرياً إلى Common Files؛ لا يقرأ تصنيف الحساب.
 - `command_protocol.py`: يبني رسائل BTCIL1 ذات TTL، ويكتب الأمر ذرّياً ويقرأ ACK.
 - `position_manager.py`: يترك المراكز عند HOLD أو الاتجاه الموافق، ويطلب إغلاق تذكرة واحدة عند انعكاس قرار المركز؛ لا يفتح مركزاً إضافياً في الاتجاه نفسه.
 - `execution_loop.py`: حلقة مستمرة كل 30 ثانية افتراضياً، تقرأ لقطة السوق والقرار المركزي ثم مركز الخبير؛ تنشر OPEN أو CLOSE فقط إذا كان القرار صالحاً وحديثاً، وتكتب نبضاً ذرياً للوحة. لا تبدأ إلا عند تعيين `BTCIL_ENABLE_EXECUTION=1` صراحةً.
 - `mql5/BitcoinIntelligenceLabEA.mq5`: منفذ أوامر فقط؛ لا يصنع إشارات على OnTick. يتحقق من Headway وصلاحية الطرفية والرمز والحجم والوقف وحد المخاطرة، ويستخدم MagicNumber وقفل مثيل وحيد لكل رمز، ويربط ACK برقم request_id الذي يصدره الطرفيـة للطلب، ويستخدم نتيجة MqlTradeResult.volume المؤكدة من الوسيط؛ الطلبات المعلقة/الجزئية تراجع أوامرها وصفقاتها التاريخية قبل الحسم.
-- `app.py`: لوحة Streamlit تعرض القرار والمحركات ومصادر السوق، وتقرأ ملفات حالة EA/Execution Loop والمراكز وACK بوضع القراءة فقط؛ لا تنشر أوامر.
+- `app.py`: لوحة Streamlit تقرأ `data/live_snapshot.json` المشترك ولا تستدعي مصادر السوق عند إعادة الرسم. تكتب طلب تحديث صغيراً ليستهلكه `snapshot_runtime`، وتقرأ ملفات حالة EA/Execution Loop والمراكز وACK بوضع القراءة فقط؛ لا تنشر أوامر.
 - `system_status.py`: يجمع صحة البيانات، المجالات الأساسية الحديثة، قرار المركز، جاهزية Headway، نبض حلقة التنفيذ، المراكز والأوامر المعلقة في عقد جاهزية واحد للوحة. هو قارئ حالة فقط ولا ينشر أو يجيز أوامر.
-- `scripts/Start-BitcoinIntelligenceLab.ps1`: مشغّل Windows موحد يعيد استخدام الخدمات القائمة ولا يكرر Collector أو Streamlit؛ يفعّل حلقة التنفيذ فقط عند تمرير `-EnableExecution` مع تحقق حي من ملف حالة Headway.
+- `scripts/Start-BitcoinIntelligenceLab.ps1`: مشغّل Windows موحد يعيد استخدام Collector وSnapshot Service وStreamlit القائمة ولا يكررها؛ يفعّل حلقة التنفيذ فقط عند تمرير `-EnableExecution` وبعد تحقق حداثة اللقطة وملف حالة Headway.
 
 ## أوزان مركز القرار والحواجز
 
