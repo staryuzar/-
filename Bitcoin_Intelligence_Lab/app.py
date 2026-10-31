@@ -8,6 +8,7 @@ import streamlit as st
 from bitcoinlab.live_snapshot import build_live_snapshot
 from bitcoinlab.slow_context import build_slow_context
 from bitcoinlab.ea_bridge import (
+    current_ack,
     default_common_files,
     read_ea_status,
     read_execution_loop_status,
@@ -74,6 +75,7 @@ def render_live_dashboard():
         ea_status = read_ea_status(common_files)
         loop_status = read_execution_loop_status(common_files)
         managed_positions = read_positions(common_files)
+        broker_ack = current_ack(common_files)
         ea_state_label = (
             f"متصل · {ea_status.get('symbol')}"
             if ea_status.get("status") == "fresh" else
@@ -111,6 +113,13 @@ def render_live_dashboard():
                 f"الإجراء المخطط: {loop_status.get('plan', {}).get('action', 'HOLD')} · "
                 f"معرّف الأمر: {loop_status.get('command_id') or 'لا يوجد'}"
             )
+            if loop_status.get("command_id"):
+                if broker_ack.get("id") == loop_status.get("command_id"):
+                    ack_state = str(broker_ack.get("status", "UNKNOWN"))
+                    ack_detail = str(broker_ack.get("detail", ""))
+                    st.caption(f"إقرار الطرفية: {ack_state} · {ack_detail}")
+                else:
+                    st.caption("إقرار الوسيط: لم يصل بعد للأمر الأخير.")
         if managed_positions and ea_status.get("status") == "fresh":
             st.dataframe(
                 [
