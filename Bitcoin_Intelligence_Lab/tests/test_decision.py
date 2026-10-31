@@ -37,6 +37,8 @@ class DecisionTests(unittest.TestCase):
         self.assertIsNone(result["score"])
         self.assertIn("technical_source_not_fresh", result["blockers"])
         self.assertIn("technical_unavailable_or_stale", result["warnings"])
+        self.assertEqual(result["active_domains"], [])
+        self.assertEqual(result["weights"], {})
 
     def test_one_optional_stale_source_does_not_block_other_fresh_domains(self):
         sources = dict(FRESH)
@@ -50,6 +52,11 @@ class DecisionTests(unittest.TestCase):
         result = self.call(orderflow={"status": "ok", "score": -0.9})
         self.assertEqual(result["action"], "HOLD")
         self.assertIn("strong_cross_domain_conflict", result["blockers"])
+        self.assertIn("active_domains", result)
+        self.assertIn("technical", result["active_domains"])
+        self.assertIn("weights", result)
+        self.assertAlmostEqual(sum(result["weights"].values()), 1.0)
+        self.assertGreaterEqual(result["aligned_domains"], 2)
 
     def test_high_spread_is_advisory_when_optional_limit_is_enabled(self):
         result = self.call(spread_bps=30.0, max_spread_bps=12.0)
