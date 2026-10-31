@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 from typing import Any
 
 from .decision import central_decision
@@ -37,6 +38,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     if not symbol.isalnum():
         raise ValueError("Invalid symbol.")
     now = utc_now_ms() if now_ms is None else int(now_ms)
+    market_db_path = os.environ.get("BTCIL_MARKET_DB", "data/market_stream.sqlite")
 
     # Read-only source acquisition. Each domain can fail independently and is surfaced in its status.
     errors: dict[str, str] = {}
@@ -290,10 +292,10 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
 
     # Read the local read-only market collector. Its data is never connected to MT5.
     stream_state = read_market_stream_dashboard(
-        "data/market_stream.sqlite", symbol=symbol, limit=20,
+        market_db_path, symbol=symbol, limit=20,
     )
     liquidation_heatmap = read_liquidation_heatmap(
-        "data/market_stream.sqlite", symbol=symbol, now_ms=now,
+        market_db_path, symbol=symbol, now_ms=now,
         lookback_minutes=60, price_bucket_usd=100.0,
         minimum_cluster_events=1,
     )
