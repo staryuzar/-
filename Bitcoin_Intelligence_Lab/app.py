@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from bitcoinlab.live_snapshot import build_live_snapshot
-from bitcoinlab.market_store import read_market_stream_dashboard
 from bitcoinlab.slow_context import build_slow_context
 
 st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
@@ -71,8 +70,10 @@ def render_live_dashboard():
     )
 
     st.subheader("تدفق دفاتر الأوامر الحي — Binance / Bybit / OKX")
-    stream_state = read_market_stream_dashboard(
-        "data/market_stream.sqlite", symbol=symbol,
+    stream_state = (
+        report.get("market_stream", {})
+        if isinstance(report, dict)
+        else {"status": "not_started", "reason": "لم تُبنَ لقطة السوق بعد."}
     )
     if stream_state.get("status") == "ok" and stream_state.get("venues"):
         venue_rows = [
@@ -187,6 +188,43 @@ def render_live_dashboard():
     st.caption(
         f"الرمز: {report['symbol']} · آخر تحديث UTC: {report['as_of_utc']} · "
         f"حالة اللقطة: {report['status']}"
+    )
+
+    intelligence = report.get("market_intelligence", {})
+    structure_engine = intelligence.get("market_structure_signal", {})
+    cross_venue_engine = intelligence.get("cross_venue_orderbook", {})
+    liquidation_risk = intelligence.get("liquidation_risk", {})
+
+    st.subheader("الأدلة المضافة إلى مركز القرار")
+    engine_cols = st.columns(4)
+    engine_cols[0].metric(
+        "إشارة بنية السوق",
+        f"{structure_engine['score']:+.3f}"
+        if structure_engine.get("score") is not None else "غير مكتملة",
+    )
+    engine_cols[1].metric(
+        "توافق دفاتر المنصات",
+        f"{cross_venue_engine['score']:+.3f}"
+        if cross_venue_engine.get("score") is not None else "منصات غير كافية",
+    )
+    engine_cols[2].metric(
+        "المنصات المتوافقة",
+        f"{cross_venue_engine.get('venue_count', 0)}",
+    )
+    engine_cols[3].metric(
+        "أحداث تصفية / 5 دقائق",
+        str(liquidation_risk.get("event_count", 0)),
+    )
+    if cross_venue_engine.get("warnings"):
+        st.warning("تعارض/تحذير دفاتر المنصات: " + " · ".join(cross_venue_engine["warnings"]))
+    if liquidation_risk.get("warnings"):
+        st.warning(
+            "ضغط تصفيات حديث — سياق مخاطر فقط: "
+            + " · ".join(liquidation_risk["warnings"])
+        )
+    st.caption(
+        "بنية السوق وتوافق الدفاتر يدخلان القرار بأوزان صغيرة بعد التحقق من حداثتهما. "
+        "التصفية تعرض ضغط المراكز ولا تُستخدم وحدها كإشارة BUY/SELL."
     )
 
     st.subheader("القرار المركزي")
