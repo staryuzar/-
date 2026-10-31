@@ -208,11 +208,18 @@ def publish_close_order(
     terminal = read_ea_status(directory)
     if terminal.get("status") != "fresh":
         return {"status": "terminal_not_ready", "terminal": terminal}
-    owned = {row["ticket"] for row in read_positions(directory)}
-    if int(ticket) not in owned:
+    owned = {
+        int(row["ticket"]): row
+        for row in read_positions(directory)
+    }
+    position = owned.get(int(ticket))
+    if position is None:
         return {"status": "position_not_found", "ticket": int(ticket)}
+    # Include remaining volume in the id: repeated cycles are idempotent,
+    # while a broker-confirmed partial close can target the smaller remainder.
+    volume_key = int(round(float(position["volume"]) * 100_000_000))
     command = build_command(
-        command_id=f"BTC-CLOSE-{int(ticket)}",
+        command_id=f"BTC-CLOSE-{int(ticket)}-V{volume_key}",
         action="CLOSE", symbol="BTC", position_ticket=int(ticket),
         ttl_seconds=ttl_seconds,
     )
