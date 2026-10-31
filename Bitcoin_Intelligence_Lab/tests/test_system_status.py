@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from bitcoinlab.system_status import build_system_readiness
 
@@ -16,6 +17,7 @@ class SystemReadinessTests(unittest.TestCase):
         result = build_system_readiness(
             snapshot={
                 "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
                 "source_states": {
                     "spot": {"status": "fresh"},
                     "technical": {"status": "fresh"},
@@ -56,6 +58,7 @@ class SystemReadinessTests(unittest.TestCase):
         result = build_system_readiness(
             snapshot={
                 "status": "partial",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
                 "source_states": {
                     "spot": {"status": "fresh"},
                     "technical": {"status": "fresh"},
@@ -71,6 +74,8 @@ class SystemReadinessTests(unittest.TestCase):
             },
             terminal={
                 "status": "fresh", "headway_server_ok": True,
+                "daily_loss_percent": 0.25,
+                "daily_loss_limit_percent": 2.0,
                 "trading_ready": True, "symbol": "BTCUSDm",
                 "account_server": "HeadwayMarkets-Demo", "age_seconds": 2,
                 "risk_specs_ready": True,
@@ -88,6 +93,7 @@ class SystemReadinessTests(unittest.TestCase):
         result = build_system_readiness(
             snapshot={
                 "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
                 "source_states": {
                     "spot": {"status": "fresh"},
                     "technical": {"status": "fresh"},
@@ -105,7 +111,7 @@ class SystemReadinessTests(unittest.TestCase):
                 "daily_loss_limit_percent": 2.0,
             },
             snapshot_service=self.fresh_service(),
-            execution_loop={"status": "fresh", "age_seconds": 1},
+            execution_loop={"status": "fresh", "cycle_status": "no_command", "age_seconds": 1},
             pending_command={
                 "pending": True, "status": "pending",
                 "command_id": "BTC-123", "ack_status": "PARTIAL_FILL_PENDING",
@@ -120,6 +126,7 @@ class SystemReadinessTests(unittest.TestCase):
         result = build_system_readiness(
             snapshot={
                 "status": "partial",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
                 "source_states": {
                     "spot": {"status": "fresh"},
                     "technical": {"status": "fresh"},
@@ -143,6 +150,7 @@ class SystemReadinessTests(unittest.TestCase):
         result = build_system_readiness(
             snapshot={
                 "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
                 "source_states": {
                     "spot": {"status": "fresh"},
                     "technical": {"status": "fresh"},
@@ -156,7 +164,7 @@ class SystemReadinessTests(unittest.TestCase):
                 "trading_ready": True, "symbol": "BTCUSD",
                 "risk_specs_ready": True,
             },
-            execution_loop={"status": "fresh"},
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
             snapshot_service={"status": "healthy", "freshness_status": "stale"},
         )
         self.assertFalse(result["execution_pipeline_ready"])
@@ -167,6 +175,7 @@ class SystemReadinessTests(unittest.TestCase):
         result = build_system_readiness(
             snapshot={
                 "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
                 "source_states": {
                     "spot": {"status": "fresh"},
                     "technical": {"status": "fresh"},
@@ -182,7 +191,7 @@ class SystemReadinessTests(unittest.TestCase):
                 "daily_loss_percent": 2.0,
                 "daily_loss_limit_percent": 2.0,
             },
-            execution_loop={"status": "fresh"},
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
             snapshot_service=self.fresh_service(),
             positions=[{"ticket": 8765, "symbol": "BTCUSD", "type": "BUY"}],
         )
@@ -195,6 +204,7 @@ class SystemReadinessTests(unittest.TestCase):
         base = {
             "snapshot": {
                 "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
                 "source_states": {
                     "spot": {"status": "fresh"},
                     "technical": {"status": "fresh"},
@@ -210,7 +220,7 @@ class SystemReadinessTests(unittest.TestCase):
                 "daily_loss_percent": 0.4,
                 "daily_loss_limit_percent": 2.0,
             },
-            "execution_loop": {"status": "fresh"},
+            "execution_loop": {"status": "fresh", "cycle_status": "no_command"},
             "snapshot_service": self.fresh_service(),
         }
         self.assertTrue(build_system_readiness(**base)["new_entry_ready"])
@@ -223,6 +233,7 @@ class SystemReadinessTests(unittest.TestCase):
         result = build_system_readiness(
             snapshot={
                 "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
                 "source_states": {
                     "spot": {"status": "fresh"},
                     "technical": {"status": "fresh"},
@@ -237,8 +248,10 @@ class SystemReadinessTests(unittest.TestCase):
                 "trading_ready": True,
                 "symbol": "BTCUSD",
                 "risk_specs_ready": False,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
             },
-            execution_loop={"status": "fresh"},
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
             snapshot_service=self.fresh_service(),
             positions=[{"ticket": 12345, "symbol": "BTCUSD", "type": "BUY"}],
         )
@@ -248,6 +261,121 @@ class SystemReadinessTests(unittest.TestCase):
         self.assertFalse(result["headway_mt5"]["risk_sizing_ready"])
         self.assertIn("mt5_broker_risk_specs_unavailable", result["blockers"])
         self.assertEqual(result["position_management"]["managed_btc_positions"], 1)
+
+    def test_stale_snapshot_blocks_pipeline_even_with_healthy_service_heartbeat(self):
+        old = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat()
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": old,
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
+            snapshot_service=self.fresh_service(),
+        )
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertEqual(result["snapshot_service"]["snapshot_freshness"], "stale")
+        self.assertIn("snapshot_stale", result["blockers"])
+
+    def test_execution_loop_recent_heartbeat_with_stale_cycle_is_not_ready(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={
+                "status": "fresh", "cycle_status": "snapshot_stale",
+                "age_seconds": 3,
+            },
+            snapshot_service=self.fresh_service(),
+        )
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("execution_loop_cycle_snapshot_stale", result["blockers"])
+
+    def test_existing_managed_btc_position_prevents_new_entry_readiness(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
+            snapshot_service=self.fresh_service(),
+            positions=[{"ticket": 12345, "symbol": "BTCUSD", "type": "BUY"}],
+        )
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertEqual(result["position_management"]["managed_btc_positions"], 1)
+
+    def test_unavailable_position_export_blocks_execution_readiness(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
+            snapshot_service=self.fresh_service(),
+            positions_available=False,
+        )
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("managed_positions_snapshot_unavailable", result["blockers"])
 
     def test_missing_snapshot_is_system_degraded(self):
         result = build_system_readiness(

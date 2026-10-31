@@ -12,6 +12,7 @@ from typing import Any, Callable
 from .ea_bridge import (
     default_common_files,
     pending_command_state,
+    PositionSnapshotError,
     publish_close_order,
     publish_decision_order,
     read_ea_status,
@@ -153,7 +154,16 @@ def execute_once(
             "action": "HOLD",
         })
 
-    positions = read_positions(directory)
+    try:
+        positions = read_positions(directory)
+    except PositionSnapshotError as exc:
+        return _finish_cycle(directory, {
+            "status": "positions_unavailable",
+            "plan": {"action": "HOLD", "reason": "managed_position_snapshot_unavailable"},
+            "decision": snapshot.get("decision", {}),
+            "error": str(exc)[:300],
+            "orders_sent": False,
+        })
     plan = next_position_action(snapshot.get("decision", {}), positions)
     action = str(plan.get("action", "HOLD")).upper()
 

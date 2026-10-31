@@ -19,6 +19,10 @@ from .scenarios import build_trade_levels
 from .risk import calculate_position_size_from_tick_value
 
 
+class PositionSnapshotError(RuntimeError):
+    """The EA position export is missing, malformed, or unsafe to act upon."""
+
+
 def default_common_files() -> Path:
     configured = os.environ.get("BTCIL_MT5_COMMON_FILES")
     if configured:
@@ -35,8 +39,8 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
         fields = path.read_text(encoding="utf-8", errors="replace").strip().split("|")
     except OSError as exc:
         return {"status": "unavailable", "reason": f"EA status file unavailable: {exc}"}
-    if len(fields) < 9 or fields[0] != "BTCIL1":
-        return {"status": "invalid", "reason": "EA status envelope is malformed."}
+    if len(fields) < 15 or fields[0] != "BTCIL1":
+        return {"status": "invalid", "reason": "EA status envelope or daily-risk readout is incomplete."}
     try:
         timestamp = int(fields[3])
         bid, ask = float(fields[5]), float(fields[6])
@@ -50,13 +54,18 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
     detail = fields[8]
     readiness_marker = fields[11] if len(fields) > 11 else None
     account_server = fields[12] if len(fields) > 12 else None
-    if len(fields) == 14:
-        return {"status": "invalid", "reason": "EA daily-risk status record is truncated."}
     try:
-        daily_loss_percent = float(fields[13]) if len(fields) > 14 else None
-        daily_loss_limit_percent = float(fields[14]) if len(fields) > 14 else None
+        daily_loss_percent = float(fields[13])
+        daily_loss_limit_percent = float(fields[14])
     except ValueError:
         return {"status": "invalid", "reason": "EA daily-risk fields are malformed."}
+    if (
+        not math.isfinite(daily_loss_percent)
+        or daily_loss_percent < 0
+        or not math.isfinite(daily_loss_limit_percent)
+        or daily_loss_limit_percent <= 0
+    ):
+        return {"status": "invalid", "reason": "EA daily-risk fields are outside valid bounds."}
 
     if 15 < len(fields) < 21:
         return {"status": "invalid", "reason": "EA broker risk-specification record is truncated."}
@@ -269,6 +278,9 @@ def read_execution_loop_status(
         return {"status": "unavailable", "reason": "Execution-loop heartbeat is unavailable."}
     if not isinstance(payload, dict) or payload.get("schema") != "BTCIL-EXEC1":
         return {"status": "invalid", "reason": "Execution-loop heartbeat is malformed."}
+    cycle_status = payload.get("status")
+    if not isinstance(cycle_status, str) or not cycle_status.strip():
+        return {"status": "invalid", "reason": "Execution-loop heartbeat has no valid cycle result."}
     try:
         observed = datetime.fromisoformat(
             str(payload.get("updated_at_utc", "")).replace("Z", "+00:00")
@@ -397,6 +409,13 @@ def publish_decision_order(
     if not math.isfinite(float(volume)) or volume <= 0:
         raise ValueError("Volume must be positive.")
     directory = Path(common_files) if common_files else default_common_files()
+    pending = pending_command_state(directory)
+    if pending.get("pending"):
+        return {
+            "status": "command_pending",
+            "reason": "A previous broker command must be reconciled before another command can be published.",
+            "pending_command": pending,
+        }
     terminal = read_ea_status(directory)
     if terminal.get("status") != "fresh":
         return {"status": "terminal_not_ready", "terminal": terminal}
@@ -493,28 +512,112 @@ def current_ack(common_files: str | Path | None = None) -> dict[str, Any]:
     return read_ack(directory)
 
 
-def read_positions(common_files: str | Path) -> list[dict[str, Any]]:
+def read_positions(
+    common_files: str | Path,
+    *,
+    max_age_seconds: int = 30,
+    now_seconds: int | float | None = None,
+) -> list[dict[str, Any]]:
+    """Read the EA-owned BTC position export; fail closed on missing or malformed data."""
     path = Path(common_files) / "BitcoinIntelligenceLab" / "positions.tsv"
+    expected_header = (
+        "ticket|symbol|type|volume|price_open|price_current|"
+        "stop_loss|take_profit|profit"
+    )
+    if not 5 <= int(max_age_seconds) <= 180:
+        raise ValueError("max_age_seconds must be between 5 and 180.")
     try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return []
+        before = path.stat()
+        raw = path.read_text(encoding="utf-8")
+        after = path.stat()
+    except FileNotFoundError as exc:
+        raise PositionSnapshotError(
+            "MT5 EA positions.tsv is missing; refusing to assume the account has no managed position."
+        ) from exc
+    except (OSError, UnicodeError) as exc:
+        raise PositionSnapshotError(
+            f"MT5 EA positions.tsv cannot be read: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    if before.st_mtime_ns != after.st_mtime_ns or before.st_size != after.st_size:
+        raise PositionSnapshotError("MT5 EA positions.tsv changed while it was being read.")
+    current_time = time.time() if now_seconds is None else float(now_seconds)
+    age_seconds = current_time - after.st_mtime
+    if age_seconds < -5 or age_seconds > max_age_seconds:
+        raise PositionSnapshotError(
+            f"MT5 EA positions.tsv is stale ({age_seconds:.1f}s; maximum {max_age_seconds}s)."
+        )
+    lines = raw.splitlines()
+    if not lines or lines[0].strip() != expected_header:
+        raise PositionSnapshotError("MT5 EA positions.tsv header is missing or invalid.")
+
     positions: list[dict[str, Any]] = []
-    for line in lines[1:]:
+    for line_number, line in enumerate(lines[1:], start=2):
+        if not line.strip():
+            continue
         fields = line.split("|")
         if len(fields) != 9:
-            continue
+            raise PositionSnapshotError(
+                f"MT5 EA positions.tsv row {line_number} has {len(fields)} fields; expected 9."
+            )
         try:
-            positions.append({
-                "ticket": int(fields[0]), "symbol": fields[1],
-                "type": "BUY" if int(fields[2]) == 0 else "SELL",
-                "volume": float(fields[3]), "price_open": float(fields[4]),
-                "price_current": float(fields[5]), "stop_loss": float(fields[6]),
-                "take_profit": float(fields[7]), "profit": float(fields[8]),
-            })
-        except (ValueError, IndexError):
-            continue
+            ticket = int(fields[0])
+            symbol = fields[1].strip()
+            position_type = int(fields[2])
+            volume, price_open, price_current = map(float, fields[3:6])
+            stop_loss, take_profit, profit = map(float, fields[6:9])
+        except (ValueError, TypeError) as exc:
+            raise PositionSnapshotError(
+                f"MT5 EA positions.tsv row {line_number} contains malformed numeric data."
+            ) from exc
+        numeric = (volume, price_open, price_current, stop_loss, take_profit, profit)
+        if (
+            ticket <= 0 or "BTC" not in symbol.upper() or position_type not in {0, 1}
+            or any(not math.isfinite(value) for value in numeric)
+            or volume <= 0 or price_open <= 0 or price_current <= 0
+            or stop_loss < 0 or take_profit < 0
+        ):
+            raise PositionSnapshotError(
+                f"MT5 EA positions.tsv row {line_number} failed ticket/symbol/type/value validation."
+            )
+        positions.append({
+            "ticket": ticket, "symbol": symbol,
+            "type": "BUY" if position_type == 0 else "SELL",
+            "volume": volume, "price_open": price_open,
+            "price_current": price_current, "stop_loss": stop_loss,
+            "take_profit": take_profit, "profit": profit,
+        })
     return positions
+
+def _next_close_command_id(common_files: str | Path, ticket: int, volume_key: int) -> str:
+    """Retry a close only after a final broker rejection or safe expiry."""
+    base_id = f"BTC-CLOSE-{int(ticket)}-V{int(volume_key)}"
+    command_path = Path(common_files) / COMMAND_FOLDER / COMMAND_FILENAME
+    try:
+        fields = command_path.read_text(encoding="ascii").strip().split("|")
+    except (OSError, UnicodeError):
+        return base_id
+    if len(fields) != 11 or fields[0] != "BTCIL1":
+        return base_id
+    previous_id = fields[1]
+    if previous_id != base_id and not previous_id.startswith(base_id + "-R"):
+        return base_id
+    acknowledgement = read_ack(Path(common_files))
+    ack_matches = acknowledgement.get("id") == previous_id
+    status = str(acknowledgement.get("status", "")).upper() if ack_matches else ""
+    if status in {"CLOSE_FILL_CONFIRMED", "CLOSE_PARTIAL_FILL_CONFIRMED", "CLOSED", "FILLED"}:
+        return previous_id
+    if status not in {"ORDER_REJECTED_OR_CANCELLED", "REJECTED"}:
+        # Missing or pending ACKs are never retried here.
+        return previous_id
+    suffix = previous_id[len(base_id):]
+    attempt = 1
+    if suffix.startswith("-R"):
+        try:
+            attempt = max(1, int(suffix[2:]) + 1)
+        except ValueError:
+            attempt = 1
+    return f"{base_id}-R{attempt}"
 
 
 def publish_close_order(
@@ -522,6 +625,13 @@ def publish_close_order(
     ttl_seconds: int = 60,
 ) -> dict[str, Any]:
     directory = Path(common_files) if common_files else default_common_files()
+    pending = pending_command_state(directory)
+    if pending.get("pending"):
+        return {
+            "status": "command_pending",
+            "reason": "A previous broker command must be reconciled before another command can be published.",
+            "pending_command": pending,
+        }
     terminal = read_ea_status(directory)
     if terminal.get("status") != "fresh":
         return {"status": "terminal_not_ready", "terminal": terminal}
@@ -536,7 +646,7 @@ def publish_close_order(
     # while a broker-confirmed partial close can target the smaller remainder.
     volume_key = int(round(float(position["volume"]) * 100_000_000))
     command = build_command(
-        command_id=f"BTC-CLOSE-{int(ticket)}-V{volume_key}",
+        command_id=_next_close_command_id(directory, int(ticket), volume_key),
         action="CLOSE", symbol="BTC", position_ticket=int(ticket),
         ttl_seconds=ttl_seconds,
     )

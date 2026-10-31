@@ -18,6 +18,7 @@ from bitcoinlab.ea_bridge import (
     read_ea_status,
     read_execution_loop_status,
     read_positions,
+    PositionSnapshotError,
 )
 
 from bitcoinlab.system_status import build_system_readiness
@@ -316,7 +317,12 @@ def render_live_dashboard():
         common_files = default_common_files()
         ea_status = read_ea_status(common_files)
         loop_status = read_execution_loop_status(common_files)
-        managed_positions = read_positions(common_files)
+        positions_error = None
+        try:
+            managed_positions = read_positions(common_files)
+        except PositionSnapshotError as exc:
+            managed_positions = []
+            positions_error = str(exc)
         broker_ack = current_ack(common_files)
         pending = pending_command_state(common_files)
         service_state = cached_snapshot_service_status()
@@ -327,6 +333,7 @@ def render_live_dashboard():
             positions=managed_positions,
             pending_command=pending,
             snapshot_service=service_state,
+            positions_available=positions_error is None,
         )
         readiness_top = st.columns(3)
         readiness_bottom = st.columns(3)
@@ -347,9 +354,17 @@ def render_live_dashboard():
             "محرك اللقطات المشتركة",
             "سليم" if system_readiness["snapshot_service"]["status"] == "healthy"
             and system_readiness["snapshot_service"]["freshness_status"] == "fresh"
-            else str(system_readiness["snapshot_service"]["freshness_status"]),
-            f"عمر النبض: {system_readiness['snapshot_service']['age_seconds']} ث"
-            if system_readiness["snapshot_service"]["age_seconds"] is not None else "لا يوجد نبض",
+            and system_readiness["snapshot_service"]["snapshot_freshness"] == "fresh"
+            else str(
+                system_readiness["snapshot_service"]["snapshot_freshness"]
+                or system_readiness["snapshot_service"]["freshness_status"]
+            ),
+            (
+                f"نبض الخدمة: {system_readiness['snapshot_service']['age_seconds']} ث · "
+                f"عمر اللقطة: {system_readiness['snapshot_service']['snapshot_age_seconds']} ث"
+            ) if system_readiness["snapshot_service"]["age_seconds"] is not None
+            and system_readiness["snapshot_service"]["snapshot_age_seconds"] is not None
+            else "لا يوجد توقيت صالح للنبض/اللقطة",
         )
         readiness_bottom[0].metric(
             "جاهزية Headway / MT5",
@@ -383,6 +398,11 @@ def render_live_dashboard():
             st.warning(
                 "هناك أمر ينتظر إقراراً نهائياً من الوسيط؛ لن تُنشر أوامر جديدة. "
                 + str(pending.get("ack_status") or pending.get("status"))
+            )
+        if positions_error:
+            st.error(
+                "تعذر التحقق من ملف مراكز الخبير؛ تم تعطيل مسار القرار والتنفيذ حتى استعادة لقطة المراكز: "
+                + positions_error
             )
         ea_freshness = ea_status.get("freshness_status", ea_status.get("status"))
         ea_state_label = (

@@ -107,6 +107,42 @@ class ExecutionLoopTests(unittest.TestCase):
             self.assertEqual(second["command"]["command_id"], "BTC-CLOSE-4321-V500000")
             self.assertNotEqual(first_id, second["command"]["command_id"])
 
+    def test_rejected_close_is_retried_on_next_cycle_with_new_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_terminal(tmp)
+            self.write_positions(folder, [(4321, 0, "0.01")])
+            first = execute_once(common_files=tmp, report=self.report("SELL"))
+            first_id = first["command"]["command_id"]
+            self.write_ack(folder, first_id, "ORDER_REJECTED_OR_CANCELLED", "CLOSE")
+
+            second = execute_once(common_files=tmp, report=self.report("SELL"))
+            second_id = second["command"]["command_id"]
+        self.assertEqual(first["status"], "published")
+        self.assertEqual(second["status"], "published")
+        self.assertEqual(first_id, "BTC-CLOSE-4321-V1000000")
+        self.assertEqual(second_id, first_id + "-R1")
+
+    def test_missing_positions_snapshot_blocks_all_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_terminal(tmp)
+            (folder / "positions.tsv").unlink()
+            result = execute_once(common_files=tmp, report=self.report("BUY"))
+        self.assertEqual(result["status"], "positions_unavailable")
+        self.assertFalse((folder / "trade_command.txt").exists())
+        self.assertEqual(result["plan"]["action"], "HOLD")
+
+    def test_malformed_positions_snapshot_blocks_all_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_terminal(tmp)
+            (folder / "positions.tsv").write_text(
+                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\n"
+                "corrupt-row\n",
+                encoding="utf-8",
+            )
+            result = execute_once(common_files=tmp, report=self.report("BUY"))
+        self.assertEqual(result["status"], "positions_unavailable")
+        self.assertFalse((folder / "trade_command.txt").exists())
+
     def test_inflight_broker_command_is_not_overwritten_by_new_decision(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = self.write_terminal(tmp)

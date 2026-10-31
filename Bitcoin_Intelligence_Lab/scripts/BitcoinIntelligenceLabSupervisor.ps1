@@ -122,11 +122,11 @@ function Get-ExecutionGate {
         if ($fields[4] -ne 'CONNECTED') { $gate.management_blockers += 'mt5_not_connected' }
         if ($fields[11] -ne 'TRADE_READY') { $gate.management_blockers += 'mt5_trade_not_ready' }
         if ($gate.symbol -notmatch '(?i)BTC') { $gate.management_blockers += 'wrong_mt5_symbol' }
-        if ($gate.server -notmatch '(?i)headway') { $gate.management_blockers += 'not_headway_server' }
-        # Retain the confirmed demo-account restriction. It is independent of
-        # the six broker-risk fields and does not disable position management
-        # merely because a new-entry risk specification is unavailable.
-        if ($gate.server -notmatch '(?i)demo') { $gate.management_blockers += 'not_headway_demo_server' }
+        if ($gate.server -notmatch '(?i)(headway|trade-hw\.online)') { $gate.management_blockers += 'not_headway_server' }
+        # Headway broker identity is mandatory; demo/live classification is not
+        # an execution gate. Fresh status, real broker specs and daily risk limits
+        # remain mandatory for entries; terminal permission remains mandatory
+        # for management and broker-side protection.
         if (
             [double]::IsNaN($gate.daily_loss_percent) -or
             [double]::IsInfinity($gate.daily_loss_percent) -or

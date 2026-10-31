@@ -178,7 +178,28 @@ void WritePositions()
          PositionGetDouble(POSITION_TP),
          PositionGetDouble(POSITION_PROFIT));
    }
-   WriteTextFile("positions.tsv",content);
+
+   // Publish a complete staged file, then replace the reader-visible snapshot.
+   // The Python reader rejects unstable/stale files, so it cannot infer zero
+   // positions from a truncated export.
+   string stagingPath=BaseFolder()+"positions.tsv.tmp";
+   int handle=FileOpen(stagingPath,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+   if(handle==INVALID_HANDLE)
+   {
+      Print("BTCIL|POSITIONS_WRITE_FAILED|open_error=",GetLastError());
+      return;
+   }
+   FileWriteString(handle,content);
+   FileFlush(handle);
+   FileClose(handle);
+
+   ResetLastError();
+   if(!FileMove(stagingPath,FILE_COMMON,BaseFolder()+"positions.tsv",FILE_COMMON|FILE_REWRITE))
+   {
+      int error=GetLastError();
+      FileDelete(stagingPath,FILE_COMMON);
+      Print("BTCIL|POSITIONS_PUBLISH_FAILED|move_error=",error);
+   }
 }
 
 bool ValidVolume(const double volume)

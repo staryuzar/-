@@ -5,7 +5,11 @@ from datetime import datetime, timezone
 import unittest
 from pathlib import Path
 
-from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order, read_positions, publish_close_order, pending_command_state
+from bitcoinlab.ea_bridge import (
+    PositionSnapshotError, read_ea_status, read_execution_loop_status,
+    publish_decision_order, read_positions, publish_close_order,
+    pending_command_state,
+)
 
 
 class EABridgeTests(unittest.TestCase):
@@ -76,15 +80,23 @@ class EABridgeTests(unittest.TestCase):
         self.assertTrue(result["headway_server_ok"])
         self.assertNotIn("account_mode", result)
 
-    def test_old_status_without_broker_identity_is_blocked(self):
+    def test_execution_loop_heartbeat_without_cycle_result_is_invalid(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "BitcoinIntelligenceLab"
             folder.mkdir(parents=True)
-            stamp = int(time.time())
-            (folder / "ea_status.tsv").write_text(
-                f"BTCIL1|BTCUSD|PERIOD_M1|{stamp}|CONNECTED|70000|70001|0|READY: Headway|0.01|0|TRADE_READY\\n",
+            (folder / "execution_loop_status.json").write_text(
+                json.dumps({
+                    "schema": "BTCIL-EXEC1",
+                    "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+                }),
                 encoding="utf-8",
             )
+            result = read_execution_loop_status(tmp)
+        self.assertEqual(result["status"], "invalid")
+
+    def test_non_headway_broker_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp, server="OtherBroker-Demo")
             result = read_ea_status(tmp)
         self.assertEqual(result["status"], "wrong_broker")
 
@@ -106,7 +118,7 @@ class EABridgeTests(unittest.TestCase):
             path = Path(tmp) / "BitcoinIntelligenceLab" / "ea_status.tsv"
             fields = path.read_text(encoding="utf-8").strip().split("|")
             fields[13] = "not-a-number"
-            path.write_text("|".join(fields) + "\\n", encoding="utf-8")
+            path.write_text("|".join(fields) + "\n", encoding="utf-8")
             result = read_ea_status(tmp)
         self.assertEqual(result["status"], "invalid")
 
@@ -253,12 +265,95 @@ class EABridgeTests(unittest.TestCase):
         self.assertEqual(command[5], "CLOSE")
         self.assertEqual(command[10], "12345")
 
+    def test_stale_positions_export_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            folder.mkdir(parents=True)
+            path = folder / "positions.tsv"
+            path.write_text(
+                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(PositionSnapshotError):
+                read_positions(tmp, now_seconds=time.time() + 60)
+
+    def test_missing_positions_export_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(PositionSnapshotError):
+                read_positions(tmp)
+
+    def test_malformed_positions_export_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            folder.mkdir(parents=True)
+            (folder / "positions.tsv").write_text(
+                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\n"
+                "12345|BTCUSD|0|not-a-volume|70000|70100|69800|70400|1.25\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(PositionSnapshotError):
+                read_positions(tmp)
+
+    def test_pending_open_command_is_not_overwritten_by_direct_publisher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp)
+            first = publish_decision_order(report=self.report(), common_files=tmp)
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            original = (folder / "trade_command.txt").read_text(encoding="ascii")
+            (folder / "trade_command_ack.txt").write_text(
+                json.dumps({
+                    "schema": "BTCIL1", "id": first["command_id"],
+                    "status": "SUBMITTED_PENDING", "action": "OPEN",
+                    "detail": "broker request still pending",
+                }),
+                encoding="utf-8",
+            )
+            second = publish_decision_order(report=self.report(), common_files=tmp)
+            current = (folder / "trade_command.txt").read_text(encoding="ascii")
+        self.assertEqual(second["status"], "command_pending")
+        self.assertEqual(current, original)
+
+    def test_rejected_close_is_retried_with_new_attempt_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp)
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            (folder / "positions.tsv").write_text(
+                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\n"
+                "12345|BTCUSD|0|0.01|70000|70100|69800|70400|1.25\n",
+                encoding="utf-8",
+            )
+            first = publish_close_order(ticket=12345, common_files=tmp)
+            first_id = first["command_id"]
+            (folder / "trade_command_ack.txt").write_text(
+                json.dumps({
+                    "schema": "BTCIL1", "id": first_id,
+                    "status": "ORDER_REJECTED_OR_CANCELLED", "action": "CLOSE",
+                    "detail": "broker rejected close",
+                }),
+                encoding="utf-8",
+            )
+            second = publish_close_order(ticket=12345, common_files=tmp)
+            second_id = second["command_id"]
+            (folder / "trade_command_ack.txt").write_text(
+                json.dumps({
+                    "schema": "BTCIL1", "id": second_id,
+                    "status": "REJECTED", "action": "CLOSE",
+                    "detail": "broker rejected retry",
+                }),
+                encoding="utf-8",
+            )
+            third = publish_close_order(ticket=12345, common_files=tmp)
+        self.assertEqual(first_id, "BTC-CLOSE-12345-V1000000")
+        self.assertEqual(second_id, first_id + "-R1")
+        self.assertEqual(third["command_id"], first_id + "-R2")
+        self.assertEqual(third["status"], "published")
+
     def test_future_issued_command_is_invalid_and_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "BitcoinIntelligenceLab"
             folder.mkdir(parents=True)
             (folder / "trade_command.txt").write_text(
-                "BTCIL1|future-1|2000000010|2000000070|BTC|OPEN|BUY|0.01000000|69000|72000|0\\n",
+                "BTCIL1|future-1|2000000010|2000000070|BTC|OPEN|BUY|0.01000000|69000|72000|0\n",
                 encoding="ascii",
             )
             state = pending_command_state(tmp, now_seconds=2_000_000_000)
@@ -271,7 +366,7 @@ class EABridgeTests(unittest.TestCase):
             folder = Path(tmp) / "BitcoinIntelligenceLab"
             folder.mkdir(parents=True)
             (folder / "trade_command.txt").write_text(
-                "BTCIL1|long-ttl|2000000000|2000000400|BTC|OPEN|BUY|0.01000000|69000|72000|0\\n",
+                "BTCIL1|long-ttl|2000000000|2000000400|BTC|OPEN|BUY|0.01000000|69000|72000|0\n",
                 encoding="ascii",
             )
             state = pending_command_state(tmp, now_seconds=2_000_000_000)

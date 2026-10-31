@@ -110,6 +110,26 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertIn("AccountInfoDouble(ACCOUNT_EQUITY)", self.source)
         self.assertIn("equity,tickSize,tickValueLoss,volumeMin,volumeStep,volumeMax", self.source)
 
+    def test_supervisor_requires_headway_identity_but_not_demo_classification(self):
+        supervisor_path = (
+            Path(__file__).resolve().parents[1]
+            / "scripts" / "BitcoinIntelligenceLabSupervisor.ps1"
+        )
+        supervisor = supervisor_path.read_text(encoding="utf-8")
+        self.assertIn("trade-hw\\.online", supervisor)
+        self.assertNotIn("not_headway_demo_server", supervisor)
+        self.assertNotRegex(
+            supervisor,
+            r"\$gate\.server\s+-notmatch\s+['\"][^'\"]*demo",
+        )
+
+    def test_position_snapshot_is_staged_before_publication(self):
+        writer = self.source.split("void WritePositions()", 1)[1].split("bool ValidVolume(", 1)[0]
+        self.assertIn("positions.tsv.tmp", writer)
+        self.assertIn("FileFlush(handle)", writer)
+        self.assertIn("FileClose(handle)", writer)
+        self.assertIn('FileMove(stagingPath,FILE_COMMON,BaseFolder()+"positions.tsv",FILE_COMMON|FILE_REWRITE)', writer)
+
     def test_trade_requests_bind_to_actual_headway_chart_symbol_and_magic(self):
         self.assertIn("request.symbol=_Symbol", self.source)
         self.assertIn("request.magic=MagicNumber", self.source)

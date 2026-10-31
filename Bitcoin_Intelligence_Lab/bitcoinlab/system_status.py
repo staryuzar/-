@@ -1,11 +1,40 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import math
+import time
 from typing import Any, Mapping, Sequence
 
 
 def _mapping(value: object) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _snapshot_freshness(
+    report: Mapping[str, Any],
+    *,
+    now_seconds: int | None,
+    max_age_seconds: int,
+) -> dict[str, Any]:
+    raw = report.get("as_of_utc")
+    if not raw:
+        return {"status": "invalid", "age_seconds": None, "reason": "snapshot_timestamp_missing"}
+    try:
+        observed = datetime.fromisoformat(str(raw).replace("Z", "+00:00")).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return {"status": "invalid", "age_seconds": None, "reason": "snapshot_timestamp_invalid"}
+    now = datetime.fromtimestamp(
+        int(time.time()) if now_seconds is None else int(now_seconds),
+        tz=timezone.utc,
+    )
+    age = (now - observed).total_seconds()
+    if age < -5:
+        status, reason = "invalid", "snapshot_timestamp_in_future"
+    elif age > max_age_seconds:
+        status, reason = "stale", "snapshot_stale"
+    else:
+        status, reason = "fresh", None
+    return {"status": status, "age_seconds": round(max(0.0, age), 2), "reason": reason}
 
 
 def build_system_readiness(
@@ -16,13 +45,23 @@ def build_system_readiness(
     positions: Sequence[Mapping[str, Any]] | None = None,
     pending_command: Mapping[str, Any] | None = None,
     snapshot_service: Mapping[str, Any] | None = None,
+    positions_available: bool = True,
+    now_seconds: int | None = None,
+    max_snapshot_age_seconds: int = 90,
 ) -> dict[str, Any]:
     """Join independently observed components into one honest system state.
 
     This is a read-only status aggregator. It never publishes, changes, or
     authorizes a broker command; the execution loop and EA enforce that contract.
     """
+    if not 5 <= int(max_snapshot_age_seconds) <= 900:
+        raise ValueError("max_snapshot_age_seconds must be between 5 and 900.")
     report = _mapping(snapshot)
+    snapshot_freshness = _snapshot_freshness(
+        report,
+        now_seconds=now_seconds,
+        max_age_seconds=int(max_snapshot_age_seconds),
+    )
     ea = _mapping(terminal)
     loop = _mapping(execution_loop)
     pending = _mapping(pending_command)
@@ -93,25 +132,49 @@ def build_system_readiness(
         and bool(ea.get("trading_ready"))
         and "BTC" in symbol
     )
-    execution_loop_ready = loop.get("status") == "fresh"
+    loop_cycle_status = str(loop.get("cycle_status") or "").lower()
+    loop_failure_cycles = {
+        "snapshot_unavailable",
+        "snapshot_stale",
+        "terminal_not_ready",
+        "positions_unavailable",
+        "cycle_error",
+        "supervisor_error",
+    }
+    execution_loop_ready = (
+        loop.get("status") == "fresh"
+        and bool(loop_cycle_status)
+        and loop_cycle_status not in loop_failure_cycles
+    )
     risk_specs_ready = bool(ea.get("risk_specs_ready"))
     daily_loss = ea.get("daily_loss_percent")
     daily_loss_limit = ea.get("daily_loss_limit_percent")
-    daily_risk_status_ready = (
+    daily_risk_status_valid = (
         isinstance(daily_loss, (int, float))
+        and not isinstance(daily_loss, bool)
         and isinstance(daily_loss_limit, (int, float))
+        and not isinstance(daily_loss_limit, bool)
         and math.isfinite(float(daily_loss))
         and math.isfinite(float(daily_loss_limit))
-        and 0 <= float(daily_loss) < float(daily_loss_limit)
+        and 0 <= float(daily_loss)
         and float(daily_loss_limit) > 0
+    )
+    daily_risk_status_ready = (
+        daily_risk_status_valid
+        and float(daily_loss) < float(daily_loss_limit)
     )
     pending_now = bool(pending.get("pending"))
     snapshot_service_ready = (
         service.get("status") == "healthy"
         and service.get("freshness_status") == "fresh"
+        and snapshot_freshness.get("status") == "fresh"
     )
     execution_pipeline_ready = (
-        terminal_ready and execution_loop_ready and snapshot_service_ready
+        terminal_ready
+        and execution_loop_ready
+        and snapshot_service_ready
+        and daily_risk_status_valid
+        and bool(positions_available)
     )
 
     position_rows = list(positions or [])
@@ -123,6 +186,10 @@ def build_system_readiness(
     blockers: list[str] = []
     if not report:
         blockers.append("market_snapshot_unavailable")
+    elif snapshot_freshness.get("status") != "fresh":
+        blockers.append(str(snapshot_freshness.get("reason") or "market_snapshot_not_fresh"))
+    if not positions_available:
+        blockers.append("managed_positions_snapshot_unavailable")
     if missing_core:
         blockers.extend(f"{name}_evidence_not_fresh" for name in missing_core)
     if not decision_ready:
@@ -140,14 +207,12 @@ def build_system_readiness(
         blockers.append(f"snapshot_service_{service_problem}")
     if terminal_ready and not risk_specs_ready:
         blockers.append("mt5_broker_risk_specs_unavailable")
-    if terminal_ready and not daily_risk_status_ready:
-        blockers.append(
-            "mt5_daily_loss_limit_reached"
-            if isinstance(daily_loss, (int, float))
-            and isinstance(daily_loss_limit, (int, float))
-            and float(daily_loss) >= float(daily_loss_limit)
-            else "mt5_daily_risk_status_unavailable"
-        )
+    if terminal_ready and not daily_risk_status_valid:
+        blockers.append("mt5_daily_risk_status_unavailable")
+    elif terminal_ready and not daily_risk_status_ready:
+        blockers.append("mt5_daily_loss_limit_reached")
+    if loop_cycle_status in loop_failure_cycles:
+        blockers.append(f"execution_loop_cycle_{loop_cycle_status}")
     if pending_now:
         blockers.append("broker_command_pending_acknowledgement")
 
@@ -192,10 +257,24 @@ def build_system_readiness(
         "snapshot_service": {
             "status": (
                 "healthy" if snapshot_service_ready
-                else str(service.get("status", "unavailable"))
+                else (
+                    str(snapshot_freshness.get("status"))
+                    if snapshot_freshness.get("status") != "fresh"
+                    else str(service.get("status", "unavailable"))
+                )
             ),
-            "freshness_status": service.get("freshness_status", "unavailable"),
+            "freshness_status": (
+                "fresh" if snapshot_service_ready
+                else (
+                    str(snapshot_freshness.get("status"))
+                    if snapshot_freshness.get("status") != "fresh"
+                    else str(service.get("freshness_status", "unavailable"))
+                )
+            ),
             "age_seconds": service.get("age_seconds"),
+            "snapshot_freshness": snapshot_freshness.get("status"),
+            "snapshot_age_seconds": snapshot_freshness.get("age_seconds"),
+            "snapshot_reason": snapshot_freshness.get("reason"),
             "last_success_utc": service.get("last_success_utc"),
             "last_error": service.get("last_error"),
         },
@@ -206,6 +285,7 @@ def build_system_readiness(
             "age_seconds": ea.get("age_seconds"),
             "trading_ready": bool(ea.get("trading_ready")),
             "risk_sizing_ready": risk_specs_ready,
+            "daily_risk_status_valid": daily_risk_status_valid,
             "daily_risk_status_ready": daily_risk_status_ready,
             "daily_loss_percent": daily_loss,
             "daily_loss_limit_percent": daily_loss_limit,
@@ -223,6 +303,8 @@ def build_system_readiness(
             "last_command_id": loop.get("last_command_id") or loop.get("command_id"),
         },
         "position_management": {
+            "status": "ready" if execution_pipeline_ready else "blocked",
+            "positions_snapshot_available": bool(positions_available),
             "managed_btc_positions": len(btc_positions),
             "pending_command": pending_now,
             "pending_status": pending.get("status", "none"),
@@ -235,14 +317,20 @@ def build_system_readiness(
             and action in {"BUY", "SELL"}
             and risk_specs_ready
             and daily_risk_status_ready
+            and len(btc_positions) == 0
             and not pending_now
+            and loop_cycle_status not in {
+                "published", "command_pending", "risk_size_blocked",
+                "scenario_unavailable", "already_processed",
+            }
         ),
         "blockers": list(dict.fromkeys(blockers)),
         "interpretation": (
-            "Execution components are fresh; a new entry still requires a current "
-            "unblocked BUY/SELL decision, valid Headway tick-value/volume specifications, and no unconfirmed command."
+            "The shared snapshot, Headway heartbeat, position export and execution-loop cycle are fresh. "
+            "A new entry additionally requires an unblocked BUY/SELL decision, broker risk specifications, "
+            "daily loss below its limit, and no existing managed BTC position or pending command."
             if execution_pipeline_ready else
-            "Market analysis and trade execution are separate readiness stages. "
-            "A working dashboard does not mean the MT5 execution loop is active."
+            "Market analysis and execution require independent fresh evidence. A recent service heartbeat alone "
+            "does not make a stale snapshot or invalid position export safe for trading."
         ),
     }
