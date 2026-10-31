@@ -80,7 +80,8 @@ class CrossVenueOrderBookTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["venue_count"], 3)
-        self.assertAlmostEqual(result["score"], 0.2)
+        # Median raw imbalance is 0.2; the opposing perpetual venue halves confidence.
+        self.assertAlmostEqual(result["score"], 0.1)
         self.assertEqual(result["agreement_ratio"], 2 / 3)
 
     def test_conflicting_spot_and_perpetual_books_reduce_score_and_warn(self):
