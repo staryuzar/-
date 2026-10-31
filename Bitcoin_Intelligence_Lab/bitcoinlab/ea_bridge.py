@@ -68,8 +68,10 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
         if readiness_marker is not None
         else "READY:" in detail
     )
+    freshness_status = "fresh" if -5 <= age <= max_age_seconds else "stale"
     result = {
-        "status": "fresh" if -5 <= age <= max_age_seconds else "stale",
+        "status": freshness_status,
+        "freshness_status": freshness_status,
         "age_seconds": age, "symbol": fields[1], "timeframe": fields[2],
         "connection": fields[4], "bid": bid, "ask": ask,
         "open_positions": open_positions, "ea_message": detail,
