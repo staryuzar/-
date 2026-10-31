@@ -81,7 +81,7 @@ def _maybe_save_book(
     last_saved_monotonic: float,
 ) -> float:
     current = time.monotonic()
-    if current - last_saved_monotonic < 1.0:
+    if current - last_saved_monotonic < 5.0:
         return last_saved_monotonic
     snapshot = book.top(depth)
     metrics = book.metrics(depth)
@@ -95,6 +95,26 @@ def _maybe_save_book(
         )
         return current
     return last_saved_monotonic
+
+
+def _maybe_prune(store: MarketDataStore, *, now_ms: int | None = None) -> dict[str, int]:
+    return store.prune(now_ms=int(time.time() * 1000) if now_ms is None else now_ms)
+
+
+async def _periodic_prune(store: MarketDataStore, interval_seconds: int = 300) -> None:
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            _maybe_prune(store)
+        except Exception:
+            LOG.exception("SQLite retention cleanup failed.")
+
+
+def _should_log_event(last_logged: float, event_type: str) -> tuple[bool, float]:
+    now = time.monotonic()
+    if event_type == "snapshot" or now - last_logged >= 10.0:
+        return True, now
+    return False, last_logged
 
 
 async def _ping_application(ws: Any, payload: str, interval: float = 20.0) -> None:
@@ -130,6 +150,7 @@ async def _run_binance(store: MarketDataStore, symbol: str, depth: int) -> None:
                 )
                 reader_task = asyncio.create_task(ws.recv())
                 last_saved = 0.0
+                last_event_log = 0.0
                 synced = False
                 last_status_write = 0.0
                 while True:
@@ -172,14 +193,21 @@ async def _run_binance(store: MarketDataStore, symbol: str, depth: int) -> None:
                         payload = json.loads(raw)
                         event = _parse_binance_depth(payload, symbol)
                         received_at = int(time.time() * 1000)
-                        store.record_event(
-                            venue=venue, symbol=symbol,
-                            event_time_ms=event["event_time_ms"],
-                            received_at_ms=received_at,
-                            event_type="depthUpdate",
-                            sequence_id=event["final_update_id"],
-                            payload=payload,
-                        )
+                        should_log, last_event_log = _should_log_event(last_event_log, "delta")
+                        if should_log:
+                            store.record_event(
+                                venue=venue, symbol=symbol,
+                                event_time_ms=event["event_time_ms"],
+                                received_at_ms=received_at,
+                                event_type="depth_delta_sample",
+                                sequence_id=event["final_update_id"],
+                                payload={
+                                    "first_update_id": event["first_update_id"],
+                                    "final_update_id": event["final_update_id"],
+                                    "bid_level_updates": len(event["bids"]),
+                                    "ask_level_updates": len(event["asks"]),
+                                },
+                            )
                         if not synced:
                             if len(buffered) == buffered.maxlen:
                                 raise RuntimeError("Binance bootstrap event buffer overflow.")
@@ -246,7 +274,7 @@ async def _run_bybit(store: MarketDataStore, symbol: str, depth: int) -> None:
                 await ws.send(json.dumps({"op": "subscribe", "args": [topic]}))
                 ping_task = asyncio.create_task(_ping_application(ws, json.dumps({"op": "ping"})))
                 book = IncrementalOrderBook("Bybit", symbol)
-                last_saved, last_status = 0.0, 0.0
+                last_saved, last_status, last_event_log = 0.0, 0.0, 0.0
                 reconnects, backoff = 0, 1
                 try:
                     while True:
@@ -260,12 +288,20 @@ async def _run_bybit(store: MarketDataStore, symbol: str, depth: int) -> None:
                         data = payload.get("data") or {}
                         update_id = int(data.get("u", 0)) if isinstance(data, dict) else 0
                         received_at = int(time.time() * 1000)
-                        store.record_event(
-                            venue=venue, symbol=symbol, event_time_ms=event_time,
-                            received_at_ms=received_at,
-                            event_type=str(payload.get("type", "unknown")),
-                            sequence_id=update_id or None, payload=payload,
-                        )
+                        event_type = str(payload.get("type", "unknown"))
+                        should_log, last_event_log = _should_log_event(last_event_log, event_type)
+                        if should_log:
+                            store.record_event(
+                                venue=venue, symbol=symbol, event_time_ms=event_time,
+                                received_at_ms=received_at,
+                                event_type=f"orderbook_{event_type}_sample",
+                                sequence_id=update_id or None,
+                                payload={
+                                    "update_id": update_id,
+                                    "bid_level_updates": len(data.get("b", [])),
+                                    "ask_level_updates": len(data.get("a", [])),
+                                },
+                            )
                         result = apply_bybit_message(book, payload)
                         if result["status"] == "resync_required":
                             raise RuntimeError(result.get("reason", "Bybit book requires a fresh snapshot."))
@@ -337,12 +373,20 @@ async def _run_okx(store: MarketDataStore, symbol: str, depth: int) -> None:
                         event_time = int(row.get("ts", 0)) if isinstance(row, dict) else 0
                         sequence_id = int(row.get("seqId", 0)) if isinstance(row, dict) else 0
                         received_at = int(time.time() * 1000)
-                        store.record_event(
-                            venue=venue, symbol=instrument, event_time_ms=event_time or None,
-                            received_at_ms=received_at,
-                            event_type=str(payload.get("action", "unknown")),
-                            sequence_id=sequence_id or None, payload=payload,
-                        )
+                        event_type = str(payload.get("action", "unknown"))
+                        should_log, last_event_log = _should_log_event(last_event_log, event_type)
+                        if should_log:
+                            store.record_event(
+                                venue=venue, symbol=instrument, event_time_ms=event_time or None,
+                                received_at_ms=received_at,
+                                event_type=f"orderbook_{event_type}_sample",
+                                sequence_id=sequence_id or None,
+                                payload={
+                                    "sequence_id": sequence_id,
+                                    "bid_level_updates": len(row.get("bids", [])) if isinstance(row, dict) else 0,
+                                    "ask_level_updates": len(row.get("asks", [])) if isinstance(row, dict) else 0,
+                                },
+                            )
                         result = apply_okx_message(book, payload)
                         if result["status"] == "resync_required":
                             raise RuntimeError(result.get("reason", "OKX book sequence mismatch."))
@@ -404,7 +448,12 @@ async def run_market_stream(
             tasks.append(_run_bybit(store, symbol, depth))
         if "okx" in venues:
             tasks.append(_run_okx(store, symbol, depth))
-        await asyncio.gather(*tasks)
+        cleanup_task = asyncio.create_task(_periodic_prune(store))
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            cleanup_task.cancel()
+            await asyncio.gather(cleanup_task, return_exceptions=True)
 
 
 def main() -> None:
