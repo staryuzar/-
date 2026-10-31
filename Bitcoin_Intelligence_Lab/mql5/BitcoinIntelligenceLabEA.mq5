@@ -79,7 +79,7 @@ void WriteStatus()
    string accountServer=AccountInfoString(ACCOUNT_SERVER);
    StringReplace(accountServer,"|","/");
    int accountMode=(int)AccountInfoInteger(ACCOUNT_TRADE_MODE);
-   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%d\\n",
+   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%d\n",
       _Symbol,EnumToString(_Period),(long)TimeGMT(),
       TerminalInfoInteger(TERMINAL_CONNECTED)?"CONNECTED":"DISCONNECTED",
       bid,ask,(int)PositionsTotal(),lastStatus,point,(int)stops,
