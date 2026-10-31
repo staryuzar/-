@@ -40,6 +40,15 @@ jobs:
         run: ./scripts/compile_mql5_ea.ps1
       - name: Run live Windows WebSocket, SQLite and Streamlit integration
         run: python scripts/windows_runtime_smoke.py --duration-seconds 180 --port 8502
+
+      - name: Install Playwright browser test tools
+        run: |
+          python -m pip install "playwright>=1.52,<2"
+          python -m playwright install chromium firefox
+
+      - name: Test dashboard in real Chromium and Firefox
+        run: python scripts/dashboard_browser_check.py --output artifacts/dashboard_browser
+
       - name: Upload Windows runtime logs and SQLite report
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,6 +56,7 @@ jobs:
           name: bitcoin-windows-runtime-smoke
           path: |
             Bitcoin_Intelligence_Lab/artifacts/windows_runtime_smoke.json
+            Bitcoin_Intelligence_Lab/artifacts/dashboard_browser/**
             Bitcoin_Intelligence_Lab/artifacts/windows_market_stream.log
             Bitcoin_Intelligence_Lab/artifacts/windows_streamlit.log
             Bitcoin_Intelligence_Lab/data/windows_runtime.sqlite
