@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.002"
+#property version   "1.003"
 #property description "Bitcoin Intelligence Lab — Headway BTC demo command executor"
 
 #include <Trade/Trade.mqh>
@@ -34,9 +34,10 @@ bool IsAllowedAccount()
 {
    ENUM_ACCOUNT_TRADE_MODE mode = (ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
    string server = AccountInfoString(ACCOUNT_SERVER);
+   StringToLower(server);
    if(RequireHeadwayDemo)
       return (mode == ACCOUNT_TRADE_MODE_DEMO &&
-              (StringFind(server, "Headway-Demo") >= 0 || StringFind(server, "demo.trade-hw.online") >= 0));
+              (StringFind(server, "headway-demo") >= 0 || StringFind(server, "demo.trade-hw.online") >= 0));
    return (mode == ACCOUNT_TRADE_MODE_DEMO);
 }
 
@@ -78,11 +79,15 @@ void WriteStatus()
    SymbolInfoDouble(_Symbol,SYMBOL_ASK,ask);
    SymbolInfoDouble(_Symbol,SYMBOL_POINT,point);
    SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL,stops);
-   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s\n",
+   string accountServer=AccountInfoString(ACCOUNT_SERVER);
+   StringReplace(accountServer,"|","/");
+   int accountMode=(int)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%d\\n",
       _Symbol,EnumToString(_Period),(long)TimeGMT(),
       TerminalInfoInteger(TERMINAL_CONNECTED)?"CONNECTED":"DISCONNECTED",
       bid,ask,(int)PositionsTotal(),lastStatus,point,(int)stops,
-      TerminalAllowsTrading()?"TRADE_READY":"TRADE_BLOCKED");
+      TerminalAllowsTrading()?"TRADE_READY":"TRADE_BLOCKED",
+      accountServer,accountMode);
    WriteTextFile("ea_status.tsv",line);
 }
 
