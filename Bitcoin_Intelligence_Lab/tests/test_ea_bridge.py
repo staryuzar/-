@@ -71,7 +71,7 @@ class EABridgeTests(unittest.TestCase):
             result = read_ea_status(tmp)
         self.assertEqual(result["status"], "fresh")
         self.assertTrue(result["headway_server_ok"])
-        self.assertTrue(result["demo_account_ok"])
+        self.assertNotIn("account_mode", result)
 
     def test_old_status_without_broker_identity_is_blocked(self):
         with tempfile.TemporaryDirectory() as tmp:
