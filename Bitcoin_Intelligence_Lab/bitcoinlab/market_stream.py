@@ -388,8 +388,10 @@ async def run_market_stream(
     symbol = symbol.upper().strip()
     if not symbol.isalnum() or not symbol.startswith("BTC"):
         raise ValueError("The market stream currently accepts BTC symbols only.")
-    if not 5 <= depth <= 200:
-        raise ValueError("depth must be between 5 and 200.")
+    if symbol != "BTCUSDT":
+        raise ValueError("The first multi-venue collector release is restricted to BTCUSDT.")
+    if depth not in {50, 200}:
+        raise ValueError("Bybit L2 supports depth 50 or 200 in this collector.")
     supported = {"binance", "bybit", "okx"}
     if not venues or set(venues) - supported:
         raise ValueError(f"venues must be selected from {sorted(supported)}.")
