@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from datetime import datetime, timezone
 import io
+import math
 from pathlib import Path
 import zipfile
 
@@ -16,10 +17,23 @@ CFTC_ARCHIVE = "https://www.cftc.gov/files/dea/history/fut_fin_txt_{year}.zip"
 
 def _number(raw: object) -> float | None:
     value = str(raw or "").strip().replace(",", "")
-    if not value:
+    if value.lower() in {"", "-", "--", "n/a", "na", "null", "none"}:
         return None
-    parsed = float(value)
-    return parsed
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _report_date(raw: object) -> str | None:
+    value = str(raw or "").strip().strip('\"')
+    for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt).date().isoformat()
+        except ValueError:
+            pass
+    return None
 
 
 def parse_tff_csv(csv_text: str) -> list[dict]:
@@ -36,16 +50,16 @@ def parse_tff_csv(csv_text: str) -> list[dict]:
         code = fields[3].strip().strip('"')
         if code not in CFTC_TFF_CODES:
             continue
-        try:
-            report_date = datetime.strptime(fields[2].strip(), "%m/%d/%Y").date().isoformat()
-            oi = _number(fields[7])
-            dealer_long, dealer_short = _number(fields[8]), _number(fields[9])
-            asset_long, asset_short = _number(fields[11]), _number(fields[12])
-            lev_long, lev_short = _number(fields[14]), _number(fields[15])
-        except (ValueError, IndexError) as exc:
-            raise ValueError("Malformed CFTC TFF Bitcoin row.") from exc
+        # Optional positioning fields may be blank or represented by dashes.
+        report_date = _report_date(fields[2])
+        if report_date is None:
+            continue
+        oi = _number(fields[7])
         if oi is None or oi <= 0:
-            raise ValueError("CFTC open interest is missing or invalid.")
+            continue
+        dealer_long, dealer_short = _number(fields[8]), _number(fields[9])
+        asset_long, asset_short = _number(fields[11]), _number(fields[12])
+        lev_long, lev_short = _number(fields[14]), _number(fields[15])
         rows.append({
             "asset": CFTC_TFF_CODES[code], "contract_code": code,
             "market_name": fields[0].strip(), "report_date": report_date,
