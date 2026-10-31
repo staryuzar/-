@@ -232,11 +232,21 @@ def _consume_refresh_request_payload(
     *,
     max_age_seconds: int = 600,
 ) -> dict[str, Any] | None:
-    if not path.is_file():
-        return None
-    payload: object = None
+    # Atomically claim the current request. A new dashboard click that arrives
+    # after this rename writes a fresh request at the original path and is not
+    # unlinked by this cycle's cleanup.
+    processing_path = path.with_name(
+        f"{path.name}.{uuid4().hex}.processing"
+    )
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        os.replace(path, processing_path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+
+    try:
+        payload = json.loads(processing_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             return None
         observed = datetime.fromisoformat(
@@ -253,16 +263,19 @@ def _consume_refresh_request_payload(
             and interval in {"1m", "5m", "15m", "1h", "4h"}
         )
         if valid:
-            return {"symbol": symbol, "interval": interval, "request_id": payload.get("request_id")}
+            return {
+                "symbol": symbol,
+                "interval": interval,
+                "request_id": payload.get("request_id"),
+            }
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
         pass
     finally:
         try:
-            path.unlink(missing_ok=True)
+            processing_path.unlink(missing_ok=True)
         except OSError:
             pass
     return None
-
 
 def _consume_refresh_request(path: Path, *, max_age_seconds: int = 600) -> bool:
     return _consume_refresh_request_payload(
