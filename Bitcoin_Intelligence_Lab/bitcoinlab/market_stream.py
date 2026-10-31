@@ -357,8 +357,8 @@ async def _run_okx(store: MarketDataStore, symbol: str, depth: int) -> None:
                 }))
                 ping_task = asyncio.create_task(_ping_application(ws, "ping"))
                 book = IncrementalOrderBook("OKX", instrument)
-                last_saved, last_status = 0.0, 0.0
-                reconnects, backoff = 0, 1
+                last_saved, last_status, last_event_log = 0.0, 0.0, 0.0
+                backoff = 1
                 try:
                     while True:
                         raw = await asyncio.wait_for(ws.recv(), timeout=40)
