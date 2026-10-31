@@ -28,7 +28,29 @@ def build_system_readiness(
     service = _mapping(snapshot_service)
     decision = _mapping(report.get("decision"))
     sources = _mapping(report.get("source_states"))
-    market_stream = _mapping(report.get("market_stream"))
+    data_health = _mapping(report.get("data_health"))
+    stream_health_rows = data_health.get("stream_feeds", [])
+    if not isinstance(stream_health_rows, list):
+        stream_health_rows = []
+    live_orderbook_feeds = [
+        row for row in stream_health_rows
+        if _mapping(row).get("feed_type") == "orderbook"
+        and _mapping(row).get("status") == "live"
+    ]
+    live_trade_feeds = [
+        row for row in stream_health_rows
+        if _mapping(row).get("feed_type") == "trades"
+        and _mapping(row).get("status") == "live"
+    ]
+    quiet_liquidation_feeds = [
+        row for row in stream_health_rows
+        if _mapping(row).get("feed_type") == "liquidations"
+        and _mapping(row).get("status") == "connected_quiet_ok"
+    ]
+    degraded_stream_feeds = [
+        row for row in stream_health_rows
+        if _mapping(row).get("status") in {"stale", "unavailable", "recovering", "error"}
+    ]
 
     core_domains = ("spot", "technical", "orderflow", "derivatives")
     fresh_core = [
@@ -37,16 +59,15 @@ def build_system_readiness(
     ]
     missing_core = [name for name in core_domains if name not in fresh_core]
 
-    stream_venues = market_stream.get("venues", [])
-    if not isinstance(stream_venues, list):
-        stream_venues = []
-    live_stream_venues = [
-        row for row in stream_venues
-        if _mapping(row).get("status") in {"live", "connected", "connected_quiet_ok"}
-    ]
+    live_orderbook_venues = sorted({
+        str(_mapping(row).get("name", "unknown")) for row in live_orderbook_feeds
+    })
+    live_trade_venues = sorted({
+        str(_mapping(row).get("name", "unknown")) for row in live_trade_feeds
+    })
     stream_status = (
-        "live" if market_stream.get("status") == "ok" and live_stream_venues
-        else ("partial" if market_stream.get("status") == "ok" else "unavailable")
+        "live" if len(live_orderbook_venues) >= 2 and live_trade_venues
+        else ("partial" if live_orderbook_venues or live_trade_venues else "unavailable")
     )
 
     action = str(decision.get("action", "HOLD")).upper()
@@ -116,10 +137,21 @@ def build_system_readiness(
         ),
         "market_data": {
             "status": stream_status,
-            "live_orderbook_venues": len(live_stream_venues),
-            "orderbook_venues": [
-                str(_mapping(row).get("venue", "unknown"))
-                for row in live_stream_venues
+            "live_orderbook_venues": len(live_orderbook_venues),
+            "orderbook_venue_names": live_orderbook_venues,
+            "live_trade_venues": live_trade_venues,
+            "connected_quiet_liquidation_feeds": [
+                str(_mapping(row).get("name", "unknown"))
+                for row in quiet_liquidation_feeds
+            ],
+            "non_live_stream_feeds": [
+                {
+                    "name": _mapping(row).get("name"),
+                    "feed_type": _mapping(row).get("feed_type"),
+                    "status": _mapping(row).get("status"),
+                    "last_error": _mapping(row).get("last_error"),
+                }
+                for row in degraded_stream_feeds
             ],
             "core_fresh_domains": fresh_core,
             "core_missing_domains": missing_core,
