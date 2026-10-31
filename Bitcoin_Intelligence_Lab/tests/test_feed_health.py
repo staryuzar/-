@@ -30,8 +30,8 @@ class FeedHealthTests(unittest.TestCase):
                 },
                 {
                     "venue": "binance_usdm_liquidations", "symbol": "BTCUSDT",
-                    "status": "connected", "last_message_ms": NOW - 600_000,
-                    "reconnects": 0,
+                    "status": "connected", "updated_at_ms": NOW - 2_000,
+                    "last_message_ms": NOW - 600_000, "reconnects": 0,
                 },
             ],
             "latest_books": [
@@ -80,6 +80,21 @@ class FeedHealthTests(unittest.TestCase):
             "event_driven_feeds_connected_no_recent_liquidation_events",
             result["warnings"],
         )
+
+    def test_old_liquidation_heartbeat_is_stale_even_without_events(self):
+        stream = self.streams()
+        stream["venues"][2]["updated_at_ms"] = NOW - 120_000
+        result = build_data_health(
+            source_states=self.sources(),
+            stream_state=stream,
+            now_ms=NOW,
+        )
+        row = next(
+            x for x in result["stream_feeds"]
+            if x["name"] == "binance_usdm_liquidations"
+        )
+        self.assertEqual(row["status"], "stale")
+        self.assertIn("binance_usdm_liquidations", result["non_live_stream_feeds"])
 
     def test_stale_orderbook_snapshot_is_reported(self):
         stream = self.streams()
