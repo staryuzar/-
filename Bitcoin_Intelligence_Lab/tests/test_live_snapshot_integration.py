@@ -45,6 +45,14 @@ class LiveSnapshotIntegrationContractTests(unittest.TestCase):
         self.assertIn('errors["derivatives_okx"]', self.snapshot)
         self.assertIn('"venue": "OKX"', self.snapshot)
 
+    def test_dashboard_uses_manual_full_refresh_by_default_and_caches_snapshot(self):
+        self.assertIn('auto_refresh = st.toggle("تحديث اللقطة الكاملة تلقائياً", value=False)', self.dashboard)
+        self.assertIn('options=[30, 60, 120], value=60', self.dashboard)
+        self.assertIn('@st.cache_data(ttl=20, max_entries=12, show_spinner=False)', self.dashboard)
+        self.assertIn('on_click=_queue_snapshot_refresh', self.dashboard)
+        self.assertIn('btc_report_revision', self.dashboard)
+        self.assertIn('التحديث الكامل يدوي للحفاظ على استقرار اللوحة', self.dashboard)
+
     def test_dashboard_exposes_five_domain_vote_and_normalized_weights(self):
         self.assertIn("خريطة تصويت المجالات الخمسة", self.dashboard)
         self.assertIn("الوزن الفعلي بعد التطبيع", self.dashboard)
