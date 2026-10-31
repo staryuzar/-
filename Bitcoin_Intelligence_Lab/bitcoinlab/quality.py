@@ -23,7 +23,9 @@ def freshness(observed_at_ms: int | None, max_age_seconds: float, *, now_ms: int
         status = "stale"
     else:
         status = "fresh"
-    return {"status": status, "age_seconds": round(age, 3), "observed_at_utc": stamp}
+    # Small negative ages come from sequential HTTP requests against a
+    # snapshot clock captured at function entry; report zero, not negative age.
+    return {"status": status, "age_seconds": round(max(0.0, age), 3), "observed_at_utc": stamp}
 
 
 def validate_bars(
