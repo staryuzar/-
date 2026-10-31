@@ -16,7 +16,9 @@ class ExecutionLoopTests(unittest.TestCase):
         stamp = int(time.time())
         status = (
             f"BTCIL1|BTCUSD|PERIOD_M1|{stamp}|CONNECTED|70000|70001|0|"
-            "READY: Headway board-execution mode|0.01|0|TRADE_READY|Headway-Live\n"
+            "READY: Headway board-execution mode|0.01|0|TRADE_READY|Headway-Live|"
+            "0.00|2.00|10000.00|0.0100000000|0.0100000000|"
+            "0.01000000|0.01000000|100.00000000\\n"
         )
         (folder / "ea_status.tsv").write_text(status, encoding="utf-8")
         self.write_positions(folder, [])
