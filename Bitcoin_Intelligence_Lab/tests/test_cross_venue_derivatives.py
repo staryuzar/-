@@ -90,11 +90,12 @@ class CrossVenueDerivativesTests(unittest.TestCase):
         self.assertEqual(result["funding_8h_equivalent"]["venue_count"], 1)
 
     def test_invalid_market_prices_are_rejected(self):
-        with self.assertRaisesRegex(ValueError, "non-crossed"):
-            build_cross_venue_derivatives_context([
-                row("binance_usdm", spot=100_000, perp=100_100)
-                | {"spot_bid": 100_010, "spot_ask": 100_000}
-            ], now_ms=NOW)
+        result = build_cross_venue_derivatives_context([
+            row("binance_usdm", spot=100_000, perp=100_100)
+            | {"spot_bid": 100_010, "spot_ask": 100_000}
+        ], now_ms=NOW)
+        self.assertTrue(any("non-crossed" in item["error"] for item in result["errors"]))
+        self.assertEqual(result["venue_count"], 0)
 
 
 if __name__ == "__main__":

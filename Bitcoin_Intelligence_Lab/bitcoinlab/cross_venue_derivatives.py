@@ -224,6 +224,7 @@ def build_cross_venue_derivatives_context(
             "USDT and USD quote values are shown with their source currency and are not assumed to be exactly equal.",
             "Funding intervals can change; each venue requires current interval metadata or a timestamp-derived interval.",
             "Open interest is two-sided outstanding exposure, not net long direction.",
+            "OI values remain per venue; no cross-venue sum is calculated because contract, BTC, USD and USDT units are not interchangeable.",
             "Cross-venue snapshots are asynchronous and can be separated by request latency.",
             "This context is descriptive only and is not an independent directional vote.",
         ],
