@@ -10,7 +10,6 @@ DEFAULT_THRESHOLDS = {
     "range_expansion": 1.8,
     "book_imbalance_abs": 0.65,
     "spread_warning_bps": 15.0,
-    "minimum_event_trade_venues": 2,
 }
 
 
@@ -47,7 +46,11 @@ def build_market_screener(
     thresholds: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Detect completed-bar and fresh-feed market events. This module never creates trade orders."""
-    params = {**DEFAULT_THRESHOLDS, **dict(thresholds or {})}
+    supplied = dict(thresholds or {})
+    unknown = set(supplied) - set(DEFAULT_THRESHOLDS)
+    if unknown:
+        raise ValueError(f"Unknown screener thresholds: {sorted(unknown)}.")
+    params = {**DEFAULT_THRESHOLDS, **supplied}
     for key, value in params.items():
         parsed = _finite(value)
         if parsed is None or parsed < 0:
@@ -55,6 +58,10 @@ def build_market_screener(
         params[key] = parsed
     if params["relative_volume"] <= 0 or params["range_expansion"] <= 0:
         raise ValueError("Volume and range thresholds must be positive.")
+    if params["book_imbalance_abs"] <= 0 or params["book_imbalance_abs"] > 1:
+        raise ValueError("book_imbalance_abs must be within (0, 1].")
+    if params["spread_warning_bps"] <= 0 or params["spread_warning_bps"] > 1000:
+        raise ValueError("spread_warning_bps must be within (0, 1000].")
 
     frames = multi_timeframe.get("frames") or {}
     events: list[dict[str, Any]] = []
