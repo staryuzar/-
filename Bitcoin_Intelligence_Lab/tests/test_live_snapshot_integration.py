@@ -10,6 +10,7 @@ class LiveSnapshotIntegrationContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.snapshot = (ROOT / "bitcoinlab" / "live_snapshot.py").read_text(encoding="utf-8")
         cls.dashboard = (ROOT / "app.py").read_text(encoding="utf-8")
+        cls.execution_loop = (ROOT / "bitcoinlab" / "execution_loop.py").read_text(encoding="utf-8")
 
     def test_cross_venue_derivatives_context_is_reapplied_after_bybit_fallback(self):
         fallback = self.snapshot.index('if deriv_engine.get("status") != "ok":')
@@ -45,13 +46,21 @@ class LiveSnapshotIntegrationContractTests(unittest.TestCase):
         self.assertIn('errors["derivatives_okx"]', self.snapshot)
         self.assertIn('"venue": "OKX"', self.snapshot)
 
-    def test_dashboard_uses_manual_full_refresh_by_default_and_caches_snapshot(self):
-        self.assertIn('auto_refresh = st.toggle("تحديث اللقطة الكاملة تلقائياً", value=False)', self.dashboard)
+    def test_dashboard_reads_shared_snapshot_instead_of_refetching_exchange_feeds(self):
+        self.assertIn('auto_refresh = st.toggle("إعادة قراءة أحدث لقطة تلقائياً", value=False)', self.dashboard)
         self.assertIn('options=[30, 60, 120], value=60', self.dashboard)
-        self.assertIn('@st.cache_data(ttl=20, max_entries=12, show_spinner=False)', self.dashboard)
-        self.assertIn('on_click=_queue_snapshot_refresh', self.dashboard)
-        self.assertIn('btc_report_revision', self.dashboard)
-        self.assertIn('التحديث الكامل يدوي للحفاظ على استقرار اللوحة', self.dashboard)
+        self.assertIn('@st.cache_data(ttl=3, max_entries=12, show_spinner=False)', self.dashboard)
+        self.assertIn('request_snapshot_refresh(', self.dashboard)
+        self.assertIn('return read_latest_snapshot(max_age_seconds=900)', self.dashboard)
+        self.assertIn('cached_snapshot_service_status()', self.dashboard)
+        self.assertNotIn('build_live_snapshot(', self.dashboard)
+
+    def test_execution_loop_uses_the_same_snapshot_and_checks_freshness_for_all_actions(self):
+        self.assertIn('from .snapshot_runtime import read_latest_snapshot', self.execution_loop)
+        self.assertNotIn('from .live_snapshot import build_live_snapshot', self.execution_loop)
+        self.assertIn('status": "snapshot_stale"', self.execution_loop)
+        self.assertIn('max_snapshot_age_seconds', self.execution_loop)
+
 
     def test_dashboard_keeps_last_snapshot_when_refresh_fails(self):
         self.assertIn('if not isinstance(report, dict):', self.dashboard)
