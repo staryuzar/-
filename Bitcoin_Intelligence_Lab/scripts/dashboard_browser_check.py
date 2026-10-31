@@ -77,7 +77,7 @@ def wait_for_health(process: subprocess.Popen[str], url: str, log_path: Path) ->
     )
 
 
-def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> dict[str, Any]:
+def run_browser(browser: Browser, name: str, base_url: str, output_dir: Path, runtime_scratch: Path) -> dict[str, Any]:
     page_errors: list[str] = []
     console_messages: list[str] = []
     context = browser.new_context(
@@ -106,7 +106,7 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
         state="visible", timeout=20_000,
     )
     page.screenshot(
-        path=str(scratch / f"bitcoin-dashboard-{name}-desktop.png"),
+        path=str(output_dir / f"bitcoin-dashboard-{name}-desktop.png"),
         full_page=True,
         animations="disabled",
     )
@@ -121,7 +121,7 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
         page.get_by_text(callback_message, exact=False).wait_for(state="visible", timeout=15_000)
     except Exception as exc:
         page.screenshot(
-            path=str(scratch / f"bitcoin-dashboard-{name}-after-refresh-click-failed.png"),
+            path=str(output_dir / f"bitcoin-dashboard-{name}-after-refresh-click-failed.png"),
             full_page=True,
             animations="disabled",
         )
@@ -131,7 +131,7 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
             f"body={body_text[-3000:]!r}; console={console_messages}; page_errors={page_errors}"
         ) from exc
 
-    refresh_file = scratch / "refresh-request.json"
+    refresh_file = runtime_scratch / "refresh-request.json"
     deadline = time.monotonic() + 20
     payload: dict[str, Any] | None = None
     while time.monotonic() < deadline:
@@ -147,7 +147,7 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
     if payload is None:
         log_tail = ""
         try:
-            log_tail = (scratch / "streamlit.log").read_text(encoding="utf-8", errors="replace")[-5000:]
+            log_tail = (runtime_scratch / "streamlit.log").read_text(encoding="utf-8", errors="replace")[-5000:]
         except OSError:
             pass
         body_text = page.locator("body").inner_text(timeout=5_000)
@@ -162,7 +162,7 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(600)
     page.screenshot(
-        path=str(scratch / f"bitcoin-dashboard-{name}-mobile.png"),
+        path=str(output_dir / f"bitcoin-dashboard-{name}-mobile.png"),
         full_page=True,
         animations="disabled",
     )
@@ -220,7 +220,7 @@ def main() -> int:
             for name in ("chromium", "firefox"):
                 browser = getattr(playwright, name).launch(headless=True)
                 try:
-                    result = run_browser(browser, name, base_url, args.output)
+                    result = run_browser(browser, name, base_url, args.output, scratch)
                     report["browsers"].append(result)
                 finally:
                     browser.close()
