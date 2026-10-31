@@ -15,6 +15,23 @@
 | [Crypto Liquidity Terminal](https://github.com/AIUngated/crypto-liquidity-terminal) | MIT | 6 نجوم؛ آخر دفع تغييرات ظاهر في 2026-05-27 | Screener لعدة منصات، Heatmap، 10 كواشف أحداث، Relative Volume، تقلب، اتساع السبريد، اختلال دفتر الأوامر، شذوذ OI/Funding، وتنبيهات | **مرجع إضافي** لمحرك الفاحص والكواشف. نفحص الصيغ والاختبارات قبل نقل أي خوارزمية؛ لا نعتمد المشروع كاعتمادية تشغيلية |
 | [Bitcoin Core](https://github.com/bitcoin/bitcoin) | MIT | مشروع مرجعي للبروتوكول والبيانات | RPC محلي وبيانات UTXO/البلوكات كأساس لحساب on-chain بنفسنا | **مصدر مستقبلي** لمحرك السلسلة دون مزود بيانات تجاري؛ يتطلب عقدة كاملة وتخزيناً ومزامنة |
 
+## مراجعة إضافية: محركات ذكاء السوق والخيارات
+
+أُضيفت مراجعة ثانية لمشروعين يضيفان دروساً هندسية فوق الموائمات الأساسية:
+
+| المشروع | الترخيص | وظائف تستحق الاستفادة | حدود النقل |
+|---|---|---|---|
+| [HyperData Terminal](https://github.com/Co-Messi/HyperData-Terminal) | Apache-2.0 | بث تصفيات متعدد المنصات، CVD حسب المنصة والزمن، Liquidation Heatmap، Whales/near-liquidation، مراقبة Funding/Basis، فحص صحة البيانات والتمييز بين LIVE/PARTIAL/STALE/DRIFT، dedup بعد reconnect، REST/WebSocket read-only وSQLite | مرجع لبناء Feed Health Monitor وcoverage/warmup/dedup وCVD/heatmap. لا نضيف النظام كاملاً ولا نستنتج أن بيانات تصفية جميع المنصات تمثل census للسوق |
+| [Deribit BTC Options Dashboard](https://github.com/jothamteo/deribit-options-dashboard) | MIT | Black-Scholes Greeks، Gamma scan، SVI raw fit، IV term structure، 25-delta Risk-Reversal وButterfly، max pain، واختبارات قابلة للتشغيل | مرجع رياضي واختباري لمحرك الخيارات. Dealer GEX convention افتراض معرض للخطأ في سوق Deribit، وSVI لا يضمن calendar/butterfly no-arbitrage بمجرد ملاءمة كل expiry مستقلاً |
+
+### الدروس التي نعتمدها في المختبر
+
+1. **Feed Health Monitor:** كل مصدر يحمل وقت آخر رسالة وعمرها والتغطية وحالة LIVE/PARTIAL/STALE/DRIFT. لا نساوي صمت السوق بتعطل الاتصال ولا نعامل feed صامتاً على أنه قيمة صفرية.
+2. **CVD منفصل لكل Venue:** يمكن عرض تجميعي بعد توحيد الوحدات والفترات، لكن يجب الاحتفاظ بسلسلة كل منصة حتى نكشف الاختلاف، ونمنع تكرار الصفقات بعد reconnect.
+3. **Liquidation Coverage:** نوضح أن Binance forceOrder محدود التواتر، وأن كل منصة لها تعريف وحدة/سعر مرجعي مختلف. لا نجمع «إجمالي تصفية السوق» وكأننا نملك سجل كل المنصات.
+4. **Options math:** نحتفظ بتعريف mark IV ووحدة OI والـunderlying وcontract size لكل عقد. ولا نسمّي gamma-weighted OI «Dealer GEX» دون sign/inventory data.
+5. **اختبارات رقمية مرجعية:** معادلات Greeks وSkew وMax Pain تحتاج حالات اختبار يدوي معروفة وحدود صلاحية؛ نجاح جلب API لا يثبت صحة النموذج.
+
 ## مشاريع مفيدة للمعرفة لا لإعادة استخدام الكود
 
 | المشروع | الوضع | سبب عدم الدمج المباشر |
@@ -90,10 +107,11 @@
 - تحديث دوري للوحة ومصادر السياق الأبطأ.
 
 ## ترتيب التنفيذ بعد المراجعة
-1. **WebSocket orderbook sync + reconnect + event persistence**.
-2. **Cross-venue Spot/Perp monitor + screener**.
-3. **Real liquidation stream + stored clusters**.
-4. **Volume Profile / VWAP / trade delta / pull-stack**.
-5. **Options surface وOn-chain متقدم**.
+1. **Feed Health Monitor**: freshness/coverage/warmup/dedup وتدقيق المصدر المستقل.
+2. **WebSocket orderbook sync + reconnect + event persistence**، ثم Heatmap وPull/Stack.
+3. **Cross-venue Spot/Perp monitor + screener** مع CVD لكل venue لا aggregate مضلل.
+4. **Real liquidation stream + stored clusters** مع تعريف التغطية والوحدات.
+5. **Footprint / Volume Profile / VWAP / trade delta** من تدفق متصل مستمر.
+6. **Options surface** بعد التحقق من العقد وقياس skew/term structure/Greeks؛ ثم On-chain متقدم من مصدر مرخص.
 
 لا ندّعي أن هذه الخصائص تثبت ربحية الاستراتيجية؛ يلزم رصد فعلي ومقارنة مصادر وتأكيدات التنفيذ.
