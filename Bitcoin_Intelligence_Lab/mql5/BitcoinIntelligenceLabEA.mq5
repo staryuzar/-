@@ -8,6 +8,7 @@ input int    MaxSpreadPoints = 0; // 0 disables this optional filter
 input int    CommandPollSeconds = 1;
 input int    SlippagePoints = 100;
 input double MaxRiskPercent = 0.50; // maximum equity loss per entry, in percent
+input double MaxDailyLossPercent = 2.00; // pause new entries after this server-day equity drawdown
 input bool   ShowStatusOnChart = true;
 input int    MaxOpenPositions = 1; // one BTCIL-managed position at a time
 
@@ -52,6 +53,43 @@ bool TerminalAllowsTrading()
    return (EnableTrading && TerminalInfoInteger(TERMINAL_CONNECTED) &&
            TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED) &&
            IsHeadwayBroker());
+}
+
+string DailyRiskKeyName()
+{
+   return StringFormat("BTCIL_DAY_KEY_%I64d_%I64u",
+      AccountInfoInteger(ACCOUNT_LOGIN),MagicNumber);
+}
+
+string DailyEquityName()
+{
+   return StringFormat("BTCIL_DAY_EQ_%I64d_%I64u",
+      AccountInfoInteger(ACCOUNT_LOGIN),MagicNumber);
+}
+
+void RefreshDailyRiskBaseline()
+{
+   MqlDateTime serverTime;
+   TimeToStruct(TimeTradeServer(),serverTime);
+   double dayKey=(double)(serverTime.year*10000+serverTime.mon*100+serverTime.day);
+   string keyName=DailyRiskKeyName();
+   string equityName=DailyEquityName();
+   if(!GlobalVariableCheck(keyName) || GlobalVariableGet(keyName)!=dayKey ||
+      !GlobalVariableCheck(equityName))
+   {
+      GlobalVariableSet(equityName,AccountInfoDouble(ACCOUNT_EQUITY));
+      GlobalVariableSet(keyName,dayKey);
+   }
+}
+
+bool DailyRiskAllowsNewEntry()
+{
+   RefreshDailyRiskBaseline();
+   double baseline=GlobalVariableGet(DailyEquityName());
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   if(baseline<=0.0 || equity<=0.0) return false;
+   double drawdownPercent=MathMax(0.0,(baseline-equity)/baseline*100.0);
+   return (drawdownPercent<MaxDailyLossPercent);
 }
 
 bool WriteTextFile(const string relativePath, const string content)
@@ -269,6 +307,11 @@ bool CloseOwnPosition(const ulong ticket)
 bool OpenBoardPosition(const string side,const double volume,const double sl,const double tp)
 {
    if(!TerminalAllowsTrading()) { lastStatus="BLOCKED: Headway server/terminal permission gate"; return false; }
+   if(!DailyRiskAllowsNewEntry())
+   {
+      lastStatus="BLOCKED: daily equity loss limit reached; new entries paused";
+      return false;
+   }
    if(!IsBitcoinSymbol()) { lastStatus="BLOCKED: chart symbol is not a Bitcoin instrument"; return false; }
    if(HasForeignPositionsOnSymbol())
    {
@@ -413,7 +456,8 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    if(MagicNumber==0 || CommandPollSeconds<1 || MaxSpreadPoints<0 || SlippagePoints<0 ||
-      MaxRiskPercent<=0.0 || MaxRiskPercent>2.0 || MaxOpenPositions<1)
+      MaxRiskPercent<=0.0 || MaxRiskPercent>2.0 ||
+      MaxDailyLossPercent<=0.0 || MaxDailyLossPercent>10.0 || MaxOpenPositions<1)
       return INIT_PARAMETERS_INCORRECT;
    string lockName=InstanceLockName();
    if(!GlobalVariableCheck(lockName)) GlobalVariableTemp(lockName);
@@ -423,6 +467,7 @@ int OnInit()
       return INIT_FAILED;
    }
    hasInstanceLock=true;
+   RefreshDailyRiskBaseline();
    FolderCreate("BitcoinIntelligenceLab",FILE_COMMON);
    int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(store!=INVALID_HANDLE) { lastCommandId=FileReadString(store); FileClose(store); }
