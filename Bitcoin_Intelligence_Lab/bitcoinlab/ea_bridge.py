@@ -8,7 +8,13 @@ from pathlib import Path
 import time
 from typing import Any
 
-from .command_protocol import build_command, publish_command, read_ack
+from .command_protocol import (
+    COMMAND_FILENAME,
+    COMMAND_FOLDER,
+    build_command,
+    publish_command,
+    read_ack,
+)
 from .scenarios import build_trade_levels
 
 
@@ -200,6 +206,35 @@ def read_execution_loop_status(
     }
 
 
+def _completed_command_ack(
+    common_files: str | Path,
+    command_id: str,
+) -> dict[str, Any] | None:
+    """Return a final matching ACK so a completed signal is not republished."""
+    path = Path(common_files) / COMMAND_FOLDER / COMMAND_FILENAME
+    try:
+        fields = path.read_text(encoding="ascii").strip().split("|")
+    except (OSError, UnicodeError):
+        return None
+    if len(fields) != 11 or fields[0] != "BTCIL1" or fields[1] != command_id:
+        return None
+    ack = read_ack(common_files)
+    if ack.get("id") != command_id:
+        return None
+    pending_statuses = {
+        "SUBMITTED_PENDING",
+        "CLOSE_SUBMITTED_PENDING",
+        "PARTIAL_FILL_PENDING",
+        "FILL_VOLUME_COMPLETE_WAITING_ORDER_FINALITY",
+        "CANCEL_REQUESTED",
+        "CANCEL_NOT_CONFIRMED",
+    }
+    status = str(ack.get("status", "")).upper()
+    if not status or status in pending_statuses:
+        return None
+    return ack
+
+
 def publish_decision_order(
     *, report: dict, common_files: str | Path | None = None,
     volume: float = 0.01, atr_stop_multiple: float = 1.2,
@@ -252,6 +287,14 @@ def publish_decision_order(
         volume=float(volume), stop_loss=float(levels["stop_loss"]),
         take_profit=float(levels["take_profit"]), ttl_seconds=ttl_seconds,
     )
+    completed_ack = _completed_command_ack(directory, command["id"])
+    if completed_ack is not None:
+        return {
+            "status": "already_processed",
+            "command_id": command["id"],
+            "ack": completed_ack,
+            "message": "The broker has already returned a final acknowledgment for this signal.",
+        }
     target = publish_command(directory, command)
     return {
         "status": "published", "command_id": command["id"],
@@ -313,6 +356,14 @@ def publish_close_order(
         action="CLOSE", symbol="BTC", position_ticket=int(ticket),
         ttl_seconds=ttl_seconds,
     )
+    completed_ack = _completed_command_ack(directory, command["id"])
+    if completed_ack is not None:
+        return {
+            "status": "already_processed",
+            "command_id": command["id"],
+            "ack": completed_ack,
+            "message": "The broker has already returned a final acknowledgment for this signal.",
+        }
     target = publish_command(directory, command)
     return {
         "status": "published", "command_id": command["id"],
