@@ -17,7 +17,7 @@ from .ea_bridge import (
     read_ea_status,
     read_positions,
 )
-from .live_snapshot import build_live_snapshot
+from .snapshot_runtime import read_latest_snapshot
 from .position_manager import next_position_action
 
 
@@ -72,7 +72,9 @@ def execute_once(
     *,
     common_files: str | Path | None = None,
     report: dict[str, Any] | None = None,
-    report_builder: Callable[[], dict[str, Any]] = build_live_snapshot,
+    report_builder: Callable[[], dict[str, Any]] | None = None,
+    snapshot_path: str | Path | None = None,
+    max_snapshot_age_seconds: int = 90,
     volume: float = 0.01,
 ) -> dict[str, Any]:
     """
@@ -98,7 +100,37 @@ def execute_once(
             },
             "pending_command": pending,
         })
-    snapshot = report if report is not None else report_builder()
+    if not 5 <= max_snapshot_age_seconds <= 900:
+        raise ValueError("max_snapshot_age_seconds must be between 5 and 900.")
+    try:
+        snapshot = (
+            report if report is not None
+            else (
+                report_builder() if report_builder is not None
+                else read_latest_snapshot(snapshot_path, max_age_seconds=max_snapshot_age_seconds)
+            )
+        )
+        observed = datetime.fromisoformat(
+            str(snapshot.get("as_of_utc", "")).replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+        age_seconds = (datetime.now(timezone.utc) - observed).total_seconds()
+    except Exception as exc:
+        return _finish_cycle(directory, {
+            "status": "snapshot_unavailable",
+            "plan": {"action": "HOLD", "reason": "shared_market_snapshot_unavailable"},
+            "decision": {"action": "HOLD", "blockers": ["shared_market_snapshot_unavailable"]},
+            "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+            "orders_sent": False,
+        })
+    if age_seconds < -5 or age_seconds > max_snapshot_age_seconds:
+        return _finish_cycle(directory, {
+            "status": "snapshot_stale",
+            "plan": {"action": "HOLD", "reason": "shared_market_snapshot_stale"},
+            "decision": {"action": "HOLD", "blockers": ["shared_market_snapshot_stale"]},
+            "snapshot_age_seconds": round(age_seconds, 2),
+            "max_snapshot_age_seconds": max_snapshot_age_seconds,
+            "orders_sent": False,
+        })
     terminal = read_ea_status(directory)
     if terminal.get("status") != "fresh":
         return _finish_cycle(directory, {
@@ -150,6 +182,8 @@ def main() -> int:
     )
     parser.add_argument("--interval-seconds", type=int, default=30)
     parser.add_argument("--volume", type=float, default=0.01)
+    parser.add_argument("--snapshot-path", default=None)
+    parser.add_argument("--max-snapshot-age-seconds", type=int, default=90)
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
 
@@ -157,6 +191,8 @@ def main() -> int:
         parser.error("interval-seconds must be between 15 and 300.")
     if not 0 < args.volume <= 100:
         parser.error("volume must be greater than zero and at most 100.")
+    if not 5 <= args.max_snapshot_age_seconds <= 900:
+        parser.error("max-snapshot-age-seconds must be between 5 and 900.")
     if os.environ.get("BTCIL_ENABLE_EXECUTION") != "1":
         print(json.dumps({
             "status": "blocked",
@@ -168,14 +204,25 @@ def main() -> int:
     try:
         while True:
             try:
-                result = execute_once(volume=args.volume)
+                result = execute_once(
+                    volume=args.volume,
+                    snapshot_path=args.snapshot_path,
+                    max_snapshot_age_seconds=args.max_snapshot_age_seconds,
+                )
                 print(json.dumps(result, ensure_ascii=False, default=str), flush=True)
             except Exception as exc:
-                print(json.dumps({
+                error_result = {
                     "status": "cycle_error",
+                    "plan": {"action": "HOLD", "reason": "execution_cycle_exception"},
+                    "decision": {"action": "HOLD", "blockers": ["execution_cycle_exception"]},
                     "reason": f"{type(exc).__name__}: {str(exc)[:300]}",
                     "orders_sent": False,
-                }, ensure_ascii=False), flush=True)
+                }
+                try:
+                    error_result = _finish_cycle(default_common_files(), error_result)
+                except Exception:
+                    pass
+                print(json.dumps(error_result, ensure_ascii=False, default=str), flush=True)
             if args.once:
                 return 0
             time.sleep(args.interval_seconds)
