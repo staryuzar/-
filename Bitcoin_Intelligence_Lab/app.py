@@ -11,6 +11,7 @@ from bitcoinlab.ea_bridge import (
     publish_decision_order, read_ea_status, read_positions,
 )
 from bitcoinlab.live_snapshot import build_live_snapshot
+from bitcoinlab.slow_context import build_slow_context
 
 st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
 
@@ -60,6 +61,11 @@ if "btc_last_order_result" not in st.session_state:
     st.session_state["btc_last_order_result"] = None
 if "btc_last_close_result" not in st.session_state:
     st.session_state["btc_last_close_result"] = None
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def cached_slow_context():
+    return build_slow_context()
 
 
 @st.fragment(run_every=f"{refresh_seconds}s" if auto_refresh else None)
@@ -269,6 +275,71 @@ def render_live_dashboard():
         st.write("الحواجز:", decision["blockers"] or "لا يوجد")
         st.write("الأدلة:", decision["reasons"])
         st.caption(decision.get("interpretation", "التقييم اتجاهي وليس احتمال ربح."))
+
+    with st.expander("سياق الشبكة والتمركز المؤسسي وتقلب الخيارات"):
+        with st.spinner("تحديث مصادر السياق الأبطأ (بحد أقصى مرة كل 15 دقيقة)..."):
+            slow = cached_slow_context()
+        context_states = [
+            {"المصدر": name, "الحالة": value.get("status"), "وقت القراءة UTC": value.get("fetched_at_utc")}
+            for name, value in slow["source_states"].items()
+        ]
+        st.dataframe(context_states, use_container_width=True, hide_index=True)
+
+        network = slow["data"].get("network", {})
+        if network:
+            st.markdown("**الشبكة والتعدين والـMempool — mempool.space**")
+            st.json({
+                "hashrate": network.get("hashrate"),
+                "recommended_fees": network.get("recommended_fees"),
+                "mempool": network.get("mempool"),
+            })
+
+        cot = slow["data"].get("cftc", {})
+        cot_rows = cot.get("rows", []) if isinstance(cot, dict) else []
+        if cot_rows:
+            st.markdown("**تمركز عقود CME — تقرير CFTC TFF الأسبوعي**")
+            st.dataframe(
+                [
+                    {
+                        "العقد": row.get("asset"),
+                        "تاريخ التقرير": row.get("report_date"),
+                        "Open Interest": row.get("open_interest"),
+                        "Leveraged Money Net": row.get("leveraged_money_net"),
+                        "Asset Managers Net": row.get("asset_manager_net"),
+                        "Dealers Net": row.get("dealer_net"),
+                    }
+                    for row in cot_rows[:8]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+        elif "cftc" in slow["errors"]:
+            st.warning(f"CFTC: {slow['errors']['cftc']}")
+        else:
+            st.caption("لا توجد صفوف BTC مطابقة في تقرير CFTC المحمّل.")
+
+        cm = slow["data"].get("coinmetrics", {})
+        cm_rows = cm.get("data", []) if isinstance(cm, dict) else []
+        if cm_rows:
+            st.markdown("**نشاط الشبكة — Coin Metrics Community**")
+            latest_cm = max(cm_rows, key=lambda row: str(row.get("time", "")))
+            st.json(latest_cm)
+            st.caption(cm.get("note", ""))
+        elif "coinmetrics" in slow["errors"]:
+            st.warning(f"Coin Metrics: {slow['errors']['coinmetrics']}")
+
+        dvol = slow["data"].get("dvol", {})
+        dvol_rows = dvol.get("data", []) if isinstance(dvol, dict) else []
+        if dvol_rows:
+            st.markdown("**تقلب الخيارات الضمني — Deribit DVOL**")
+            st.json({"latest_candle": dvol_rows[-1], "source": dvol.get("source")})
+        elif "dvol" in slow["errors"]:
+            st.warning(f"Deribit DVOL: {slow['errors']['dvol']}")
+
+        for item in slow["limitations"]:
+            st.caption("• " + item)
+        for name, error in slow["errors"].items():
+            st.warning(f"{name}: {error}")
 
     with st.expander("حدود اللقطة ومصادرها"):
         for item in report["limitations"]:
