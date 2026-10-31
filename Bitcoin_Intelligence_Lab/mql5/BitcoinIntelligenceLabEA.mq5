@@ -428,7 +428,14 @@ int OnInit()
    FolderCreate("BitcoinIntelligenceLab",FILE_COMMON);
    int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(store!=INVALID_HANDLE) { lastCommandId=FileReadString(store); FileClose(store); }
-   if(!EventSetTimer(CommandPollSeconds)) return INIT_FAILED;
+   if(!EventSetTimer(CommandPollSeconds))
+   {
+      if(hasInstanceLock && GlobalVariableCheck(lockName) &&
+         GlobalVariableGet(lockName)==(double)ChartID())
+         GlobalVariableDel(lockName);
+      hasInstanceLock=false;
+      return INIT_FAILED;
+   }
    lastStatus=TerminalAllowsTrading()?"READY: Headway board-execution mode":"WAITING: Headway / connection / Algo Trading permission";
    WriteStatus();
    WritePositions();
@@ -602,6 +609,29 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+
+   // If a residual broker order is still active (e.g. partial exchange fill),
+   // request cancellation before unloading this executor instance.
+   if(pendingOrderTicket>0 && OrderSelect(pendingOrderTicket) &&
+      OrderGetString(ORDER_SYMBOL)==_Symbol &&
+      (ulong)OrderGetInteger(ORDER_MAGIC)==MagicNumber)
+   {
+      MqlTradeRequest cancelRequest={};
+      MqlTradeResult cancelResult={};
+      cancelRequest.action=TRADE_ACTION_REMOVE;
+      cancelRequest.order=pendingOrderTicket;
+      bool cancelSent=OrderSend(cancelRequest,cancelResult);
+      string cancelDetail=StringFormat(
+         "order=%I64u sent=%s retcode=%u comment=%s",
+         pendingOrderTicket,cancelSent?"true":"false",
+         cancelResult.retcode,cancelResult.comment);
+      if(pendingCommandId!="")
+         WriteAck(pendingCommandId,
+            (cancelSent && cancelResult.retcode==TRADE_RETCODE_DONE)
+               ?"CANCEL_REQUESTED":"CANCEL_NOT_CONFIRMED",
+            pendingCommandAction,cancelDetail);
+      Print("BTCIL|PENDING_ORDER_CANCEL_ON_DEINIT|",cancelDetail);
+   }
    if(hasInstanceLock)
    {
       string lockName=InstanceLockName();
