@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 import math
 from pathlib import Path
+from contextlib import closing
 import sqlite3
 from typing import Any
 
@@ -47,7 +48,7 @@ def read_liquidation_heatmap(
 
     uri = db_path.resolve().as_uri() + "?mode=ro"
     try:
-        with sqlite3.connect(uri, uri=True, timeout=2.0) as connection:
+        with closing(sqlite3.connect(uri, uri=True, timeout=2.0)) as connection:
             connection.row_factory = sqlite3.Row
             tables = {
                 row[0] for row in connection.execute(
