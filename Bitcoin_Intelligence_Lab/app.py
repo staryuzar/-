@@ -1250,14 +1250,136 @@ def render_live_dashboard():
         )
     with right:
         st.subheader("محرك السيولة وتدفق الأوامر")
-        st.json({
-            "order_book": report["order_book"],
-            "trade_flow_rest_sample": report["trade_flow"],
-            "streamed_multi_venue_cvd": report.get("streamed_trade_flow", {}),
-            "streamed_footprint_profiles": report.get("streamed_footprint_profiles", []),
-            "historical_depth_liquidity_context": report.get("liquidity_context", {}),
-            "integrated_orderflow_profile": report["orderflow"],
-        })
+        book = report.get("order_book") or {}
+        rest_flow = report.get("trade_flow") or {}
+        cvd = report.get("streamed_trade_flow") or {}
+        footprint_profiles = report.get("streamed_footprint_profiles") or []
+        liquidity = report.get("liquidity_context") or {}
+        integrated = report.get("orderflow") or {}
+
+        def _flow_value(value, digits=2, suffix=""):
+            try:
+                number = float(value)
+                if not (number == number and abs(number) != float("inf")):
+                    return "غير متاح"
+                return f"{number:,.{digits}f}{suffix}"
+            except (TypeError, ValueError, OverflowError):
+                return "غير متاح"
+
+        st.markdown("**ملخص السيولة اللحظي**")
+        book_cols = st.columns(4)
+        book_cols[0].metric("أفضل طلب Bid", _flow_value(book.get("best_bid"), 2))
+        book_cols[1].metric("أفضل عرض Ask", _flow_value(book.get("best_ask"), 2))
+        book_cols[2].metric("السبريد", _flow_value(book.get("spread_bps"), 4, " bps"))
+        book_cols[3].metric("اختلال دفتر الأوامر", _flow_value(book.get("imbalance"), 3))
+        depth_cols = st.columns(3)
+        depth_cols[0].metric("عمق Bid الظاهر", _flow_value(book.get("bid_notional"), 0, " USD"))
+        depth_cols[1].metric("عمق Ask الظاهر", _flow_value(book.get("ask_notional"), 0, " USD"))
+        depth_cols[2].metric("مستويات الدفتر المستخدمة", str(book.get("levels_used", "غير متاح")))
+
+        st.markdown("**تدفق الصفقات المنفذة — عينة REST**")
+        trade_cols = st.columns(5)
+        trade_cols[0].metric("شراء BTC", _flow_value(rest_flow.get("buy_volume"), 4))
+        trade_cols[1].metric("بيع BTC", _flow_value(rest_flow.get("sell_volume"), 4))
+        trade_cols[2].metric("دلتا BTC", _flow_value(rest_flow.get("delta"), 4))
+        trade_cols[3].metric("نسبة الدلتا", _flow_value(rest_flow.get("delta_ratio"), 3))
+        trade_cols[4].metric("عدد الصفقات", str(rest_flow.get("trade_count", "غير متاح")))
+
+        st.markdown("**CVD المستمر متعدد المنصات — نافذة 5 دقائق**")
+        cvd_cols = st.columns(3)
+        cvd_cols[0].metric("حالة تغطية CVD", _status_ar(cvd.get("status")))
+        cvd_cols[1].metric(
+            "درجة CVD",
+            _flow_value(cvd.get("score"), 3) if cvd.get("score") is not None else "غير نشط",
+        )
+        cvd_cols[2].metric("عدد المنصات المؤهلة", str(cvd.get("venue_count", 0)))
+        active_venues = cvd.get("active_venues", [])
+        rejected_venues = cvd.get("rejected_venues", [])
+        st.caption(
+            "المنصات المؤهلة: " + ("، ".join(map(str, active_venues)) if active_venues else "لا توجد") +
+            " · المستبعدة: " + ("، ".join(map(str, rejected_venues)) if rejected_venues else "لا توجد")
+        )
+        if cvd.get("reason"):
+            st.warning("سبب عدم اكتمال CVD: " + str(cvd["reason"]))
+        if cvd.get("warnings"):
+            st.caption("تنبيهات CVD: " + " · ".join(map(str, cvd["warnings"])))
+
+        if footprint_profiles:
+            st.markdown("**Footprint — فصل كل منصة ونوع سوق**")
+            for profile in footprint_profiles:
+                venue = str(profile.get("venue", "منصة غير معروفة"))
+                market_type = str(profile.get("market_type", ""))
+                market_label = "Spot" if market_type == "spot" else "Linear Perpetual" if market_type else "غير محدد"
+                with st.expander(f"{venue} · {market_label} · {profile.get('trade_count', 0)} صفقة"):
+                    fp_cols = st.columns(5)
+                    fp_cols[0].metric("POC", _flow_value(profile.get("poc"), 2))
+                    fp_cols[1].metric("VAH", _flow_value(profile.get("vah"), 2))
+                    fp_cols[2].metric("VAL", _flow_value(profile.get("val"), 2))
+                    fp_cols[3].metric("صافي الدلتا USD", _flow_value(profile.get("delta_notional_usd"), 2))
+                    fp_cols[4].metric("دلتا الحجم", _flow_value(profile.get("delta_ratio"), 3))
+                    bins = profile.get("bins", [])
+                    if bins:
+                        bin_rows = [
+                            {
+                                "نطاق السعر USD": row.get("price_bucket_usd"),
+                                "شراء BTC": row.get("buy_btc"),
+                                "بيع BTC": row.get("sell_btc"),
+                                "دلتا BTC": row.get("delta_btc"),
+                                "قيمة الشراء USD": row.get("buy_notional_usd"),
+                                "قيمة البيع USD": row.get("sell_notional_usd"),
+                                "عدد الصفقات": row.get("trade_count"),
+                            }
+                            for row in bins if isinstance(row, dict)
+                        ]
+                        if bin_rows:
+                            st.dataframe(bin_rows, use_container_width=True, hide_index=True)
+
+        depth_venues = liquidity.get("venues", []) if isinstance(liquidity, dict) else []
+        if depth_venues:
+            st.markdown("**ملخص سجل عمق السيولة التاريخي**")
+            depth_rows = [
+                {
+                    "المنصة": row.get("venue"),
+                    "نوع السوق": row.get("market_type"),
+                    "الحالة": row.get("status"),
+                    "عدد اللقطات": row.get("snapshot_count"),
+                    "تغطية العينات": _flow_value(row.get("sample_coverage_ratio"), 1, "%")
+                    if row.get("sample_coverage_ratio") is None else _flow_value(float(row.get("sample_coverage_ratio")) * 100, 1, "%"),
+                }
+                for row in depth_venues if isinstance(row, dict)
+            ]
+            if depth_rows:
+                st.dataframe(depth_rows, use_container_width=True, hide_index=True)
+
+        if integrated:
+            st.markdown("**خلاصة محرك تدفق الأوامر المدمج**")
+            integrated_cols = st.columns(3)
+            integrated_cols[0].metric("حالة المحرك", _status_ar(integrated.get("status")))
+            integrated_cols[1].metric(
+                "الدرجة الاتجاهية",
+                _flow_value(integrated.get("score"), 3) if integrated.get("score") is not None else "غير متاح",
+            )
+            integrated_cols[2].metric("الاتجاه", _status_ar(integrated.get("state")))
+            evidence = integrated.get("evidence", [])
+            if evidence:
+                st.caption("الأدلة: " + " · ".join(map(str, evidence)))
+
+        st.caption(
+            "قراءة مهمة: اختلال الدفتر يقيس أوامر معروضة قابلة للإلغاء أو التلاعب، "
+            "أما دلتا الصفقات فتقيس تنفيذات حدثت بالفعل. لا تُجمع أحجام Spot والعقود الدائمة "
+            "أو أحجام المنصات في رقم واحد. ولا يُفعّل CVD التصويتي إلا بعد تحقق شروط حداثة "
+            "وتغطية منصتين على الأقل."
+        )
+
+        with st.expander("البيانات الخام الكاملة للمطور — JSON"):
+            st.json({
+                "order_book": book,
+                "trade_flow_rest_sample": rest_flow,
+                "streamed_multi_venue_cvd": cvd,
+                "streamed_footprint_profiles": footprint_profiles,
+                "historical_depth_liquidity_context": liquidity,
+                "integrated_orderflow_profile": integrated,
+            })
         st.subheader("أسباب القرار والحواجز")
         st.write("الحواجز:", decision["blockers"] or "لا يوجد")
         st.write("الأدلة:", decision["reasons"])
