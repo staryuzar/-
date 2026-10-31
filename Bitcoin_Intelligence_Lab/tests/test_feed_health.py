@@ -145,6 +145,51 @@ class FeedHealthTests(unittest.TestCase):
         self.assertEqual(result["status"], "partial")
         self.assertEqual(result["fresh_core_count"], 2)
 
+    def test_trade_feed_requires_recent_market_events_even_with_fresh_heartbeat(self):
+        stream = self.streams()
+        stream["venues"].append({
+            "venue": "binance_usdm_trades", "symbol": "BTCUSDT",
+            "status": "live", "updated_at_ms": NOW - 1_000,
+            "last_message_ms": NOW - 90_000, "reconnects": 0,
+        })
+        result = build_data_health(
+            source_states=self.sources(),
+            stream_state=stream,
+            now_ms=NOW,
+        )
+        row = next(
+            x for x in result["stream_feeds"]
+            if x["name"] == "binance_usdm_trades"
+        )
+        self.assertEqual(row["feed_type"], "trades")
+        self.assertEqual(row["status"], "stale")
+        self.assertIn("binance_usdm_trades", result["trade_feeds_missing_recent_events"])
+        self.assertIn("trade_feeds_missing_recent_trade_events", result["warnings"])
+
+    def test_fresh_trade_feed_is_live_and_not_confused_with_liquidation_silence(self):
+        stream = self.streams()
+        stream["venues"].append({
+            "venue": "okx_spot_trades", "symbol": "BTCUSDT",
+            "status": "live", "updated_at_ms": NOW - 1_000,
+            "last_message_ms": NOW - 2_000, "reconnects": 0,
+        })
+        result = build_data_health(
+            source_states=self.sources(),
+            stream_state=stream,
+            now_ms=NOW,
+        )
+        row = next(
+            x for x in result["stream_feeds"]
+            if x["name"] == "okx_spot_trades"
+        )
+        self.assertEqual(row["feed_type"], "trades")
+        self.assertEqual(row["status"], "live")
+        self.assertNotIn("okx_spot_trades", result["trade_feeds_missing_recent_events"])
+        self.assertIn(
+            "event_driven_feeds_connected_no_recent_liquidation_events",
+            result["warnings"],
+        )
+
     def test_rejects_invalid_monitoring_configuration(self):
         with self.assertRaises(ValueError):
             build_data_health(
