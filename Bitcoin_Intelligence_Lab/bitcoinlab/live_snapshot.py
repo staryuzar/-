@@ -237,6 +237,11 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "status": "ok" if multi_timeframe["status"] == "ok" else "incomplete",
         "score": multi_timeframe["score"],
         "reason": "; ".join(multi_timeframe["blockers"]) if multi_timeframe["blockers"] else None,
+        "warnings": list(multi_timeframe.get("warnings", [])),
+        "macro_conflict": bool(multi_timeframe.get("macro_conflict")),
+        "countertrend_setup": bool(multi_timeframe.get("countertrend_setup")),
+        "macro_score": multi_timeframe.get("macro_score"),
+        "intraday_score": multi_timeframe.get("intraday_score"),
     }
 
     market_structure = market_structure_profile(bars, trades) if bars and trades else {
