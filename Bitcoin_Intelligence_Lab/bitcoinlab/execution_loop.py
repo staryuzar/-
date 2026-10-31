@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from .ea_bridge import (
     default_common_files,
+    pending_command_state,
     publish_close_order,
     publish_decision_order,
     read_ea_status,
@@ -82,6 +83,21 @@ def execute_once(
     and the 0.5% equity-risk cap before sending an order to the terminal.
     """
     directory = Path(common_files) if common_files is not None else default_common_files()
+    pending = pending_command_state(directory)
+    if pending.get("pending"):
+        return _finish_cycle(directory, {
+            "status": "command_pending",
+            "plan": {
+                "action": "HOLD",
+                "reason": "previous_broker_command_not_final",
+            },
+            "command": {
+                "command_id": pending.get("command_id"),
+                "status": pending.get("status"),
+                "ack_status": pending.get("ack_status"),
+            },
+            "pending_command": pending,
+        })
     snapshot = report if report is not None else report_builder()
     terminal = read_ea_status(directory)
     if terminal.get("status") != "fresh":
