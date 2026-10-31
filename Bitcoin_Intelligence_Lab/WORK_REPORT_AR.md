@@ -112,7 +112,7 @@ https://github.com/staryuzar/-/actions/runs/41158793678
 - حُذف ملفا Windows المؤقتان من `main` وأُضيفا إلى `bitcoin-intelligence-lab` فقط؛ والتحقق من الشجرة يؤكد عدم وجودهما على `main`.
 - خط الأساس الأحدث الذي اجتاز CI وWindows: [CI #63852](https://github.com/staryuzar/-/actions/runs/41163863852) شغّل **259 اختباراً على كل من Python 3.12 و3.13**، و[Windows Runtime #63881](https://github.com/staryuzar/-/actions/runs/41163863881) اجتاز اختبارات Windows وتجميع EA الفعلي بـMetaEditor (0 أخطاء و0 تحذيرات) وتشغيل الجامع الحي وSQLite وStreamlit وقارئ اللوحة.
 - في لقطة Windows Runtime كانت Bybit وOKX قناتي دفاتر/صفقات حية، بينما Binance Spot أعادت HTTP 451؛ استمر الجامع مع المصادر المتاحة، وحُفظت البيانات مع SQLite WAL وسلامة integrity.
-- بعد هذا الخط الأساسي أُضيفت مطابقة OrderTicket وتجميع أحجام التعبئة وتمييز partial fill؛ ثم ضُيّق إنهاء أمر الوسيط إلى TRADE_TRANSACTION_ORDER_DELETE فقط. إعادة اختبار هذه النسخة الأحدث جارية عبر [CI #66466](https://github.com/staryuzar/-/actions/runs/41163966466) و[Windows Runtime #66205](https://github.com/staryuzar/-/actions/runs/41163966205).
+- بعد هذا الخط الأساسي نُقل تأكيد التنفيذ إلى TRADE_TRANSACTION_REQUEST المطابق لـrequest_id، ويستخدم MqlTradeResult.volume الذي يؤكده الوسيط. للطلبات PLACED/DONE_PARTIAL التي تبقى نشطة، يستطلع EA حالة Order ويجمع الصفقات التاريخية المرتبطة به حتى يختفي الأمر؛ عندها يميز التعبئة الكاملة من الجزئية أو الإلغاء. النسخة الأحدث تعيد الاختبار عبر [CI #10536](https://github.com/staryuzar/-/actions/runs/41164310536) و[Windows Runtime #10543](https://github.com/staryuzar/-/actions/runs/41164310543).
 - إعادة إثبات العزل على خط الأساس: [Aurora #63860](https://github.com/staryuzar/-/actions/runs/41163863860) نجح فحص النطاق وتخطّى وظائف MT5 وChrome وGemini. لا يُخلط هذا مع اختبار EA الخاص بالبيتكوين.
 
 ### 2.9 ربط Headway وحلقة التنفيذ ومراقبة ACK — 31 أكتوبر 2026
@@ -122,9 +122,9 @@ https://github.com/staryuzar/-/actions/runs/41158793678
 - التشغيل يتطلب صراحةً `BTCIL_ENABLE_EXECUTION=1`، والدورة كل 30 ثانية افتراضياً. هذا البرنامج يعمل على الجهاز الدائم الذي يشغّل MT5، وليس داخل GitHub runner المؤقت.
 - حجم OPEN الافتراضي 0.01 لوت، وSL/TP من ATR وسعر الوسيط، وTTL افتراضي 60 ثانية. EA يتحقق من min/max/step والوقف والسبريد الاختياري وسقف خسارة 0.5% من Equity عبر OrderCalcProfit، ومركز واحد للخبير.
 - CLOSE يستهدف تذكرة يملكها EA فقط. معرّف CLOSE idempotent حسب التذكرة والحجم المتبقي، فيمنع التكرار ويتيح إعادة المحاولة بعد إغلاق جزئي.
-- أضيف قفل Global Variable في MT5 يمنع أكثر من نسخة من EA بالـMagicNumber/الرمز نفسه من التقاط ملف الأمر المشترك.
+- أضيف قفل Global Variable في MT5 يمنع أكثر من نسخة من EA بالـMagicNumber/الرمز نفسه من التقاط ملف الأمر المشترك. كما يمنع EA فتح مركز على الرمز إذا وجدت عليه مراكز أخرى لا تحمل MagicNumber الخاص به، لتجنب خلط مراكز البرنامج مع مراكز خارجية.
 - أضيف نبض تنفيذ ذري إلى `execution_loop_status.json` وتقرأه اللوحة مع EA status وpositions وACK المطابق لمعرّف آخر أمر؛ Streamlit يظل قارئاً فقط.
-- عُدّل MQL ليحتفظ برقم Order الذي أعاده الوسيط ويقبل فقط أحداث DEAL_ADD المطابقة لذلك الرقم مع الرمز وMagicNumber. يجمع حجم التعبئة، ويرسل حالة انتقالية PARTIAL_FILL_PENDING، ولا يصف الأمر مكتملاً إلا عند اكتمال حجم الطلب أو حذف الأمر من جهة الوسيط. الإغلاق الجزئي يعاد تقييمه من الحجم المتبقي.
+- عُدّل MQL ليحتفظ بـrequest_id الذي يصدره MT5 ويطابق TRADE_TRANSACTION_REQUEST معه؛ ويستعمل حجم التعبئة المؤكد في MqlTradeResult. إذا كان الأمر PLACED أو DONE_PARTIAL وظل نشطاً، يوقف الأوامر التالية حتى تختفي التذكرة من الأوامر النشطة ويقرأ Deals التاريخية حسب Order ticket وSymbol وMagicNumber. الإقرار الجزئي لا يُسمى تنفيذاً كاملاً، ويُعاد تقييم الإغلاق حسب حجم المركز المتبقي.
 - أحدث Windows baseline قبل إعادة التحقق الأخيرة اجتاز تجميع EA الفعلي بـMetaEditor بنتيجة 0 أخطاء و0 تحذيرات. لم يسجل هذا الاختبار دخول Headway أو إرسال أي أمر.
 - **لم تُنفذ بعد صفقة فعلية من EA على جلسة MT5 دائمة للمستخدم.** لا يمكن اعتبار نجاح تجميع/اختبار GitHub بمنزلة تسجيل دخول أو أمر منفذ. جهاز Windows المتاح حالياً عبر Remote Desktop كان Offline.
 
