@@ -59,6 +59,7 @@ $bootstrap = [ordered]@{
     started_at_utc = [DateTime]::UtcNow.ToString('o')
     project_root = $projectRoot
     data_collector = [ordered]@{ status = 'unknown'; existing_processes = @(); started_pid = $null }
+    snapshot_service = [ordered]@{ status = 'unknown'; existing_processes = @(); started_pid = $null; path = (Join-Path $dataRoot 'live_snapshot.json') }
     dashboard = [ordered]@{ status = 'unknown'; url = $dashboardUrl; http_status = $null; existing_processes = @(); started_pid = $null }
     mt5 = [ordered]@{ status = 'not_checked'; reason = $null }
     execution_loop = [ordered]@{ status = 'disabled_by_default'; existing_processes = @(); started_pid = $null }
@@ -81,6 +82,35 @@ if ($collector.Count -gt 0) {
     $collector = Get-BitcoinProcesses '*bitcoinlab.market_stream*'
     $bootstrap.data_collector.existing_processes = @($collector)
     $bootstrap.data_collector.status = if ($collector.Count -gt 0) { 'started' } else { 'start_requested' }
+}
+
+# One snapshot service performs the REST acquisition and central analysis once.
+# The dashboard and execution loop read the same atomically-published snapshot.
+$snapshotProcesses = Get-BitcoinProcesses '*bitcoinlab.snapshot_runtime*'
+$bootstrap.snapshot_service.existing_processes = @($snapshotProcesses)
+if ($snapshotProcesses.Count -gt 0) {
+    $bootstrap.snapshot_service.status = 'already_running'
+} else {
+    $stdout = Join-Path $logRoot 'snapshot_service.stdout.log'
+    $stderr = Join-Path $logRoot 'snapshot_service.stderr.log'
+    $started = Start-ProjectProcess -Name 'snapshot_service' -Arguments @('-m','bitcoinlab.snapshot_runtime','--interval-seconds','45','--symbol','BTCUSDT','--interval','1m','--snapshot-path','data/live_snapshot.json','--status-path','data/live_snapshot_service_status.json','--refresh-request-path','data/snapshot_refresh.request.json') -StdoutPath $stdout -StderrPath $stderr
+    $bootstrap.snapshot_service.started_pid = [int]$started.Id
+    Start-Sleep -Seconds 2
+    $snapshotProcesses = Get-BitcoinProcesses '*bitcoinlab.snapshot_runtime*'
+    $bootstrap.snapshot_service.existing_processes = @($snapshotProcesses)
+    $bootstrap.snapshot_service.status = if ($snapshotProcesses.Count -gt 0) { 'started' } else { 'start_requested' }
+}
+$snapshotPath = Join-Path $dataRoot 'live_snapshot.json'
+if (Test-Path -LiteralPath $snapshotPath) {
+    try {
+        $sharedSnapshot = Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
+        $bootstrap.snapshot_service.snapshot_time_utc = $sharedSnapshot.snapshot.as_of_utc
+        $observed = [DateTimeOffset]::Parse([string]$sharedSnapshot.snapshot.as_of_utc).ToUniversalTime()
+        $bootstrap.snapshot_service.snapshot_age_seconds = [math]::Round(([DateTimeOffset]::UtcNow - $observed).TotalSeconds,2)
+    } catch {
+        $bootstrap.snapshot_service.snapshot_age_seconds = $null
+        $bootstrap.notes += 'The last shared snapshot exists but could not be parsed.'
+    }
 }
 
 # Reuse a healthy Streamlit server. Never launch a second server on the same port.
@@ -115,6 +145,20 @@ $bootstrap.execution_loop.existing_processes = @($execution)
 if ($execution.Count -gt 0) {
     $bootstrap.execution_loop.status = 'already_running'
 } elseif ($EnableExecution) {
+    $snapshotPath = Join-Path $dataRoot 'live_snapshot.json'
+    if (-not (Test-Path -LiteralPath $snapshotPath)) {
+        throw "Trading execution was requested, but the shared market snapshot is missing: $snapshotPath"
+    }
+    try {
+        $sharedSnapshot = Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
+        $snapshotTime = [DateTimeOffset]::Parse([string]$sharedSnapshot.snapshot.as_of_utc).ToUniversalTime()
+        $snapshotAge = ([DateTimeOffset]::UtcNow - $snapshotTime).TotalSeconds
+    } catch {
+        throw "Trading execution was requested, but the shared snapshot is invalid: $($_.Exception.Message)"
+    }
+    if ($snapshotAge -lt -5 -or $snapshotAge -gt 90) {
+        throw "Trading execution was requested, but the shared snapshot is stale ($([math]::Round($snapshotAge,1)) seconds)."
+    }
     $eaPath = Join-Path $commonRoot 'ea_status.tsv'
     if (-not (Test-Path -LiteralPath $eaPath)) {
         throw "Trading execution was requested, but the MT5 EA status file is missing: $eaPath"
@@ -144,7 +188,7 @@ if ($execution.Count -gt 0) {
         $env:BTCIL_ENABLE_EXECUTION = '1'
         $stdout = Join-Path $logRoot 'execution_loop.stdout.log'
         $stderr = Join-Path $logRoot 'execution_loop.stderr.log'
-        $started = Start-ProjectProcess -Name 'execution_loop' -Arguments @('-m','bitcoinlab.execution_loop','--interval-seconds',"$ExecutionIntervalSeconds",'--volume',"$Volume") -StdoutPath $stdout -StderrPath $stderr
+        $started = Start-ProjectProcess -Name 'execution_loop' -Arguments @('-m','bitcoinlab.execution_loop','--interval-seconds',"$ExecutionIntervalSeconds",'--volume',"$Volume",'--snapshot-path',(Join-Path $dataRoot 'live_snapshot.json')) -StdoutPath $stdout -StderrPath $stderr
         $bootstrap.execution_loop.started_pid = [int]$started.Id
         Start-Sleep -Seconds 2
         $execution = Get-BitcoinProcesses '*bitcoinlab.execution_loop*'
