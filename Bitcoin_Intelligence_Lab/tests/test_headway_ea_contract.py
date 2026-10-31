@@ -66,6 +66,14 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertNotIn("OrderSend", on_tick)
         self.assertIn("centralized board is the only decision authority", on_tick)
 
+    def test_deinitialization_requests_cancel_for_its_active_residual_order(self):
+        self.assertIn("void OnDeinit(const int reason)", self.source)
+        self.assertIn("cancelRequest.action=TRADE_ACTION_REMOVE", self.source)
+        self.assertIn("cancelRequest.order=pendingOrderTicket", self.source)
+        self.assertIn("ORDER_MAGIC)==MagicNumber", self.source)
+        self.assertIn("CANCEL_REQUESTED", self.source)
+        self.assertIn("CANCEL_NOT_CONFIRMED", self.source)
+
     def test_broker_fill_policy_is_not_guessed_when_market_execution_has_no_supported_mode(self):
         self.assertIn("bool PrepareTradeRequest(MqlTradeRequest &request)", self.source)
         self.assertIn("return false; // Market execution forbids RETURN", self.source)
