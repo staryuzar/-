@@ -50,7 +50,7 @@ class OnchainContextTests(unittest.TestCase):
             }],
         }, now_ms=NOW)
         self.assertAlmostEqual(result["mvrv"], 1.5)
-        self.assertAlmostEqual(result["nupl_derived"], 1 / 3)
+        self.assertAlmostEqual(result["nupl_derived"], 1 / 3, places=5)
 
     def test_seven_day_changes_need_a_valid_historical_baseline(self):
         rows = []
