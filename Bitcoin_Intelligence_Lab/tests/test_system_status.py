@@ -149,7 +149,7 @@ class SystemReadinessTests(unittest.TestCase):
         )
         self.assertFalse(result["execution_pipeline_ready"])
         self.assertFalse(result["new_entry_ready"])
-        self.assertIn("snapshot_service_healthy", result["blockers"])
+        self.assertIn("snapshot_service_stale", result["blockers"])
 
     def test_missing_snapshot_is_system_degraded(self):
         result = build_system_readiness(
