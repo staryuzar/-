@@ -4,12 +4,15 @@ import math
 from typing import Mapping
 
 
-DEFAULT_WEIGHTS = {"technical": 0.40, "orderflow": 0.35, "derivatives": 0.25}
+DEFAULT_WEIGHTS = {"technical": 0.35, "orderflow": 0.25, "derivatives": 0.20, "market_structure": 0.10, "cross_venue": 0.10}
 
 
 def central_decision(
     *, technical: Mapping[str, object], orderflow: Mapping[str, object],
     derivatives: Mapping[str, object], source_states: Mapping[str, Mapping[str, object]],
+    market_structure: Mapping[str, object] | None = None,
+    cross_venue: Mapping[str, object] | None = None,
+    liquidation_risk: Mapping[str, object] | None = None,
     spread_bps: float | None = None, reward_risk_ratio: float | None = None,
     min_abs_score: float = 0.15, max_spread_bps: float | None = None,
     minimum_active_domains: int = 2,
@@ -33,6 +36,8 @@ def central_decision(
         "technical": technical,
         "orderflow": orderflow,
         "derivatives": derivatives,
+        "market_structure": market_structure or {"status": "incomplete", "score": None},
+        "cross_venue": cross_venue or {"status": "incomplete", "score": None},
     }
     valid: dict[str, float] = {}
     unavailable: list[str] = []
@@ -59,11 +64,18 @@ def central_decision(
             "warnings": [f"{name}_unavailable" for name in unavailable],
             "reasons": [], "weights": DEFAULT_WEIGHTS.copy(),
         }
-    if len(valid) < minimum_active_domains:
+    # New auxiliary engines cannot replace the two original independent
+    # evidence domains: technical structure plus either trade flow or derivatives.
+    core_domains = {"technical", "orderflow", "derivatives"}
+    active_core = core_domains.intersection(valid)
+    if len(active_core) < minimum_active_domains:
         return {
-            "action": "HOLD", "score": None, "blockers": ["insufficient_fresh_evidence_domains"],
+            "action": "HOLD", "score": None,
+            "blockers": ["insufficient_fresh_core_evidence_domains"],
             "warnings": [f"{name}_unavailable" for name in unavailable],
             "reasons": [], "weights": DEFAULT_WEIGHTS.copy(),
+            "active_domains": list(valid),
+            "core_active_domains": sorted(active_core),
         }
 
     active_weights = {name: DEFAULT_WEIGHTS[name] for name in valid}
@@ -72,6 +84,14 @@ def central_decision(
     score = sum(valid[name] * normalized[name] for name in valid)
 
     warnings = [f"{name}_unavailable_or_stale" for name in unavailable]
+    if isinstance(liquidation_risk, Mapping):
+        warnings.extend(
+            str(item) for item in liquidation_risk.get("warnings", [])
+        )
+    if isinstance(cross_venue, Mapping):
+        warnings.extend(
+            str(item) for item in cross_venue.get("warnings", [])
+        )
     if spread_bps is not None:
         if not math.isfinite(float(spread_bps)) or spread_bps < 0:
             warnings.append("spread_data_invalid")
@@ -108,7 +128,12 @@ def central_decision(
         "warnings": warnings,
         "reasons": [f"{name}:{value:+.2f}" for name, value in valid.items()],
         "active_domains": list(valid), "unavailable_domains": unavailable,
+        "core_active_domains": sorted(active_core),
         "aligned_domains": max(positive, negative), "weights": normalized,
+        "risk_context_only": (
+            liquidation_risk.get("use_in_decision")
+            if isinstance(liquidation_risk, Mapping) else None
+        ),
         "interpretation": "Directional evidence score, not a statistical probability of profit.",
         "execution_filters": "spread and reward/risk are advisory unless explicitly configured.",
     }
