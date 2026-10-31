@@ -518,10 +518,11 @@ void PollPendingOrderStatus()
    {
       ENUM_ORDER_STATE state=(ENUM_ORDER_STATE)HistoryOrderGetInteger(
          pendingOrderTicket,ORDER_STATE);
-      if(state==ORDER_STATE_CANCELED || state==ORDER_STATE_REJECTED ||
-         state==ORDER_STATE_EXPIRED)
+      if(state==ORDER_STATE_FILLED || state==ORDER_STATE_CANCELED ||
+         state==ORDER_STATE_REJECTED || state==ORDER_STATE_EXPIRED)
       {
-         pendingFilledVolume=0.0;
+         // Preserve the broker-confirmed result.volume when the history-deal
+         // collection is momentarily behind the order-history update.
          FinalizePendingOrder();
       }
    }
