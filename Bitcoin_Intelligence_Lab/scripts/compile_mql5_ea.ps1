@@ -68,6 +68,8 @@ try {
         throw "EA compilation must report zero errors and zero warnings."
     }
 
+    Copy-Item -LiteralPath $eaBinary -Destination (Join-Path $artifactDir "BitcoinIntelligenceLabEA.ex5") -Force
+    Copy-Item -LiteralPath $compileLog -Destination (Join-Path $artifactDir "BitcoinIntelligenceLabEA_metaeditor.log") -Force
     $lines.Add("Compiled EX5 bytes: $((Get-Item -LiteralPath $eaBinary).Length)")
     $lines.Add("RESULT: PASS — BitcoinIntelligenceLabEA.mq5 compiled with zero errors and zero warnings.")
     $lines.Add("UTC end: $([DateTime]::UtcNow.ToString('o'))")
