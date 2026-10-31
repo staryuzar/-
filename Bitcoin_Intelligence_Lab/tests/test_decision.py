@@ -47,6 +47,46 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(result["action"], "BUY")
         self.assertIn("reward_risk_below_optional_reference", result["warnings"])
 
+    def test_market_structure_and_cross_venue_engines_add_weight_when_fresh(self):
+        sources = dict(FRESH)
+        sources["market_structure"] = {"status": "fresh"}
+        sources["cross_venue"] = {"status": "fresh"}
+        result = self.call(
+            source_states=sources,
+            market_structure={"status": "ok", "score": 0.6},
+            cross_venue={"status": "ok", "score": 0.4},
+        )
+        self.assertEqual(result["action"], "BUY")
+        self.assertIn("market_structure", result["active_domains"])
+        self.assertIn("cross_venue", result["active_domains"])
+        self.assertAlmostEqual(sum(result["weights"].values()), 1.0)
+
+    def test_auxiliary_engines_cannot_replace_fresh_core_evidence(self):
+        sources = {
+            "spot": {"status": "fresh"},
+            "orderflow": {"status": "stale"},
+            "derivatives": {"status": "stale"},
+            "market_structure": {"status": "fresh"},
+            "cross_venue": {"status": "fresh"},
+        }
+        result = self.call(
+            source_states=sources,
+            market_structure={"status": "ok", "score": 0.9},
+            cross_venue={"status": "ok", "score": 0.8},
+        )
+        self.assertEqual(result["action"], "HOLD")
+        self.assertIn("insufficient_fresh_core_evidence_domains", result["blockers"])
+
+    def test_liquidation_pressure_is_a_warning_not_an_extra_direction_vote(self):
+        risk = {
+            "warnings": ["cross_venue_long_liquidation_pressure"],
+            "use_in_decision": "risk_context_only_not_directional_vote",
+        }
+        result = self.call(liquidation_risk=risk)
+        self.assertEqual(result["action"], "BUY")
+        self.assertIn("cross_venue_long_liquidation_pressure", result["warnings"])
+        self.assertEqual(result["risk_context_only"], "risk_context_only_not_directional_vote")
+
     def test_weak_confluence_holds(self):
         result = self.call(
             technical={"status": "ok", "score": 0.1},
