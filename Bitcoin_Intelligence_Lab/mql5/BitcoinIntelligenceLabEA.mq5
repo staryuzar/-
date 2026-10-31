@@ -1,10 +1,9 @@
 #property strict
-#property version   "1.005"
-#property description "Bitcoin Intelligence Lab — Headway BTC demo command executor"
+#property version   "1.006"
+#property description "Bitcoin Intelligence Lab — Headway BTC centralized command executor"
 
 input ulong  MagicNumber = 28102027;
 input bool   EnableTrading = true;
-input bool   RequireHeadwayServer = true;
 input int    MaxSpreadPoints = 0; // 0 disables this optional filter
 input int    CommandPollSeconds = 1;
 input int    SlippagePoints = 100;
@@ -45,7 +44,6 @@ bool IsHeadwayBroker()
    // Account mode is deliberately not inspected. The broker identity is Headway.
    string server = AccountInfoString(ACCOUNT_SERVER);
    StringToLower(server);
-   if(!RequireHeadwayServer) return true;
    return (StringFind(server, "headway") >= 0 || StringFind(server, "trade-hw.online") >= 0);
 }
 
