@@ -64,6 +64,36 @@ class MarketDataStoreTests(unittest.TestCase):
         self.assertEqual(dashboard["liquidation_summary"][0]["event_count"], 1)
         self.assertEqual(dashboard["recent_liquidations"][0]["liquidated_side"], "LONG")
 
+    def test_trade_flow_summary_includes_total_btc_base_volume(self):
+        now = 1_800_000_000_000
+        with tempfile.TemporaryDirectory() as tmp:
+            with MarketDataStore(Path(tmp) / "market.sqlite") as store:
+                for key, side, quantity in (
+                    ("buy-1", "BUY", 0.2),
+                    ("sell-1", "SELL", 0.15),
+                ):
+                    store.record_trade_event(
+                        event={
+                            "event_key": key,
+                            "venue": "binance_usdm",
+                            "symbol": "BTCUSDT",
+                            "market_type": "linear",
+                            "event_time_ms": now - 10_000,
+                            "aggressor_side": side,
+                            "price": 70000.0,
+                            "base_quantity": quantity,
+                            "quantity_unit": "BTC",
+                            "notional_usd": 70000.0 * quantity,
+                            "trade_count": 1,
+                        },
+                        received_at_ms=now,
+                    )
+                summary = store.trade_flow_summary(
+                    symbol="BTCUSDT", now_ms=now, windows_seconds=(60,),
+                )
+        self.assertEqual(len(summary), 1)
+        self.assertAlmostEqual(summary[0]["total_base_volume_btc"], 0.35)
+
     def test_invalid_snapshot_is_not_persisted(self):
         with tempfile.TemporaryDirectory() as tmp:
             with MarketDataStore(Path(tmp) / "book.sqlite") as store:
