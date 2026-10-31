@@ -9,11 +9,11 @@ from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order, read_po
 
 
 class EABridgeTests(unittest.TestCase):
-    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway board-execution mode", trading="TRADE_READY", server="Headway-Demo", include_risk_specs=True):
+    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway board-execution mode", trading="TRADE_READY", server="Headway-Demo", daily_loss=0.25, daily_limit=2.00, include_risk_specs=True):
         folder = Path(root) / "BitcoinIntelligenceLab"
         folder.mkdir(parents=True, exist_ok=True)
         stamp = int(time.time()) if when is None else when
-        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0|{trading}|{server}|0.25|2.00"
+        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0|{trading}|{server}|{daily_loss}|{daily_limit}"
         if include_risk_specs:
             line += "|10000.00|0.0100000000|0.0100000000|0.01000000|0.01000000|100.00000000"
         line += "\n"
@@ -148,6 +148,34 @@ class EABridgeTests(unittest.TestCase):
         self.assertLess(result["volume"], 1.0)
         self.assertAlmostEqual(float(command[7]), result["volume"], places=8)
         self.assertLessEqual(result["risk_sizing"]["estimated_loss"], result["risk_sizing"]["risk_budget"])
+
+    def test_daily_loss_at_limit_blocks_new_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp, daily_loss=2.00, daily_limit=2.00)
+            result = publish_decision_order(
+                report=self.report(), common_files=tmp, volume=0.01,
+            )
+            command_path = Path(tmp) / "BitcoinIntelligenceLab" / "trade_command.txt"
+        self.assertEqual(result["status"], "daily_loss_limit_reached")
+        self.assertFalse(command_path.exists())
+
+    def test_daily_loss_above_limit_blocks_new_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp, daily_loss=2.10, daily_limit=2.00)
+            result = publish_decision_order(
+                report=self.report(), common_files=tmp, volume=0.01,
+            )
+            command_path = Path(tmp) / "BitcoinIntelligenceLab" / "trade_command.txt"
+        self.assertEqual(result["status"], "daily_loss_limit_reached")
+        self.assertFalse(command_path.exists())
+
+    def test_daily_loss_below_limit_allows_risk_sized_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp, daily_loss=1.99, daily_limit=2.00)
+            result = publish_decision_order(
+                report=self.report(), common_files=tmp, volume=0.01,
+            )
+        self.assertEqual(result["status"], "published")
 
     def test_old_ea_status_without_broker_risk_specs_cannot_open_new_trade(self):
         with tempfile.TemporaryDirectory() as tmp:
