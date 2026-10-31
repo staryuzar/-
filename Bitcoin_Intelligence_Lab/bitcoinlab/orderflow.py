@@ -67,14 +67,33 @@ def trade_flow_metrics(trades: Iterable[Mapping[str, object]]) -> dict:
     }
 
 
-def orderflow_profile(book: Mapping[str, object], flow: Mapping[str, object]) -> dict:
-    imbalance = float(book["imbalance"])
+def orderflow_profile(book: Mapping[str, object] | None, flow: Mapping[str, object]) -> dict:
+    """Score executed taker flow only; visible depth is contextual, not a second book vote."""
     delta = float(flow["delta_ratio"])
-    if not -1 <= imbalance <= 1 or not -1 <= delta <= 1:
-        raise ValueError("Order-flow ratios must be within [-1, 1].")
-    score = max(-1.0, min(1.0, 0.55 * imbalance + 0.45 * delta))
+    if not math.isfinite(delta) or not -1 <= delta <= 1:
+        raise ValueError("Trade-flow delta must be finite and within [-1, 1].")
+
+    # Book imbalance belongs to the separate cross-venue order-book voting domain.
+    # Preserve it as an observable metric, but do not blend the same depth into
+    # both Orderflow and Cross-Venue Order Book scores.
+    imbalance = None
+    spread_bps = None
+    if book is not None:
+        imbalance = float(book["imbalance"])
+        spread_bps = float(book["spread_bps"])
+        if not math.isfinite(imbalance) or not -1 <= imbalance <= 1:
+            raise ValueError("Book imbalance must be finite and within [-1, 1].")
+        if not math.isfinite(spread_bps) or spread_bps < 0:
+            raise ValueError("Book spread must be finite and non-negative.")
+
+    score = max(-1.0, min(1.0, delta))
     return {
-        "status": "ok", "score": score, "imbalance": imbalance,
-        "delta_ratio": delta, "spread_bps": float(book["spread_bps"]),
+        "status": "ok",
+        "score": score,
+        "delta_ratio": delta,
+        "trade_count": int(flow.get("trade_count") or 0),
+        "book_imbalance_context": imbalance,
+        "spread_bps_context": spread_bps,
+        "directional_basis": "executed_aggressor_trade_delta_only",
         "state": "buy_pressure" if score >= 0.15 else ("sell_pressure" if score <= -0.15 else "balanced"),
     }
