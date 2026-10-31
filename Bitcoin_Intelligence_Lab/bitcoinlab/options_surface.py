@@ -152,11 +152,11 @@ def build_btc_options_surface(
             "days_to_expiry": time_years * 365.25,
             "spot": spot,
             "mark_iv_pct": mark_iv,
-            "open_interest_contracts": open_interest,
+            "open_interest_btc": open_interest,
             "contract_size": _positive(instrument.get("contract_size")),
             "delta": greeks["delta"],
             "gamma_per_spot_unit": greeks["gamma"],
-            "gamma_oi_proxy": greeks["gamma"] * open_interest,
+            "gamma_oi_proxy_btc_weighted": greeks["gamma"] * open_interest,
         })
 
     grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -169,8 +169,8 @@ def build_btc_options_surface(
         spot = statistics.median(item["spot"] for item in rows)
         calls = [item for item in rows if item["option_type"] == "call"]
         puts = [item for item in rows if item["option_type"] == "put"]
-        call_oi = sum(item["open_interest_contracts"] for item in calls)
-        put_oi = sum(item["open_interest_contracts"] for item in puts)
+        call_oi = sum(item["open_interest_btc"] for item in calls)
+        put_oi = sum(item["open_interest_btc"] for item in puts)
         total_oi = call_oi + put_oi
 
         near_atm = sorted(
@@ -192,8 +192,8 @@ def build_btc_options_surface(
 
         gamma_group: dict[float, float] = defaultdict(float)
         for item in rows:
-            gamma_group[item["strike"]] += item["gamma_oi_proxy"]
-            gamma_by_strike[item["strike"]] += item["gamma_oi_proxy"]
+            gamma_group[item["strike"]] += item["gamma_oi_proxy_btc_weighted"]
+            gamma_by_strike[item["strike"]] += item["gamma_oi_proxy_btc_weighted"]
 
         expiry_rows.append({
             "expiry_utc": datetime.fromtimestamp(
@@ -205,15 +205,15 @@ def build_btc_options_surface(
             "atm_iv_pct": round(atm_iv, 3) if atm_iv is not None else None,
             "risk_reversal_25d_vol_points": round(rr25, 3) if rr25 is not None else None,
             "risk_reversal_status": rr_status,
-            "call_oi_contracts": round(call_oi, 4),
-            "put_oi_contracts": round(put_oi, 4),
+            "call_open_interest_btc": round(call_oi, 8),
+            "put_open_interest_btc": round(put_oi, 8),
             "put_call_oi_ratio": round(put_oi / call_oi, 4) if call_oi > 0 else None,
-            "total_oi_contracts": round(total_oi, 4),
+            "total_open_interest_btc": round(total_oi, 8),
             "option_count": len(rows),
-            "gross_gamma_oi_proxy_by_strike": [
+            "unsigned_gamma_open_interest_btc_proxy_by_strike": [
                 {
                     "strike": strike,
-                    "gamma_oi_proxy": round(value, 10),
+                    "gamma_oi_proxy_btc_weighted": round(value, 12),
                 }
                 for strike, value in sorted(
                     gamma_group.items(), key=lambda pair: pair[1], reverse=True,
@@ -234,7 +234,7 @@ def build_btc_options_surface(
             "option_count": 0,
             "rejected_count": rejected,
             "expiries": [],
-            "gross_gamma_oi_map": [],
+            "unsigned_gamma_open_interest_btc_proxy_by_strike": [],
             "warnings": ["no_valid_active_BTC_option_summaries"],
         }
 
@@ -258,7 +258,7 @@ def build_btc_options_surface(
         ),
         "limitations": [
             "Open interest is the total outstanding contract count and does not identify net dealer positioning.",
-            "Gamma-weighted OI is unsigned and must not be labelled dealer GEX.",
+            "Gamma-weighted BTC open interest is unsigned and must not be labelled dealer GEX or net dealer exposure.",
             "Black-Scholes Greeks use zero rates and spot as a simplified forward proxy.",
             "Only active options with valid mark IV, OI, strike and expiry are included.",
             "No-arbitrage SVI fitting, historical surface replay and dealer inventory inference are not implemented.",
