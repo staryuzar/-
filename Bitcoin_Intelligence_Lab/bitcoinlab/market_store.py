@@ -126,6 +126,25 @@ class MarketDataStore:
             last_error TEXT,
             PRIMARY KEY(venue, symbol)
         );
+        CREATE TABLE IF NOT EXISTS liquidation_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_key TEXT NOT NULL UNIQUE,
+            venue TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            market_type TEXT NOT NULL,
+            event_time_ms INTEGER NOT NULL,
+            received_at_ms INTEGER NOT NULL,
+            liquidated_side TEXT NOT NULL,
+            order_side TEXT NOT NULL,
+            raw_size REAL NOT NULL,
+            quantity_unit TEXT NOT NULL,
+            reference_price REAL NOT NULL,
+            reference_price_kind TEXT NOT NULL,
+            notional_usd REAL,
+            payload_json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS liquidation_events_venue_time
+            ON liquidation_events(venue, symbol, event_time_ms);
         """)
         self.db.commit()
 
@@ -216,6 +235,7 @@ class MarketDataStore:
         for table, column in (
             ("stream_events", "received_at_ms"),
             ("orderbook_snapshots", "observed_at_ms"),
+            ("liquidation_events", "event_time_ms"),
         ):
             cursor = self.db.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
             removed[table] = cursor.rowcount
@@ -257,6 +277,116 @@ class MarketDataStore:
                 ).isoformat(),
             }
             for row in reversed(rows)
+        ]
+
+    def record_liquidation(
+        self,
+        *,
+        event: Mapping[str, Any],
+        received_at_ms: int,
+    ) -> bool:
+        required = (
+            "event_key", "venue", "symbol", "market_type", "event_time_ms",
+            "liquidated_side", "order_side", "raw_size", "quantity_unit",
+            "reference_price", "reference_price_kind",
+        )
+        if any(key not in event for key in required):
+            raise ValueError("Liquidation event is missing required normalized fields.")
+        size = float(event["raw_size"])
+        price = float(event["reference_price"])
+        if (
+            not math.isfinite(size) or size <= 0
+            or not math.isfinite(price) or price <= 0
+            or int(event["event_time_ms"]) <= 0
+            or int(received_at_ms) <= 0
+            or event["liquidated_side"] not in {"LONG", "SHORT"}
+        ):
+            raise ValueError("Invalid normalized liquidation event.")
+        payload = json.dumps(
+            dict(event), separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+        )
+        cursor = self.db.execute(
+            """INSERT OR IGNORE INTO liquidation_events
+            (event_key,venue,symbol,market_type,event_time_ms,received_at_ms,
+             liquidated_side,order_side,raw_size,quantity_unit,reference_price,
+             reference_price_kind,notional_usd,payload_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                str(event["event_key"]), str(event["venue"]), str(event["symbol"]),
+                str(event["market_type"]), int(event["event_time_ms"]),
+                int(received_at_ms), str(event["liquidated_side"]),
+                str(event["order_side"]), size, str(event["quantity_unit"]),
+                price, str(event["reference_price_kind"]),
+                float(event["notional_usd"]) if event.get("notional_usd") is not None else None,
+                payload,
+            ),
+        )
+        self.db.commit()
+        return cursor.rowcount == 1
+
+    def recent_liquidations(
+        self, *, since_ms: int, limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 10_000:
+            raise ValueError("limit must be between 1 and 10000.")
+        self.db.row_factory = sqlite3.Row
+        rows = self.db.execute(
+            """SELECT * FROM liquidation_events
+            WHERE event_time_ms>=?
+            ORDER BY event_time_ms DESC,id DESC LIMIT ?""",
+            (int(since_ms), limit),
+        ).fetchall()
+        return [
+            {
+                "event_key": row["event_key"],
+                "venue": row["venue"],
+                "symbol": row["symbol"],
+                "market_type": row["market_type"],
+                "event_time_ms": row["event_time_ms"],
+                "received_at_ms": row["received_at_ms"],
+                "liquidated_side": row["liquidated_side"],
+                "order_side": row["order_side"],
+                "raw_size": row["raw_size"],
+                "quantity_unit": row["quantity_unit"],
+                "reference_price": row["reference_price"],
+                "reference_price_kind": row["reference_price_kind"],
+                "notional_usd": row["notional_usd"],
+                "payload": json.loads(row["payload_json"]),
+            }
+            for row in reversed(rows)
+        ]
+
+    def liquidation_summary(
+        self, *, since_ms: int,
+    ) -> list[dict[str, Any]]:
+        self.db.row_factory = sqlite3.Row
+        rows = self.db.execute(
+            """SELECT venue,market_type,liquidated_side,quantity_unit,
+            COUNT(*) AS event_count,SUM(raw_size) AS total_native_size,
+            SUM(CASE WHEN notional_usd IS NOT NULL THEN notional_usd ELSE 0 END) AS priced_notional_usd,
+            SUM(CASE WHEN notional_usd IS NOT NULL THEN 1 ELSE 0 END) AS priced_event_count,
+            MAX(event_time_ms) AS latest_event_time_ms
+            FROM liquidation_events WHERE event_time_ms>=?
+            GROUP BY venue,market_type,liquidated_side,quantity_unit
+            ORDER BY venue,liquidated_side""",
+            (int(since_ms),),
+        ).fetchall()
+        return [
+            {
+                "venue": row["venue"],
+                "market_type": row["market_type"],
+                "liquidated_side": row["liquidated_side"],
+                "quantity_unit": row["quantity_unit"],
+                "event_count": row["event_count"],
+                "total_native_size": row["total_native_size"],
+                "notional_usd": (
+                    round(row["priced_notional_usd"], 2)
+                    if row["priced_event_count"] else None
+                ),
+                "priced_event_count": row["priced_event_count"],
+                "latest_event_time_ms": row["latest_event_time_ms"],
+            }
+            for row in rows
         ]
 
     def close(self) -> None:
