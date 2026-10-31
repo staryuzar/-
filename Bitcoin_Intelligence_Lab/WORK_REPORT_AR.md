@@ -77,6 +77,14 @@ https://github.com/staryuzar/-/actions/runs/41158793678
 - فحص APIs العامة في Workflow ما زال `continue-on-error`; لذلك نجاح CI يثبت صحة الاختبارات والتشغيل البرمجي ولا يضمن توافر كل مزود سوق.
 - لم يُثبت بعد تشغيل WebSocket/SQLite لفترة ممتدة على Windows؛ لا يزال هذا بند تحقق منفصلاً قبل اعتماد البرنامج.
 
+### 2.5 عزل Workflow Aurora عن مشروع البيتكوين — 31 أكتوبر 2026
+
+- خلال التدقيق تبيّن أن المستودع يحتوي Workflow مستقلاً باسم `Aurora Windows validation`، وأن شرط النطاق السابق كان يشغّل مهام Aurora عند تحديث ملفات فرع البيتكوين، رغم أن برنامج Bitcoin Intelligence Lab نفسه لا يستدعي MT5.
+- في التشغيل #399، نفّذت وظيفة Aurora المنفصلة `MetaTrader 5 install / assistant launch integration` على GitHub-hosted Windows runner: ثبتت MT5 وشغّلت terminal معزولاً، وأكد سجلها نجاح المصادقة بخادم Headway Demo باستخدام سر Actions المخزن في المستودع. النص الختامي في السجل يقول صراحةً: **No orders were placed**. هذا لم يكن اختباراً لبرنامج Bitcoin Intelligence Lab، ولم يكن ينبغي أن يحدث قبل مرحلة MT5 المؤجلة.
+- التشغيل #400 بدأ قبل إضافة الحاجز؛ عند آخر فحص كانت خطوة تثبيت/مصادقة MT5 لا تزال `in_progress`. لا تتوفر في موصل GitHub الحالي أداة إلغاء Workflow جارٍ، لذلك لا أزعم أنني أوقفته. يجب مراجعة هذا التشغيل من صفحة Actions وإلغاؤه يدوياً إذا ظل جارياً.
+- أضيف حاجز مبكر إلى `.github/workflows/windows-validation.yml`: أي PR مصدره `bitcoin-intelligence-lab` يضع `run_validation=false`، وبالتالي يتخطى وظائف Aurora Windows وBrowser وMT5. هذا الحاجز يخص التحديثات المستقبلية؛ لا يغير تشغيل #399 المكتمل أو #400 الذي بدأ سابقاً.
+- نتيجة التدقيق: Workflow الخاص ببرنامج البيتكوين وحده يظل قراءة فقط ولا يثبت MT5 أو يسجل الدخول إلى Headway. ويجب ألا تدمج أي من نتائج Aurora/MT5 مع نتائج اختبارات Bitcoin Intelligence Lab.
+
 ## 3. المحركات التي تم بناؤها
 
 ### أ. بيانات السوق الأساسية
