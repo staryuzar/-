@@ -450,6 +450,59 @@ def render_live_dashboard():
         elif "dvol" in slow["errors"]:
             st.warning(f"Deribit DVOL: {slow['errors']['dvol']}")
 
+        options = slow["data"].get("options", {})
+        if options.get("status") == "ok":
+            st.markdown("**هيكل خيارات BTC — Deribit public options**")
+            st.caption(
+                f"العقود المدرجة في اللقطة: {options.get('option_count', 0)} · "
+                f"تواريخ الانتهاء: {options.get('expiry_count', 0)} · "
+                f"صفوف مرفوضة لبيانات ناقصة/غير صالحة: {options.get('rejected_count', 0)}"
+            )
+            st.info(
+                "Open Interest هنا بوحدة BTC حسب تعريف Deribit لخيارات BTC، وليس عدداً للعقود. "
+                "Gamma-weighted OI غير موقّع؛ لا يعبّر عن صافي GEX أو مراكز صناع السوق."
+            )
+            expiry_rows = options.get("expiries", [])
+            if expiry_rows:
+                st.dataframe(
+                    [
+                        {
+                            "Expiry UTC": row["expiry_utc"],
+                            "DTE": row["days_to_expiry"],
+                            "ATM IV %": row["atm_iv_pct"],
+                            "25Δ RR (vol points)": row["risk_reversal_25d_vol_points"],
+                            "RR status": row["risk_reversal_status"],
+                            "Call OI BTC": row["call_open_interest_btc"],
+                            "Put OI BTC": row["put_open_interest_btc"],
+                            "Put/Call OI": row["put_call_oi_ratio"],
+                            "Total OI BTC": row["total_open_interest_btc"],
+                            "Options": row["option_count"],
+                        }
+                        for row in expiry_rows
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                iv_rows = [
+                    {"Expiry": row["expiry_utc"], "ATM IV %": row["atm_iv_pct"]}
+                    for row in expiry_rows if row.get("atm_iv_pct") is not None
+                ]
+                if len(iv_rows) >= 2:
+                    st.markdown("**ATM IV Term Structure**")
+                    st.line_chart(iv_rows, x="Expiry", y="ATM IV %", height=220)
+                gamma_rows = (
+                    options.get("unsigned_gamma_open_interest_btc_proxy_by_strike", [])
+                )
+                if gamma_rows:
+                    with st.expander("أعلى مستويات Gamma-weighted BTC OI (غير موقّع)"):
+                        st.dataframe(gamma_rows, use_container_width=True, hide_index=True)
+            for note in options.get("limitations", []):
+                st.caption("• " + note)
+        elif options.get("status") == "empty":
+            st.caption("لم تتوفر سلسلة خيارات BTC صالحة من Deribit في هذه القراءة.")
+        elif "options" in slow["errors"]:
+            st.warning(f"Deribit Options: {slow['errors']['options']}")
+
         for item in slow["limitations"]:
             st.caption("• " + item)
         for name, error in slow["errors"].items():
