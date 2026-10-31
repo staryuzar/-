@@ -93,6 +93,8 @@ def central_decision(
     score = sum(valid[name] * normalized[name] for name in valid)
 
     warnings = [f"{name}_unavailable_or_stale" for name in unavailable]
+    if isinstance(technical, Mapping):
+        warnings.extend(str(item) for item in technical.get("warnings", []))
     if isinstance(liquidation_risk, Mapping):
         warnings.extend(
             str(item) for item in liquidation_risk.get("warnings", [])
@@ -124,6 +126,18 @@ def central_decision(
         elif reward_risk_ratio < 1.5:
             warnings.append("reward_risk_below_optional_reference")
 
+    if technical.get("macro_conflict") is True:
+        return {
+            "action": "HOLD", "score": round(score, 6),
+            "blockers": ["daily_and_four_hour_regimes_conflict"],
+            "warnings": warnings,
+            "reasons": [f"{name}:{value:+.2f}" for name, value in valid.items()],
+            "weights": normalized,
+            "active_domains": list(valid),
+            "core_active_domains": sorted(active_core),
+            "interpretation": "The daily and four-hour regimes materially disagree; wait for structure to resolve.",
+        }
+
     strong = [value for value in valid.values() if abs(value) >= 0.80]
     if any(value > 0 for value in strong) and any(value < 0 for value in strong):
         return {
@@ -143,14 +157,31 @@ def central_decision(
     else:
         action = "HOLD"
 
-    blockers = ["insufficient_directional_confluence"] if action == "HOLD" else []
+    blockers: list[str] = []
+    if action in {"BUY", "SELL"}:
+        technical_value = valid["technical"]
+        technical_opposes = (
+            (action == "BUY" and technical_value <= -0.25)
+            or (action == "SELL" and technical_value >= 0.25)
+        )
+        aligned_for_action = positive if action == "BUY" else negative
+        if technical_opposes:
+            warnings.append("technical_domain_opposes_direction")
+            if aligned_for_action < 3 or abs(score) < 0.25:
+                action = "HOLD"
+                blockers.append("technical_opposition_requires_stronger_confluence")
+
+    if action == "HOLD" and not blockers:
+        blockers.append("insufficient_directional_confluence")
     return {
         "action": action, "score": round(score, 6), "blockers": blockers,
         "warnings": warnings,
         "reasons": [f"{name}:{value:+.2f}" for name, value in valid.items()],
         "active_domains": list(valid), "unavailable_domains": unavailable,
         "core_active_domains": sorted(active_core),
-        "aligned_domains": max(positive, negative), "weights": normalized,
+        "aligned_domains": max(positive, negative),
+        "buy_aligned_domains": positive, "sell_aligned_domains": negative,
+        "weights": normalized,
         "risk_context_only": (
             liquidation_risk.get("use_in_decision")
             if isinstance(liquidation_risk, Mapping) else None
