@@ -38,8 +38,11 @@ def _finish_cycle(directory: Path, result: dict[str, Any]) -> dict[str, Any]:
         result.get("decision", {}).get("action")
         or previous.get("decision_action")
     )
-    risk_sizing = command.get("risk_sizing") or previous.get("risk_sizing")
-    levels = command.get("levels") or previous.get("levels") or {}
+    risk_sizing = command.get("risk_sizing") or previous.get("last_risk_sizing")
+    levels = command.get("levels") or {
+        "stop_loss": previous.get("last_stop_loss"),
+        "take_profit": previous.get("last_take_profit"),
+    }
     last_command_side = command.get("side") or previous.get("last_command_side")
     last_command_volume = command.get("volume") or previous.get("last_command_volume")
     last_command_status = command.get("status") or previous.get("last_command_status")
