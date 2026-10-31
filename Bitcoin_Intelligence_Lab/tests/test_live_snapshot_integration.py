@@ -24,6 +24,15 @@ class LiveSnapshotIntegrationContractTests(unittest.TestCase):
         self.assertNotIn("if depth and trades:", self.snapshot)
         self.assertIn('"minimum_fresh_frames": MINIMUM_FRESH_TIMEFRAMES', self.snapshot)
 
+    def test_okx_perpetual_derivatives_fallback_runs_after_binance_and_bybit(self):
+        bybit_fallback = self.snapshot.index('if deriv_engine.get("status") != "ok":')
+        okx_fallback = self.snapshot.index("fetch_okx_derivatives_snapshot(")
+        attach_context = self.snapshot.index("deriv_engine = attach_cross_venue_context")
+        self.assertLess(bybit_fallback, okx_fallback)
+        self.assertLess(okx_fallback, attach_context)
+        self.assertIn('errors["derivatives_okx"]', self.snapshot)
+        self.assertIn('"venue": "OKX"', self.snapshot)
+
     def test_dashboard_exposes_five_domain_vote_and_normalized_weights(self):
         self.assertIn("خريطة تصويت المجالات الخمسة", self.dashboard)
         self.assertIn("الوزن الفعلي بعد التطبيع", self.dashboard)
