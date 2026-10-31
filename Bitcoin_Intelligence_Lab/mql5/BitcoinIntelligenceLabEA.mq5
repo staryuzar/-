@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.004"
+#property version   "1.005"
 #property description "Bitcoin Intelligence Lab — Headway BTC demo command executor"
 
 input ulong  MagicNumber = 28102027;
@@ -148,22 +148,31 @@ bool ValidProtection(const string side,const double sl,const double tp)
    return false;
 }
 
-void PrepareTradeRequest(MqlTradeRequest &request)
+bool PrepareTradeRequest(MqlTradeRequest &request)
 {
    request.magic=MagicNumber;
    request.deviation=(ulong)SlippagePoints;
    request.type_time=ORDER_TIME_GTC;
    long fillingModes=0;
    long executionMode=0;
-   SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE,fillingModes);
-   SymbolInfoInteger(_Symbol,SYMBOL_TRADE_EXEMODE,executionMode);
-   if((fillingModes & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK)
-      request.type_filling=ORDER_FILLING_FOK;
-   else if((fillingModes & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC)
-      request.type_filling=ORDER_FILLING_IOC;
+   if(!SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE,fillingModes) ||
+      !SymbolInfoInteger(_Symbol,SYMBOL_TRADE_EXEMODE,executionMode))
+      return false;
+
+   if((ENUM_SYMBOL_TRADE_EXECUTION)executionMode==SYMBOL_TRADE_EXECUTION_MARKET)
+   {
+      if((fillingModes & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK)
+         request.type_filling=ORDER_FILLING_FOK;
+      else if((fillingModes & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC)
+         request.type_filling=ORDER_FILLING_IOC;
+      else
+         return false; // Market execution forbids RETURN; never guess unsupported FOK/IOC.
+   }
    else
-      request.type_filling=((ENUM_SYMBOL_TRADE_EXECUTION)executionMode==SYMBOL_TRADE_EXECUTION_MARKET)
-                           ?ORDER_FILLING_FOK:ORDER_FILLING_RETURN;
+   {
+      request.type_filling=ORDER_FILLING_RETURN;
+   }
+   return true;
 }
 
 string TradeResultText(const MqlTradeResult &result)
@@ -197,7 +206,11 @@ bool CloseOwnPosition(const ulong ticket)
    request.type=(positionType==POSITION_TYPE_BUY)?ORDER_TYPE_SELL:ORDER_TYPE_BUY;
    request.price=(positionType==POSITION_TYPE_BUY)?bid:ask;
    request.comment="Bitcoin Intelligence Lab close";
-   PrepareTradeRequest(request);
+   if(!PrepareTradeRequest(request))
+   {
+      lastStatus="CLOSE_REJECTED: broker exposes no supported filling policy";
+      return false;
+   }
 
    bool sent=OrderSend(request,result);
    uint code=result.retcode;
@@ -253,7 +266,11 @@ bool OpenBoardPosition(const string side,const double volume,const double sl,con
    request.sl=sl;
    request.tp=tp;
    request.comment="Bitcoin Intelligence Lab";
-   PrepareTradeRequest(request);
+   if(!PrepareTradeRequest(request))
+   {
+      lastStatus="ORDER_REJECTED: broker exposes no supported filling policy";
+      return false;
+   }
 
    bool sent=OrderSend(request,result);
    uint code=result.retcode;
