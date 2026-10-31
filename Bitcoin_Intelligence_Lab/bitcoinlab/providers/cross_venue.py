@@ -148,20 +148,31 @@ def fetch_cross_venue_derivatives_rows(symbol: str = "BTCUSDT") -> tuple[list[di
             if int(item.get("ts", 0)) > 0
         ]
         observed = min(timestamps) if timestamps else 0
+        funding_is_settled = funding.get("settState") == "settled"
+        funding_value = (
+            funding.get("settFundingRate")
+            if funding_is_settled else funding.get("fundingRate")
+        )
+        funding_warnings = []
+        if not interval_minutes:
+            funding_warnings.append("funding_interval_unavailable_for_8h_normalization")
+        if not funding_is_settled:
+            funding_warnings.append("okx_funding_rate_is_current_period_estimate_not_settled")
         rows.append({
             "venue": "okx_swap", "symbol": "BTC-USDT-SWAP",
             "observed_at_ms": observed, "timestamp_kind": "oldest_exchange_feed_timestamp",
             "spot_bid": spot_ticker.get("bidPx"), "spot_ask": spot_ticker.get("askPx"),
             "perp_bid": swap_ticker.get("bidPx"), "perp_ask": swap_ticker.get("askPx"),
             "mark_price": mark.get("markPx"), "index_price": index.get("idxPx"),
-            "funding_rate": funding.get("fundingRate"),
+            "funding_rate": funding_value,
+            "funding_rate_kind": "settled" if funding_is_settled else "current_period_estimate",
             "funding_interval_minutes": interval_minutes,
             "open_interest_btc": oi.get("oiCcy"),
             "open_interest_native": oi.get("oi"),
             "open_interest_native_unit": "contracts",
             "open_interest_quote_value": oi.get("oiUsd"),
             "open_interest_quote_currency": "USD",
-            "warnings": [] if interval_minutes else ["funding_interval_unavailable_for_8h_normalization"],
+            "warnings": funding_warnings,
         })
     except Exception as exc:
         errors["okx_swap"] = f"{type(exc).__name__}: {exc}"[:240]
