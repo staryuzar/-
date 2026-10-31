@@ -12,8 +12,15 @@ class QualityTests(unittest.TestCase):
     def test_freshness_detects_stale_source(self):
         self.assertEqual(freshness(1000, 1, now_ms=10_000)["status"], "stale")
 
-    def test_freshness_detects_clock_skew(self):
-        self.assertEqual(freshness(20_000, 60, now_ms=10_000)["status"], "clock_skew")
+    def test_small_future_timestamp_skew_reports_zero_age(self):
+        result = freshness(10_500, 60, now_ms=10_000)
+        self.assertEqual(result["status"], "fresh")
+        self.assertEqual(result["age_seconds"], 0.0)
+
+    def test_large_future_timestamp_skew_remains_clock_skew(self):
+        result = freshness(20_000, 60, now_ms=10_000)
+        self.assertEqual(result["status"], "clock_skew")
+        self.assertEqual(result["age_seconds"], 10.0)
 
     def test_valid_bar_series_passes(self):
         rows = self.bars()
