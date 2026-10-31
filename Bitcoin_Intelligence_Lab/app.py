@@ -166,6 +166,62 @@ def render_live_dashboard():
             + str(stream_state.get("reason", ""))
         )
 
+    st.subheader("محرك رصد تصفيات المشتقات — آخر 60 دقيقة")
+    liquidation_groups = stream_state.get("liquidation_summary", [])
+    if liquidation_groups:
+        st.caption(
+            "التجميع يبقى منفصلاً حسب المنصة ووحدة العقد؛ لا نجمع أحجام BTC والعقود "
+            "في رقم واحد، ولا نعد سعر الإفلاس سعر تنفيذ."
+        )
+        st.dataframe(
+            [
+                {
+                    "المنصة": row["venue"],
+                    "نوع السوق": row["market_type"],
+                    "الجهة المصفّاة": row["liquidated_side"],
+                    "وحدة الحجم": row["quantity_unit"],
+                    "عدد الأحداث": row["event_count"],
+                    "إجمالي الحجم الأصلي": row["total_native_size"],
+                    "Notional USD (البيانات ذات سعر تنفيذ فقط)": row["notional_usd"],
+                    "آخر حدث UTC": datetime.fromtimestamp(
+                        row["latest_event_time_ms"] / 1000, timezone.utc,
+                    ).isoformat(),
+                }
+                for row in liquidation_groups
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        recent = stream_state.get("recent_liquidations", [])
+        if recent:
+            with st.expander("آخر أحداث التصفية المسجلة"):
+                st.dataframe(
+                    [
+                        {
+                            "المنصة": row["venue"],
+                            "الرمز": row["symbol"],
+                            "الجهة المصفّاة": row["liquidated_side"],
+                            "Side": row["order_side"],
+                            "الحجم": row["raw_size"],
+                            "الوحدة": row["quantity_unit"],
+                            "السعر المرجعي": row["reference_price"],
+                            "نوع السعر": row["reference_price_kind"],
+                            "Notional USD": row["notional_usd"],
+                            "وقت الحدث UTC": datetime.fromtimestamp(
+                                row["event_time_ms"] / 1000, timezone.utc,
+                            ).isoformat(),
+                        }
+                        for row in recent
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+    else:
+        st.caption(
+            "لا توجد أحداث تصفية مسجلة خلال آخر 60 دقيقة، أو أن جامع التصفيات لم يبدأ بعد. "
+            "غياب الأحداث لا يعني غياب التصفية في كامل السوق."
+        )
+
     if not report:
         st.error(
             "لم تتوفر لقطة سوق صالحة بعد. راجع اتصال الإنترنت ورسالة الخطأ أدناه؛ "
