@@ -29,10 +29,12 @@ class SlowContextTests(unittest.TestCase):
     @patch("bitcoinlab.slow_context.mempool.fetch_network_snapshot", return_value={"mempool": {}})
     def test_slow_context_does_not_require_api_keys(self, *_mocks):
         result = build_slow_context(now_ms=1_800_000_000_000)
-        self.assertEqual(set(result["data"]), {"network", "cftc", "coinmetrics", "dvol", "options"})
+        self.assertEqual(set(result["data"]), {"network", "cftc", "coinmetrics", "dvol", "options", "onchain"})
         self.assertEqual(result["data"]["options"]["status"], "empty")
         self.assertEqual(result["data"]["options"]["use"], "slow_context_only_not_intraday_directional_vote")
         self.assertEqual(result["errors"], {})
+        self.assertEqual(result["data"]["onchain"]["status"], "unavailable")
+        self.assertEqual(result["source_states"]["onchain"]["status"], "unavailable")
 
 
 if __name__ == "__main__":

@@ -55,6 +55,19 @@ class ProviderTests(unittest.TestCase):
             result = fetch_community_metrics()
         self.assertEqual(result["data"][0]["asset"], "btc")
 
+    def test_coinmetrics_optional_onchain_groups_fail_independently(self):
+        core = {"data": [{"asset": "btc", "time": "2026-10-30T00:00:00Z", "AdrActCnt": "500000"}]}
+        with patch(
+            "bitcoinlab.providers.coinmetrics.get_json",
+            side_effect=[core, RuntimeError("MVRV not in Community tier"), RuntimeError("Z-score unavailable")],
+        ):
+            result = fetch_community_metrics()
+        self.assertEqual(result["data"], core["data"])
+        self.assertEqual(result["onchain_data"], [])
+        self.assertEqual(result["mvrv_z_data"], [])
+        self.assertIn("market_value_realized_value", result["onchain_errors"])
+        self.assertIn("mvrv_zscore", result["onchain_errors"])
+
     def test_deribit_requires_jsonrpc_result(self):
         with patch("bitcoinlab.providers.deribit.get_json", return_value={"result": {"data": [[1, 2, 3, 4, 5]]}}):
             result = fetch_dvol_history(start_timestamp_ms=1000, end_timestamp_ms=2000)

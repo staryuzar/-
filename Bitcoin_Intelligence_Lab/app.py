@@ -827,6 +827,74 @@ def render_live_dashboard():
         elif "coinmetrics" in slow["errors"]:
             st.warning(f"Coin Metrics: {slow['errors']['coinmetrics']}")
 
+        onchain = slow["data"].get("onchain", {})
+        st.markdown("**مؤشرات السلسلة اليومية — MVRV وNUPL المشتق**")
+        if onchain.get("status") in {"ok", "partial", "stale"}:
+            if onchain.get("freshness") == "stale":
+                st.warning("بيانات السلسلة اليومية قديمة؛ تعرض للسياق فقط ولا تدخل القرار.")
+            onchain_cols = st.columns(4)
+            onchain_cols[0].metric(
+                "MVRV",
+                f"{onchain['mvrv']:.3f}" if onchain.get("mvrv") is not None else "غير متاح",
+            )
+            onchain_cols[1].metric(
+                "MVRV Z-Score",
+                f"{onchain['mvrv_zscore']:.3f}" if onchain.get("mvrv_zscore") is not None else "غير متاح",
+            )
+            onchain_cols[2].metric(
+                "NUPL مشتق",
+                f"{onchain['nupl_derived']:.3f}" if onchain.get("nupl_derived") is not None else "غير متاح",
+            )
+            onchain_cols[3].metric(
+                "Active Addresses",
+                f"{onchain['active_addresses']:,.0f}" if onchain.get("active_addresses") is not None else "غير متاح",
+            )
+            st.dataframe(
+                [
+                    {
+                        "المقياس": "Market Capitalization USD",
+                        "القيمة": onchain.get("market_cap_usd"),
+                        "التغير 7 أيام %": onchain.get("seven_day_changes_pct", {}).get("market_cap"),
+                    },
+                    {
+                        "المقياس": "Realized Capitalization USD",
+                        "القيمة": onchain.get("realized_cap_usd"),
+                        "التغير 7 أيام %": onchain.get("seven_day_changes_pct", {}).get("realized_cap"),
+                    },
+                    {
+                        "المقياس": "MVRV",
+                        "القيمة": onchain.get("mvrv"),
+                        "التغير 7 أيام %": onchain.get("seven_day_changes_pct", {}).get("mvrv"),
+                    },
+                    {
+                        "المقياس": "Block Height",
+                        "القيمة": onchain.get("block_height"),
+                        "التغير 7 أيام %": None,
+                    },
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(
+                f"تاريخ المصدر: {onchain.get('source_time') or 'غير متاح'} · "
+                f"عمر البيانات بالساعات: {onchain.get('age_hours') if onchain.get('age_hours') is not None else 'غير متاح'}"
+            )
+            if onchain.get("warnings"):
+                st.warning("قيود مقاييس السلسلة: " + "، ".join(onchain["warnings"]))
+            if onchain.get("optional_errors"):
+                with st.expander("المقاييس الاختيارية غير المتاحة من Coin Metrics"):
+                    st.json(onchain["optional_errors"])
+        else:
+            st.caption(
+                "مقاييس MVRV/Realized Cap غير متاحة حالياً من مستوى Community؛ "
+                "لا تُعرض قيم تقديرية أو بدائل مصطنعة."
+            )
+        st.caption(
+            "هذه مقاييس يومية بطيئة؛ NUPL محسوب هنا من (Market Cap − Realized Cap) / Market Cap "
+            "وموسوم كمقياس مشتق. SOPR غير معروض لعدم وجود مصدر موثق في هذا المسار. "
+            "هذا السياق لا يضيف تصويتاً إلى القرار اللحظي. راجع ترخيص Coin Metrics Community قبل إعادة التوزيع أو الاستخدام التجاري."
+        )
+
         dvol = slow["data"].get("dvol", {})
         dvol_rows = dvol.get("data", []) if isinstance(dvol, dict) else []
         if dvol_rows:

@@ -6,6 +6,7 @@ from typing import Any
 from .providers import cftc, coinmetrics, deribit, mempool
 from .quality import utc_now_ms
 from .options_surface import build_btc_options_surface
+from .onchain import build_onchain_context
 
 
 def _fetch_btc_options_context(now_ms: int) -> dict[str, Any]:
@@ -62,6 +63,15 @@ def build_slow_context(*, now_ms: int | None = None) -> dict[str, Any]:
             states[name] = {"status": "error", "fetched_at_utc": now_dt.isoformat()}
             errors[name] = f"{type(exc).__name__}: {exc}"[:300]
 
+    onchain_context = build_onchain_context(
+        data.get("coinmetrics"), now_ms=now,
+    )
+    data["onchain"] = onchain_context
+    states["onchain"] = {
+        "status": onchain_context.get("status", "unavailable"),
+        "fetched_at_utc": now_dt.isoformat(),
+    }
+
     return {
         "as_of_utc": now_dt.isoformat(),
         "data": data,
@@ -70,7 +80,8 @@ def build_slow_context(*, now_ms: int | None = None) -> dict[str, Any]:
         "limitations": [
             "Network and mining statistics describe chain activity, not exchange order flow.",
             "CFTC TFF positioning is weekly CME futures-only context, not spot positioning.",
-            "Coin Metrics Community data is subject to its community non-commercial license and limited data coverage.",
+            "Coin Metrics Community data is subject to its community non-commercial license and limited data coverage; MVRV, realized cap and MVRV Z-score are optional groups and may be unavailable.",
+            "Daily MVRV and the derived NUPL proxy remain slow context only; no SOPR value is inferred when the source does not provide it.",
             "Deribit DVOL is options-implied volatility, not a directional forecast.",
             "Deribit options OI is reported in BTC for BTC options; gross OI does not reveal dealer inventory.",
             "The options surface is descriptive (nearest-strike ATM IV and approximate Black-Scholes 25-delta skew), not a fitted arbitrage-free SVI surface.",
