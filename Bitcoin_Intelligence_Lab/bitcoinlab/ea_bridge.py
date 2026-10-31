@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import math
 import os
 from pathlib import Path
@@ -75,6 +76,37 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
     elif not all(math.isfinite(x) and x > 0 for x in (bid, ask)) or ask < bid:
         result["status"] = "invalid_quote"
     return result
+
+
+def read_execution_loop_status(
+    common_files: str | Path,
+    *,
+    now_seconds: int | None = None,
+    max_age_seconds: int = 90,
+) -> dict[str, Any]:
+    path = Path(common_files) / "BitcoinIntelligenceLab" / "execution_loop_status.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {"status": "unavailable", "reason": "Execution-loop heartbeat is unavailable."}
+    if not isinstance(payload, dict) or payload.get("schema") != "BTCIL-EXEC1":
+        return {"status": "invalid", "reason": "Execution-loop heartbeat is malformed."}
+    try:
+        observed = datetime.fromisoformat(
+            str(payload.get("updated_at_utc", "")).replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return {"status": "invalid", "reason": "Execution-loop heartbeat timestamp is invalid."}
+    now = datetime.fromtimestamp(
+        int(time.time()) if now_seconds is None else int(now_seconds),
+        tz=timezone.utc,
+    )
+    age = (now - observed).total_seconds()
+    return {
+        **payload,
+        "status": "fresh" if -5 <= age <= max_age_seconds else "stale",
+        "age_seconds": round(max(0.0, age), 2),
+    }
 
 
 def publish_decision_order(
