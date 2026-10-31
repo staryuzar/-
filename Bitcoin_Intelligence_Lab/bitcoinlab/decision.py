@@ -154,7 +154,8 @@ def central_decision(
             "active_domains": list(valid),
             "unavailable_domains": unavailable,
             "core_active_domains": sorted(active_core),
-            "aligned_domains": 0, "buy_aligned_domains": 0, "sell_aligned_domains": 0,
+            "aligned_domains": max(positive, negative),
+            "buy_aligned_domains": positive, "sell_aligned_domains": negative,
             "risk_context_only": (
                 liquidation_risk.get("use_in_decision")
                 if isinstance(liquidation_risk, Mapping) else None
@@ -162,6 +163,8 @@ def central_decision(
             "interpretation": "The daily and four-hour regimes materially disagree; wait for structure to resolve.",
         }
 
+    positive = sum(1 for value in valid.values() if value >= 0.10)
+    negative = sum(1 for value in valid.values() if value <= -0.10)
     strong = [value for value in valid.values() if abs(value) >= 0.80]
     if any(value > 0 for value in strong) and any(value < 0 for value in strong):
         return {
@@ -180,8 +183,6 @@ def central_decision(
             "interpretation": "Strong directional domains conflict; no new direction is authorized.",
         }
 
-    positive = sum(1 for value in valid.values() if value >= 0.10)
-    negative = sum(1 for value in valid.values() if value <= -0.10)
     if score >= min_abs_score and positive >= 2:
         action = "BUY"
     elif score <= -min_abs_score and negative >= 2:
