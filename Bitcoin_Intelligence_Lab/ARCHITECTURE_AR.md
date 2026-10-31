@@ -57,7 +57,9 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - `liquidation_stream.py`: موائمات WebSocket للتصفية من Binance USDⓈ-M وBybit Linear وOKX SWAP.
 - `liquidation_heatmap.py`: قراءة SQLite بوضع read-only وبناء price clusters لكل منصة ونوع السوق والجهة ووحدة الحجم ونوع السعر المرجعي، مع تغطية Notional وحالة feed.
 - `options_surface.py`: Black-Scholes Delta/Gamma وصفي، وATM IV حسب الانتهاء، و25-delta Risk Reversal، وPut/Call OI وGamma-weighted OI proxy. هذا ليس SVI arbitrage-free ولا dealer GEX.
-- `slow_context.py`: يجمع Mempool وCFTC وCoin Metrics وDVOL وخيارات Deribit بشكل مستقل؛ لا يوقف فشل أحدها بقية المصادر.
+- `slow_context.py`: يجمع Mempool وCFTC وCoin Metrics وDVOL وخيارات Deribit بشكل مستقل؛ لا يوقف فشل أحدها بقية المصادر، ويبني On-chain daily context منفصلاً عن القرار اللحظي.
+- `onchain.py`: يحسب MVRV عند توافره أو يشتقه من Market/Realized Cap، ويعرض NUPL مشتقاً وMVRV Z إن توفر وتغيرات 7 أيام وحداثة بيانات يومية. لا يقدّر SOPR ولا يصوت في مركز القرار.
+- `providers/coinmetrics.py`: Core network metrics مع مجموعات MVRV/Realized Cap وMVRV Z اختيارية؛ فشل مجموعة اختيارية لا يسقط نشاط الشبكة الأساسي.
 - `decision.py`: يجمع خمسة مجالات: Technical 35%، Orderflow 25%، Derivatives 20%، Market Structure 10%، Cross-Venue 10%. يضيف تحذيرات Cross-Venue derivatives وScreener دون تغيير score أو weights. يعيد تطبيع الأوزان حسب توافر المجالات وحداثتها، ويفرض Technical مع واحد على الأقل من Orderflow أو Derivatives.
 - `live_snapshot.py`: يجلب بيانات المصادر السريعة، يحقق حداثتها، يبني كل محركات اللقطة، يقرأ حالة الجامع محلياً بوضع read-only ويرسل أدلة المحركات إلى مركز القرار.
 - `app.py`: لوحة Streamlit الحالية، تعرض القرار وأدلة كل محرك ومصادر السوق والتصفية والخيارات، ولا تتصل بـMT5.
@@ -107,6 +109,16 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - **OKX SWAP:** يرشح `BTC-USDT-SWAP`. يستخدم `posSide` متى توفرت جهة صريحة؛ وفي وضع net يحدد جهة المركز من أمر الإغلاق. `bkPx` سعر مرجعي، و`sz` عدد عقود؛ لا يحول إلى USD قبل معرفة معامل العقد.
 - تعرض اللوحة آخر 60 دقيقة، بينما يأخذ ملخص المخاطر في مركز القرار آخر 5 دقائق. لا تجمع أحجام BTC مع العقود ولا تساوي سعر الإفلاس بسعر التنفيذ.
 
+## سياق On-chain اليومي — Coin Metrics Community
+
+- `CapMVRVCur` إذا كان متاحاً، وإلا يمكن اشتقاق MVRV = Market Cap / Realized Cap عندما تتوفر القيمتان.
+- NUPL معروض باسم `nupl_derived` ومشتق من (Market Cap - Realized Cap) / Market Cap؛ ليس حقلاً مباشراً من المصدر في هذا المسار.
+- MVRV Z-score يعرض فقط عند عودة `CapMVRVZ` من Community API؛ وإلا تبقى القيمة غير متاحة دون تخمين.
+- MVRV/Realized Cap الاختيارية تجلب بصورة مستقلة؛ فشلها لا يسقط Active Addresses أو Block Height.
+- المصدر يومي ويصنّف stale بعد 72 ساعة، ويحسب تغيرات 7 أيام فقط عند وجود baseline تاريخي صحيح.
+- SOPR غير موصول ولا يستنتج من بيانات أخرى؛ On-chain كامل يبقى slow context only ولا يدخل مركز القرار اللحظي.
+- راجع شروط Coin Metrics Community؛ مستوى Community محدود ومخصص للاستخدام غير التجاري.
+
 ## محرك خيارات Deribit — الحدود الرياضية
 
 - `mark_iv` يحول من نقاط مئوية إلى قيمة عشرية قبل حساب Greeks.
@@ -121,7 +133,7 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - تنظيف البيانات الأقدم من مدة الاحتفاظ يجري دورياً؛ الافتراضي 24 ساعة والحد الأقصى 30 يوماً.
 - اللوحة ولقطة السوق تقرآن SQLite بوضع read-only.
 - وحدات التصفية والخيارات والدفتر ومراقب صحة المصادر لها اختبارات بيانات مصطنعة deterministic، وCI يتحقق من Python compile واختبارات الوحدات وبدء Streamlit واستدعاء بيانات BTC العامة. الاختبارات الأخيرة غطت حالات توقف heartbeat مع استمرار صمت أحداث التصفية.
-- CI #334 يمر على Python 3.12 و3.13 مع 211 اختباراً، ويفحص Python compile وبدء Streamlit ومصادر BTC العامة وعدم وجود واجهات تنفيذ تداول. هذا لا يثبت اتصالاً حياً مستقراً لساعات على Windows؛ يجب قياس مدة التشغيل والذاكرة والقرص والتغطية والتعافي من انقطاع الشبكة على جهاز المستخدم.
+- CI #340 يمر على Python 3.12 و3.13 مع 219 اختباراً، ويفحص Python compile وبدء Streamlit ومصادر BTC العامة وعدم وجود واجهات تنفيذ تداول. هذا لا يثبت اتصالاً حياً مستقراً لساعات على Windows؛ يجب قياس مدة التشغيل والذاكرة والقرص والتغطية والتعافي من انقطاع الشبكة على جهاز المستخدم.
 
 ## مرحلة MT5 المستقبلية — ليست نشطة الآن
 
@@ -141,5 +153,5 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 2. معايرة حدود Screener وCVD/Footprint وHeatmap تاريخياً، وقياس الإنذارات الكاذبة وتكرار الإشارات قبل اعتماد قيم تشغيل نهائية.
 3. معايرة تغطية خريطة التصفية السعرية، والتحقق من Contract multipliers لكل منتج قبل أي توسيع لتحويل الأحجام إلى Notional USD.
 4. رفع محرك خيارات Deribit إلى SVI/Calendar consistency وسجل تاريخي واختبارات no-arbitrage.
-5. إضافة MVRV/NUPL/SOPR/Realized Cap من Bitcoin Core أو مصدر موثق ومرخص، وETF flows عند توفر مصدر صالح.
+5. معايرة سلسلة MVRV/Realized Cap/NUPL اليومية والتحقق من التغطية والحدود والتأخير؛ العثور على مصدر مرخص لـSOPR وETF flows قبل توصيلهما.
 6. تدقيق شامل للوحة والمصادر وحالات stale/error/partial وسجل القرار، ثم فقط فتح مرحلة Headway.
