@@ -2,7 +2,7 @@ import json
 import tempfile
 import time
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from bitcoinlab.ea_bridge import read_execution_loop_status
@@ -204,6 +204,31 @@ class ExecutionLoopTests(unittest.TestCase):
             result = read_execution_loop_status(tmp, now_seconds=1_700_000_200)
             self.assertEqual(result["status"], "stale")
             self.assertEqual(result["cycle_status"], "no_command")
+
+    def test_stale_snapshot_blocks_opposite_close_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_terminal(tmp)
+            self.write_positions(folder, [(4321, 0, "0.01")])
+            report = self.report("SELL")
+            report["as_of_utc"] = (
+                datetime.now(timezone.utc) - timedelta(seconds=120)
+            ).isoformat()
+            result = execute_once(
+                common_files=tmp, report=report, max_snapshot_age_seconds=90,
+            )
+            self.assertEqual(result["status"], "snapshot_stale")
+            self.assertFalse((folder / "trade_command.txt").exists())
+            self.assertEqual(result["plan"]["action"], "HOLD")
+
+    def test_missing_snapshot_reader_does_not_build_a_second_market_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_terminal(tmp)
+            result = execute_once(
+                common_files=tmp,
+                report_builder=lambda: (_ for _ in ()).throw(FileNotFoundError("snapshot missing")),
+            )
+            self.assertEqual(result["status"], "snapshot_unavailable")
+            self.assertFalse((folder / "trade_command.txt").exists())
 
     def test_blocked_central_decision_never_opens(self):
         with tempfile.TemporaryDirectory() as tmp:
