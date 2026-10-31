@@ -47,11 +47,12 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
     except ValueError:
         account_mode = None
     server_normalized = (account_server or "").lower()
+    # Broker identity is verified independently of the account trade mode.
+    # Do not inspect or gate execution based on DEMO/LIVE classification.
     headway_server_ok = (
-        "headway-demo" in server_normalized
-        or "demo.trade-hw.online" in server_normalized
+        "headway" in server_normalized
+        or "trade-hw.online" in server_normalized
     )
-    demo_account_ok = account_mode == 0  # MQL5 ACCOUNT_TRADE_MODE_DEMO
     trading_ready = (
         readiness_marker == "TRADE_READY"
         if readiness_marker is not None
@@ -64,8 +65,8 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
         "open_positions": open_positions, "ea_message": detail,
         "point": point, "stops_level_points": stops_points,
         "trading_ready": trading_ready, "readiness_marker": readiness_marker,
-        "account_server": account_server, "account_mode": account_mode,
-        "headway_server_ok": headway_server_ok, "demo_account_ok": demo_account_ok,
+        "account_server": account_server,
+        "headway_server_ok": headway_server_ok,
         "observed_at_utc": datetime.fromtimestamp(timestamp, timezone.utc).isoformat(),
     }
     symbol = fields[1].upper()
@@ -73,8 +74,6 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
         result["status"] = "wrong_symbol"
     elif not headway_server_ok:
         result["status"] = "wrong_broker"
-    elif not demo_account_ok:
-        result["status"] = "not_demo_account"
     elif result["connection"] != "CONNECTED" or not trading_ready:
         result["status"] = "not_ready"
     elif not all(math.isfinite(x) and x > 0 for x in (bid, ask)) or ask < bid:
