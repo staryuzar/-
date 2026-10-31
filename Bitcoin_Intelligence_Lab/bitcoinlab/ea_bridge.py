@@ -42,10 +42,6 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
     detail = fields[8]
     readiness_marker = fields[11] if len(fields) > 11 else None
     account_server = fields[12] if len(fields) > 12 else None
-    try:
-        account_mode = int(fields[13]) if len(fields) > 13 else None
-    except ValueError:
-        account_mode = None
     server_normalized = (account_server or "").lower()
     # Broker identity is verified independently of the account trade mode.
     # Do not inspect or gate execution based on DEMO/LIVE classification.
