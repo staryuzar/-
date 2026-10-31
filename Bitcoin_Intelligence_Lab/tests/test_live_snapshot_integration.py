@@ -64,7 +64,7 @@ class LiveSnapshotIntegrationContractTests(unittest.TestCase):
 
     def test_dashboard_keeps_last_snapshot_when_refresh_fails(self):
         self.assertIn('if not isinstance(report, dict):', self.dashboard)
-        self.assertIn('التحديث الكامل للقرار يدوي افتراضياً', self.dashboard)
+        self.assertIn('لا توجد لقطة مشتركة بعد', self.dashboard)
 
     def test_dashboard_exposes_five_domain_vote_and_normalized_weights(self):
         self.assertIn("خريطة تصويت المجالات الخمسة", self.dashboard)
