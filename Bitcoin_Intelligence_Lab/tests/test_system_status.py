@@ -1,0 +1,390 @@
+import unittest
+from datetime import datetime, timedelta, timezone
+
+from bitcoinlab.system_status import build_system_readiness
+
+
+class SystemReadinessTests(unittest.TestCase):
+    def fresh_service(self):
+        return {
+            "status": "healthy",
+            "freshness_status": "fresh",
+            "age_seconds": 2,
+            "last_success_utc": "2026-10-31T00:00:00+00:00",
+        }
+
+    def test_market_and_decision_can_be_ready_while_execution_is_not_running(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "market_stream": {"status": "ok", "venues": []},
+                "data_health": {
+                    "stream_feeds": [
+                        {"name": "binance_spot", "feed_type": "orderbook", "status": "live"},
+                        {"name": "bybit_linear", "feed_type": "orderbook", "status": "live"},
+                        {"name": "bybit_linear_trades", "feed_type": "trades", "status": "live"},
+                        {"name": "okx_swap_liquidations", "feed_type": "liquidations", "status": "connected_quiet_ok"},
+                        {"name": "binance_usdm_trades", "feed_type": "trades", "status": "stale"},
+                    ],
+                },
+                "decision": {
+                    "action": "BUY", "score": 0.42, "blockers": [],
+                    "active_domains": ["technical", "orderflow"],
+                },
+            },
+            terminal={"status": "unavailable"},
+            snapshot_service=self.fresh_service(),
+            execution_loop={"status": "unavailable"},
+        )
+        self.assertEqual(result["status"], "analysis_ready")
+        self.assertEqual(result["central_decision"]["status"], "direction_ready")
+        self.assertEqual(result["market_data"]["status"], "live")
+        self.assertEqual(result["market_data"]["live_orderbook_venues"], 2)
+        self.assertEqual(result["market_data"]["live_trade_venues"], ["bybit_linear_trades"])
+        self.assertIn("okx_swap_liquidations", result["market_data"]["connected_quiet_liquidation_feeds"])
+        self.assertEqual(result["market_data"]["non_live_stream_feeds"][0]["name"], "binance_usdm_trades")
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("execution_loop_unavailable", result["blockers"])
+
+    def test_execution_pipeline_can_be_ready_while_central_decision_holds(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "partial",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "stale"},
+                },
+                "market_stream": {"status": "ok", "venues": []},
+                "decision": {
+                    "action": "HOLD", "score": 0.08,
+                    "blockers": ["insufficient_directional_confluence"],
+                    "active_domains": ["technical", "orderflow"],
+                },
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "daily_loss_percent": 0.25,
+                "daily_loss_limit_percent": 2.0,
+                "trading_ready": True, "symbol": "BTCUSDm",
+                "account_server": "HeadwayMarkets-Demo", "age_seconds": 2,
+                "risk_specs_ready": True,
+            },
+            snapshot_service=self.fresh_service(),
+            execution_loop={"status": "fresh", "age_seconds": 5, "cycle_status": "no_command"},
+            positions=[],
+        )
+        self.assertEqual(result["status"], "execution_ready")
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertEqual(result["central_decision"]["status"], "hold")
+
+    def test_pending_broker_ack_blocks_new_entry_without_marking_components_offline(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "market_stream": {"status": "ok", "venues": []},
+                "decision": {"action": "SELL", "score": -0.4, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.25,
+                "daily_loss_limit_percent": 2.0,
+            },
+            snapshot_service=self.fresh_service(),
+            execution_loop={"status": "fresh", "cycle_status": "no_command", "age_seconds": 1},
+            pending_command={
+                "pending": True, "status": "pending",
+                "command_id": "BTC-123", "ack_status": "PARTIAL_FILL_PENDING",
+            },
+        )
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertTrue(result["position_management"]["pending_command"])
+        self.assertIn("broker_command_pending_acknowledgement", result["blockers"])
+
+    def test_stale_core_domain_is_visible_and_never_counted_as_ready(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "partial",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "stale"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {
+                    "action": "HOLD", "score": None,
+                    "blockers": ["insufficient_fresh_core_evidence_domains"],
+                },
+            },
+            terminal={"status": "not_ready"},
+            snapshot_service=self.fresh_service(),
+            execution_loop={"status": "stale"},
+        )
+        self.assertIn("orderflow", result["market_data"]["core_missing_domains"])
+        self.assertIn("orderflow_evidence_not_fresh", result["blockers"])
+        self.assertFalse(result["new_entry_ready"])
+
+    def test_stale_snapshot_service_blocks_execution_readiness(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.4, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+            },
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
+            snapshot_service={"status": "healthy", "freshness_status": "stale"},
+        )
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("snapshot_service_stale", result["blockers"])
+
+    def test_daily_loss_limit_blocks_new_entries_but_keeps_execution_pipeline_for_closes(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.52, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 2.0,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
+            snapshot_service=self.fresh_service(),
+            positions=[{"ticket": 8765, "symbol": "BTCUSD", "type": "BUY"}],
+        )
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("mt5_daily_loss_limit_reached", result["blockers"])
+        self.assertEqual(result["position_management"]["managed_btc_positions"], 1)
+
+    def test_entry_readiness_requires_a_valid_below_limit_daily_risk_readout(self):
+        base = {
+            "snapshot": {
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            "terminal": {
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.4,
+                "daily_loss_limit_percent": 2.0,
+            },
+            "execution_loop": {"status": "fresh", "cycle_status": "no_command"},
+            "snapshot_service": self.fresh_service(),
+        }
+        self.assertTrue(build_system_readiness(**base)["new_entry_ready"])
+        base["terminal"]["daily_loss_percent"] = None
+        result = build_system_readiness(**base)
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("mt5_daily_risk_status_unavailable", result["blockers"])
+
+    def test_missing_broker_risk_specs_blocks_new_entries_but_keeps_close_pipeline_ready(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.45, "blockers": []},
+            },
+            terminal={
+                "status": "fresh",
+                "headway_server_ok": True,
+                "trading_ready": True,
+                "symbol": "BTCUSD",
+                "risk_specs_ready": False,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
+            snapshot_service=self.fresh_service(),
+            positions=[{"ticket": 12345, "symbol": "BTCUSD", "type": "BUY"}],
+        )
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertEqual(result["headway_mt5"]["status"], "ready")
+        self.assertFalse(result["headway_mt5"]["risk_sizing_ready"])
+        self.assertIn("mt5_broker_risk_specs_unavailable", result["blockers"])
+        self.assertEqual(result["position_management"]["managed_btc_positions"], 1)
+
+    def test_stale_snapshot_blocks_pipeline_even_with_healthy_service_heartbeat(self):
+        old = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat()
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": old,
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
+            snapshot_service=self.fresh_service(),
+        )
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertEqual(result["snapshot_service"]["snapshot_freshness"], "stale")
+        self.assertIn("snapshot_stale", result["blockers"])
+
+    def test_execution_loop_recent_heartbeat_with_stale_cycle_is_not_ready(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={
+                "status": "fresh", "cycle_status": "snapshot_stale",
+                "age_seconds": 3,
+            },
+            snapshot_service=self.fresh_service(),
+        )
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("execution_loop_cycle_snapshot_stale", result["blockers"])
+
+    def test_existing_managed_btc_position_prevents_new_entry_readiness(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
+            snapshot_service=self.fresh_service(),
+            positions=[{"ticket": 12345, "symbol": "BTCUSD", "type": "BUY"}],
+        )
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertEqual(result["position_management"]["managed_btc_positions"], 1)
+
+    def test_unavailable_position_export_blocks_execution_readiness(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.2,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={"status": "fresh", "cycle_status": "no_command"},
+            snapshot_service=self.fresh_service(),
+            positions_available=False,
+        )
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("managed_positions_snapshot_unavailable", result["blockers"])
+
+    def test_missing_snapshot_is_system_degraded(self):
+        result = build_system_readiness(
+            snapshot=None, terminal=None, execution_loop=None,
+        )
+        self.assertEqual(result["status"], "system_degraded")
+        self.assertIn("market_snapshot_unavailable", result["blockers"])
+        self.assertFalse(result["execution_pipeline_ready"])
+
+
+if __name__ == "__main__":
+    unittest.main()

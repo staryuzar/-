@@ -1,0 +1,1593 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+
+import streamlit as st
+
+from bitcoinlab.snapshot_runtime import (
+    read_latest_snapshot,
+    read_snapshot_service_status,
+    request_snapshot_refresh,
+)
+from bitcoinlab.slow_context import build_slow_context
+from bitcoinlab.ea_bridge import (
+    current_ack,
+    default_common_files,
+    pending_command_state,
+    read_ea_status,
+    read_execution_loop_status,
+    read_positions,
+    PositionSnapshotError,
+)
+
+from bitcoinlab.system_status import build_system_readiness
+from bitcoinlab.design_tokens import build_css_variables, load_dashboard_colors
+
+st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
+
+_STATUS_AR = {
+    "fresh": "حديث", "live": "بيانات حديثة", "connected": "متصل",
+    "connected_quiet_ok": "متصل دون أحداث جديدة", "stale": "متقادم",
+    "recovering": "جارٍ إعادة الاتصال", "connecting": "جارٍ الاتصال",
+    "unavailable": "غير متاح", "partial": "جزئي", "incomplete": "غير مكتمل",
+    "error": "خطأ", "ok": "سليم", "not_started": "لم يبدأ",
+    "bullish": "صاعد", "bearish": "هابط", "mixed": "مختلط", "balanced": "متوازن",
+    "BUY": "شراء", "SELL": "بيع", "HOLD": "انتظار", "not_ready": "غير جاهز",
+    "wrong_broker": "وسيط غير مطابق", "wrong_symbol": "رمز غير مطابق", "invalid_quote": "سعر غير صالح",
+}
+
+def _status_ar(value):
+    if value is None:
+        return "غير متاح"
+    value = str(value)
+    return _STATUS_AR.get(value, _STATUS_AR.get(value.lower(), value))
+
+def _fmt_pct(value, digits=2):
+    try:
+        return f"{float(value) * 100:.{digits}f}%"
+    except (TypeError, ValueError, OverflowError):
+        return "غير متاح"
+
+def _friendly_provider_error(name, error):
+    source, detail = str(name).lower(), str(error).lower()
+    if "coin" in source and "403" in detail:
+        return "رفض خادم Coin Metrics الطلب (HTTP 403)؛ سبب الرفض غير مثبت من رمز الاستجابة وحده."
+    if "coin" in source:
+        return "تعذر جلب Coin Metrics في هذه القراءة؛ لا تستخدم قيمة بديلة غير موثقة."
+    if "cftc" in source:
+        return "تعذر تحليل أو جلب تقرير CFTC في هذه القراءة؛ راجع التفاصيل التشخيصية."
+    return "تعذر تحديث هذا المصدر؛ لم تُنشأ بيانات بديلة أو تقديرية."
+
+_DESIGN_COLORS, _DESIGN_TOKEN_WARNING = load_dashboard_colors()
+_CSS_VARIABLES = build_css_variables(_DESIGN_COLORS)
+st.markdown(f"""
+<style>
+:root {{
+    {_CSS_VARIABLES}
+    color-scheme: dark;
+}}
+html, body, [data-testid="stAppViewContainer"] {{
+    background: var(--btc-canvas) !important;
+}}
+[data-testid="stAppViewContainer"] .main {{
+    background: var(--btc-canvas);
+}}
+.block-container {{
+    max-width: 1640px;
+    padding-top: 1.15rem;
+    padding-bottom: 3rem;
+}}
+[data-testid="stSidebar"] {{
+    background: var(--btc-surface) !important;
+    border-inline-end: 1px solid var(--btc-border);
+}}
+[data-testid="stSidebar"] > div:first-child {{
+    background: var(--btc-surface);
+}}
+[data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3,
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li {{
+    color: var(--btc-text);
+}}
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li {{
+    line-height: 1.65;
+}}
+.stApp, .stApp input, .stApp button, .stApp textarea, .stApp select {{
+    font-family: "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+}}
+.hero {{
+    background: linear-gradient(118deg, var(--btc-raised), var(--btc-subtle));
+    border: 1px solid var(--btc-border);
+    color: var(--btc-text);
+    padding: 24px 28px;
+    border-radius: 18px;
+    margin-bottom: 18px;
+}}
+.hero h1 {{ color: var(--btc-text); margin: 0; }}
+.hero p {{ color: var(--btc-secondary); margin: .45rem 0 0; }}
+div[data-testid="stMetric"] {{
+    background: var(--btc-surface);
+    border: 1px solid var(--btc-border);
+    border-radius: 14px;
+    padding: 13px 15px;
+}}
+div[data-testid="stMetricLabel"] {{ color: var(--btc-muted); }}
+div[data-testid="stMetricValue"] {{ color: var(--btc-text); }}
+div[data-testid="stMetricDelta"] {{ font-weight: 600; }}
+.stButton > button {{
+    border-radius: 10px;
+    border: 1px solid var(--btc-border);
+    min-height: 2.55rem;
+}}
+.stButton > button[kind="primary"] {{
+    background: var(--btc-info);
+    border-color: var(--btc-info);
+    color: #081321;
+    font-weight: 700;
+}}
+.stButton > button:hover {{ border-color: var(--btc-info); }}
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div {{
+    background: var(--btc-raised);
+    border-color: var(--btc-border);
+    color: var(--btc-text);
+    border-radius: 10px;
+}}
+[data-testid="stExpander"] {{
+    background: var(--btc-surface);
+    border: 1px solid var(--btc-border);
+    border-radius: 12px;
+}}
+[data-testid="stDataFrame"], [data-testid="stTable"] {{
+    border: 1px solid var(--btc-border);
+    border-radius: 12px;
+    overflow: hidden;
+}}
+[data-testid="stAlert"] {{ border-radius: 12px; }}
+hr {{ border-color: var(--btc-border); }}
+small, [data-testid="stCaptionContainer"] {{ color: var(--btc-muted); }}
+@media (max-width: 800px) {{
+    .block-container {{ padding-left: .8rem; padding-right: .8rem; }}
+    .hero {{ padding: 18px; border-radius: 14px; }}
+    div[data-testid="stMetric"] {{ padding: 10px; }}
+}}
+</style>
+<div class="hero"><h1>₿ Bitcoin Intelligence Lab</h1>
+<p>بيانات بيتكوين الحقيقية · محركات متعددة · قرار مركزي · تدقيق جودة البيانات</p></div>
+""", unsafe_allow_html=True)
+if _DESIGN_TOKEN_WARNING:
+    st.warning("ملف ألوان التصميم غير مكتمل؛ تُستخدم لوحة الألوان الاحتياطية. " + _DESIGN_TOKEN_WARNING)
+
+
+def _queue_snapshot_refresh():
+    request = request_snapshot_refresh(
+        reason="dashboard_manual_refresh",
+        symbol=st.session_state.get("btc_symbol", "BTCUSDT"),
+        interval=st.session_state.get("btc_interval", "1m"),
+    )
+    st.session_state["btc_snapshot_revision"] = int(
+        st.session_state.get("btc_snapshot_revision", 0)
+    ) + 1
+    st.session_state["btc_refresh_pending"] = True
+    st.session_state["btc_refresh_request_id"] = request["request_id"]
+    st.session_state["btc_refresh_requested_at"] = request["requested_at_utc"]
+
+
+if "btc_snapshot_revision" not in st.session_state:
+    st.session_state["btc_snapshot_revision"] = 0
+
+with st.sidebar:
+    st.header("إعدادات السوق")
+    symbol = st.selectbox("رمز السوق الفوري", ["BTCUSDT", "BTCUSDC"], index=0, key="btc_symbol")
+    interval = st.selectbox("الإطار الزمني", ["1m", "5m", "15m", "1h", "4h"], index=0, key="btc_interval")
+    st.divider()
+    auto_refresh = st.toggle("إعادة قراءة أحدث لقطة تلقائياً", value=False)
+    refresh_seconds = st.select_slider(
+        "الفاصل بين تحديث العرض (ثانية)", options=[30, 60, 120], value=60,
+        disabled=not auto_refresh,
+    )
+    st.button(
+        "طلب تحديث التحليل من محرك اللقطات", type="primary", use_container_width=True,
+        on_click=_queue_snapshot_refresh,
+    )
+    st.caption(
+        "Binance وBybit وOKX مصادر بيانات فقط. Headway عبر MT5 هو منفذ التنفيذ الوحيد؛ "
+        "حلقة التنفيذ عملية مستقلة لا تعمل إلا عند تشغيلها صراحةً على الجهاز المتصل بالطرفية. "
+        "محرك اللقطات يجمع التحليل مرة واحدة ويشاركه مع اللوحة وحلقة التنفيذ؛ جامع WebSocket مستقل ويستمر في الخلفية."
+    )
+
+if "btc_report" not in st.session_state:
+    st.session_state["btc_report"] = None
+if "btc_report_key" not in st.session_state:
+    st.session_state["btc_report_key"] = None
+if "btc_report_revision" not in st.session_state:
+    st.session_state["btc_report_revision"] = None
+
+
+@st.cache_data(ttl=3, max_entries=12, show_spinner=False)
+def cached_live_snapshot(symbol: str, interval: str, revision: int):
+    """Read the shared snapshot; this function never fetches exchange feeds."""
+    report = read_latest_snapshot(max_age_seconds=900)
+    if str(report.get("symbol", "")).upper() != symbol.upper():
+        raise RuntimeError(
+            f"Shared snapshot covers {report.get('symbol')}, not {symbol}; request a new snapshot."
+        )
+    if str(report.get("interval", "")).lower() != interval.lower():
+        raise RuntimeError(
+            f"Shared snapshot covers {report.get('interval')}, not {interval}; request a new snapshot."
+        )
+    return report
+
+
+@st.cache_data(ttl=2, show_spinner=False)
+def cached_snapshot_service_status():
+    return read_snapshot_service_status()
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def cached_slow_context():
+    return build_slow_context()
+
+
+@st.fragment(run_every="3s" if st.session_state.get("btc_refresh_pending") else (f"{refresh_seconds}s" if auto_refresh else None))
+def render_live_dashboard():
+    report_key = (symbol, interval)
+    revision = int(st.session_state.get("btc_snapshot_revision", 0))
+    needs_refresh = (
+        st.session_state.get("btc_report") is None
+        or st.session_state.get("btc_report_key") != report_key
+        or st.session_state.get("btc_report_revision") != revision
+        or st.session_state.get("btc_refresh_pending")
+        or auto_refresh
+    )
+    if needs_refresh:
+        with st.spinner("قراءة لقطة السوق والتحقق من حداثة المصادر..."):
+            try:
+                snapshot = cached_live_snapshot(symbol, interval, revision)
+                st.session_state["btc_report"] = snapshot
+                st.session_state["btc_report_key"] = report_key
+                st.session_state["btc_report_revision"] = revision
+                st.session_state["btc_refresh_error"] = None
+            except Exception as exc:
+                st.session_state["btc_refresh_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+    report = st.session_state.get("btc_report")
+    if st.session_state.get("btc_report_key") != report_key:
+        report = None
+    service_state = cached_snapshot_service_status()
+    if report:
+        observed_at = datetime.fromisoformat(
+            str(report.get("as_of_utc", "")).replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+        snapshot_age = max(0.0, (datetime.now(timezone.utc) - observed_at).total_seconds())
+        st.caption(
+            f"آخر لقطة تحليل مشتركة: {report.get('as_of_utc', 'غير متاح')} · "
+            f"عمرها {snapshot_age:.0f} ثانية · "
+            + ("عرض يتجدد تلقائياً" if auto_refresh else "العرض لا يعيد جلب بيانات من الإنترنت")
+        )
+        if snapshot_age > 90:
+            st.warning("اللقطة أقدم من حد التنفيذ؛ تعرض للسياق فقط ولا تسمح حلقة التنفيذ باستخدامها.")
+    if service_state.get("status") != "healthy" or service_state.get("freshness_status") != "fresh":
+        st.warning(
+            "محرك اللقطات المشتركة غير جاهز أو نبضه قديم: "
+            + str(service_state.get("status"))
+            + " / "
+            + str(service_state.get("freshness_status"))
+            + ". شغّل المشغّل الموحد للبرنامج."
+        )
+    if st.session_state.get("btc_refresh_pending"):
+        requested_at = st.session_state.get("btc_refresh_requested_at")
+        completed = False
+        timed_out = False
+        try:
+            request_time = datetime.fromisoformat(str(requested_at).replace("Z", "+00:00"))
+            completed = bool(report) and datetime.fromisoformat(
+                str(report.get("as_of_utc", "")).replace("Z", "+00:00")
+            ) >= request_time
+            timed_out = (
+                datetime.now(timezone.utc) - request_time.astimezone(timezone.utc)
+            ).total_seconds() > 90
+        except (TypeError, ValueError):
+            timed_out = True
+        if completed:
+            st.session_state["btc_refresh_pending"] = False
+            st.success("اكتملت اللقطة الجديدة ووصلت من محرك البيانات المشترك.")
+            st.rerun()
+        elif timed_out:
+            st.session_state["btc_refresh_pending"] = False
+            st.warning("لم يصل تحديث جديد خلال 90 ثانية؛ نحتفظ باللقطة السابقة.")
+        else:
+            st.info("أُرسل طلب التحديث إلى محرك اللقطات؛ ستظهر النتيجة عند اكتمال دورة الجلب.")
+    if st.session_state.get("btc_refresh_error"):
+        st.warning("تعذر قراءة لقطة التحليل؛ نحتفظ بآخر بيانات ناجحة بدلاً من تفريغ اللوحة. "
+                   + st.session_state["btc_refresh_error"])
+    if not isinstance(report, dict):
+        st.error("لا توجد لقطة مشتركة بعد. استخدم زر طلب تحديث التحليل، وتأكد أن محرك اللقطات يعمل.")
+        return
+    st.subheader("مركز التنفيذ — Headway / MT5")
+    try:
+        common_files = default_common_files()
+        ea_status = read_ea_status(common_files)
+        loop_status = read_execution_loop_status(common_files)
+        positions_error = None
+        try:
+            managed_positions = read_positions(common_files)
+        except PositionSnapshotError as exc:
+            managed_positions = []
+            positions_error = str(exc)
+        broker_ack = current_ack(common_files)
+        pending = pending_command_state(common_files)
+        service_state = cached_snapshot_service_status()
+        system_readiness = build_system_readiness(
+            snapshot=report,
+            terminal=ea_status,
+            execution_loop=loop_status,
+            positions=managed_positions,
+            pending_command=pending,
+            snapshot_service=service_state,
+            positions_available=positions_error is None,
+        )
+        readiness_top = st.columns(3)
+        readiness_bottom = st.columns(3)
+        readiness_top[0].metric(
+            "سلامة بيانات السوق",
+            {"live": "حي", "partial": "جزئي", "unavailable": "غير متاح"}.get(
+                system_readiness["market_data"]["status"], "غير متاح"
+            ),
+            f"{system_readiness['market_data']['live_orderbook_venues']} دفاتر حية",
+        )
+        readiness_top[1].metric(
+            "قرار مركز البرنامج",
+            system_readiness["central_decision"]["action"],
+            f"درجة: {system_readiness['central_decision']['score']}"
+            if system_readiness["central_decision"]["score"] is not None else "لا توجد درجة صالحة",
+        )
+        readiness_top[2].metric(
+            "محرك اللقطات المشتركة",
+            "سليم" if system_readiness["snapshot_service"]["status"] == "healthy"
+            and system_readiness["snapshot_service"]["freshness_status"] == "fresh"
+            and system_readiness["snapshot_service"]["snapshot_freshness"] == "fresh"
+            else str(
+                system_readiness["snapshot_service"]["snapshot_freshness"]
+                or system_readiness["snapshot_service"]["freshness_status"]
+            ),
+            (
+                f"نبض الخدمة: {system_readiness['snapshot_service']['age_seconds']} ث · "
+                f"عمر اللقطة: {system_readiness['snapshot_service']['snapshot_age_seconds']} ث"
+            ) if system_readiness["snapshot_service"]["age_seconds"] is not None
+            and system_readiness["snapshot_service"]["snapshot_age_seconds"] is not None
+            else "لا يوجد توقيت صالح للنبض/اللقطة",
+        )
+        readiness_bottom[0].metric(
+            "جاهزية Headway / MT5",
+            "جاهز" if system_readiness["headway_mt5"]["status"] == "ready"
+            else str(system_readiness["headway_mt5"]["status"]),
+        )
+        readiness_bottom[1].metric(
+            "مواصفات حساب المخاطرة",
+            "جاهزة" if system_readiness["headway_mt5"]["risk_sizing_ready"] else "غير متاحة",
+            (
+                f"Tick: {system_readiness['headway_mt5']['tick_size']} · "
+                f"حجم اللوت: {system_readiness['headway_mt5']['volume_step']}"
+            ) if system_readiness["headway_mt5"]["risk_sizing_ready"] else "تُمنع المداخل الجديدة؛ الإغلاق يبقى متاحاً",
+        )
+        readiness_bottom[2].metric(
+            "حلقة التنفيذ",
+            "نشطة" if system_readiness["execution_loop"]["status"] == "active"
+            else str(system_readiness["execution_loop"]["status"]),
+        )
+        st.caption(
+            "حالة المنظومة: "
+            + str(system_readiness["status"])
+            + " · سلسلة التنفيذ: "
+            + ("جاهزة بعد تحقق القرار" if system_readiness["execution_pipeline_ready"] else "غير جاهزة بالكامل")
+            + " · دخول جديد: "
+            + ("مسموح بشروط القرار" if system_readiness["new_entry_ready"] else "غير متاح حالياً")
+        )
+        if system_readiness["blockers"]:
+            st.info("الفجوات الحالية: " + "، ".join(system_readiness["blockers"]))
+        if pending.get("pending"):
+            st.warning(
+                "هناك أمر ينتظر إقراراً نهائياً من الوسيط؛ لن تُنشر أوامر جديدة. "
+                + str(pending.get("ack_status") or pending.get("status"))
+            )
+        if positions_error:
+            st.error(
+                "تعذر التحقق من ملف مراكز الخبير؛ تم تعطيل مسار القرار والتنفيذ حتى استعادة لقطة المراكز: "
+                + positions_error
+            )
+        ea_freshness = ea_status.get("freshness_status", ea_status.get("status"))
+        ea_state_label = (
+            f"متصل وجاهز · {ea_status.get('symbol')}"
+            if ea_status.get("status") == "fresh" else
+            ("نبض متقادم" if ea_freshness == "stale" else f"غير جاهز · {_status_ar(ea_status.get('status'))}")
+        )
+        loop_state_label = (
+            f"نشطة · {loop_status.get('age_seconds')} ث"
+            if loop_status.get("status") == "fresh" else
+            ("نبض متقادم" if loop_status.get("status") == "stale" else "حلقة التنفيذ غير نشطة")
+        )
+        execution_cols = st.columns(3)
+        execution_cols[0].metric("حالة المستشار الخبير في MT5", ea_state_label)
+        execution_cols[1].metric("حلقة القرار والتنفيذ", loop_state_label)
+        execution_cols[2].metric(
+            "مراكز المستشار",
+            str(len(managed_positions)) if ea_status.get("status") == "fresh" else "غير متاح",
+        )
+        if ea_status.get("status") != "fresh":
+            st.warning(
+                "حالة الخبير: " + str(ea_status.get("status")) + " — "
+                + str(ea_status.get("reason", ea_status.get("ea_message", "لا توجد نبضة حديثة")))
+            )
+        elif not ea_status.get("headway_server_ok"):
+            st.error("الخادم المتصل ليس خادم Headway.")
+        else:
+            st.caption(
+                f"الخادم: {ea_status.get('account_server')} · "
+                f"عمر النبضة: {ea_status.get('age_seconds')} ثانية · "
+                f"حالة الإذن: {ea_status.get('readiness_marker')}"
+            )
+            daily_loss = ea_status.get("daily_loss_percent")
+            daily_limit = ea_status.get("daily_loss_limit_percent")
+            if daily_loss is not None and daily_limit is not None and daily_loss >= 0:
+                risk_text = (
+                    f"السحب اليومي: {daily_loss:.2f}% من حد الإيقاف {daily_limit:.2f}%"
+                )
+                if daily_loss >= daily_limit:
+                    st.warning(risk_text + " — تم إيقاف المداخل الجديدة، وإدارة الإغلاق باقية.")
+                else:
+                    st.caption(risk_text)
+        if loop_status.get("status") == "fresh":
+            st.caption(
+                f"آخر دورة: {loop_status.get('updated_at_utc')} · "
+                f"النتيجة: {loop_status.get('cycle_status')} · "
+                f"الإجراء المخطط: {loop_status.get('plan', {}).get('action', 'HOLD')} · "
+                f"معرّف الأمر: {loop_status.get('command_id') or 'لا يوجد'}"
+            )
+            if loop_status.get("last_risk_sizing"):
+                last_sizing = loop_status["last_risk_sizing"]
+                risk_budget = last_sizing.get("risk_budget")
+                estimated_loss = last_sizing.get("estimated_loss")
+                st.caption(
+                    f"آخر حجم محسوب: {loop_status.get('last_command_volume')} لوت · "
+                    f"ميزانية المخاطرة: {risk_budget:.2f} · "
+                    f"الخسارة المقدرة عند الوقف: {estimated_loss:.2f}"
+                    if isinstance(risk_budget, (int, float)) and isinstance(estimated_loss, (int, float))
+                    else "تم حفظ تفاصيل آخر حساب للمخاطرة."
+                )
+                st.caption(
+                    f"مستويات الأمر الأخير — SL: {loop_status.get('last_stop_loss')} · "
+                    f"TP: {loop_status.get('last_take_profit')}"
+                )
+            if loop_status.get("command_id"):
+                if broker_ack.get("id") == loop_status.get("command_id"):
+                    ack_state = str(broker_ack.get("status", "UNKNOWN"))
+                    ack_detail = str(broker_ack.get("detail", ""))
+                    st.caption(f"إقرار الطرفية: {ack_state} · {ack_detail}")
+                else:
+                    st.caption("إقرار الوسيط: لم يصل بعد للأمر الأخير.")
+        if managed_positions and ea_status.get("status") == "fresh":
+            st.dataframe(
+                [
+                    {
+                        "التذكرة": row["ticket"],
+                        "الرمز": row["symbol"],
+                        "الاتجاه": row["type"],
+                        "الحجم": row["volume"],
+                        "سعر الفتح": row["price_open"],
+                        "السعر الحالي": row["price_current"],
+                        "وقف الخسارة": row["stop_loss"],
+                        "جني الربح": row["take_profit"],
+                        "الربح العائم": row["profit"],
+                    }
+                    for row in managed_positions
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+    except Exception as exc:
+        st.info(
+            "تعذر قراءة ملفات حالة MT5 من مجلد Common Files: "
+            + f"{type(exc).__name__}: {exc}"
+        )
+    st.caption(
+        "اللوحة تقرأ حالة الطرفية والمراكز للعرض فقط. نشر الأوامر يتم من "
+        "bitcoinlab.execution_loop كعملية مستقلة، ولا تُرسل أوامر من إعادة تحميل Streamlit. "
+        "تبدأ الحلقة فقط عند تفعيلها صراحةً واجتياز شروط الحداثة والجاهزية؛ وظهور BUY/SELL لا يثبت إرسال أمر أو تنفيذه."
+    )
+
+    st.subheader("تدفق دفاتر الأوامر الحي — Binance / Bybit / OKX")
+    stream_state = (
+        report.get("market_stream", {})
+        if isinstance(report, dict)
+        else {"status": "not_started", "reason": "لم تُبنَ لقطة السوق بعد."}
+    )
+    if stream_state.get("status") == "ok" and stream_state.get("venues"):
+        venue_rows = [
+            {
+                "المنصة": row["venue"],
+                "الرمز": row["symbol"],
+                "الحالة": row["status"],
+                "آخر رسالة UTC": (
+                    datetime.fromtimestamp(row["last_message_ms"] / 1000, timezone.utc).isoformat()
+                    if row.get("last_message_ms") else "—"
+                ),
+                "إعادات الاتصال": row["reconnects"],
+                "آخر خطأ": row.get("last_error") or "—",
+            }
+            for row in stream_state["venues"]
+        ]
+        st.dataframe(venue_rows, use_container_width=True, hide_index=True)
+        if stream_state.get("latest_books"):
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "Bid": row["best_bid"],
+                        "Ask": row["best_ask"],
+                        "Spread bps": row["spread_bps"],
+                        "Book imbalance": row["imbalance"],
+                        "توقيت لقطة UTC": datetime.fromtimestamp(
+                            row["observed_at_ms"] / 1000, timezone.utc,
+                        ).isoformat(),
+                    }
+                    for row in stream_state["latest_books"]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+    else:
+        st.info(
+            "جامع WebSocket لا يعمل أو لم تُنشأ قاعدة بياناته بعد. "
+            "شغّل جامع السوق في نافذة طرفية ثانية بالأمر الموضح في README_AR.md. "
+            + str(stream_state.get("reason", ""))
+        )
+
+    st.subheader("خريطة عمق السيولة التاريخية — Heatmap وPull/Stack")
+    if isinstance(report, dict):
+        liquidity = report.get("liquidity_context", {})
+        depth_profiles = liquidity.get("venues", [])
+        if depth_profiles:
+            st.caption(
+                "العرض لكل منصة منفصلة. Heatmap يقيس حجم العمق الظاهر واستمراره في اللقطات؛ "
+                "Pull/Stack يقارن السعر نفسه بين لقطتين متتاليتين ولا يعد اختفاء المستوى وحده سحباً مؤكداً."
+            )
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "نوع السوق": row["market_type"],
+                        "الحالة": row["status"],
+                        "عدد اللقطات": row["snapshot_count"],
+                        "عمر آخر لقطة (ث)": row["last_snapshot_age_seconds"],
+                        "نسبة تغطية البيانات": _fmt_pct(row.get("sample_coverage_ratio"), 1),
+                    }
+                    for row in depth_profiles
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            for profile in depth_profiles:
+                with st.expander(
+                    f"{profile['venue']} · {profile['market_type']} · {profile['snapshot_count']} لقطة"
+                ):
+                    for side, label in (("bid", "طلب Bid"), ("ask", "عرض Ask")):
+                        levels = sorted(
+                            profile.get("heatmap", {}).get(side, []),
+                            key=lambda item: item["mean_visible_size_btc"],
+                            reverse=True,
+                        )[:10]
+                        if levels:
+                            st.markdown(f"**أكبر مستويات العمق الظاهر — {label}**")
+                            st.dataframe(
+                                [
+                                    {
+                                        "نطاق السعر USD": item["price_bucket_usd"],
+                                        "متوسط الحجم الظاهر BTC": item["mean_visible_size_btc"],
+                                        "الوسيط عند الظهور BTC": item["median_when_visible_btc"],
+                                        "نسبة الاستمرار": item["persistence_ratio"],
+                                        "الحجم الحالي BTC": item["current_size_btc"],
+                                    }
+                                    for item in levels
+                                ],
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                    changes = profile.get("pull_stack", [])
+                    if changes:
+                        st.markdown("**Pull/Stack proxy — تغيّر الحجم عند السعر نفسه**")
+                        st.dataframe(
+                            [
+                                {
+                                    "الجانب": item["side"],
+                                    "نطاق السعر USD": item["price_bucket_usd"],
+                                    "أحداث Stack": item["stack_events"],
+                                    "أحداث Pull": item["pull_events"],
+                                    "حجم Stack BTC": item["stacked_btc"],
+                                    "حجم Pull BTC": item["pulled_btc"],
+                                    "آخر تغير %": item["last_change_pct"],
+                                }
+                                for item in changes
+                            ],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    else:
+                        st.caption("لم تُرصد تغيرات Pull/Stack تتجاوز حد المقارنة في العينات المتاحة.")
+            st.caption("هذا محرك سيولة سياقي؛ لا يضيف صوتاً اتجاهياً مستقلاً إلى مركز القرار.")
+        else:
+            st.caption(
+                "لا توجد بعد عينات عمق تاريخية كافية. شغّل جامع السوق ليحفظ لقطات متتابعة؛ "
+                "تحتاج الخريطة إلى ثلاث لقطات حديثة على الأقل لكل منصة."
+            )
+    else:
+        st.caption("سيظهر سجل Heatmap بعد إنشاء لقطة السوق.")
+
+    st.subheader("محرك تدفق الصفقات المستمر — CVD متعدد المنصات")
+    if isinstance(report, dict):
+        trade_analytics = report.get("trade_analytics", {})
+        trade_rows = [
+            row for row in trade_analytics.get("trade_flow_summary", [])
+            if row.get("timeframe") == "5m" and row.get("status") == "ok"
+        ]
+        if trade_rows:
+            st.caption(
+                "الجدول يعرض كل منصة ونوع سوق منفصلين. لا نجمع أحجام Spot مع العقود الدائمة، "
+                "ولا نجمع أحجام المنصات بعضها مع بعض."
+            )
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "نوع السوق": "فوري" if row["market_type"] == "spot" else "دائم خطي",
+                        "شراء BTC": row["buy_base_volume_btc"],
+                        "بيع BTC": row["sell_base_volume_btc"],
+                        "دلتا BTC": row["delta_base_volume_btc"],
+                        "دلتا USD": row["delta_notional_usd"],
+                        "نسبة دلتا الحجم (CVD)": _fmt_pct(row.get("delta_notional_ratio"), 2),
+                        "عدد الصفقات": row["trade_count"],
+                        "آخر صفقة UTC": datetime.fromtimestamp(
+                            row["last_trade_time_ms"] / 1000, timezone.utc,
+                        ).isoformat() if row.get("last_trade_time_ms") else "—",
+                    }
+                    for row in trade_rows
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.caption(
+                "لم تكتمل بعد تغطية تدفق الصفقات خلال نافذة 5 دقائق، أو أن الجامع لم يبدأ. "
+                "لن يصدر المحرك تصويت CVD حتى تتوفر منصتان حديثتان على الأقل."
+            )
+        cvd = report.get("streamed_trade_flow", {})
+        if cvd.get("status") == "ok":
+            cvd_cols = st.columns(3)
+            cvd_cols[0].metric("CVD الاتجاهي (5m)", f"{cvd['score']:+.3f}")
+            cvd_cols[1].metric("عدد المنصات", str(cvd.get("venue_count", 0)))
+            cvd_cols[2].metric("الصفقات المجمعة", str(cvd.get("trade_count", 0)))
+            if cvd.get("warnings"):
+                st.warning("تنبيهات توافق تدفق الشراء والبيع: " + "، ".join(cvd["warnings"]))
+        else:
+            st.caption("تصويت CVD غير نشط: " + str(cvd.get("reason", "بيانات غير كافية.")))
+        if cvd.get("active_venues") or cvd.get("rejected_venues"):
+            st.caption(
+                "منصات مستوفية: " + ("، ".join(cvd.get("active_venues", [])) or "لا يوجد") +
+                " · منصات مستبعدة: " + ("، ".join(cvd.get("rejected_venues", [])) or "لا يوجد") +
+                " · شروط التفعيل: 5 صفقات على الأقل لكل منصة، آخر صفقة خلال 35 ثانية، ومنصتان على الأقل."
+            )
+
+        footprint_profiles = report.get("streamed_footprint_profiles", [])
+        if footprint_profiles:
+            st.markdown("**Footprint المستمر حسب السعر والمنصة — آخر 15 دقيقة**")
+            for profile in footprint_profiles:
+                label = f"{profile['venue']} · {'Spot' if profile['market_type'] == 'spot' else 'Linear Perpetual'}"
+                with st.expander(label):
+                    fp_cols = st.columns(4)
+                    fp_cols[0].metric("POC", f"{profile['poc']:.2f}")
+                    fp_cols[1].metric("VAH", f"{profile['vah']:.2f}")
+                    fp_cols[2].metric("VAL", f"{profile['val']:.2f}")
+                    fp_cols[3].metric("Delta USD", f"{profile['delta_notional_usd']:+.2f}")
+                    st.dataframe(profile.get("bins", []), use_container_width=True, hide_index=True)
+    else:
+        st.caption("سيظهر محرك CVD وFootprint بعد إنشاء لقطة السوق.")
+
+    st.subheader("خريطة تجمعات التصفية السعرية — آخر 60 دقيقة")
+    if isinstance(report, dict):
+        liquidation_map = report.get("liquidation_heatmap", {})
+        clusters = liquidation_map.get("clusters", [])
+        venues = liquidation_map.get("venues", [])
+        map_cols = st.columns(3)
+        map_cols[0].metric("أحداث ضمن النافذة", str(liquidation_map.get("event_count", 0)))
+        map_cols[1].metric("مجموعات سعرية منفصلة", str(liquidation_map.get("cluster_count", 0)))
+        map_cols[2].metric("منصات ممثلة", str(len(venues)))
+        if clusters:
+            st.caption(
+                "كل مجموعة تبقى مفصولة حسب المنصة ونوع العقد والجهة ووحدة الحجم ونوع السعر المرجعي. "
+                "لا نجمع العقود الخام أو نخلط سعر التنفيذ بسعر الإفلاس."
+            )
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "السوق": row["market_type"],
+                        "المركز المصفّى": row["liquidated_side"],
+                        "من": row["price_bucket_low_usd"],
+                        "إلى": row["price_bucket_high_usd"],
+                        "نوع السعر": row["reference_price_kind"],
+                        "عدد الأحداث": row["event_count"],
+                        "الحجم": row["total_native_size"],
+                        "وحدة الحجم": row["quantity_unit"],
+                        "قيمة USD الموثقة": row["priced_notional_usd"],
+                        "أحداث لها Notional": row["priced_event_count"],
+                        "عمر آخر حدث (ث)": row["latest_event_age_seconds"],
+                    }
+                    for row in clusters
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            if venues:
+                st.markdown("**تغطية الأحداث وحالة اتصال كل منصة**")
+                st.dataframe(
+                    [
+                        {
+                            "المنصة": row["venue"],
+                            "عدد الأحداث": row["event_count"],
+                            "آخر حدث UTC": datetime.fromtimestamp(
+                                row["latest_event_time_ms"] / 1000, timezone.utc,
+                            ).isoformat(),
+                            "وحدات الحجم": ", ".join(row["quantity_units"]),
+                            "أنواع السعر": ", ".join(row["reference_price_kinds"]),
+                            "حالة القناة": row["feed_status"],
+                            "إعادات الاتصال": row["feed_reconnects"],
+                        }
+                        for row in venues
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            if liquidation_map.get("warnings"):
+                st.warning("قيود تغطية خريطة التصفية: " + "، ".join(liquidation_map["warnings"]))
+        else:
+            st.caption(
+                "لا توجد مجموعات تصفية سعرية في النافذة المختارة أو أن الأحداث لم تصل بعد. "
+                "عدم ظهور مجموعة لا يعني عدم وجود تصفيات في السوق كله."
+            )
+        st.caption(
+            "الخريطة دليل مخاطر سياقي فقط؛ بيانات التصفية عيّنية ومتفاوتة بين المنصات، "
+            "ولا تنشئ تصويتاً اتجاهياً أو أمراً."
+        )
+    else:
+        st.caption("تظهر خريطة التصفية عند توفر سجل SQLite المحلي.")
+
+    st.subheader("ماسح أحداث السوق والفرص — دون تنفيذ")
+    if isinstance(report, dict):
+        screener = report.get("screener", {})
+        events = screener.get("events", [])
+        counts = screener.get("counts_by_severity", {})
+        alert_cols = st.columns(4)
+        alert_cols[0].metric("الأحداث النشطة", str(screener.get("event_count", 0)))
+        alert_cols[1].metric("عالية", str(counts.get("high", 0)))
+        alert_cols[2].metric("متوسطة", str(counts.get("medium", 0)))
+        alert_cols[3].metric("منخفضة", str(counts.get("low", 0)))
+        if events:
+            st.caption(
+                "هذه كواشف أحداث من شموع مكتملة وبيانات حديثة. لا تنشئ أوامر، "
+                "ولا تمثل احتمال نجاح، وجميع الحدود الحالية أولية قابلة للمعايرة."
+            )
+            st.dataframe(
+                [
+                    {
+                        "الخطورة": row["severity"],
+                        "الحدث": row["type"],
+                        "الإطار": row["timeframe"],
+                        "الاتجاه المرجعي": row.get("direction") or "غير اتجاهي",
+                        "القيمة": row["value"],
+                        "الحد": row["threshold"],
+                        "وقت الرصد UTC": datetime.fromtimestamp(
+                            row["observed_at_ms"] / 1000, timezone.utc,
+                        ).isoformat(),
+                        "المصدر": row["source"],
+                        "تنفيذ أمر": "لا",
+                    }
+                    for row in events
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            with st.expander("تفاصيل الأدلة والحدود لكل حدث"):
+                for row in events:
+                    st.markdown(
+                        f"**{row['type']} · {row['timeframe']} · {row['severity']}**"
+                    )
+                    st.write("الأدلة:", row["evidence"])
+                    st.caption(row["limitation"])
+        else:
+            st.caption(
+                "لا توجد أحداث تتجاوز العتبات حالياً، أو أن بعض المدخلات غير مكتملة/قديمة. "
+                "لن يصطنع الماسح حدثاً من بيانات ناقصة."
+            )
+        if screener.get("rejected_inputs"):
+            with st.expander("مدخلات لم تدخل في كشف الأحداث"):
+                st.write(screener["rejected_inputs"])
+        st.caption(
+            "الأحداث عالية/متوسطة تظهر كتحذيرات مساندة في مركز القرار، "
+            "لكنها لا تغير Score أو أوزان المحركات."
+        )
+    else:
+        st.caption("يظهر ماسح الأحداث بعد تكوين لقطة السوق.")
+
+    st.subheader("محرك رصد تصفيات المشتقات — آخر 60 دقيقة")
+    liquidation_groups = stream_state.get("liquidation_summary", [])
+    if liquidation_groups:
+        st.caption(
+            "التجميع يبقى منفصلاً حسب المنصة ووحدة العقد؛ لا نجمع أحجام BTC والعقود "
+            "في رقم واحد، ولا نعد سعر الإفلاس سعر تنفيذ."
+        )
+        st.dataframe(
+            [
+                {
+                    "المنصة": row["venue"],
+                    "نوع السوق": row["market_type"],
+                    "الجهة المصفّاة": row["liquidated_side"],
+                    "وحدة الحجم": row["quantity_unit"],
+                    "عدد الأحداث": row["event_count"],
+                    "إجمالي الحجم الأصلي": row["total_native_size"],
+                    "Notional USD (البيانات ذات سعر تنفيذ فقط)": row["notional_usd"],
+                    "آخر حدث UTC": datetime.fromtimestamp(
+                        row["latest_event_time_ms"] / 1000, timezone.utc,
+                    ).isoformat(),
+                }
+                for row in liquidation_groups
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        recent = stream_state.get("recent_liquidations", [])
+        if recent:
+            with st.expander("آخر أحداث التصفية المسجلة"):
+                st.dataframe(
+                    [
+                        {
+                            "المنصة": row["venue"],
+                            "الرمز": row["symbol"],
+                            "الجهة المصفّاة": row["liquidated_side"],
+                            "Side": row["order_side"],
+                            "الحجم": row["raw_size"],
+                            "الوحدة": row["quantity_unit"],
+                            "السعر المرجعي": row["reference_price"],
+                            "نوع السعر": row["reference_price_kind"],
+                            "Notional USD": row["notional_usd"],
+                            "وقت الحدث UTC": datetime.fromtimestamp(
+                                row["event_time_ms"] / 1000, timezone.utc,
+                            ).isoformat(),
+                        }
+                        for row in recent
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+    else:
+        st.caption(
+            "لا توجد أحداث تصفية مسجلة خلال آخر 60 دقيقة، أو أن جامع التصفيات لم يبدأ بعد. "
+            "غياب الأحداث لا يعني غياب التصفية في كامل السوق."
+        )
+
+    if not report:
+        st.error(
+            "لم تتوفر لقطة سوق صالحة بعد. راجع اتصال الإنترنت ورسالة الخطأ أدناه؛ "
+            "لن تُنشأ إشارة بديلة من بيانات افتراضية."
+        )
+        if st.session_state.get("btc_refresh_error"):
+            st.code(st.session_state["btc_refresh_error"])
+        st.caption(
+            "لم تتوفر أي بيانات تداول افتراضية أو محاكاة بديلة."
+        )
+        return
+
+    decision = report["decision"]
+    st.caption(
+        f"الرمز: {report['symbol']} · آخر تحديث UTC: {report['as_of_utc']} · "
+        f"حالة اللقطة: {report['status']}"
+    )
+
+    health = report.get("data_health", {})
+    st.subheader("مراقب صحة مصادر البيانات")
+    health_cols = st.columns(5)
+    health_cols[0].metric("حالة المنظومة", health.get("status", "غير متاح"))
+    health_cols[1].metric(
+        "المصادر الأساسية الحديثة",
+        f"{health.get('fresh_core_count', 0)}/{health.get('core_feed_count', 3)}",
+    )
+    health_cols[2].metric(
+        "دفاتر الأوامر ذات البيانات الحديثة",
+        str(len(health.get("live_orderbook_venues", []))),
+    )
+    live_trade_feeds = [
+        row for row in health.get("stream_feeds", [])
+        if row.get("feed_type") == "trades" and row.get("status") == "live"
+    ]
+    health_cols[3].metric("تدفقات الصفقات الحية", str(len(live_trade_feeds)))
+    health_cols[4].metric(
+        "قنوات التصفية المتصلة بلا أحداث",
+        str(len(health.get("connected_quiet_liquidation_feeds", []))),
+    )
+    if health.get("warnings"):
+        st.warning("صحة البيانات: " + " · ".join(health["warnings"]))
+    stream_health_rows = health.get("stream_feeds", [])
+    if stream_health_rows:
+        with st.expander("تفاصيل اتصال كل WebSocket وحالة حداثته"):
+            st.dataframe(
+                [
+                    {
+                        "المصدر": row["name"],
+                        "نوع المصدر": row.get("feed_type", "event"),
+                        "الحالة": row["status"],
+                        "آخر حدث (ث)": row["last_message_age_seconds"],
+                        "عمر heartbeat (ث)": row["heartbeat_age_seconds"],
+                        "عمر آخر دفتر (ث)": row["book_age_seconds"],
+                        "إعادات الاتصال": row["reconnects"],
+                        "آخر خطأ": row["last_error"] or "—",
+                    }
+                    for row in stream_health_rows
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+    st.caption(
+        "مراقب الجودة لا يصوّت للاتجاه. قنوات التصفية حدثية وقد تبقى متصلة بلا تصفيات؛ "
+        "أما تدفقات صفقات BTC فهي عالية التردد، ولذلك يصنف غياب الصفقات الحديثة كتقادم "
+        "حتى لو ظل heartbeat متصلاً."
+    )
+
+    intelligence = report.get("market_intelligence", {})
+    structure_engine = intelligence.get("market_structure_signal", {})
+    cross_venue_engine = intelligence.get("cross_venue_orderbook", {})
+    liquidation_risk = intelligence.get("liquidation_risk", {})
+
+    st.subheader("الأدلة المضافة إلى مركز القرار")
+    engine_cols = st.columns(4)
+    engine_cols[0].metric(
+        "إشارة بنية السوق",
+        f"{structure_engine['score']:+.3f}"
+        if structure_engine.get("score") is not None else "غير مكتملة",
+    )
+    engine_cols[1].metric(
+        "توافق دفاتر المنصات",
+        f"{cross_venue_engine['score']:+.3f}"
+        if cross_venue_engine.get("score") is not None else "منصات غير كافية",
+    )
+    engine_cols[2].metric(
+        "المنصات المتوافقة",
+        f"{cross_venue_engine.get('venue_count', 0)}",
+    )
+    engine_cols[3].metric(
+        "أحداث تصفية / 5 دقائق",
+        str(liquidation_risk.get("event_count", 0)),
+    )
+    if cross_venue_engine.get("warnings"):
+        st.warning("تعارض/تحذير دفاتر المنصات: " + " · ".join(cross_venue_engine["warnings"]))
+    if liquidation_risk.get("warnings"):
+        st.warning(
+            "ضغط تصفيات حديث — سياق مخاطر فقط: "
+            + " · ".join(liquidation_risk["warnings"])
+        )
+    st.caption(
+        "بنية السوق وتوافق الدفاتر يدخلان القرار بأوزان صغيرة بعد التحقق من حداثتهما. "
+        "التصفية تعرض ضغط المراكز ولا تُستخدم وحدها كإشارة BUY/SELL."
+    )
+
+    st.subheader("القرار المركزي")
+    action = decision["action"]
+    if action == "BUY":
+        st.success("BUY — إشارة اتجاهية صادرة عن المحركات المركزية")
+    elif action == "SELL":
+        st.warning("SELL — إشارة اتجاهية صادرة عن المحركات المركزية")
+    else:
+        st.info("HOLD — لا توجد موافقة كافية من الأدلة المتاحة")
+
+    # Show the exact five voting domains, each source freshness and normalized weight.
+    decision_domains = [
+        ("technical", "Technical / Multi-Timeframe", report.get("decision_technical", {})),
+        ("orderflow", "Orderflow / تدفق الصفقات", report.get("orderflow", {})),
+        ("derivatives", "Derivatives", report.get("derivatives", {})),
+        ("market_structure", "Market Structure", structure_engine),
+        ("cross_venue", "Cross-Venue Order Book", cross_venue_engine),
+    ]
+    active_domains = set(decision.get("active_domains", []))
+    actual_weights = decision.get("weights", {})
+    domain_rows = []
+    for key, label, engine in decision_domains:
+        state = report.get("source_states", {}).get(key, {})
+        is_active = key in active_domains
+        domain_rows.append({
+            "مجال القرار": label,
+            "حالة المصدر": state.get("status", "غير متاح"),
+            "حالة المحرك": engine.get("status", "غير متاح"),
+            "الدرجة": engine.get("score"),
+            "الوزن الفعلي بعد التطبيع": actual_weights.get(key, 0.0) if is_active else 0.0,
+            "يشارك في الدرجة": "نعم" if is_active else "لا",
+            "سبب النقص": state.get("reason") or engine.get("reason") or "—",
+        })
+    st.subheader("خريطة تصويت المجالات الخمسة")
+    st.dataframe(domain_rows, use_container_width=True, hide_index=True)
+    st.caption(
+        "الأوزان المعروضة هي الأوزان الفعلية بعد تطبيع المجالات المتاحة والحديثة. "
+        "المجال غير الحديث أو غير المكتمل لا يشارك في الدرجة؛ وتحذيرات التصفية والخيارات "
+        "والسياق البطيء لا تصبح أصواتاً إضافية."
+    )
+    if decision.get("blockers"):
+        st.warning("موانع القرار المركزي: " + " · ".join(decision["blockers"]))
+    if decision.get("warnings"):
+        st.caption("تحذيرات القرار المركزي: " + " · ".join(decision["warnings"]))
+
+    mtf = report.get("multi_timeframe", {})
+    st.subheader("محرك الاتجاه متعدد الأطر الزمنية")
+    mtf_cols = st.columns(4)
+    mtf_cols[0].metric("اتجاه الأطر", mtf.get("direction", "HOLD"))
+    mtf_cols[1].metric(
+        "اتساع التغطية",
+        f"{mtf.get('coverage', {}).get('fresh_frames', 0)}/{mtf.get('coverage', {}).get('total_frames', 6)}",
+    )
+    mtf_cols[2].metric(
+        "الاتجاه الأكبر 1D/4H",
+        f"{mtf['macro_score']:+.3f}" if mtf.get("macro_score") is not None else "غير متاح",
+    )
+    mtf_cols[3].metric(
+        "التوافق",
+        f"{mtf['alignment_ratio']:.0%}" if mtf.get("alignment_ratio") is not None else "غير متاح",
+    )
+    mtf_rows = []
+    for timeframe in ("1d", "4h", "1h", "15m", "5m", "1m"):
+        item = mtf.get("frames", {}).get(timeframe, {})
+        mtf_rows.append({
+            "الإطار": timeframe,
+            "الدور": mtf.get("roles", {}).get(timeframe, item.get("role")),
+            "الحالة": item.get("status"),
+            "الدرجة": item.get("score"),
+            "الاتجاه": item.get("state"),
+            "RSI": item.get("rsi14"),
+            "الكسر": item.get("breakout"),
+            "عمر البيانات (ث)": item.get("age_seconds"),
+        })
+    st.dataframe(mtf_rows, use_container_width=True, hide_index=True)
+    if mtf.get("warnings"):
+        st.caption("تنبيهات توافق الأطر: " + " · ".join(mtf["warnings"]))
+    if mtf.get("blockers"):
+        st.warning("محرك الأطر لم يكتمل: " + " · ".join(mtf["blockers"]))
+
+    price_history = report["spot"].get("price_history", {})
+    if price_history.get("time_utc"):
+        st.subheader("حركة سعر BTC — الشموع المكتملة")
+        st.line_chart(
+            price_history,
+            x="time_utc",
+            y="close",
+            height=280,
+            use_container_width=True,
+        )
+
+    flow_cols = st.columns(3)
+    flow_cols[0].metric(
+        "اختلال دفتر الأوامر",
+        f"{report['order_book']['imbalance']:+.3f}"
+        if report.get("order_book") and report["order_book"].get("imbalance") is not None
+        else "غير متاح",
+    )
+    flow_cols[1].metric(
+        "دلتا تدفق الصفقات",
+        f"{report['trade_flow']['delta']:+.4f}"
+        if report.get("trade_flow") and report["trade_flow"].get("delta") is not None
+        else "غير متاح",
+    )
+    flow_cols[2].metric(
+        "نسبة Taker Buy/Sell",
+        f"{report['derivatives_data']['taker_buy_sell_ratio']:.3f}"
+        if report.get("derivatives_data") and report["derivatives_data"].get("taker_buy_sell_ratio") is not None
+        else "غير متاح",
+    )
+
+    structure = report.get("market_structure", {})
+    bar_structure = structure.get("bars", {})
+    structure_cols = st.columns(3)
+    structure_cols[0].metric(
+        "Relative Volume (20)",
+        f"{bar_structure['relative_volume_20']:.2f}×"
+        if bar_structure.get("relative_volume_20") is not None else "غير متاح",
+    )
+    structure_cols[1].metric(
+        "VWAP الجلسة (USDT)",
+        f"{bar_structure['session_vwap_utc']:.2f} USDT"
+        if bar_structure.get("session_vwap_utc") is not None else "غير متاح",
+    )
+    structure_cols[2].metric(
+        "اتساع النطاق",
+        f"{bar_structure['range_expansion_vs_prior_median']:.2f}×"
+        if bar_structure.get("range_expansion_vs_prior_median") is not None else "غير متاح",
+    )
+    vp = structure.get("volume_profile", {})
+    if vp.get("status") == "ok":
+        with st.expander("Volume Profile وFootprint من الصفقات المنفذة"):
+            st.caption(
+                f"العينة: {vp.get('sample_trade_count')} صفقة مجمعة · "
+                f"نافذتها الزمنية: {vp.get('sample_window_seconds')} ثانية. "
+                "هذه ليست قيمة يوم كامل؛ إنها عينة الصفقات الحديثة التي جلبها المصدر."
+            )
+            vp_cols = st.columns(4)
+            vp_cols[0].metric("POC", f"{vp['poc']:.2f}")
+            vp_cols[1].metric("VAH", f"{vp['vah']:.2f}")
+            vp_cols[2].metric("VAL", f"{vp['val']:.2f}")
+            vp_cols[3].metric("Delta BTC", f"{vp['delta_btc']:+.4f}")
+            st.dataframe(vp.get("bins", []), use_container_width=True, hide_index=True)
+    else:
+        st.caption("Volume Profile غير مكتمل: " + str(vp.get("reason", "لا تتوفر عينة صفقات صالحة.")))
+
+    cols = st.columns(4)
+    cols[0].metric(
+        "التقييم الاتجاهي",
+        f"{decision['score']:+.3f}" if decision["score"] is not None else "غير متاح",
+    )
+    cols[1].metric(
+        "السبريد",
+        f"{report['order_book']['spread_bps']:.5f} bps"
+        if report["order_book"] else "غير متاح",
+    )
+    cols[2].metric(
+        "RSI(14)",
+        f"{report['technical']['rsi14']:.1f}"
+        if report["technical"].get("rsi14") is not None else "غير متاح",
+    )
+    cols[3].metric(
+        "ATR(14)",
+        f"{report['technical']['atr14']:.2f}"
+        if report["technical"].get("atr14") is not None else "غير متاح",
+    )
+
+    st.subheader("صحة مصادر البيانات")
+    source_rows = [
+        {
+            "المصدر": name,
+            "الحالة": state.get("status"),
+            "العمر بالثواني": state.get("age_seconds"),
+            "وقت الرصد UTC": state.get("observed_at_utc"),
+        }
+        for name, state in report["source_states"].items()
+    ]
+    st.dataframe(source_rows, use_container_width=True, hide_index=True)
+    for name, error in report["errors"].items():
+        st.warning(f"{name}: {_friendly_provider_error(name, error)}")
+    if report["errors"]:
+        with st.expander("تفاصيل أخطاء مصادر السوق — للمطور"):
+            st.json(report["errors"])
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("محرك التحليل الفني")
+        with st.expander("التفاصيل الفنية الخام — للمطور"):
+            st.json(report["technical"])
+        st.subheader("محرك المشتقات")
+        with st.expander("تفاصيل المشتقات الخام — للمطور"):
+            st.json(report["derivatives"])
+        cross_derivatives = report.get("cross_venue_derivatives_context", {})
+        st.markdown("**مقارنة المشتقات بين المنصات — سياق غير تصويتي**")
+        if cross_derivatives.get("venues"):
+            funding_summary = cross_derivatives.get("funding_8h_equivalent", {})
+            basis_summary = cross_derivatives.get("perpetual_spot_basis", {})
+            oi_rows = cross_derivatives.get("open_interest_by_venue", [])
+            cross_cols = st.columns(3)
+            cross_cols[0].metric(
+                "عدد المنصات الحديثة",
+                str(cross_derivatives.get("venue_count", 0)),
+            )
+            cross_cols[1].metric(
+                "وسيط التمويل / 8h",
+                (
+                    f"{funding_summary['median'] * 100:.4f}%"
+                    if funding_summary.get("median") is not None else "غير متاح"
+                ),
+            )
+            cross_cols[2].metric(
+                "وسيط Perp-Spot (bps)",
+                (
+                    f"{basis_summary['median']:+.2f}"
+                    if basis_summary.get("median") is not None else "غير متاح"
+                ),
+            )
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "الحالة": row["status"],
+                        "Spot Mid": row.get("spot_mid"),
+                        "Perp Mid": row.get("perpetual_mid"),
+                        "Perp-Spot bps": row.get("perpetual_vs_spot_bps"),
+                        "Mark-Index bps": row.get("mark_vs_index_bps"),
+                        "التمويل الحالي": _fmt_pct(row.get("funding_rate_per_settlement"), 4),
+                        "فترة التمويل (دقيقة)": row.get("funding_interval_minutes"),
+                        "التمويل المكافئ لكل 8 ساعات": _fmt_pct(row.get("funding_rate_per_8h_equivalent"), 4),
+                    }
+                    for row in cross_derivatives.get("venues", [])
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            if oi_rows:
+                st.markdown("**الفائدة المفتوحة — وحدات كل مصدر كما وردت**")
+                st.dataframe(
+                    [
+                        {
+                            "المنصة": row["venue"],
+                            "الفائدة المفتوحة (BTC موثق)": (row.get("open_interest_btc") if row.get("open_interest_btc") is not None else "غير متاح — وحدة BTC غير مثبتة"),
+                            "القيمة الخام من المصدر": row.get("open_interest_native"),
+                            "وحدة المصدر الخام": row.get("open_interest_native_unit"),
+                            "قيمة المصدر": row.get("open_interest_quote_value"),
+                            "عملة القيمة": row.get("open_interest_quote_currency"),
+                        }
+                        for row in oi_rows
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            if cross_derivatives.get("warnings"):
+                st.warning("تنبيهات المقارنة: " + "، ".join(cross_derivatives["warnings"]))
+        else:
+            st.caption("لا تتوفر بعد بيانات كافية من منصتين على الأقل للمقارنة المشتركة.")
+        if cross_derivatives.get("fetch_errors"):
+            with st.expander("أخطاء مصادر مقارنة المشتقات"):
+                st.json(cross_derivatives["fetch_errors"])
+        st.caption(
+            "هذا المحرك سياقي فقط: لا يضيف صوتاً سادساً إلى القرار. "
+            "Funding مطبّع حسب فترة التسوية، وOI يبقى منفصلاً حسب وحدة كل منصة."
+        )
+    with right:
+        st.subheader("محرك السيولة وتدفق الأوامر")
+        book = report.get("order_book") or {}
+        rest_flow = report.get("trade_flow") or {}
+        cvd = report.get("streamed_trade_flow") or {}
+        footprint_profiles = report.get("streamed_footprint_profiles") or []
+        liquidity = report.get("liquidity_context") or {}
+        integrated = report.get("orderflow") or {}
+
+        def _flow_value(value, digits=2, suffix=""):
+            try:
+                number = float(value)
+                if not (number == number and abs(number) != float("inf")):
+                    return "غير متاح"
+                return f"{number:,.{digits}f}{suffix}"
+            except (TypeError, ValueError, OverflowError):
+                return "غير متاح"
+
+        st.markdown("**ملخص السيولة اللحظي**")
+        book_cols = st.columns(4)
+        book_cols[0].metric("أفضل طلب Bid", _flow_value(book.get("best_bid"), 2))
+        book_cols[1].metric("أفضل عرض Ask", _flow_value(book.get("best_ask"), 2))
+        book_cols[2].metric("السبريد", _flow_value(book.get("spread_bps"), 4, " bps"))
+        book_cols[3].metric("اختلال دفتر الأوامر", _flow_value(book.get("imbalance"), 3))
+        depth_cols = st.columns(3)
+        depth_cols[0].metric("عمق Bid الظاهر", _flow_value(book.get("bid_notional"), 0, " USD"))
+        depth_cols[1].metric("عمق Ask الظاهر", _flow_value(book.get("ask_notional"), 0, " USD"))
+        depth_cols[2].metric("مستويات الدفتر المستخدمة", str(book.get("levels_used", "غير متاح")))
+
+        st.markdown("**تدفق الصفقات المنفذة — عينة REST**")
+        trade_cols = st.columns(5)
+        trade_cols[0].metric("شراء BTC", _flow_value(rest_flow.get("buy_volume"), 4))
+        trade_cols[1].metric("بيع BTC", _flow_value(rest_flow.get("sell_volume"), 4))
+        trade_cols[2].metric("دلتا BTC", _flow_value(rest_flow.get("delta"), 4))
+        trade_cols[3].metric("نسبة الدلتا", _flow_value(rest_flow.get("delta_ratio"), 3))
+        trade_cols[4].metric("عدد الصفقات", str(rest_flow.get("trade_count", "غير متاح")))
+
+        st.markdown("**CVD المستمر متعدد المنصات — نافذة 5 دقائق**")
+        cvd_cols = st.columns(3)
+        cvd_cols[0].metric("حالة تغطية CVD", _status_ar(cvd.get("status")))
+        cvd_cols[1].metric(
+            "درجة CVD",
+            _flow_value(cvd.get("score"), 3) if cvd.get("score") is not None else "غير نشط",
+        )
+        cvd_cols[2].metric("عدد المنصات المؤهلة", str(cvd.get("venue_count", 0)))
+        active_venues = cvd.get("active_venues", [])
+        rejected_venues = cvd.get("rejected_venues", [])
+        st.caption(
+            "المنصات المؤهلة: " + ("، ".join(map(str, active_venues)) if active_venues else "لا توجد") +
+            " · المستبعدة: " + ("، ".join(map(str, rejected_venues)) if rejected_venues else "لا توجد")
+        )
+        if cvd.get("reason"):
+            st.warning("سبب عدم اكتمال CVD: " + str(cvd["reason"]))
+        if cvd.get("warnings"):
+            st.caption("تنبيهات CVD: " + " · ".join(map(str, cvd["warnings"])))
+
+        if footprint_profiles:
+            st.markdown("**Footprint — فصل كل منصة ونوع سوق**")
+            for profile in footprint_profiles:
+                venue = str(profile.get("venue", "منصة غير معروفة"))
+                market_type = str(profile.get("market_type", ""))
+                market_label = "Spot" if market_type == "spot" else "Linear Perpetual" if market_type else "غير محدد"
+                with st.expander(f"{venue} · {market_label} · {profile.get('trade_count', 0)} صفقة"):
+                    fp_cols = st.columns(5)
+                    fp_cols[0].metric("POC", _flow_value(profile.get("poc"), 2))
+                    fp_cols[1].metric("VAH", _flow_value(profile.get("vah"), 2))
+                    fp_cols[2].metric("VAL", _flow_value(profile.get("val"), 2))
+                    fp_cols[3].metric("صافي الدلتا USD", _flow_value(profile.get("delta_notional_usd"), 2))
+                    fp_cols[4].metric("دلتا الحجم", _flow_value(profile.get("delta_ratio"), 3))
+                    bins = profile.get("bins", [])
+                    if bins:
+                        bin_rows = [
+                            {
+                                "نطاق السعر USD": row.get("price_bucket_usd"),
+                                "شراء BTC": row.get("buy_btc"),
+                                "بيع BTC": row.get("sell_btc"),
+                                "دلتا BTC": row.get("delta_btc"),
+                                "قيمة الشراء USD": row.get("buy_notional_usd"),
+                                "قيمة البيع USD": row.get("sell_notional_usd"),
+                                "عدد الصفقات": row.get("trade_count"),
+                            }
+                            for row in bins if isinstance(row, dict)
+                        ]
+                        if bin_rows:
+                            st.dataframe(bin_rows, use_container_width=True, hide_index=True)
+
+        depth_venues = liquidity.get("venues", []) if isinstance(liquidity, dict) else []
+        if depth_venues:
+            st.markdown("**ملخص سجل عمق السيولة التاريخي**")
+            depth_rows = [
+                {
+                    "المنصة": row.get("venue"),
+                    "نوع السوق": row.get("market_type"),
+                    "الحالة": row.get("status"),
+                    "عدد اللقطات": row.get("snapshot_count"),
+                    "تغطية العينات": _flow_value(row.get("sample_coverage_ratio"), 1, "%")
+                    if row.get("sample_coverage_ratio") is None else _flow_value(float(row.get("sample_coverage_ratio")) * 100, 1, "%"),
+                }
+                for row in depth_venues if isinstance(row, dict)
+            ]
+            if depth_rows:
+                st.dataframe(depth_rows, use_container_width=True, hide_index=True)
+
+        if integrated:
+            st.markdown("**خلاصة محرك تدفق الأوامر المدمج**")
+            integrated_cols = st.columns(3)
+            integrated_cols[0].metric("حالة المحرك", _status_ar(integrated.get("status")))
+            integrated_cols[1].metric(
+                "الدرجة الاتجاهية",
+                _flow_value(integrated.get("score"), 3) if integrated.get("score") is not None else "غير متاح",
+            )
+            integrated_cols[2].metric("الاتجاه", _status_ar(integrated.get("state")))
+            evidence = integrated.get("evidence", [])
+            if evidence:
+                st.caption("الأدلة: " + " · ".join(map(str, evidence)))
+
+        st.caption(
+            "قراءة مهمة: اختلال الدفتر يقيس أوامر معروضة قابلة للإلغاء أو التلاعب، "
+            "أما دلتا الصفقات فتقيس تنفيذات حدثت بالفعل. لا تُجمع أحجام Spot والعقود الدائمة "
+            "أو أحجام المنصات في رقم واحد. ولا يُفعّل CVD التصويتي إلا بعد تحقق شروط حداثة "
+            "وتغطية منصتين على الأقل."
+        )
+
+        with st.expander("البيانات الخام الكاملة للمطور — JSON"):
+            st.json({
+                "order_book": book,
+                "trade_flow_rest_sample": rest_flow,
+                "streamed_multi_venue_cvd": cvd,
+                "streamed_footprint_profiles": footprint_profiles,
+                "historical_depth_liquidity_context": liquidity,
+                "integrated_orderflow_profile": integrated,
+            })
+        st.subheader("أسباب القرار والحواجز")
+        st.write("الحواجز:", decision["blockers"] or "لا يوجد")
+        st.write("الأدلة:", decision["reasons"])
+        st.caption(decision.get("interpretation", "التقييم اتجاهي وليس احتمال ربح."))
+
+    with st.expander("سياق الشبكة والتمركز المؤسسي وتقلب الخيارات"):
+        with st.spinner("تحديث مصادر السياق الأبطأ (بحد أقصى مرة كل 15 دقيقة)..."):
+            slow = cached_slow_context()
+        context_states = [
+            {"المصدر": name, "الحالة": value.get("status"), "وقت القراءة UTC": value.get("fetched_at_utc")}
+            for name, value in slow["source_states"].items()
+        ]
+        st.dataframe(context_states, use_container_width=True, hide_index=True)
+
+        network = slow["data"].get("network", {})
+        if network:
+            st.markdown("**الشبكة والتعدين والـMempool — mempool.space**")
+            st.json({
+                "hashrate": network.get("hashrate"),
+                "recommended_fees": network.get("recommended_fees"),
+                "mempool": network.get("mempool"),
+            })
+
+        cot = slow["data"].get("cftc", {})
+        cot_rows = cot.get("rows", []) if isinstance(cot, dict) else []
+        if cot_rows:
+            st.markdown("**تمركز عقود CME — تقرير CFTC TFF الأسبوعي**")
+            st.dataframe(
+                [
+                    {
+                        "العقد": row.get("asset"),
+                        "تاريخ التقرير": row.get("report_date"),
+                        "Open Interest": row.get("open_interest"),
+                        "Leveraged Money Net": row.get("leveraged_money_net"),
+                        "Asset Managers Net": row.get("asset_manager_net"),
+                        "Dealers Net": row.get("dealer_net"),
+                    }
+                    for row in cot_rows[:8]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+        elif "cftc" in slow["errors"]:
+            st.warning(f"CFTC: {slow['errors']['cftc']}")
+        else:
+            st.caption("لا توجد صفوف BTC مطابقة في تقرير CFTC المحمّل.")
+
+        cm = slow["data"].get("coinmetrics", {})
+        cm_rows = cm.get("data", []) if isinstance(cm, dict) else []
+        if cm_rows:
+            st.markdown("**نشاط الشبكة — Coin Metrics Community**")
+            latest_cm = max(cm_rows, key=lambda row: str(row.get("time", "")))
+            st.json(latest_cm)
+            st.caption(cm.get("note", ""))
+        elif "coinmetrics" in slow["errors"]:
+            st.warning(f"Coin Metrics: {slow['errors']['coinmetrics']}")
+
+        onchain = slow["data"].get("onchain", {})
+        st.markdown("**مؤشرات السلسلة اليومية — MVRV وNUPL المشتق**")
+        if onchain.get("status") in {"ok", "partial", "stale"}:
+            if onchain.get("freshness") == "stale":
+                st.warning("بيانات السلسلة اليومية قديمة؛ تعرض للسياق فقط ولا تدخل القرار.")
+            onchain_cols = st.columns(4)
+            onchain_cols[0].metric(
+                "MVRV",
+                f"{onchain['mvrv']:.3f}" if onchain.get("mvrv") is not None else "غير متاح",
+            )
+            onchain_cols[1].metric(
+                "MVRV Z-Score",
+                f"{onchain['mvrv_zscore']:.3f}" if onchain.get("mvrv_zscore") is not None else "غير متاح",
+            )
+            onchain_cols[2].metric(
+                "NUPL مشتق",
+                f"{onchain['nupl_derived']:.3f}" if onchain.get("nupl_derived") is not None else "غير متاح",
+            )
+            onchain_cols[3].metric(
+                "Active Addresses",
+                f"{onchain['active_addresses']:,.0f}" if onchain.get("active_addresses") is not None else "غير متاح",
+            )
+            st.dataframe(
+                [
+                    {
+                        "المقياس": "Market Capitalization USD",
+                        "القيمة": onchain.get("market_cap_usd"),
+                        "التغير 7 أيام %": onchain.get("seven_day_changes_pct", {}).get("market_cap"),
+                    },
+                    {
+                        "المقياس": "Realized Capitalization USD",
+                        "القيمة": onchain.get("realized_cap_usd"),
+                        "التغير 7 أيام %": onchain.get("seven_day_changes_pct", {}).get("realized_cap"),
+                    },
+                    {
+                        "المقياس": "MVRV",
+                        "القيمة": onchain.get("mvrv"),
+                        "التغير 7 أيام %": onchain.get("seven_day_changes_pct", {}).get("mvrv"),
+                    },
+                    {
+                        "المقياس": "Block Height",
+                        "القيمة": onchain.get("block_height"),
+                        "التغير 7 أيام %": None,
+                    },
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(
+                f"تاريخ المصدر: {onchain.get('source_time') or 'غير متاح'} · "
+                f"عمر البيانات بالساعات: {onchain.get('age_hours') if onchain.get('age_hours') is not None else 'غير متاح'}"
+            )
+            if onchain.get("warnings"):
+                st.warning("قيود مقاييس السلسلة: " + "، ".join(onchain["warnings"]))
+            if onchain.get("optional_errors"):
+                with st.expander("المقاييس الاختيارية غير المتاحة من Coin Metrics"):
+                    st.json(onchain["optional_errors"])
+        else:
+            st.caption(
+                "مقاييس MVRV/Realized Cap غير متاحة حالياً من مستوى Community؛ "
+                "لا تُعرض قيم تقديرية أو بدائل مصطنعة."
+            )
+        st.caption(
+            "هذه مقاييس يومية بطيئة؛ NUPL محسوب هنا من (Market Cap − Realized Cap) / Market Cap "
+            "وموسوم كمقياس مشتق. SOPR غير معروض لعدم وجود مصدر موثق في هذا المسار. "
+            "هذا السياق لا يضيف تصويتاً إلى القرار اللحظي. راجع ترخيص Coin Metrics Community قبل إعادة التوزيع أو الاستخدام التجاري."
+        )
+
+        dvol = slow["data"].get("dvol", {})
+        dvol_rows = dvol.get("data", []) if isinstance(dvol, dict) else []
+        if dvol_rows:
+            st.markdown("**تقلب الخيارات الضمني — Deribit DVOL**")
+            st.json({"latest_candle": dvol_rows[-1], "source": dvol.get("source")})
+        elif "dvol" in slow["errors"]:
+            st.warning(f"Deribit DVOL: {slow['errors']['dvol']}")
+
+        options = slow["data"].get("options", {})
+        if options.get("status") == "ok":
+            st.markdown("**هيكل خيارات BTC — Deribit public options**")
+            st.caption(
+                f"العقود المدرجة في اللقطة: {options.get('option_count', 0)} · "
+                f"تواريخ الانتهاء: {options.get('expiry_count', 0)} · "
+                f"صفوف مرفوضة لبيانات ناقصة/غير صالحة: {options.get('rejected_count', 0)}"
+            )
+            st.info(
+                "Open Interest هنا بوحدة BTC حسب تعريف Deribit لخيارات BTC، وليس عدداً للعقود. "
+                "Gamma-weighted OI غير موقّع؛ لا يعبّر عن صافي GEX أو مراكز صناع السوق."
+            )
+            expiry_rows = options.get("expiries", [])
+            if expiry_rows:
+                st.dataframe(
+                    [
+                        {
+                            "Expiry UTC": row["expiry_utc"],
+                            "DTE": row["days_to_expiry"],
+                            "ATM IV %": row["atm_iv_pct"],
+                            "25Δ RR (vol points)": row["risk_reversal_25d_vol_points"],
+                            "RR status": row["risk_reversal_status"],
+                            "Call OI BTC": row["call_open_interest_btc"],
+                            "Put OI BTC": row["put_open_interest_btc"],
+                            "Put/Call OI": row["put_call_oi_ratio"],
+                            "Total OI BTC": row["total_open_interest_btc"],
+                            "Options": row["option_count"],
+                        }
+                        for row in expiry_rows
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                iv_rows = [
+                    {"Expiry": row["expiry_utc"], "ATM IV %": row["atm_iv_pct"]}
+                    for row in expiry_rows if row.get("atm_iv_pct") is not None
+                ]
+                if len(iv_rows) >= 2:
+                    st.markdown("**ATM IV Term Structure**")
+                    st.line_chart(iv_rows, x="Expiry", y="ATM IV %", height=220)
+                gamma_rows = (
+                    options.get("unsigned_gamma_open_interest_btc_proxy_by_strike", [])
+                )
+                if gamma_rows:
+                    with st.expander("أعلى مستويات Gamma-weighted BTC OI (غير موقّع)"):
+                        st.dataframe(gamma_rows, use_container_width=True, hide_index=True)
+            for note in options.get("limitations", []):
+                st.caption("• " + note)
+        elif options.get("status") == "empty":
+            st.caption("لم تتوفر سلسلة خيارات BTC صالحة من Deribit في هذه القراءة.")
+        elif "options" in slow["errors"]:
+            st.warning(f"Deribit Options: {slow['errors']['options']}")
+
+        for item in slow["limitations"]:
+            st.caption("• " + item)
+        for name, error in slow["errors"].items():
+            st.warning(f"{name}: {error}")
+
+    with st.expander("حدود اللقطة ومصادرها"):
+        for item in report["limitations"]:
+            st.write("• " + item)
+        st.caption(
+            "اللوحة تعرض التحليل والقرار ولا ترسل أمرًا بمجرد تحديث الصفحة. حلقة التنفيذ المستقلة وحدها تنشر الأمر إلى EA "
+            "عند تفعيلها صراحةً واجتياز شروط الحداثة والسلامة. ظهور شراء أو بيع في اللوحة لا يثبت إرسال الأمر أو تنفيذه. "
+            "بيانات COT وOn-chain وDVOL سياق أبطأ."
+        )
+        st.download_button(
+            "تصدير لقطة JSON",
+            data=json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False),
+            file_name=(
+                "bitcoin_market_snapshot_"
+                f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+            ),
+            mime="application/json",
+        )
+
+
+render_live_dashboard()
