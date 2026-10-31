@@ -9,6 +9,10 @@ from .providers import binance
 from .quality import utc_now_ms, validate_bars
 
 
+# A usable directional trend vote requires three fresh frames and at least one macro frame.
+MINIMUM_FRESH_TIMEFRAMES = 3
+REQUIRED_MACRO_FRAMES = ("1d", "4h")
+
 # Long frames set the regime; mid frames describe the setup; fast frames time entries.
 TIMEFRAME_SPECS: dict[str, dict[str, object]] = {
     "1d": {"weight": 0.25, "role": "daily_regime", "max_age_seconds": 172800},
@@ -139,13 +143,13 @@ def build_multi_timeframe_profile(
     fresh_names = [
         name for name, row in frames.items() if row.get("status") == "fresh"
     ]
-    macro_names = [name for name in ("1d", "4h") if name in fresh_names]
+    macro_names = [name for name in REQUIRED_MACRO_FRAMES if name in fresh_names]
     coverage_weight = sum(
         float(TIMEFRAME_SPECS[name]["weight"]) for name in fresh_names
     )
     warnings: list[str] = []
     blockers: list[str] = []
-    if len(fresh_names) < 3:
+    if len(fresh_names) < MINIMUM_FRESH_TIMEFRAMES:
         blockers.append("insufficient_fresh_timeframes")
     if not macro_names:
         blockers.append("missing_daily_or_four_hour_context")
