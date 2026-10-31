@@ -25,6 +25,11 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertNotIn("ACCOUNT_TRADE_MODE", self.source)
         self.assertNotIn("demo", self.source.lower())
 
+    def test_daily_loss_readout_is_published_in_ea_status_line(self):
+        self.assertIn("CurrentDailyDrawdownPercent(),MaxDailyLossPercent", self.source)
+        self.assertIn("double CurrentDailyDrawdownPercent()", self.source)
+        self.assertIn("daily equity loss limit reached; new entries paused", self.source)
+
     def test_default_position_and_equity_risk_limits_are_conservative(self):
         self.assertIn("input double MaxRiskPercent = 0.50;", self.source)
         self.assertIn("input int    MaxOpenPositions = 1;", self.source)
@@ -91,7 +96,7 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertIn("request.type_filling=ORDER_FILLING_RETURN;", self.source)
 
     def test_status_record_ends_with_a_real_newline_and_no_account_mode_field(self):
-        self.assertIn('|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s\\n",', self.source)
+        self.assertIn('|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%.4f|%.4f\\n",', self.source)
         self.assertNotIn("ACCOUNT_TRADE_MODE", self.source)
         self.assertNotIn("accountMode", self.source)
 
