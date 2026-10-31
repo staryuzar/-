@@ -23,6 +23,8 @@ def read_market_stream_dashboard(
             "reason": "Local market stream database was not found.",
             "venues": [],
             "latest_books": [],
+            "liquidation_summary": [],
+            "recent_liquidations": [],
         }
     if not 1 <= limit <= 20:
         raise ValueError("limit must be between 1 and 20.")
@@ -61,10 +63,45 @@ def read_market_stream_dashboard(
                 ORDER BY s.venue LIMIT ?""",
                 (symbol.upper(), limit),
             ).fetchall()
+            liquidation_groups = []
+            recent_liquidations = []
+            if "liquidation_events" in tables:
+                since_ms = int(datetime.now(timezone.utc).timestamp() * 1000) - 60 * 60_000
+                liquidation_groups = connection.execute(
+                    """SELECT venue,market_type,liquidated_side,quantity_unit,
+                    COUNT(*) AS event_count,SUM(raw_size) AS total_native_size,
+                    SUM(CASE WHEN notional_usd IS NOT NULL THEN notional_usd ELSE 0 END) AS priced_notional_usd,
+                    SUM(CASE WHEN notional_usd IS NOT NULL THEN 1 ELSE 0 END) AS priced_event_count,
+                    MAX(event_time_ms) AS latest_event_time_ms
+                    FROM liquidation_events
+                    WHERE event_time_ms>=? AND symbol IN (?, 'BTC-USDT-SWAP')
+                    GROUP BY venue,market_type,liquidated_side,quantity_unit
+                    ORDER BY venue,liquidated_side""",
+                    (since_ms, symbol.upper()),
+                ).fetchall()
+                recent_liquidations = connection.execute(
+                    """SELECT venue,symbol,event_time_ms,liquidated_side,order_side,
+                    raw_size,quantity_unit,reference_price,reference_price_kind,notional_usd
+                    FROM liquidation_events
+                    WHERE symbol IN (?, 'BTC-USDT-SWAP')
+                    ORDER BY event_time_ms DESC,id DESC LIMIT 20""",
+                    (symbol.upper(),),
+                ).fetchall()
         return {
             "status": "ok",
             "venues": [dict(row) for row in venue_rows],
             "latest_books": [dict(row) for row in latest_rows],
+            "liquidation_summary": [
+                {
+                    **dict(row),
+                    "notional_usd": (
+                        round(row["priced_notional_usd"], 2)
+                        if row["priced_event_count"] else None
+                    ),
+                }
+                for row in liquidation_groups
+            ],
+            "recent_liquidations": [dict(row) for row in recent_liquidations],
             "database_path": str(db_path),
         }
     except sqlite3.Error as exc:
