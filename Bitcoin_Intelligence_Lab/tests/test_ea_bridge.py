@@ -9,7 +9,7 @@ from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order, read_po
 
 
 class EABridgeTests(unittest.TestCase):
-    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway demo board-execution mode", trading="TRADE_READY"):
+    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway demo board-execution mode", trading="TRADE_READY", server="Headway-Demo", account_mode=0):
         folder = Path(root) / "BitcoinIntelligenceLab"
         folder.mkdir(parents=True, exist_ok=True)
         stamp = int(time.time()) if when is None else when
@@ -45,6 +45,42 @@ class EABridgeTests(unittest.TestCase):
             result = read_ea_status(tmp)
         self.assertEqual(result["status"], "not_ready")
         self.assertFalse(result["trading_ready"])
+
+    def test_status_rejects_non_headway_broker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp, server="OtherBroker-Demo")
+            result = read_ea_status(tmp)
+        self.assertEqual(result["status"], "wrong_broker")
+        self.assertFalse(result["headway_server_ok"])
+
+    def test_status_rejects_headway_live_account(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(
+                tmp, server="Headway-Live", account_mode=2,
+            )
+            result = read_ea_status(tmp)
+        self.assertEqual(result["status"], "wrong_broker")
+        self.assertFalse(result["demo_account_ok"])
+
+    def test_status_accepts_headway_demo_endpoint_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp, server="demo.trade-hw.online")
+            result = read_ea_status(tmp)
+        self.assertEqual(result["status"], "fresh")
+        self.assertTrue(result["headway_server_ok"])
+        self.assertTrue(result["demo_account_ok"])
+
+    def test_old_status_without_broker_identity_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            folder.mkdir(parents=True)
+            stamp = int(time.time())
+            (folder / "ea_status.tsv").write_text(
+                f"BTCIL1|BTCUSD|PERIOD_M1|{stamp}|CONNECTED|70000|70001|0|READY: Headway demo|0.01|0|TRADE_READY\\n",
+                encoding="utf-8",
+            )
+            result = read_ea_status(tmp)
+        self.assertEqual(result["status"], "wrong_broker")
 
     def test_status_accepts_broker_suffix_symbol(self):
         with tempfile.TemporaryDirectory() as tmp:
