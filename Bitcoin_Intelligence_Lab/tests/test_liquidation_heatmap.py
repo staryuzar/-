@@ -10,7 +10,7 @@ NOW = 1_800_000_000_000
 
 
 def event(key, venue, *, side="LONG", unit="BTC", price_kind="average_fill_price",
-          price=67025, raw_size=0.1, notional=price * raw_size,
+          price=67025, raw_size=0.1, notional="auto",
           symbol="BTCUSDT", market_type="linear perpetual", age_ms=10_000):
     return {
         "event_key": key,
@@ -24,7 +24,7 @@ def event(key, venue, *, side="LONG", unit="BTC", price_kind="average_fill_price
         "quantity_unit": unit,
         "reference_price": price,
         "reference_price_kind": price_kind,
-        "notional_usd": notional,
+        "notional_usd": price * raw_size if notional == "auto" else notional,
     }
 
 
