@@ -88,7 +88,8 @@ with st.sidebar:
     )
     st.caption(
         "Binance وBybit وOKX مصادر بيانات فقط. Headway عبر MT5 هو منفذ التنفيذ الوحيد؛ "
-        "حلقة التنفيذ عملية مستقلة لا تعمل إلا عند تشغيلها صراحةً على الجهاز المتصل بالطرفية."
+        "حلقة التنفيذ عملية مستقلة لا تعمل إلا عند تشغيلها صراحةً على الجهاز المتصل بالطرفية. "
+        "التحديث الكامل للقرار يدوي افتراضياً؛ جامع WebSocket يواصل جمع البيانات في الخلفية دون إعادة تحميل جميع المحركات."
     )
 
 if "btc_report" not in st.session_state:
@@ -142,6 +143,9 @@ def render_live_dashboard():
     if st.session_state.get("btc_refresh_error"):
         st.warning("تعذر تحديث آخر لقطة؛ نحتفظ بآخر بيانات ناجحة بدلاً من تفريغ اللوحة. "
                    + st.session_state["btc_refresh_error"])
+    if not isinstance(report, dict):
+        st.error("لا توجد لقطة تحليل ناجحة بعد. استخدم زر تحديث بيانات السوق لإعادة المحاولة.")
+        return
     st.subheader("مركز التنفيذ — Headway / MT5")
     try:
         common_files = default_common_files()
