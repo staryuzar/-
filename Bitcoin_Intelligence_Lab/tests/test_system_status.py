@@ -101,6 +101,8 @@ class SystemReadinessTests(unittest.TestCase):
                 "status": "fresh", "headway_server_ok": True,
                 "trading_ready": True, "symbol": "BTCUSD",
                 "risk_specs_ready": True,
+                "daily_loss_percent": 0.25,
+                "daily_loss_limit_percent": 2.0,
             },
             snapshot_service=self.fresh_service(),
             execution_loop={"status": "fresh", "age_seconds": 1},
@@ -160,6 +162,62 @@ class SystemReadinessTests(unittest.TestCase):
         self.assertFalse(result["execution_pipeline_ready"])
         self.assertFalse(result["new_entry_ready"])
         self.assertIn("snapshot_service_stale", result["blockers"])
+
+    def test_daily_loss_limit_blocks_new_entries_but_keeps_execution_pipeline_for_closes(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.52, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 2.0,
+                "daily_loss_limit_percent": 2.0,
+            },
+            execution_loop={"status": "fresh"},
+            snapshot_service=self.fresh_service(),
+            positions=[{"ticket": 8765, "symbol": "BTCUSD", "type": "BUY"}],
+        )
+        self.assertTrue(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("mt5_daily_loss_limit_reached", result["blockers"])
+        self.assertEqual(result["position_management"]["managed_btc_positions"], 1)
+
+    def test_entry_readiness_requires_a_valid_below_limit_daily_risk_readout(self):
+        base = {
+            "snapshot": {
+                "status": "ok",
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.6, "blockers": []},
+            },
+            "terminal": {
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+                "risk_specs_ready": True,
+                "daily_loss_percent": 0.4,
+                "daily_loss_limit_percent": 2.0,
+            },
+            "execution_loop": {"status": "fresh"},
+            "snapshot_service": self.fresh_service(),
+        }
+        self.assertTrue(build_system_readiness(**base)["new_entry_ready"])
+        base["terminal"]["daily_loss_percent"] = None
+        result = build_system_readiness(**base)
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("mt5_daily_risk_status_unavailable", result["blockers"])
 
     def test_missing_broker_risk_specs_blocks_new_entries_but_keeps_close_pipeline_ready(self):
         result = build_system_readiness(
