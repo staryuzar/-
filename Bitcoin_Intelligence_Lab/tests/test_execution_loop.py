@@ -192,6 +192,23 @@ class ExecutionLoopTests(unittest.TestCase):
             self.assertEqual(state["command_id"], command_id)
             self.assertEqual(state["last_command_id"], command_id)
 
+    def test_execution_heartbeat_keeps_last_risk_sizing_and_protection_after_hold(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_terminal(tmp)
+            opened = execute_once(
+                common_files=tmp, report=self.report("BUY"), volume=0.01,
+            )
+            self.assertEqual(opened["status"], "published")
+            first_sizing = opened["command"]["risk_sizing"]
+            first_levels = opened["command"]["levels"]
+            execute_once(common_files=tmp, report=self.report("HOLD"))
+            state = read_execution_loop_status(tmp)
+        self.assertEqual(state["status"], "fresh")
+        self.assertEqual(state["last_command_volume"], 0.01)
+        self.assertEqual(state["last_risk_sizing"], first_sizing)
+        self.assertEqual(state["last_stop_loss"], first_levels["stop_loss"])
+        self.assertEqual(state["last_take_profit"], first_levels["take_profit"])
+
     def test_stale_execution_heartbeat_is_reported_as_stale(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "BitcoinIntelligenceLab"
