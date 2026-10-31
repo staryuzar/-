@@ -190,6 +190,47 @@ def render_live_dashboard():
         f"حالة اللقطة: {report['status']}"
     )
 
+    health = report.get("data_health", {})
+    st.subheader("مراقب صحة مصادر البيانات")
+    health_cols = st.columns(4)
+    health_cols[0].metric("حالة المنظومة", health.get("status", "غير متاح"))
+    health_cols[1].metric(
+        "المصادر الأساسية الحديثة",
+        f"{health.get('fresh_core_count', 0)}/{health.get('core_feed_count', 3)}",
+    )
+    health_cols[2].metric(
+        "دفاتر الأوامر الحية",
+        str(len(health.get("live_orderbook_venues", []))),
+    )
+    health_cols[3].metric(
+        "مصادر التصفية المتصلة بلا أحداث حديثة",
+        str(len(health.get("connected_quiet_event_feeds", []))),
+    )
+    if health.get("warnings"):
+        st.warning("صحة البيانات: " + " · ".join(health["warnings"]))
+    stream_health_rows = health.get("stream_feeds", [])
+    if stream_health_rows:
+        with st.expander("تفاصيل اتصال كل WebSocket وحالة حداثته"):
+            st.dataframe(
+                [
+                    {
+                        "المصدر": row["name"],
+                        "الحالة": row["status"],
+                        "آخر رسالة (ث)": row["last_message_age_seconds"],
+                        "عمر آخر دفتر (ث)": row["book_age_seconds"],
+                        "إعادات الاتصال": row["reconnects"],
+                        "آخر خطأ": row["last_error"] or "—",
+                    }
+                    for row in stream_health_rows
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+    st.caption(
+        "مراقب الجودة لا يصوّت للاتجاه. ويعامل تدفقات التصفية كقنوات حدثية قد تبقى متصلة "
+        "دون ورود أحداث لفترة، بدلاً من تصنيفها متقادمة بسبب هدوء السوق."
+    )
+
     intelligence = report.get("market_intelligence", {})
     structure_engine = intelligence.get("market_structure_signal", {})
     cross_venue_engine = intelligence.get("cross_venue_orderbook", {})
