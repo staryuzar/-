@@ -36,7 +36,7 @@ class HeadwayEAContractTests(unittest.TestCase):
 
     def test_headway_server_identity_is_published_without_account_classification(self):
         self.assertIn("string accountServer=AccountInfoString(ACCOUNT_SERVER)", self.source)
-        self.assertIn("accountServer);", self.source)
+        self.assertIn("accountServer,CurrentDailyDrawdownPercent(),MaxDailyLossPercent);", self.source)
         self.assertNotIn("ACCOUNT_TRADE_MODE", self.source)
         self.assertIn('"TRADE_READY":"TRADE_BLOCKED"', self.source)
 
