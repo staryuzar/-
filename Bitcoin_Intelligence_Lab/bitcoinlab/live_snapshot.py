@@ -9,7 +9,11 @@ from .indicators import technical_profile
 from .orderflow import order_book_metrics, orderflow_profile, trade_flow_metrics
 from .providers import binance, bybit
 from .quality import freshness, utc_now_ms, validate_bars
-from .multi_timeframe import build_multi_timeframe_profile
+from .multi_timeframe import (
+    MINIMUM_FRESH_TIMEFRAMES,
+    REQUIRED_MACRO_FRAMES,
+    build_multi_timeframe_profile,
+)
 from .market_structure import market_structure_profile
 from .market_intelligence import build_market_intelligence
 from .market_store import read_market_stream_dashboard
@@ -188,8 +192,8 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "status": "fresh" if multi_timeframe.get("status") == "ok" else "incomplete",
         "fresh_frames": fresh_technical_frames,
         "total_frames": len(technical_frames),
-        "minimum_fresh_frames": 3,
-        "macro_context_required": ["1d", "4h"],
+        "minimum_fresh_frames": MINIMUM_FRESH_TIMEFRAMES,
+        "macro_context_required": list(REQUIRED_MACRO_FRAMES),
         "macro_context_met": macro_context_fresh,
         "blockers": list(multi_timeframe.get("blockers", [])),
     }
