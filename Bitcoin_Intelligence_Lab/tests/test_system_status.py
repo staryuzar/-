@@ -4,6 +4,14 @@ from bitcoinlab.system_status import build_system_readiness
 
 
 class SystemReadinessTests(unittest.TestCase):
+    def fresh_service(self):
+        return {
+            "status": "healthy",
+            "freshness_status": "fresh",
+            "age_seconds": 2,
+            "last_success_utc": "2026-10-31T00:00:00+00:00",
+        }
+
     def test_market_and_decision_can_be_ready_while_execution_is_not_running(self):
         result = build_system_readiness(
             snapshot={
@@ -27,6 +35,7 @@ class SystemReadinessTests(unittest.TestCase):
                 },
             },
             terminal={"status": "unavailable"},
+            snapshot_service=self.fresh_service(),
             execution_loop={"status": "unavailable"},
         )
         self.assertEqual(result["status"], "analysis_ready")
@@ -58,6 +67,7 @@ class SystemReadinessTests(unittest.TestCase):
                 "trading_ready": True, "symbol": "BTCUSDm",
                 "account_server": "HeadwayMarkets-Demo", "age_seconds": 2,
             },
+            snapshot_service=self.fresh_service(),
             execution_loop={"status": "fresh", "age_seconds": 5, "cycle_status": "no_command"},
             positions=[],
         )
@@ -83,6 +93,7 @@ class SystemReadinessTests(unittest.TestCase):
                 "status": "fresh", "headway_server_ok": True,
                 "trading_ready": True, "symbol": "BTCUSD",
             },
+            snapshot_service=self.fresh_service(),
             execution_loop={"status": "fresh", "age_seconds": 1},
             pending_command={
                 "pending": True, "status": "pending",
@@ -110,11 +121,35 @@ class SystemReadinessTests(unittest.TestCase):
                 },
             },
             terminal={"status": "not_ready"},
+            snapshot_service=self.fresh_service(),
             execution_loop={"status": "stale"},
         )
         self.assertIn("orderflow", result["market_data"]["core_missing_domains"])
         self.assertIn("orderflow_evidence_not_fresh", result["blockers"])
         self.assertFalse(result["new_entry_ready"])
+
+    def test_stale_snapshot_service_blocks_execution_readiness(self):
+        result = build_system_readiness(
+            snapshot={
+                "status": "ok",
+                "source_states": {
+                    "spot": {"status": "fresh"},
+                    "technical": {"status": "fresh"},
+                    "orderflow": {"status": "fresh"},
+                    "derivatives": {"status": "fresh"},
+                },
+                "decision": {"action": "BUY", "score": 0.4, "blockers": []},
+            },
+            terminal={
+                "status": "fresh", "headway_server_ok": True,
+                "trading_ready": True, "symbol": "BTCUSD",
+            },
+            execution_loop={"status": "fresh"},
+            snapshot_service={"status": "healthy", "freshness_status": "stale"},
+        )
+        self.assertFalse(result["execution_pipeline_ready"])
+        self.assertFalse(result["new_entry_ready"])
+        self.assertIn("snapshot_service_healthy", result["blockers"])
 
     def test_missing_snapshot_is_system_degraded(self):
         result = build_system_readiness(
