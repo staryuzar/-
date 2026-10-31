@@ -581,9 +581,13 @@ class MarketDataStore:
             buy_notional_usd,sell_notional_usd,
             buy_trade_count,sell_trade_count,last_trade_time_ms
             FROM trade_flow_minutes
-            WHERE symbol=? AND bucket_start_ms>=?
+            WHERE symbol=? AND bucket_start_ms>=? AND bucket_start_ms<=?
             ORDER BY venue,bucket_start_ms""",
-            (symbol.upper(), since_bucket_ms),
+            (
+                symbol.upper(),
+                since_bucket_ms,
+                int(now_ms) // 60_000 * 60_000,
+            ),
         ).fetchall()
         by_venue: dict[tuple[str, str], list[sqlite3.Row]] = {}
         for row in rows:

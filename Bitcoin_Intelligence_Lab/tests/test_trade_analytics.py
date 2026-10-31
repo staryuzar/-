@@ -12,7 +12,7 @@ from bitcoinlab.trade_analytics import (
 )
 
 
-NOW = 1_800_000_000_000
+NOW = 1_800_000_030_000
 
 
 def trade_event(key, venue, side, when, *, price=67000.0, qty=0.01, market_type="linear_perpetual"):
@@ -138,7 +138,7 @@ class TradeAnalyticsStoreTests(unittest.TestCase):
                 ensure_trade_footprint_schema(store)
                 events = [
                     trade_event("outside-window", "binance_usdm", "BUY", 1_799_999_945_000, qty=0.5),
-                    trade_event("inside-window", "binance_usdm", "SELL", 1_800_000_000_000, qty=0.1),
+                    trade_event("inside-window", "binance_usdm", "SELL", 1_800_000_000_000, price=70000.0, qty=0.1),
                 ]
                 self.assertEqual(record_trade_batch(store, events=events, received_at_ms=now), 2)
                 result = read_trade_analytics(

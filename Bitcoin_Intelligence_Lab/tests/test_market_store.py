@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from bitcoinlab.market_store import MarketDataStore, read_market_stream_dashboard
@@ -77,7 +78,7 @@ class MarketDataStoreTests(unittest.TestCase):
         self.assertEqual(dashboard["recent_liquidations"][0]["event_time_ms"], now)
 
     def test_trade_flow_summary_includes_total_btc_base_volume(self):
-        now = 1_800_000_000_000
+        now = 1_800_000_030_000
         with tempfile.TemporaryDirectory() as tmp:
             with MarketDataStore(Path(tmp) / "market.sqlite") as store:
                 for key, side, quantity in (
@@ -106,8 +107,28 @@ class MarketDataStoreTests(unittest.TestCase):
         self.assertEqual(len(summary), 1)
         self.assertAlmostEqual(summary[0]["total_base_volume_btc"], 0.35)
 
+    def test_future_trade_bucket_is_excluded_from_flow_summary(self):
+        now = 1_800_000_030_000
+        with tempfile.TemporaryDirectory() as tmp:
+            with MarketDataStore(Path(tmp) / "market.sqlite") as store:
+                store.record_trade_event(
+                    event={
+                        "event_key": "future", "venue": "binance_usdm",
+                        "symbol": "BTCUSDT", "market_type": "linear_perpetual",
+                        "event_time_ms": now + 120_000, "aggressor_side": "BUY",
+                        "price": 70000.0, "base_quantity": 0.2,
+                        "quantity_unit": "BTC", "notional_usd": 14000.0,
+                        "trade_count": 1,
+                    },
+                    received_at_ms=now,
+                )
+                summary = store.trade_flow_summary(
+                    symbol="BTCUSDT", now_ms=now, windows_seconds=(60,),
+                )
+        self.assertEqual(summary, [])
+
     def test_same_venue_symbol_minute_keeps_market_types_separate(self):
-        now = 1_800_000_000_000
+        now = 1_800_000_030_000
         with tempfile.TemporaryDirectory() as tmp:
             with MarketDataStore(Path(tmp) / "market.sqlite") as store:
                 for key, market_type, side, quantity in (
