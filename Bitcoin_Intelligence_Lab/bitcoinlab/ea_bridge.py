@@ -380,7 +380,7 @@ def publish_decision_order(
         "status": "published", "command_id": command["id"],
         "symbol": terminal["symbol"], "side": side, "volume": volume,
         "levels": levels, "path": str(target),
-        "message": "A real demo-trading command was published; wait for the EA acknowledgment and broker deal confirmation.",
+        "message": "A real Headway execution command was published; wait for the EA acknowledgment and broker deal confirmation.",
     }
 
 
