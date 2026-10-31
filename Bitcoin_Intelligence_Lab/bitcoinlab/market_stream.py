@@ -19,7 +19,7 @@ from .venue_books import IncrementalOrderBook, apply_bybit_message, apply_okx_me
 LOG = logging.getLogger("bitcoinlab.market_stream")
 BINANCE_WS = "wss://stream.binance.com:9443/ws/{symbol}@depth@100ms"
 BYBIT_WS = "wss://stream.bybit.com/v5/public/linear"
-OKX_WS = "wss://ws.okx.com:8443/ws/v5/public"
+OKX_WS = "wss://ws.okx.com/ws/v5/public"
 
 
 def _parse_binance_depth(payload: object, expected_symbol: str) -> dict[str, Any]:
