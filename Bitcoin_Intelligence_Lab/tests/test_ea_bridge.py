@@ -9,11 +9,14 @@ from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order, read_po
 
 
 class EABridgeTests(unittest.TestCase):
-    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway board-execution mode", trading="TRADE_READY", server="Headway-Demo"):
+    def write_status(self, root, *, when=None, symbol="BTCUSD", message="READY: Headway board-execution mode", trading="TRADE_READY", server="Headway-Demo", include_risk_specs=True):
         folder = Path(root) / "BitcoinIntelligenceLab"
         folder.mkdir(parents=True, exist_ok=True)
         stamp = int(time.time()) if when is None else when
-        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0|{trading}|{server}|0.25|2.00\n"
+        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0|{trading}|{server}|0.25|2.00"
+        if include_risk_specs:
+            line += "|10000.00|0.0100000000|0.0100000000|0.01000000|0.01000000|100.00000000"
+        line += "\n"
         (folder / "ea_status.tsv").write_text(line, encoding="utf-8")
 
     def report(self):
@@ -92,6 +95,10 @@ class EABridgeTests(unittest.TestCase):
         self.assertEqual(result["status"], "fresh")
         self.assertAlmostEqual(result["daily_loss_percent"], 0.25)
         self.assertAlmostEqual(result["daily_loss_limit_percent"], 2.0)
+        self.assertTrue(result["risk_specs_ready"])
+        self.assertAlmostEqual(result["account_equity"], 10_000)
+        self.assertAlmostEqual(result["tick_value_loss"], 0.01)
+        self.assertAlmostEqual(result["volume_step"], 0.01)
 
     def test_malformed_daily_risk_fields_block_ea_status(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -127,6 +134,42 @@ class EABridgeTests(unittest.TestCase):
         self.assertEqual(fields[5], "OPEN")
         self.assertEqual(fields[6], "BUY")
         self.assertGreater(float(fields[9]), 70001.0)
+
+    def test_order_volume_is_sized_from_actual_broker_tick_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp)
+            result = publish_decision_order(
+                report=self.report(), common_files=tmp,
+                volume=100.0, risk_fraction=0.0025,
+            )
+            command = (Path(tmp) / "BitcoinIntelligenceLab" / "trade_command.txt").read_text(encoding="ascii").strip().split("|")
+        self.assertEqual(result["status"], "published")
+        self.assertEqual(result["risk_sizing"]["sizing_method"], "broker_tick_value_loss")
+        self.assertLess(result["volume"], 1.0)
+        self.assertAlmostEqual(float(command[7]), result["volume"], places=8)
+        self.assertLessEqual(result["risk_sizing"]["estimated_loss"], result["risk_sizing"]["risk_budget"])
+
+    def test_old_ea_status_without_broker_risk_specs_cannot_open_new_trade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp, include_risk_specs=False)
+            terminal = read_ea_status(tmp)
+            result = publish_decision_order(
+                report=self.report(), common_files=tmp, volume=0.01,
+            )
+            command_path = Path(tmp) / "BitcoinIntelligenceLab" / "trade_command.txt"
+        self.assertEqual(terminal["status"], "fresh")
+        self.assertFalse(terminal["risk_specs_ready"])
+        self.assertEqual(result["status"], "risk_specs_unavailable")
+        self.assertFalse(command_path.exists())
+
+    def test_malformed_broker_risk_specs_invalidate_terminal_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp)
+            path = Path(tmp) / "BitcoinIntelligenceLab" / "ea_status.tsv"
+            line = path.read_text(encoding="utf-8")
+            path.write_text(line.replace("|0.0100000000|0.0100000000|", "|bad|0.0100000000|"), encoding="utf-8")
+            result = read_ea_status(tmp)
+        self.assertEqual(result["status"], "invalid")
 
     def test_stale_signal_does_not_publish_command(self):
         with tempfile.TemporaryDirectory() as tmp:
