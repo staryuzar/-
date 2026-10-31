@@ -78,6 +78,7 @@ class DecisionTests(unittest.TestCase):
     def test_auxiliary_engines_cannot_replace_fresh_core_evidence(self):
         sources = {
             "spot": {"status": "fresh"},
+            "technical": {"status": "fresh"},
             "orderflow": {"status": "stale"},
             "derivatives": {"status": "stale"},
             "market_structure": {"status": "fresh"},
