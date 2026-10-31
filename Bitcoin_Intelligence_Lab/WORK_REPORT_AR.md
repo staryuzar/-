@@ -4,7 +4,7 @@
 **المستودع:** [staryuzar/-](https://github.com/staryuzar/-)  
 **الفرع:** `bitcoin-intelligence-lab`  
 **طلب المراجعة:** [PR #9 — Draft](https://github.com/staryuzar/-/pull/9)  
-**آخر نسخة من الفرع اجتازت CI:** `aa78d024bf0a2a8c7cf2f36170ae090fde1c9a67` (CI #358؛ 222 اختباراً ناجحاً على Python 3.12 و3.13). شمل الإصلاح المنطقي `fadb99d6aea7199884fa07f100d373358d7f5799` وربط حالة MTF في `1b7a340216bdc613acbac75319e296e3d3217600`.
+**أحدث تحقق أساسي ناجح:** `ca3a53ad087a4443aab8b225434d7bb530478b4e` (CI #457؛ **247 اختباراً ناجحاً على Python 3.12 و247 على Python 3.13**، مع نجاح Compile وStreamlit smoke ولقطة BTC العامة وفحص عدم وجود APIs تنفيذ تداول).
 
 ---
 
@@ -84,6 +84,34 @@ https://github.com/staryuzar/-/actions/runs/41158793678
 - التشغيل #400 بدأ قبل إضافة الحاجز؛ عند آخر فحص كانت خطوة تثبيت/مصادقة MT5 لا تزال `in_progress`. لا تتوفر في موصل GitHub الحالي أداة إلغاء Workflow جارٍ، لذلك لا أزعم أنني أوقفته. يجب مراجعة هذا التشغيل من صفحة Actions وإلغاؤه يدوياً إذا ظل جارياً.
 - أضيف حاجز مبكر إلى `.github/workflows/windows-validation.yml`: أي PR مصدره `bitcoin-intelligence-lab` يضع `run_validation=false`، وبالتالي يتخطى وظائف Aurora Windows وBrowser وMT5. هذا الحاجز يخص التحديثات المستقبلية؛ لا يغير تشغيل #399 المكتمل أو #400 الذي بدأ سابقاً.
 - نتيجة التدقيق: Workflow الخاص ببرنامج البيتكوين وحده يظل قراءة فقط ولا يثبت MT5 أو يسجل الدخول إلى Headway. ويجب ألا تدمج أي من نتائج Aurora/MT5 مع نتائج اختبارات Bitcoin Intelligence Lab.
+
+### 2.6 تدقيق استقلال أدلة المجالات الخمسة — 31 أكتوبر 2026
+
+- Orderflow يصوّت على Aggressor/Taker trade delta فقط؛ اختلال دفتر Spot والسبريد يظلان سياقاً، لأن صوت العمق مخصص لمجال Cross-Venue Order Book.
+- Market Structure يصوّت على موقع السعر بالنسبة إلى Session VWAP فقط؛ عينة Trade Delta تبقى سياقاً لأنها محسوبة في Orderflow. أضيفت اختبارات تثبت أن تغيير عمق الدفتر لا يغيّر صوت Orderflow، وأن عكس عينة الدلتا لا يغيّر صوت VWAP.
+- فصل جلب الصفقات عن جلب دفتر REST؛ تعذر دفتر Spot لا يلغي إشارة الصفقات الحديثة.
+- بقيت الأوزان الأساسية كما هي: Technical 35%، Orderflow 25%، Derivatives 20%، Market Structure 10%، Cross-Venue 10%. CVD ما زال مكوّناً داخلياً من Orderflow لا صوتاً سادساً.
+- حارس التعارض: تعارض 1D/4H المعتبر يفرض HOLD؛ والقرار العكسي للاتجاه الفني يحتاج ثلاثة مجالات مؤيدة ودرجة مطلقة لا تقل عن 0.25، مع السماح بانعكاس قوي عند تحقق هذا الشرط.
+- كل حالات HOLD صارت تعيد عقد بيانات موحداً للوحة: المجالات النشطة والمتاحة، الأوزان، المجالات الأساسية، العدّادات والتحذيرات.
+
+### 2.7 مشتقات OKX كبديل ثالث — 31 أكتوبر 2026
+
+- أضيف `providers/okx.py` لمصدر OKX V5 العام على BTC-USDT-SWAP بعد فشل Binance USDⓈ-M وBybit Linear.
+- اتجاه المشتقات من نسبة Taker Buy/Sell للصفقات العامة الحديثة ضمن وحدة العقد نفسها؛ لا يجري تحويل أحجام العقود إلى BTC/USD بلا معامل موثق.
+- Funding يميز settled عن current-period estimate، وOI يحفظ وحدات BTC/contracts/USD المنشورة دون جمعها بين المنصات.
+- ترتيب fallback: Binance ثم Bybit ثم OKX؛ وتظل المقارنة متعددة المنصات سياقاً غير تصويتي يُرفق بالمحرك حتى بعد استبداله بمصدر احتياطي.
+- CI #423 اجتاز **244 اختباراً لكل إصدار**. لقطة السوق في 2026-10-31T02:50:50Z أثبتت قراءة 500 صفقة OKX حديثة، Taker Buy/Sell بنحو 2.17، Funding مستقر 0.01% لكل 8 ساعات وOI المنشور بنحو 34,809 BTC؛ بقيت المقارنة جزئية لأن OKX كانت المنصة الوحيدة المتاحة.
+
+### 2.8 إصلاحات Windows / SQLite / لوحة القراءة — 31 أكتوبر 2026
+
+- كشف أول Windows unit run أخطاء `WinError 32` عند حذف قواعد SQLite المؤقتة؛ السبب أن قارئات SQLite كانت تستخدم `with sqlite3.connect(...)` الذي ينهي المعاملة لكنه لا يغلق الاتصال.
+- عُدّلت قارئات `trade_analytics.py` و`liquidation_heatmap.py` و`depth_analytics.py` لاستخدام `contextlib.closing`، مثل قارئ `market_store.py`، لتفريغ الملفات على Windows.
+- أضيف إعداد `BTCIL_MARKET_DB` إلى `live_snapshot.py`، بحيث يمكن توجيه جميع قارئات الدفاتر والتصفية والصفقات والعمق إلى قاعدة الجامع نفسها. اختبار Windows يضبط المتغير على `data/windows_runtime.sqlite` التي يكتب إليها الجامع.
+- أضيف Workflow مستقل `.github/workflows/bitcoin-intelligence-lab-windows.yml` وسكربت `scripts/windows_runtime_smoke.py` على فرع البيتكوين. يتحقق السكربت من WebSocket حي واحد على الأقل، لقطة دفتر محفوظة، تدفق صفقة محفوظ، WAL وSQLite integrity، وعمل Streamlit وقارئه read-only.
+- حُذف ملفا Windows المؤقتان من `main` وأُضيفا إلى `bitcoin-intelligence-lab` فقط؛ والتحقق من الشجرة يؤكد عدم وجودهما على `main`.
+- أحدث CI أساسي ناجح: [CI #457](https://github.com/staryuzar/-/actions/runs/41162340742)، **247 اختباراً لكل إصدار**، مع نجاح Streamlit smoke ولقطة السوق وفحص no-trading-APIs.
+- أحدث اختبار Windows Runtime: [Run #16](https://github.com/staryuzar/-/actions/runs/41162340830)، ما زال في مرحلة تثبيت الاعتماديات وقت تحديث التقرير؛ لم يصل بعد إلى اختبارات Windows أو بث WebSocket. لذلك لا توجد بعد نتيجة ناجحة لتشغيل الجامع الحي وSQLite على Windows.
+- إعادة إثبات العزل: Workflow Aurora على نفس رأس الفرع تخطّى وظائف MT5 وChrome وGemini؛ لا يوجد ربط MT5 في اختبار الجامع الحالي.
 
 ## 3. المحركات التي تم بناؤها
 
