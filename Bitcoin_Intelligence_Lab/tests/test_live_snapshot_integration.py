@@ -32,7 +32,9 @@ class LiveSnapshotIntegrationContractTests(unittest.TestCase):
             "read_trade_analytics",
             "read_depth_liquidity_context",
         ):
-            self.assertIn(f"{reader}(\\n        market_db_path", self.snapshot)
+            start = self.snapshot.index(f"{reader}(")
+            end = self.snapshot.index(")", start)
+            self.assertIn("market_db_path", self.snapshot[start:end])
 
     def test_okx_perpetual_derivatives_fallback_runs_after_binance_and_bybit(self):
         bybit_fallback = self.snapshot.index('if deriv_engine.get("status") != "ok":')
