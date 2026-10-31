@@ -13,7 +13,7 @@ class EABridgeTests(unittest.TestCase):
         folder = Path(root) / "BitcoinIntelligenceLab"
         folder.mkdir(parents=True, exist_ok=True)
         stamp = int(time.time()) if when is None else when
-        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0|{trading}\n"
+        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0|{trading}|{server}|{account_mode}\n"
         (folder / "ea_status.tsv").write_text(line, encoding="utf-8")
 
     def report(self):
