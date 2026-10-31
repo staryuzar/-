@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.001"
+#property version   "1.002"
 #property description "Bitcoin Intelligence Lab — Headway BTC demo command executor"
 
 #include <Trade/Trade.mqh>
@@ -78,10 +78,11 @@ void WriteStatus()
    SymbolInfoDouble(_Symbol,SYMBOL_ASK,ask);
    SymbolInfoDouble(_Symbol,SYMBOL_POINT,point);
    SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL,stops);
-   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d\n",
+   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s\n",
       _Symbol,EnumToString(_Period),(long)TimeGMT(),
       TerminalInfoInteger(TERMINAL_CONNECTED)?"CONNECTED":"DISCONNECTED",
-      bid,ask,(int)PositionsTotal(),lastStatus,point,(int)stops);
+      bid,ask,(int)PositionsTotal(),lastStatus,point,(int)stops,
+      TerminalAllowsTrading()?"TRADE_READY":"TRADE_BLOCKED");
    WriteTextFile("ea_status.tsv",line);
 }
 
