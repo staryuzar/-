@@ -39,6 +39,16 @@ async def _app_ping(ws: Any, payload: str, interval: float = 20.0) -> None:
         await ws.send(payload)
 
 
+def _is_bybit_pong(payload: object) -> bool:
+    """Recognize Bybit's JSON application-ping replies on public streams."""
+    if not isinstance(payload, dict):
+        return False
+    return (
+        str(payload.get("op", "")).lower() == "pong"
+        or str(payload.get("ret_msg", payload.get("retMsg", ""))).lower() == "pong"
+    )
+
+
 async def _run_binance(store: MarketDataStore, symbol: str) -> None:
     from websockets.asyncio.client import connect
 
@@ -134,6 +144,13 @@ async def _run_bybit(store: MarketDataStore, symbol: str) -> None:
                             )
                             continue
                         payload = json.loads(raw)
+                        if _is_bybit_pong(payload):
+                            heartbeat = int(time.time() * 1000)
+                            store.record_status(
+                                venue=venue, symbol=symbol, status="connected",
+                                updated_at_ms=heartbeat, reconnects=reconnects,
+                            )
+                            continue
                         if isinstance(payload, dict) and payload.get("op") == "subscribe":
                             if payload.get("success") is False:
                                 raise RuntimeError(str(payload.get("ret_msg", "Bybit liquidation subscription rejected.")))
