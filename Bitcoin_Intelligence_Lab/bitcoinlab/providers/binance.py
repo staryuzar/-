@@ -80,6 +80,28 @@ def fetch_open_interest(symbol: str = "BTCUSDT") -> dict:
     return payload
 
 
+def fetch_taker_ratio(symbol: str = "BTCUSDT", period: str = "5m", limit: int = 3) -> list[dict]:
+    """Fetch public USD-M taker buy/sell volume ratios."""
+    periods = {"5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"}
+    symbol = symbol.upper().strip()
+    if not symbol.isalnum() or period not in periods or not 1 <= limit <= 500:
+        raise ValueError("Invalid Binance taker-ratio request.")
+    payload = get_json(_url(FUTURES_BASE, "/futures/data/takerlongshortRatio", {
+        "symbol": symbol, "period": period, "limit": limit,
+    }))
+    if not isinstance(payload, list) or any(not isinstance(row, dict) for row in payload):
+        raise ValueError("Malformed Binance taker buy/sell ratio response.")
+    for row in payload:
+        try:
+            ratio = float(row["buySellRatio"])
+            timestamp = int(row["timestamp"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("Binance taker-ratio row lacks a valid ratio or timestamp.") from exc
+        if not math.isfinite(ratio) or ratio <= 0 or timestamp <= 0:
+            raise ValueError("Binance taker-ratio row contains invalid values.")
+    return payload
+
+
 def fetch_open_interest_history(symbol: str = "BTCUSDT", period: str = "5m", limit: int = 6) -> list[dict]:
     if not symbol.isalnum() or period not in {"5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"} or not 2 <= limit <= 500:
         raise ValueError("Invalid open-interest history request.")
