@@ -101,7 +101,10 @@ def build_system_readiness(
     if not execution_loop_ready:
         blockers.append(f"execution_loop_{loop.get('status', 'unavailable')}")
     if not snapshot_service_ready:
-        blockers.append(f"snapshot_service_{service.get('status', 'unavailable')}")
+        service_problem = service.get("status", "unavailable")
+        if service_problem == "healthy":
+            service_problem = service.get("freshness_status", "stale")
+        blockers.append(f"snapshot_service_{service_problem}")
     if pending_now:
         blockers.append("broker_command_pending_acknowledgement")
 
