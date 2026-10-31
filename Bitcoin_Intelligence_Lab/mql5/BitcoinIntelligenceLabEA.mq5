@@ -17,8 +17,14 @@ string pendingCommandId = "";
 string pendingCommandAction = "";
 string lastStatus = "Initializing";
 datetime lastHeartbeat = 0;
+bool hasInstanceLock = false;
 
 string BaseFolder() { return "BitcoinIntelligenceLab\\"; }
+
+string InstanceLockName()
+{
+   return StringFormat("BTCIL_%I64u_%s",MagicNumber,_Symbol);
+}
 
 bool IsBitcoinSymbol()
 {
@@ -371,6 +377,14 @@ int OnInit()
    if(MagicNumber==0 || CommandPollSeconds<1 || MaxSpreadPoints<0 || SlippagePoints<0 ||
       MaxRiskPercent<=0.0 || MaxRiskPercent>2.0 || MaxOpenPositions<1)
       return INIT_PARAMETERS_INCORRECT;
+   string lockName=InstanceLockName();
+   if(!GlobalVariableCheck(lockName)) GlobalVariableTemp(lockName);
+   if(!GlobalVariableSetOnCondition(lockName,(double)ChartID(),0.0))
+   {
+      Print("BTCIL|INIT_BLOCKED|another EA instance already owns this symbol/magic lock");
+      return INIT_FAILED;
+   }
+   hasInstanceLock=true;
    FolderCreate("BitcoinIntelligenceLab",FILE_COMMON);
    int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(store!=INVALID_HANDLE) { lastCommandId=FileReadString(store); FileClose(store); }
@@ -430,6 +444,14 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   if(hasInstanceLock)
+   {
+      string lockName=InstanceLockName();
+      if(GlobalVariableCheck(lockName) &&
+         GlobalVariableGet(lockName)==(double)ChartID())
+         GlobalVariableDel(lockName);
+      hasInstanceLock=false;
+   }
    WriteTextFile("ea_status.tsv",StringFormat("BTCIL1|DEINIT|%I64d|%s\n",(long)TimeGMT(),lastStatus));
    Comment("");
 }
