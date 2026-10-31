@@ -110,6 +110,7 @@ def _normalize_row(raw: Mapping[str, Any], *, now_ms: int, max_age_seconds: int)
         "mark_vs_index_bps": round(mark_index_bps, 4) if mark_index_bps is not None else None,
         "spot_vs_index_bps": round(spot_index_bps, 4) if spot_index_bps is not None else None,
         "funding_rate_per_settlement": funding,
+        "funding_rate_kind": str(raw.get("funding_rate_kind") or "source_reported_rate"),
         "funding_interval_minutes": interval,
         "funding_rate_per_8h_equivalent": round(funding_8h, 10) if funding_8h is not None else None,
         "open_interest_btc": oi_btc,
