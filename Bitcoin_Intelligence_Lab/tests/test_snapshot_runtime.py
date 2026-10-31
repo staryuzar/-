@@ -44,6 +44,57 @@ class SnapshotRuntimeTests(unittest.TestCase):
             self.assertEqual(service_state["status"], "healthy")
             self.assertFalse(output.with_suffix(".json.service.lock").exists())
 
+    def test_dashboard_refresh_request_selects_market_and_timeframe_for_shared_service(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            request_path = root / "refresh.json"
+            output = root / "live_snapshot.json"
+            selected = {}
+            request_snapshot_refresh(
+                request_path, symbol="BTCUSDC", interval="5m",
+            )
+
+            def builder(*, symbol, interval):
+                selected["symbol"] = symbol
+                selected["interval"] = interval
+                return self.report()
+
+            result = run_snapshot_service(
+                interval_seconds=30,
+                snapshot_path=output,
+                status_path=root / "status.json",
+                refresh_request_path=request_path,
+                builder=builder,
+                once=True,
+            )
+            self.assertEqual(result["status"], "published")
+            self.assertEqual(selected, {"symbol": "BTCUSDC", "interval": "5m"})
+
+    def test_failed_refresh_preserves_last_successful_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "live_snapshot.json"
+            status = root / "status.json"
+            request = root / "refresh.json"
+            first = run_snapshot_service(
+                interval_seconds=30, snapshot_path=output,
+                status_path=status, refresh_request_path=request,
+                builder=lambda **_kwargs: self.report(), once=True,
+            )
+            original = output.read_text(encoding="utf-8")
+            second = run_snapshot_service(
+                interval_seconds=30, snapshot_path=output,
+                status_path=status, refresh_request_path=request,
+                builder=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("feed outage")),
+                once=True,
+            )
+            self.assertEqual(first["status"], "published")
+            self.assertEqual(second["status"], "cycle_error")
+            self.assertEqual(output.read_text(encoding="utf-8"), original)
+            service_state = json.loads(status.read_text(encoding="utf-8"))
+            self.assertEqual(service_state["status"], "degraded")
+            self.assertIsNotNone(service_state["last_success_utc"])
+
     def test_reader_rejects_missing_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(SnapshotUnavailableError):
