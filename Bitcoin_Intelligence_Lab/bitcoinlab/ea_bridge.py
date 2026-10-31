@@ -400,6 +400,27 @@ def publish_decision_order(
     terminal = read_ea_status(directory)
     if terminal.get("status") != "fresh":
         return {"status": "terminal_not_ready", "terminal": terminal}
+    daily_loss = terminal.get("daily_loss_percent")
+    daily_limit = terminal.get("daily_loss_limit_percent")
+    if (
+        daily_loss is None or daily_limit is None
+        or not math.isfinite(float(daily_loss))
+        or not math.isfinite(float(daily_limit))
+        or float(daily_loss) < 0
+        or float(daily_limit) <= 0
+    ):
+        return {
+            "status": "daily_risk_status_unavailable",
+            "reason": "The EA has not supplied valid daily-loss status; new entries are blocked.",
+            "terminal": terminal,
+        }
+    if float(daily_loss) >= float(daily_limit):
+        return {
+            "status": "daily_loss_limit_reached",
+            "reason": "Daily loss reached the configured Headway limit; new entries are blocked while position management remains available.",
+            "daily_loss_percent": float(daily_loss),
+            "daily_loss_limit_percent": float(daily_limit),
+        }
     if not terminal.get("risk_specs_ready"):
         return {
             "status": "risk_specs_unavailable",
