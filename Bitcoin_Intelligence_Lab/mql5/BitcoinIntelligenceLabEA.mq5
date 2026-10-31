@@ -258,7 +258,7 @@ bool OpenBoardPosition(const string side,const double volume,const double sl,con
       double entry=(side=="BUY")?ask:bid;
       if(!OrderCalcProfit(orderType,_Symbol,volume,entry,sl,projectedLoss) || projectedLoss>=0.0 ||
          MathAbs(projectedLoss)>AccountInfoDouble(ACCOUNT_EQUITY)*MaxRiskPercent/100.0)
-      { lastStatus="BLOCKED: optional EA-side equity risk cap exceeded"; return false; }
+      { lastStatus="BLOCKED: EA equity risk cap exceeded"; return false; }
    }
 
    MqlTradeRequest request={};
@@ -369,7 +369,8 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    if(MagicNumber==0 || CommandPollSeconds<1 || MaxSpreadPoints<0 || SlippagePoints<0 ||
-      MaxRiskPercent<0 || MaxOpenPositions<0) return INIT_PARAMETERS_INCORRECT;
+      MaxRiskPercent<=0.0 || MaxRiskPercent>2.0 || MaxOpenPositions<1)
+      return INIT_PARAMETERS_INCORRECT;
    FolderCreate("BitcoinIntelligenceLab",FILE_COMMON);
    int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(store!=INVALID_HANDLE) { lastCommandId=FileReadString(store); FileClose(store); }
