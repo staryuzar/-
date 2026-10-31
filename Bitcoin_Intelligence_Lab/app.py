@@ -216,7 +216,8 @@ def render_live_dashboard():
                     {
                         "المصدر": row["name"],
                         "الحالة": row["status"],
-                        "آخر رسالة (ث)": row["last_message_age_seconds"],
+                        "آخر حدث (ث)": row["last_message_age_seconds"],
+                        "عمر heartbeat (ث)": row["heartbeat_age_seconds"],
                         "عمر آخر دفتر (ث)": row["book_age_seconds"],
                         "إعادات الاتصال": row["reconnects"],
                         "آخر خطأ": row["last_error"] or "—",
