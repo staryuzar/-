@@ -5,6 +5,24 @@ from typing import Any
 
 from .providers import cftc, coinmetrics, deribit, mempool
 from .quality import utc_now_ms
+from .options_surface import build_btc_options_surface
+
+
+def _fetch_btc_options_context(now_ms: int) -> dict[str, Any]:
+    raw = deribit.fetch_btc_options_snapshot()
+    surface = build_btc_options_surface(
+        raw.get("instruments", []),
+        raw.get("summaries", []),
+        now_ms=now_ms,
+    )
+    return {
+        **surface,
+        "source": raw.get("source"),
+        "instrument_count": raw.get("instrument_count", 0),
+        "summary_count": raw.get("summary_count", 0),
+        "source_note": raw.get("note"),
+        "use": "slow_context_only_not_intraday_directional_vote",
+    }
 
 
 def build_slow_context(*, now_ms: int | None = None) -> dict[str, Any]:
@@ -30,6 +48,7 @@ def build_slow_context(*, now_ms: int | None = None) -> dict[str, Any]:
             end_timestamp_ms=now,
             resolution="3600",
         ),
+        "options": lambda: _fetch_btc_options_context(now),
     }
     for name, reader in readers.items():
         try:
@@ -53,6 +72,8 @@ def build_slow_context(*, now_ms: int | None = None) -> dict[str, Any]:
             "CFTC TFF positioning is weekly CME futures-only context, not spot positioning.",
             "Coin Metrics Community data is subject to its community non-commercial license and limited data coverage.",
             "Deribit DVOL is options-implied volatility, not a directional forecast.",
+            "Deribit options OI is reported in BTC for BTC options; gross OI does not reveal dealer inventory.",
+            "The options surface is descriptive (nearest-strike ATM IV and approximate Black-Scholes 25-delta skew), not a fitted arbitrage-free SVI surface.",
             "These slower feeds are not used as intraday entry triggers.",
         ],
     }
