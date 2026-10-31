@@ -23,6 +23,25 @@ class DecisionTests(unittest.TestCase):
         base.update(kwargs)
         return central_decision(**base)
 
+    def assert_decision_contract(self, result):
+        for field in (
+            "action", "score", "blockers", "warnings", "reasons",
+            "weights", "active_domains", "unavailable_domains",
+            "core_active_domains", "aligned_domains",
+            "buy_aligned_domains", "sell_aligned_domains",
+            "risk_context_only", "interpretation",
+        ):
+            self.assertIn(field, result)
+
+    def test_stale_spot_hold_uses_complete_decision_contract(self):
+        sources = dict(FRESH)
+        sources["spot"] = {"status": "stale"}
+        result = self.call(source_states=sources)
+        self.assertEqual(result["action"], "HOLD")
+        self.assert_decision_contract(result)
+        self.assertEqual(result["active_domains"], [])
+        self.assertEqual(result["weights"], {})
+
     def test_fresh_confluence_produces_buy(self):
         result = self.call()
         self.assertEqual(result["action"], "BUY")
@@ -37,6 +56,7 @@ class DecisionTests(unittest.TestCase):
         self.assertIsNone(result["score"])
         self.assertIn("technical_source_not_fresh", result["blockers"])
         self.assertIn("technical_unavailable_or_stale", result["warnings"])
+        self.assert_decision_contract(result)
         self.assertEqual(result["active_domains"], [])
         self.assertEqual(result["weights"], {})
 
@@ -52,6 +72,7 @@ class DecisionTests(unittest.TestCase):
         result = self.call(orderflow={"status": "ok", "score": -0.9})
         self.assertEqual(result["action"], "HOLD")
         self.assertIn("strong_cross_domain_conflict", result["blockers"])
+        self.assert_decision_contract(result)
         self.assertIn("active_domains", result)
         self.assertIn("technical", result["active_domains"])
         self.assertIn("weights", result)
@@ -103,6 +124,8 @@ class DecisionTests(unittest.TestCase):
         )
         self.assertEqual(result["action"], "HOLD")
         self.assertIn("insufficient_fresh_core_evidence_domains", result["blockers"])
+        self.assert_decision_contract(result)
+        self.assertEqual(result["weights"], {})
 
     def test_liquidation_pressure_is_a_warning_not_an_extra_direction_vote(self):
         risk = {
