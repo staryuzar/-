@@ -114,13 +114,23 @@ def request_snapshot_refresh(
     path: str | Path | None = None,
     *,
     reason: str = "dashboard_manual_refresh",
+    symbol: str = "BTCUSDT",
+    interval: str = "1m",
 ) -> dict[str, Any]:
+    normalized_symbol = str(symbol).upper().strip()
+    normalized_interval = str(interval).lower().strip()
+    if not normalized_symbol.isalnum() or not normalized_symbol.startswith("BTC"):
+        raise ValueError("Refresh request accepts BTC symbols only.")
+    if normalized_interval not in {"1m", "5m", "15m", "1h", "4h"}:
+        raise ValueError("Unsupported refresh timeframe.")
     target = Path(path) if path is not None else default_refresh_request_path()
     request = {
         "schema": "BTCIL-SNAPSHOT-REFRESH1",
         "request_id": uuid4().hex,
         "requested_at_utc": _utc_now().isoformat(),
         "reason": str(reason)[:160],
+        "symbol": normalized_symbol,
+        "interval": normalized_interval,
     }
     _write_json_atomic(target, request)
     return request
@@ -184,29 +194,47 @@ class _ServiceLock:
             pass
 
 
-def _consume_refresh_request(path: Path, *, max_age_seconds: int = 600) -> bool:
+def _consume_refresh_request_payload(
+    path: Path,
+    *,
+    max_age_seconds: int = 600,
+) -> dict[str, Any] | None:
     if not path.is_file():
-        return False
+        return None
+    payload: object = None
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
-            raise ValueError("Refresh request must be a JSON object.")
+            return None
         observed = datetime.fromisoformat(
             str(payload.get("requested_at_utc", "")).replace("Z", "+00:00")
         ).astimezone(timezone.utc)
         age = (_utc_now() - observed).total_seconds()
+        symbol = str(payload.get("symbol", "BTCUSDT")).upper().strip()
+        interval = str(payload.get("interval", "1m")).lower().strip()
         valid = (
             payload.get("schema") == "BTCIL-SNAPSHOT-REFRESH1"
             and -5 <= age <= max_age_seconds
+            and symbol.isalnum()
+            and symbol.startswith("BTC")
+            and interval in {"1m", "5m", "15m", "1h", "4h"}
         )
+        if valid:
+            return {"symbol": symbol, "interval": interval, "request_id": payload.get("request_id")}
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
-        valid = False
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
         pass
-    return valid
+    finally:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return None
 
+
+def _consume_refresh_request(path: Path, *, max_age_seconds: int = 600) -> bool:
+    return _consume_refresh_request_payload(
+        path, max_age_seconds=max_age_seconds,
+    ) is not None
 
 def _publish_status(
     path: Path,
@@ -264,7 +292,11 @@ def run_snapshot_service(
             last_success_utc=last_success, cycle_seconds=None,
         )
         while True:
-            requested = _consume_refresh_request(request_file)
+            request = _consume_refresh_request_payload(request_file)
+            requested = request is not None
+            if request is not None:
+                symbol = request["symbol"]
+                interval = request["interval"]
             now_mono = time.monotonic()
             if once or requested or now_mono >= next_due:
                 started = time.monotonic()
