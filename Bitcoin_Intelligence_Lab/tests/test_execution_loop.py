@@ -110,7 +110,8 @@ class ExecutionLoopTests(unittest.TestCase):
             report = self.report("BUY")
             report["decision"]["blockers"] = ["technical_source_not_fresh"]
             result = execute_once(common_files=tmp, report=report)
-            self.assertEqual(result["status"], "decision_blocked")
+            self.assertEqual(result["status"], "no_command")
+            self.assertEqual(result["plan"]["reason"], "central_decision_is_not_executable")
             self.assertFalse((folder / "trade_command.txt").exists())
 
 
