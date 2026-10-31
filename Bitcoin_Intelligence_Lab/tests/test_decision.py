@@ -137,6 +137,43 @@ class DecisionTests(unittest.TestCase):
         self.assertIn("wide_spread", enriched["warnings"])
         self.assertIn("relative_volume_surge", enriched["warnings"])
 
+    def test_daily_four_hour_regime_conflict_forces_hold(self):
+        technical = dict(TECH)
+        technical["macro_conflict"] = True
+        technical["warnings"] = ["daily_and_four_hour_regimes_conflict"]
+        result = self.call(technical=technical)
+        self.assertEqual(result["action"], "HOLD")
+        self.assertIn("daily_and_four_hour_regimes_conflict", result["blockers"])
+
+    def test_weak_countertrend_buy_is_blocked_when_technical_opposes(self):
+        sources = dict(FRESH)
+        sources["derivatives"] = {"status": "stale"}
+        result = self.call(
+            technical={"status": "ok", "score": -0.30},
+            orderflow={"status": "ok", "score": 0.60},
+            derivatives={"status": "incomplete", "score": None},
+            market_structure={"status": "ok", "score": 0.84},
+            source_states=sources,
+        )
+        self.assertEqual(result["action"], "HOLD")
+        self.assertIn("technical_opposition_requires_stronger_confluence", result["blockers"])
+        self.assertIn("technical_domain_opposes_direction", result["warnings"])
+        self.assertEqual(result["buy_aligned_domains"], 2)
+
+    def test_three_domain_countertrend_confluence_can_override_technical_opposition(self):
+        sources = dict(FRESH)
+        sources["market_structure"] = {"status": "fresh"}
+        result = self.call(
+            technical={"status": "ok", "score": -0.30},
+            orderflow={"status": "ok", "score": 0.90},
+            derivatives={"status": "ok", "score": 0.80},
+            market_structure={"status": "ok", "score": 0.80},
+            source_states=sources,
+        )
+        self.assertEqual(result["action"], "BUY")
+        self.assertGreaterEqual(result["buy_aligned_domains"], 3)
+        self.assertIn("technical_domain_opposes_direction", result["warnings"])
+
     def test_weak_confluence_holds(self):
         result = self.call(
             technical={"status": "ok", "score": 0.1},
