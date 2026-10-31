@@ -74,6 +74,11 @@ class DecisionTests(unittest.TestCase):
         self.assertIn("market_structure", result["active_domains"])
         self.assertIn("cross_venue", result["active_domains"])
         self.assertAlmostEqual(sum(result["weights"].values()), 1.0)
+        self.assertAlmostEqual(result["weights"]["technical"], 0.35)
+        self.assertAlmostEqual(result["weights"]["orderflow"], 0.25)
+        self.assertAlmostEqual(result["weights"]["derivatives"], 0.20)
+        self.assertAlmostEqual(result["weights"]["market_structure"], 0.10)
+        self.assertAlmostEqual(result["weights"]["cross_venue"], 0.10)
 
     def test_auxiliary_engines_cannot_replace_fresh_core_evidence(self):
         sources = {
