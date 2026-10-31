@@ -41,6 +41,10 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertIn("if(!PrepareTradeRequest(request))", self.source)
         self.assertIn("request.type_filling=ORDER_FILLING_RETURN;", self.source)
 
+    def test_status_record_ends_with_a_real_newline_for_python_bridge(self):
+        self.assertIn('|%s|%s|%d\\n",', self.source)
+        self.assertNotIn('|%s|%s|%d\\\\n",', self.source)
+
     def test_trade_requests_bind_to_actual_headway_chart_symbol_and_magic(self):
         self.assertIn("request.symbol=_Symbol", self.source)
         self.assertIn("request.magic=MagicNumber", self.source)
