@@ -26,12 +26,13 @@ def ensure_trade_footprint_schema(store: MarketDataStore) -> None:
         buy_notional_usd REAL NOT NULL DEFAULT 0,
         sell_notional_usd REAL NOT NULL DEFAULT 0,
         trade_count INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY(venue,symbol,bucket_start_ms,price_bucket_usd)
+        PRIMARY KEY(venue,symbol,market_type,bucket_start_ms,price_bucket_usd)
     );
     CREATE INDEX IF NOT EXISTS trade_footprint_venue_time
         ON trade_footprint(venue,symbol,bucket_start_ms);
     """)
     store.db.commit()
+    store.ensure_market_type_dimension("trade_footprint")
     store._trade_footprint_schema_ready = True
 
 
@@ -77,14 +78,13 @@ def record_trade_batch(
                  buy_base_volume_btc,sell_base_volume_btc,
                  buy_notional_usd,sell_notional_usd,trade_count)
                 VALUES (?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(venue,symbol,bucket_start_ms,price_bucket_usd)
+                ON CONFLICT(venue,symbol,market_type,bucket_start_ms,price_bucket_usd)
                 DO UPDATE SET
                   buy_base_volume_btc=trade_footprint.buy_base_volume_btc+excluded.buy_base_volume_btc,
                   sell_base_volume_btc=trade_footprint.sell_base_volume_btc+excluded.sell_base_volume_btc,
                   buy_notional_usd=trade_footprint.buy_notional_usd+excluded.buy_notional_usd,
                   sell_notional_usd=trade_footprint.sell_notional_usd+excluded.sell_notional_usd,
-                  trade_count=trade_footprint.trade_count+excluded.trade_count,
-                  market_type=excluded.market_type""",
+                  trade_count=trade_footprint.trade_count+excluded.trade_count""",
                 (venue, symbol, market_type, bucket, price_bucket,
                  buy_btc, sell_btc, buy_usd, sell_usd, count),
             )

@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -93,6 +94,79 @@ class MarketDataStoreTests(unittest.TestCase):
                 )
         self.assertEqual(len(summary), 1)
         self.assertAlmostEqual(summary[0]["total_base_volume_btc"], 0.35)
+
+    def test_same_venue_symbol_minute_keeps_market_types_separate(self):
+        now = 1_800_000_000_000
+        with tempfile.TemporaryDirectory() as tmp:
+            with MarketDataStore(Path(tmp) / "market.sqlite") as store:
+                for key, market_type, side, quantity in (
+                    ("spot-1", "spot", "BUY", 0.2),
+                    ("perp-1", "linear_perpetual", "SELL", 0.1),
+                ):
+                    store.record_trade_event(
+                        event={
+                            "event_key": key, "venue": "shared_venue",
+                            "symbol": "BTCUSDT", "market_type": market_type,
+                            "event_time_ms": now - 10_000, "aggressor_side": side,
+                            "price": 70000.0, "base_quantity": quantity,
+                            "quantity_unit": "BTC",
+                            "notional_usd": 70000.0 * quantity, "trade_count": 1,
+                        },
+                        received_at_ms=now,
+                    )
+                summary = store.trade_flow_summary(
+                    symbol="BTCUSDT", now_ms=now, windows_seconds=(60,),
+                )
+        self.assertEqual({row["market_type"] for row in summary}, {"spot", "linear_perpetual"})
+        by_type = {row["market_type"]: row for row in summary}
+        self.assertAlmostEqual(by_type["spot"]["total_base_volume_btc"], 0.2)
+        self.assertAlmostEqual(by_type["linear_perpetual"]["total_base_volume_btc"], 0.1)
+
+    def test_old_trade_flow_schema_is_archived_not_mislabeled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy.sqlite"
+            connection = sqlite3.connect(path)
+            connection.execute(
+                """CREATE TABLE trade_flow_minutes (
+                    venue TEXT NOT NULL, symbol TEXT NOT NULL, market_type TEXT NOT NULL,
+                    bucket_start_ms INTEGER NOT NULL,
+                    buy_base_volume_btc REAL NOT NULL DEFAULT 0,
+                    sell_base_volume_btc REAL NOT NULL DEFAULT 0,
+                    buy_notional_usd REAL NOT NULL DEFAULT 0,
+                    sell_notional_usd REAL NOT NULL DEFAULT 0,
+                    buy_trade_count INTEGER NOT NULL DEFAULT 0,
+                    sell_trade_count INTEGER NOT NULL DEFAULT 0,
+                    last_trade_time_ms INTEGER NOT NULL,
+                    PRIMARY KEY(venue,symbol,bucket_start_ms)
+                )"""
+            )
+            connection.execute(
+                "INSERT INTO trade_flow_minutes VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ("shared_venue", "BTCUSDT", "linear_perpetual", 1_800_000_000_000,
+                 1.0, 0.0, 70000.0, 0.0, 1, 0, 1_800_000_000_000),
+            )
+            connection.execute(
+                "CREATE INDEX trade_flow_minutes_venue_time ON trade_flow_minutes(venue,symbol,bucket_start_ms)"
+            )
+            connection.commit()
+            connection.close()
+
+            with MarketDataStore(path) as store:
+                columns = store.db.execute("PRAGMA table_info(trade_flow_minutes)").fetchall()
+                primary_key = tuple(
+                    row[1] for row in sorted(
+                        (row for row in columns if row[5] > 0), key=lambda row: row[5],
+                    )
+                )
+                active_rows = store.db.execute(
+                    "SELECT COUNT(*) FROM trade_flow_minutes"
+                ).fetchone()[0]
+                archived_rows = store.db.execute(
+                    "SELECT COUNT(*) FROM trade_flow_minutes_legacy_pk_v1"
+                ).fetchone()[0]
+        self.assertEqual(primary_key, ("venue", "symbol", "market_type", "bucket_start_ms"))
+        self.assertEqual(active_rows, 0)
+        self.assertEqual(archived_rows, 1)
 
     def test_invalid_snapshot_is_not_persisted(self):
         with tempfile.TemporaryDirectory() as tmp:

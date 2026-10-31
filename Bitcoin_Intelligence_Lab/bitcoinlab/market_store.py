@@ -219,12 +219,98 @@ class MarketDataStore:
             buy_trade_count INTEGER NOT NULL DEFAULT 0,
             sell_trade_count INTEGER NOT NULL DEFAULT 0,
             last_trade_time_ms INTEGER NOT NULL,
-            PRIMARY KEY(venue, symbol, bucket_start_ms)
+            PRIMARY KEY(venue, symbol, market_type, bucket_start_ms)
         );
         CREATE INDEX IF NOT EXISTS trade_flow_minutes_venue_time
             ON trade_flow_minutes(venue, symbol, bucket_start_ms);
         """)
         self.db.commit()
+        self.ensure_market_type_dimension("trade_flow_minutes")
+
+    def ensure_market_type_dimension(self, table_name: str) -> None:
+        """Rebuild legacy aggregates so market_type is part of their uniqueness key.
+
+        The old schema could merge Spot and Perpetual values before assigning the
+        most recently observed market_type. Those aggregates cannot be safely
+        separated after the fact, so preserve the old table as a legacy archive
+        and start a clean, correctly keyed table rather than relabel mixed volume.
+        """
+        configs = {
+            "trade_flow_minutes": (
+                ("venue", "symbol", "market_type", "bucket_start_ms"),
+                """CREATE TABLE trade_flow_minutes (
+                    venue TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    market_type TEXT NOT NULL,
+                    bucket_start_ms INTEGER NOT NULL,
+                    buy_base_volume_btc REAL NOT NULL DEFAULT 0,
+                    sell_base_volume_btc REAL NOT NULL DEFAULT 0,
+                    buy_notional_usd REAL NOT NULL DEFAULT 0,
+                    sell_notional_usd REAL NOT NULL DEFAULT 0,
+                    buy_trade_count INTEGER NOT NULL DEFAULT 0,
+                    sell_trade_count INTEGER NOT NULL DEFAULT 0,
+                    last_trade_time_ms INTEGER NOT NULL,
+                    PRIMARY KEY(venue,symbol,market_type,bucket_start_ms)
+                )""",
+                "CREATE INDEX IF NOT EXISTS trade_flow_minutes_venue_time ON trade_flow_minutes(venue,symbol,bucket_start_ms)",
+            ),
+            "trade_footprint": (
+                ("venue", "symbol", "market_type", "bucket_start_ms", "price_bucket_usd"),
+                """CREATE TABLE trade_footprint (
+                    venue TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    market_type TEXT NOT NULL,
+                    bucket_start_ms INTEGER NOT NULL,
+                    price_bucket_usd REAL NOT NULL,
+                    buy_base_volume_btc REAL NOT NULL DEFAULT 0,
+                    sell_base_volume_btc REAL NOT NULL DEFAULT 0,
+                    buy_notional_usd REAL NOT NULL DEFAULT 0,
+                    sell_notional_usd REAL NOT NULL DEFAULT 0,
+                    trade_count INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(venue,symbol,market_type,bucket_start_ms,price_bucket_usd)
+                )""",
+                "CREATE INDEX IF NOT EXISTS trade_footprint_venue_time ON trade_footprint(venue,symbol,bucket_start_ms)",
+            ),
+        }
+        if table_name not in configs:
+            raise ValueError("Unsupported market_type dimension table.")
+        expected_pk, create_sql, index_sql = configs[table_name]
+        info = self.db.execute(f"PRAGMA table_info({table_name})").fetchall()
+        current_pk = tuple(
+            row[1] for row in sorted(
+                (row for row in info if int(row[5]) > 0),
+                key=lambda row: int(row[5]),
+            )
+        )
+        if current_pk == expected_pk:
+            self.db.execute(index_sql)
+            self.db.commit()
+            return
+
+        legacy_table = f"{table_name}_legacy_pk_v1"
+        legacy_exists = self.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (legacy_table,),
+        ).fetchone()
+        if legacy_exists:
+            raise RuntimeError(
+                f"Cannot migrate {table_name}: legacy archive {legacy_table} already exists."
+            )
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.execute(f"ALTER TABLE {table_name} RENAME TO {legacy_table}")
+            legacy_index = (
+                "trade_flow_minutes_venue_time"
+                if table_name == "trade_flow_minutes"
+                else "trade_footprint_venue_time"
+            )
+            self.db.execute(f"DROP INDEX IF EXISTS {legacy_index}")
+            self.db.execute(create_sql)
+            self.db.execute(index_sql)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
 
     def record_event(
         self,
@@ -408,12 +494,11 @@ class MarketDataStore:
                 (venue,symbol,market_type,bucket_start_ms,buy_base_volume_btc,
                  buy_notional_usd,buy_trade_count,last_trade_time_ms)
                 VALUES (?,?,?,?,?,?,?,?)
-                ON CONFLICT(venue,symbol,bucket_start_ms) DO UPDATE SET
+                ON CONFLICT(venue,symbol,market_type,bucket_start_ms) DO UPDATE SET
                   buy_base_volume_btc=buy_base_volume_btc+excluded.buy_base_volume_btc,
                   buy_notional_usd=buy_notional_usd+excluded.buy_notional_usd,
                   buy_trade_count=buy_trade_count+excluded.buy_trade_count,
-                  last_trade_time_ms=MAX(last_trade_time_ms,excluded.last_trade_time_ms),
-                  market_type=excluded.market_type""",
+                  last_trade_time_ms=MAX(last_trade_time_ms,excluded.last_trade_time_ms)""",
                 (venue, symbol, market_type, bucket, quantity, notional, count, event_time),
             )
         else:
@@ -422,12 +507,11 @@ class MarketDataStore:
                 (venue,symbol,market_type,bucket_start_ms,sell_base_volume_btc,
                  sell_notional_usd,sell_trade_count,last_trade_time_ms)
                 VALUES (?,?,?,?,?,?,?,?)
-                ON CONFLICT(venue,symbol,bucket_start_ms) DO UPDATE SET
+                ON CONFLICT(venue,symbol,market_type,bucket_start_ms) DO UPDATE SET
                   sell_base_volume_btc=sell_base_volume_btc+excluded.sell_base_volume_btc,
                   sell_notional_usd=sell_notional_usd+excluded.sell_notional_usd,
                   sell_trade_count=sell_trade_count+excluded.sell_trade_count,
-                  last_trade_time_ms=MAX(last_trade_time_ms,excluded.last_trade_time_ms),
-                  market_type=excluded.market_type""",
+                  last_trade_time_ms=MAX(last_trade_time_ms,excluded.last_trade_time_ms)""",
                 (venue, symbol, market_type, bucket, quantity, notional, count, event_time),
             )
         return True
