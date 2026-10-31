@@ -148,7 +148,8 @@ class ExecutionLoopTests(unittest.TestCase):
             later = execute_once(common_files=tmp, report=self.report("SELL"), volume=0.01)
             self.assertEqual(later["status"], "command_pending")
             self.assertEqual(later["pending_command"]["status"], "expired_unconfirmed")
-            self.assertNotIn("command", later)
+            self.assertEqual(later["command"]["command_id"], command_id)
+            self.assertTrue(later["pending_command"]["requires_reconciliation"])
 
     def test_final_broker_ack_allows_the_next_cycle_to_manage_updated_position(self):
         with tempfile.TemporaryDirectory() as tmp:
