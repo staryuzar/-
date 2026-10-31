@@ -402,7 +402,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         source_states=source_states, event_context=screener, spread_bps=spread_bps,
     )
     return {
-        "status": "ok" if all(source_states.get(key, {}).get("status") == "fresh" for key in ("spot", "orderflow", "derivatives")) else "partial",
+        "status": "ok" if all(source_states.get(key, {}).get("status") == "fresh" for key in ("spot", "technical", "orderflow", "derivatives")) else "partial",
         "symbol": symbol, "interval": interval, "as_of_utc": datetime.fromtimestamp(now / 1000, tz=timezone.utc).isoformat(),
         "source_states": source_states, "errors": errors,
         "spot": {
