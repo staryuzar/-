@@ -113,7 +113,17 @@ class OKXDerivativesProviderTests(unittest.TestCase):
 
     @patch("bitcoinlab.providers.okx.get_json")
     def test_nonzero_okx_api_code_is_reported(self, get_json):
-        get_json.return_value = {"code": "50011", "msg": "rate limit", "data": []}
+        get_json.side_effect = [
+            payload([{
+                "fundingRate": "0.0001", "settFundingRate": "0.0001",
+                "settState": "settled", "fundingTime": str(NOW - 480 * 60_000),
+                "nextFundingTime": str(NOW), "ts": str(NOW - 1000),
+            }]),
+            payload([{
+                "oi": "100", "oiCcy": "1", "oiUsd": "70000", "ts": str(NOW),
+            }]),
+            {"code": "50011", "msg": "rate limit", "data": []},
+        ]
         with self.assertRaisesRegex(ValueError, "OKX perpetual trades response failed"):
             fetch_derivatives_snapshot(
                 "BTCUSDT",
