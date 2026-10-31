@@ -232,7 +232,8 @@ def main() -> int:
             json.dumps(report, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    # GitHub Windows runners may use cp1252; keep the console report ASCII-safe.
+    print(json.dumps(report, ensure_ascii=True, indent=2))
     return return_code
 
 
