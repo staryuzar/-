@@ -1,6 +1,8 @@
 import json
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -8,6 +10,7 @@ from bitcoinlab.snapshot_runtime import (
     SNAPSHOT_SCHEMA,
     SnapshotUnavailableError,
     _consume_refresh_request,
+    _consume_refresh_request_payload,
     read_latest_snapshot,
     request_snapshot_refresh,
     run_snapshot_service,
@@ -130,6 +133,37 @@ class SnapshotRuntimeTests(unittest.TestCase):
             self.assertTrue(_consume_refresh_request(path))
             self.assertFalse(path.exists())
             self.assertFalse(_consume_refresh_request(path))
+
+    def test_refresh_arriving_during_request_claim_is_preserved_for_next_cycle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "refresh.json"
+            first = request_snapshot_refresh(path, symbol="BTCUSDT", interval="1m")
+            real_replace = os.replace
+
+            def replace_then_enqueue(source, destination):
+                real_replace(source, destination)
+                if str(destination).endswith(".processing"):
+                    second = {
+                        "schema": "BTCIL-SNAPSHOT-REFRESH1",
+                        "request_id": "second-click",
+                        "requested_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "reason": "simulated concurrent dashboard click",
+                        "symbol": "BTCUSDC",
+                        "interval": "5m",
+                    }
+                    temporary = path.with_name("refresh.new")
+                    temporary.write_text(json.dumps(second), encoding="utf-8")
+                    real_replace(temporary, path)
+
+            with patch("bitcoinlab.snapshot_runtime.os.replace", side_effect=replace_then_enqueue):
+                consumed_first = _consume_refresh_request_payload(path)
+
+            self.assertEqual(consumed_first["request_id"], first["request_id"])
+            self.assertTrue(path.exists())
+            consumed_second = _consume_refresh_request_payload(path)
+            self.assertEqual(consumed_second["request_id"], "second-click")
+            self.assertEqual(consumed_second["symbol"], "BTCUSDC")
+            self.assertFalse(path.exists())
 
     def test_invalid_refresh_request_is_removed_and_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
