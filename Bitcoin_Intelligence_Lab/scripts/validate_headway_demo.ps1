@@ -90,13 +90,36 @@ try {
     Copy-Item -LiteralPath $source -Destination $ea -Force
     $compileLog = Join-Path $expertsDir "BitcoinIntelligenceLabEA.log"
     $ex5 = Join-Path $expertsDir "BitcoinIntelligenceLabEA.ex5"
-    $compiler = Start-Process -FilePath $meta.FullName -ArgumentList ('/compile:"' + $ea + '" /log') -WorkingDirectory $installDir -PassThru
+    Remove-Item -LiteralPath $compileLog,$ex5 -Force -ErrorAction SilentlyContinue
+    $includeRoot = Join-Path $installDir "MQL5"
+    $compileArg = '/compile:"' + $ea + '"'
+    $includeArg = '/include:"' + $includeRoot + '"'
+    Add-Report "Compiler executable: $($meta.FullName)"
+    Add-Report "Source file: $ea"
+    Add-Report "Include root: $includeRoot"
+    $compiler = Start-Process -FilePath $meta.FullName -ArgumentList @($compileArg,$includeArg,"/log") -WorkingDirectory $installDir -PassThru -WindowStyle Hidden
     if (!$compiler.WaitForExit(90000)) {
         Stop-Process -Id $compiler.Id -Force -ErrorAction SilentlyContinue
         throw "Bitcoin EA compilation timed out."
     }
-    Start-Sleep -Seconds 2
-    if (!(Test-Path $compileLog) -or !(Test-Path $ex5)) { throw "MetaEditor did not create both the EA compile log and EX5 binary." }
+    Add-Report "MetaEditor process exit code: $($compiler.ExitCode)"
+    Start-Sleep -Seconds 3
+    if (!(Test-Path -LiteralPath $compileLog)) {
+        $foundLog = Get-ChildItem -LiteralPath $installDir -Filter "BitcoinIntelligenceLabEA.log" -File -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($foundLog) { Copy-Item -LiteralPath $foundLog.FullName -Destination $compileLog -Force }
+    }
+    if (!(Test-Path -LiteralPath $ex5)) {
+        $foundEx5 = Get-ChildItem -LiteralPath $installDir -Filter "BitcoinIntelligenceLabEA.ex5" -File -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($foundEx5) { Copy-Item -LiteralPath $foundEx5.FullName -Destination $ex5 -Force }
+    }
+    if (!(Test-Path -LiteralPath $compileLog) -or !(Test-Path -LiteralPath $ex5)) {
+        $recent = @(Get-ChildItem -LiteralPath $installDir -Filter "BitcoinIntelligenceLabEA.*" -File -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 12 | ForEach-Object { $_.FullName })
+        foreach ($item in $recent) { Add-Report "Compiler artifact: $item" }
+        throw "MetaEditor did not create both the EA compile log and EX5 binary."
+    }
     $compileText = Get-Content -LiteralPath $compileLog -Raw
     Add-Report "MetaEditor compile summary: $((Get-Content -LiteralPath $compileLog -Tail 8) -join ' | ')"
     if ($compileText -notmatch '(?i)0 errors' -or $compileText -notmatch '(?i)0 warnings') {
