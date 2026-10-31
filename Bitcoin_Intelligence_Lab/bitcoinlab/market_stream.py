@@ -88,10 +88,18 @@ def _maybe_save_book(
     snapshot = book.top(depth)
     metrics = book.metrics(depth)
     if snapshot.get("status") == "ok" and metrics.get("status") == "ok":
+        # Use the exchange event time for freshness gating; local receive time
+        # can make a delayed/backlogged snapshot look newer than it really is.
+        exchange_event_ms = snapshot.get("last_event_ms")
+        observed_at_ms = (
+            int(exchange_event_ms)
+            if exchange_event_ms is not None and int(exchange_event_ms) > 0
+            else received_at_ms
+        )
         store.record_snapshot(
             venue=venue,
             symbol=symbol,
-            observed_at_ms=received_at_ms,
+            observed_at_ms=observed_at_ms,
             book=snapshot,
             metrics=metrics,
         )

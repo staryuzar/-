@@ -3,7 +3,9 @@ import unittest
 from pathlib import Path
 
 from bitcoinlab.market_store import MarketDataStore
-from bitcoinlab.market_stream import OKX_WS, _install_binance_snapshot, _parse_binance_depth
+from bitcoinlab.market_stream import (
+    OKX_WS, _install_binance_snapshot, _maybe_save_book, _parse_binance_depth,
+)
 
 
 class MarketStreamTests(unittest.TestCase):
@@ -67,6 +69,42 @@ class MarketStreamTests(unittest.TestCase):
         }, buffered)
         self.assertFalse(result)
         self.assertFalse(book.synchronized)
+
+    def test_snapshot_freshness_uses_exchange_event_time_not_local_receive_time(self):
+        exchange_event_ms = 1_800_000_000_000
+        received_at_ms = exchange_event_ms + 45_000
+
+        class DelayedBook:
+            def top(self, depth):
+                return {
+                    "status": "ok",
+                    "last_event_ms": exchange_event_ms,
+                    "bids": [[100.0, 2.0]],
+                    "asks": [[101.0, 3.0]],
+                }
+
+            def metrics(self, depth):
+                return {
+                    "status": "ok", "best_bid": 100.0, "best_ask": 101.0,
+                    "spread_bps": 99.5, "imbalance": -0.2,
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.sqlite"
+            with MarketDataStore(db_path) as store:
+                _maybe_save_book(
+                    store, venue="bybit_linear", symbol="BTCUSDT",
+                    book=DelayedBook(), depth=50,
+                    received_at_ms=received_at_ms,
+                    last_saved_monotonic=0.0,
+                )
+                history = store.recent_snapshots(
+                    venue="bybit_linear", symbol="BTCUSDT",
+                    since_ms=exchange_event_ms - 1,
+                )
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["observed_at_ms"], exchange_event_ms)
+        self.assertNotEqual(history[0]["observed_at_ms"], received_at_ms)
 
     def test_market_store_persists_events_snapshots_and_feed_health(self):
         with tempfile.TemporaryDirectory() as tmp:
