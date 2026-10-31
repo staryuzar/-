@@ -1,6 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 import math
+
+
+def attach_cross_venue_context(
+    engine: Mapping[str, object],
+    context: Mapping[str, object],
+) -> dict[str, object]:
+    """Preserve non-voting cross-venue derivatives context on the selected fallback engine."""
+    enriched = dict(engine)
+    enriched["cross_venue_context_only"] = dict(context)
+    return enriched
 
 
 def derivatives_profile(
