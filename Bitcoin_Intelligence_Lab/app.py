@@ -461,7 +461,7 @@ def render_live_dashboard():
 
     health = report.get("data_health", {})
     st.subheader("مراقب صحة مصادر البيانات")
-    health_cols = st.columns(4)
+    health_cols = st.columns(5)
     health_cols[0].metric("حالة المنظومة", health.get("status", "غير متاح"))
     health_cols[1].metric(
         "المصادر الأساسية الحديثة",
@@ -471,9 +471,14 @@ def render_live_dashboard():
         "دفاتر الأوامر الحية",
         str(len(health.get("live_orderbook_venues", []))),
     )
-    health_cols[3].metric(
-        "مصادر التصفية المتصلة بلا أحداث حديثة",
-        str(len(health.get("connected_quiet_event_feeds", []))),
+    live_trade_feeds = [
+        row for row in health.get("stream_feeds", [])
+        if row.get("feed_type") == "trades" and row.get("status") == "live"
+    ]
+    health_cols[3].metric("تدفقات الصفقات الحية", str(len(live_trade_feeds)))
+    health_cols[4].metric(
+        "قنوات التصفية المتصلة بلا أحداث",
+        str(len(health.get("connected_quiet_liquidation_feeds", []))),
     )
     if health.get("warnings"):
         st.warning("صحة البيانات: " + " · ".join(health["warnings"]))
@@ -484,6 +489,7 @@ def render_live_dashboard():
                 [
                     {
                         "المصدر": row["name"],
+                        "نوع المصدر": row.get("feed_type", "event"),
                         "الحالة": row["status"],
                         "آخر حدث (ث)": row["last_message_age_seconds"],
                         "عمر heartbeat (ث)": row["heartbeat_age_seconds"],
@@ -497,8 +503,9 @@ def render_live_dashboard():
                 hide_index=True,
             )
     st.caption(
-        "مراقب الجودة لا يصوّت للاتجاه. ويعامل تدفقات التصفية كقنوات حدثية قد تبقى متصلة "
-        "دون ورود أحداث لفترة، بدلاً من تصنيفها متقادمة بسبب هدوء السوق."
+        "مراقب الجودة لا يصوّت للاتجاه. قنوات التصفية حدثية وقد تبقى متصلة بلا تصفيات؛ "
+        "أما تدفقات صفقات BTC فهي عالية التردد، ولذلك يصنف غياب الصفقات الحديثة كتقادم "
+        "حتى لو ظل heartbeat متصلاً."
     )
 
     intelligence = report.get("market_intelligence", {})
