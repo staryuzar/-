@@ -14,6 +14,10 @@ from datetime import datetime, timezone
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# Running this file directly sets sys.path[0] to scripts/, so add the
+# application root explicitly before importing bitcoinlab for the final DB check.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 ARTIFACTS = ROOT / "artifacts"
 DB_PATH = ROOT / "data" / "windows_runtime.sqlite"
 COLLECTOR_LOG = ARTIFACTS / "windows_market_stream.log"
