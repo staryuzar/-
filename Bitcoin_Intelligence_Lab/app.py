@@ -44,8 +44,8 @@ with st.sidebar:
     )
     auto_execution = st.toggle(
         "التنفيذ والإدارة التلقائية على Headway-Demo",
-        value=False,
-        help="عند التفعيل، ترسل اللوحة أوامرها تلقائياً: تفتح عند قرار جديد بلا مركز، وتغلق المركز المعاكس عند تأكيد انعكاس الاتجاه. HOLD لا يغلق المركز.",
+        value=True,
+        help="الإدارة التلقائية تعمل افتراضياً على Headway-Demo، ويمكن إيقافها من هنا. عند التفعيل، ترسل اللوحة أوامرها تلقائياً: تفتح عند قرار جديد بلا مركز، وتغلق المركز المعاكس عند تأكيد انعكاس الاتجاه. HOLD لا يغلق المركز.",
     )
     refresh_now = st.button("قراءة السوق الآن", type="primary", use_container_width=True)
     st.caption(
@@ -159,6 +159,37 @@ def render_live_dashboard():
         st.warning("SELL — إشارة اتجاهية صادرة عن المحركات المركزية")
     else:
         st.info("HOLD — لا توجد موافقة كافية من الأدلة المتاحة")
+
+    price_history = report["spot"].get("price_history", {})
+    if price_history.get("time_utc"):
+        st.subheader("حركة سعر BTC — الشموع المكتملة")
+        st.line_chart(
+            price_history,
+            x="time_utc",
+            y="close",
+            height=280,
+            use_container_width=True,
+        )
+
+    flow_cols = st.columns(3)
+    flow_cols[0].metric(
+        "اختلال دفتر الأوامر",
+        f"{report['order_book']['imbalance']:+.3f}"
+        if report.get("order_book") and report["order_book"].get("imbalance") is not None
+        else "غير متاح",
+    )
+    flow_cols[1].metric(
+        "دلتا تدفق الصفقات",
+        f"{report['trade_flow']['delta']:+.4f}"
+        if report.get("trade_flow") and report["trade_flow"].get("delta") is not None
+        else "غير متاح",
+    )
+    flow_cols[2].metric(
+        "نسبة Taker Buy/Sell",
+        f"{report['derivatives_data']['taker_buy_sell_ratio']:.3f}"
+        if report.get("derivatives_data") and report["derivatives_data"].get("taker_buy_sell_ratio") is not None
+        else "غير متاح",
+    )
 
     cols = st.columns(4)
     cols[0].metric(
