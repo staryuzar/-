@@ -140,7 +140,7 @@ def cached_slow_context():
     return build_slow_context()
 
 
-@st.fragment(run_every=f"{refresh_seconds}s" if auto_refresh else None)
+@st.fragment(run_every="3s" if st.session_state.get("btc_refresh_pending") else (f"{refresh_seconds}s" if auto_refresh else None))
 def render_live_dashboard():
     report_key = (symbol, interval)
     revision = int(st.session_state.get("btc_snapshot_revision", 0))
@@ -164,16 +164,56 @@ def render_live_dashboard():
                 )
 
     report = st.session_state.get("btc_report")
+    if st.session_state.get("btc_report_key") != report_key:
+        report = None
+    service_state = cached_snapshot_service_status()
     if report:
+        observed_at = datetime.fromisoformat(
+            str(report.get("as_of_utc", "")).replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+        snapshot_age = max(0.0, (datetime.now(timezone.utc) - observed_at).total_seconds())
         st.caption(
-            f"آخر لقطة تحليل: {report.get('as_of_utc', 'غير متاح')} · "
-            + ("تحديث تلقائي كامل" if auto_refresh else "التحديث الكامل يدوي للحفاظ على استقرار اللوحة")
+            f"آخر لقطة تحليل مشتركة: {report.get('as_of_utc', 'غير متاح')} · "
+            f"عمرها {snapshot_age:.0f} ثانية · "
+            + ("عرض يتجدد تلقائياً" if auto_refresh else "العرض لا يعيد جلب بيانات من الإنترنت")
         )
+        if snapshot_age > 90:
+            st.warning("اللقطة أقدم من حد التنفيذ؛ تعرض للسياق فقط ولا تسمح حلقة التنفيذ باستخدامها.")
+    if service_state.get("status") != "healthy" or service_state.get("freshness_status") != "fresh":
+        st.warning(
+            "محرك اللقطات المشتركة غير جاهز أو نبضه قديم: "
+            + str(service_state.get("status"))
+            + " / "
+            + str(service_state.get("freshness_status"))
+            + ". شغّل المشغّل الموحد للبرنامج."
+        )
+    if st.session_state.get("btc_refresh_pending"):
+        requested_at = st.session_state.get("btc_refresh_requested_at")
+        completed = False
+        timed_out = False
+        try:
+            request_time = datetime.fromisoformat(str(requested_at).replace("Z", "+00:00"))
+            completed = bool(report) and datetime.fromisoformat(
+                str(report.get("as_of_utc", "")).replace("Z", "+00:00")
+            ) >= request_time
+            timed_out = (
+                datetime.now(timezone.utc) - request_time.astimezone(timezone.utc)
+            ).total_seconds() > 90
+        except (TypeError, ValueError):
+            timed_out = True
+        if completed:
+            st.session_state["btc_refresh_pending"] = False
+            st.success("اكتملت اللقطة الجديدة ووصلت من محرك البيانات المشترك.")
+        elif timed_out:
+            st.session_state["btc_refresh_pending"] = False
+            st.warning("لم يصل تحديث جديد خلال 90 ثانية؛ نحتفظ باللقطة السابقة.")
+        else:
+            st.info("أُرسل طلب التحديث إلى محرك اللقطات؛ ستظهر النتيجة عند اكتمال دورة الجلب.")
     if st.session_state.get("btc_refresh_error"):
-        st.warning("تعذر تحديث آخر لقطة؛ نحتفظ بآخر بيانات ناجحة بدلاً من تفريغ اللوحة. "
+        st.warning("تعذر قراءة لقطة التحليل؛ نحتفظ بآخر بيانات ناجحة بدلاً من تفريغ اللوحة. "
                    + st.session_state["btc_refresh_error"])
     if not isinstance(report, dict):
-        st.error("لا توجد لقطة تحليل ناجحة بعد. استخدم زر تحديث بيانات السوق لإعادة المحاولة.")
+        st.error("لا توجد لقطة مشتركة بعد. استخدم زر طلب تحديث التحليل، وتأكد أن محرك اللقطات يعمل.")
         return
     st.subheader("مركز التنفيذ — Headway / MT5")
     try:
@@ -183,14 +223,16 @@ def render_live_dashboard():
         managed_positions = read_positions(common_files)
         broker_ack = current_ack(common_files)
         pending = pending_command_state(common_files)
+        service_state = cached_snapshot_service_status()
         system_readiness = build_system_readiness(
             snapshot=report,
             terminal=ea_status,
             execution_loop=loop_status,
             positions=managed_positions,
             pending_command=pending,
+            snapshot_service=service_state,
         )
-        readiness_cols = st.columns(4)
+        readiness_cols = st.columns(5)
         readiness_cols[0].metric(
             "سلامة بيانات السوق",
             {"live": "حي", "partial": "جزئي", "unavailable": "غير متاح"}.get(
@@ -205,11 +247,19 @@ def render_live_dashboard():
             if system_readiness["central_decision"]["score"] is not None else "لا توجد درجة صالحة",
         )
         readiness_cols[2].metric(
+            "محرك اللقطات المشتركة",
+            "سليم" if system_readiness["snapshot_service"]["status"] == "healthy"
+            and system_readiness["snapshot_service"]["freshness_status"] == "fresh"
+            else str(system_readiness["snapshot_service"]["freshness_status"]),
+            f"عمر النبض: {system_readiness['snapshot_service']['age_seconds']} ث"
+            if system_readiness["snapshot_service"]["age_seconds"] is not None else "لا يوجد نبض",
+        )
+        readiness_cols[3].metric(
             "جاهزية Headway / MT5",
             "جاهز" if system_readiness["headway_mt5"]["status"] == "ready"
             else str(system_readiness["headway_mt5"]["status"]),
         )
-        readiness_cols[3].metric(
+        readiness_cols[4].metric(
             "حلقة التنفيذ",
             "نشطة" if system_readiness["execution_loop"]["status"] == "active"
             else str(system_readiness["execution_loop"]["status"]),
