@@ -85,9 +85,24 @@ class ExecutionLoopTests(unittest.TestCase):
             execute_once(common_files=tmp, report=self.report("HOLD"))
             state = read_execution_loop_status(tmp)
             self.assertEqual(state["status"], "fresh")
+            self.assertEqual(state["cycle_status"], "no_command")
             self.assertEqual(state["schema"], "BTCIL-EXEC1")
-            self.assertEqual(state["status"], "fresh")
             self.assertEqual(state["plan"]["action"], "HOLD")
+
+    def test_stale_execution_heartbeat_is_reported_as_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            folder.mkdir(parents=True)
+            old = datetime.fromtimestamp(1_700_000_000, timezone.utc).isoformat()
+            (folder / "execution_loop_status.json").write_text(
+                '{"schema":"BTCIL-EXEC1","updated_at_utc":"'
+                + old + '","status":"no_command","plan":{"action":"HOLD"}}',
+                encoding="utf-8",
+            )
+            from bitcoinlab.ea_bridge import read_execution_loop_status
+            result = read_execution_loop_status(tmp, now_seconds=1_700_000_200)
+            self.assertEqual(result["status"], "stale")
+            self.assertEqual(result["cycle_status"], "no_command")
 
     def test_blocked_central_decision_never_opens(self):
         with tempfile.TemporaryDirectory() as tmp:
