@@ -9,6 +9,7 @@ from .indicators import technical_profile
 from .orderflow import order_book_metrics, orderflow_profile, trade_flow_metrics
 from .providers import binance, bybit
 from .quality import freshness, utc_now_ms, validate_bars
+from .multi_timeframe import build_multi_timeframe_profile
 
 
 def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms: int | None = None) -> dict[str, Any]:
@@ -121,9 +122,20 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             errors["derivatives_bybit"] = f"{type(exc).__name__}: {exc}"[:300]
             source_states["derivatives"] = {"status": "error", "venue": "Binance/Bybit"}
 
+    timeframe_inputs = {interval: bars} if interval in {"1d", "4h", "1h", "15m", "5m", "1m"} and bars else {}
+    multi_timeframe = build_multi_timeframe_profile(
+        symbol=symbol, now_ms=now, preloaded_bars=timeframe_inputs,
+    )
+    # The central technical vote is the weighted six-frame trend, not a single chart interval.
+    decision_technical = {
+        "status": "ok" if multi_timeframe["status"] == "ok" else "incomplete",
+        "score": multi_timeframe["score"],
+        "reason": "; ".join(multi_timeframe["blockers"]) if multi_timeframe["blockers"] else None,
+    }
+
     spread_bps = float(book_metrics["spread_bps"]) if book_metrics else float("inf")
     decision = central_decision(
-        technical=technical, orderflow=flow_engine, derivatives=deriv_engine,
+        technical=decision_technical, orderflow=flow_engine, derivatives=deriv_engine,
         source_states=source_states, spread_bps=spread_bps,
     )
     return {
@@ -143,6 +155,8 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             },
         },
         "technical": technical,
+        "multi_timeframe": multi_timeframe,
+        "decision_technical": decision_technical,
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
         "decision": decision,
