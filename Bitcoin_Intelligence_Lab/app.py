@@ -10,10 +10,13 @@ from bitcoinlab.slow_context import build_slow_context
 from bitcoinlab.ea_bridge import (
     current_ack,
     default_common_files,
+    pending_command_state,
     read_ea_status,
     read_execution_loop_status,
     read_positions,
 )
+
+from bitcoinlab.system_status import build_system_readiness
 
 st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
 
@@ -153,6 +156,53 @@ def render_live_dashboard():
         loop_status = read_execution_loop_status(common_files)
         managed_positions = read_positions(common_files)
         broker_ack = current_ack(common_files)
+        pending = pending_command_state(common_files)
+        system_readiness = build_system_readiness(
+            snapshot=report,
+            terminal=ea_status,
+            execution_loop=loop_status,
+            positions=managed_positions,
+            pending_command=pending,
+        )
+        readiness_cols = st.columns(4)
+        readiness_cols[0].metric(
+            "سلامة بيانات السوق",
+            {"live": "حي", "partial": "جزئي", "unavailable": "غير متاح"}.get(
+                system_readiness["market_data"]["status"], "غير متاح"
+            ),
+            f"{system_readiness['market_data']['live_orderbook_venues']} دفاتر حية",
+        )
+        readiness_cols[1].metric(
+            "قرار مركز البرنامج",
+            system_readiness["central_decision"]["action"],
+            f"درجة: {system_readiness['central_decision']['score']}"
+            if system_readiness["central_decision"]["score"] is not None else "لا توجد درجة صالحة",
+        )
+        readiness_cols[2].metric(
+            "جاهزية Headway / MT5",
+            "جاهز" if system_readiness["headway_mt5"]["status"] == "ready"
+            else str(system_readiness["headway_mt5"]["status"]),
+        )
+        readiness_cols[3].metric(
+            "حلقة التنفيذ",
+            "نشطة" if system_readiness["execution_loop"]["status"] == "active"
+            else str(system_readiness["execution_loop"]["status"]),
+        )
+        st.caption(
+            "حالة المنظومة: "
+            + str(system_readiness["status"])
+            + " · سلسلة التنفيذ: "
+            + ("جاهزة بعد تحقق القرار" if system_readiness["execution_pipeline_ready"] else "غير جاهزة بالكامل")
+            + " · دخول جديد: "
+            + ("مسموح بشروط القرار" if system_readiness["new_entry_ready"] else "غير متاح حالياً")
+        )
+        if system_readiness["blockers"]:
+            st.info("الفجوات الحالية: " + "، ".join(system_readiness["blockers"]))
+        if pending.get("pending"):
+            st.warning(
+                "هناك أمر ينتظر إقراراً نهائياً من الوسيط؛ لن تُنشر أوامر جديدة. "
+                + str(pending.get("ack_status") or pending.get("status"))
+            )
         ea_freshness = ea_status.get("freshness_status", ea_status.get("status"))
         ea_state_label = (
             f"متصل وجاهز · {ea_status.get('symbol')}"
