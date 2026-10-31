@@ -79,10 +79,18 @@ void WriteStatus()
    string accountServer=AccountInfoString(ACCOUNT_SERVER);
    StringReplace(accountServer,"|","/");
    int accountMode=(int)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   int ownPositions=0;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
+         (ulong)PositionGetInteger(POSITION_MAGIC)==MagicNumber) ownPositions++;
+   }
    string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%d\n",
       _Symbol,EnumToString(_Period),(long)TimeGMT(),
       TerminalInfoInteger(TERMINAL_CONNECTED)?"CONNECTED":"DISCONNECTED",
-      bid,ask,(int)PositionsTotal(),lastStatus,point,(int)stops,
+      bid,ask,ownPositions,lastStatus,point,(int)stops,
       TerminalAllowsTrading()?"TRADE_READY":"TRADE_BLOCKED",
       accountServer,accountMode);
    WriteTextFile("ea_status.tsv",line);
@@ -294,6 +302,9 @@ bool OpenBoardPosition(const string side,const double volume,const double sl,con
 
 void PollProgramCommand()
 {
+   // Serialize broker commands until the outstanding request receives its
+   // OnTradeTransaction confirmation; never overwrite a pending command ID.
+   if(pendingCommandId!="") return;
    int handle=FileOpen(BaseFolder()+"trade_command.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(handle==INVALID_HANDLE) return;
    string line=FileReadString(handle);
