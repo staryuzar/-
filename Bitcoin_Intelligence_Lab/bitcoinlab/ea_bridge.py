@@ -78,6 +78,96 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
     return result
 
 
+def pending_command_state(
+    common_files: str | Path,
+    *,
+    now_seconds: int | None = None,
+    expiry_grace_seconds: int = 10,
+) -> dict[str, Any]:
+    """Prevent a later decision cycle from overwriting a broker command in flight."""
+    directory = Path(common_files) / "BitcoinIntelligenceLab"
+    command_path = directory / "trade_command.txt"
+    try:
+        fields = command_path.read_text(encoding="ascii").strip().split("|")
+    except FileNotFoundError:
+        return {"status": "none", "pending": False}
+    except (OSError, UnicodeError) as exc:
+        return {
+            "status": "unavailable", "pending": True,
+            "reason": f"Cannot safely inspect current MT5 command: {type(exc).__name__}",
+        }
+
+    if len(fields) != 11 or fields[0] != "BTCIL1":
+        return {
+            "status": "invalid", "pending": True,
+            "reason": "An unrecognized command envelope exists; refusing to overwrite it.",
+        }
+    try:
+        issued = int(fields[2])
+        expires = int(fields[3])
+    except (ValueError, TypeError):
+        return {
+            "status": "invalid", "pending": True,
+            "command_id": fields[1],
+            "reason": "Current command timestamps are malformed; refusing to overwrite it.",
+        }
+
+    now = int(time.time()) if now_seconds is None else int(now_seconds)
+    command_id = fields[1]
+    acknowledgement = read_ack(Path(common_files))
+    ack_matches = acknowledgement.get("id") == command_id
+    ack_status = str(acknowledgement.get("status", "")).upper() if ack_matches else ""
+
+    pending_ack_statuses = {
+        "SUBMITTED_PENDING",
+        "CLOSE_SUBMITTED_PENDING",
+        "PARTIAL_FILL_PENDING",
+        "FILL_VOLUME_COMPLETE_WAITING_ORDER_FINALITY",
+        "CANCEL_REQUESTED",
+        "CANCEL_NOT_CONFIRMED",
+    }
+    if ack_matches and ack_status in pending_ack_statuses:
+        return {
+            "status": "pending",
+            "pending": True,
+            "command_id": command_id,
+            "ack_status": ack_status,
+            "expires_at": expires,
+            "ack": acknowledgement,
+        }
+
+    if now <= expires + max(0, int(expiry_grace_seconds)):
+        # No matching final ACK yet. Keep the exact command intact until its
+        # bounded TTL and small scheduling grace have elapsed.
+        final_ack_statuses = {
+            "OPEN_FILL_CONFIRMED",
+            "OPEN_PARTIAL_FILL_CONFIRMED",
+            "CLOSE_FILL_CONFIRMED",
+            "CLOSE_PARTIAL_FILL_CONFIRMED",
+            "ORDER_REJECTED_OR_CANCELLED",
+            "REJECTED",
+            "FILLED",
+            "CLOSED",
+        }
+        if not ack_matches or ack_status not in final_ack_statuses:
+            return {
+                "status": "awaiting_ack",
+                "pending": True,
+                "command_id": command_id,
+                "ack_status": ack_status or None,
+                "expires_at": expires,
+                "seconds_until_safe_retry": max(0, expires + max(0, int(expiry_grace_seconds)) - now),
+            }
+
+    return {
+        "status": "final_or_expired",
+        "pending": False,
+        "command_id": command_id,
+        "ack_status": ack_status or None,
+        "expired": now > expires + max(0, int(expiry_grace_seconds)),
+    }
+
+
 def read_execution_loop_status(
     common_files: str | Path,
     *,
