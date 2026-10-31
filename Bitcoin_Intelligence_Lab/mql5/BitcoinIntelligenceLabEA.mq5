@@ -4,13 +4,13 @@
 
 input ulong  MagicNumber = 28102027;
 input bool   EnableTrading = true;
-input bool   RequireHeadwayDemo = true;
+input bool   RequireHeadwayServer = true;
 input int    MaxSpreadPoints = 0; // 0 disables this optional filter
 input int    CommandPollSeconds = 1;
 input int    SlippagePoints = 100;
-input double MaxRiskPercent = 0.0; // 0 disables the optional EA-side equity cap
+input double MaxRiskPercent = 0.50; // maximum equity loss per entry, in percent
 input bool   ShowStatusOnChart = true;
-input int    MaxOpenPositions = 0; // 0 allows multiple positions without an artificial count limit
+input int    MaxOpenPositions = 1; // one BTCIL-managed position at a time
 
 string lastCommandId = "";
 string pendingCommandId = "";
@@ -29,13 +29,11 @@ bool IsBitcoinSymbol()
 
 bool IsAllowedAccount()
 {
-   ENUM_ACCOUNT_TRADE_MODE mode = (ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   // Account mode is deliberately not inspected. The broker identity is Headway.
    string server = AccountInfoString(ACCOUNT_SERVER);
    StringToLower(server);
-   if(RequireHeadwayDemo)
-      return (mode == ACCOUNT_TRADE_MODE_DEMO &&
-              (StringFind(server, "headway-demo") >= 0 || StringFind(server, "demo.trade-hw.online") >= 0));
-   return (mode == ACCOUNT_TRADE_MODE_DEMO);
+   if(!RequireHeadwayServer) return true;
+   return (StringFind(server, "headway") >= 0 || StringFind(server, "trade-hw.online") >= 0);
 }
 
 bool TerminalAllowsTrading()
@@ -377,7 +375,7 @@ int OnInit()
    int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(store!=INVALID_HANDLE) { lastCommandId=FileReadString(store); FileClose(store); }
    if(!EventSetTimer(CommandPollSeconds)) return INIT_FAILED;
-   lastStatus=TerminalAllowsTrading()?"READY: Headway demo board-execution mode":"WAITING: Headway demo / connection / Algo Trading permission";
+   lastStatus=TerminalAllowsTrading()?"READY: Headway board-execution mode":"WAITING: Headway / connection / Algo Trading permission";
    WriteStatus();
    WritePositions();
    Print("BTCIL|INIT|symbol=",_Symbol,"|period=",EnumToString(_Period),
