@@ -1,8 +1,6 @@
 #property strict
-#property version   "1.003"
+#property version   "1.004"
 #property description "Bitcoin Intelligence Lab — Headway BTC demo command executor"
-
-#include <Trade/Trade.mqh>
 
 input ulong  MagicNumber = 28102027;
 input bool   EnableTrading = true;
@@ -14,7 +12,6 @@ input double MaxRiskPercent = 0.0; // 0 disables the optional EA-side equity cap
 input bool   ShowStatusOnChart = true;
 input int    MaxOpenPositions = 0; // 0 allows multiple positions without an artificial count limit
 
-CTrade trade;
 string lastCommandId = "";
 string pendingCommandId = "";
 string pendingCommandAction = "";
@@ -151,26 +148,72 @@ bool ValidProtection(const string side,const double sl,const double tp)
    return false;
 }
 
+void PrepareTradeRequest(MqlTradeRequest &request)
+{
+   request.magic=MagicNumber;
+   request.deviation=(ulong)SlippagePoints;
+   request.type_time=ORDER_TIME_GTC;
+   long fillingModes=0;
+   long executionMode=0;
+   SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE,fillingModes);
+   SymbolInfoInteger(_Symbol,SYMBOL_TRADE_EXEMODE,executionMode);
+   if((fillingModes & SYMBOL_FILLING_FOK)==SYMBOL_FILLING_FOK)
+      request.type_filling=ORDER_FILLING_FOK;
+   else if((fillingModes & SYMBOL_FILLING_IOC)==SYMBOL_FILLING_IOC)
+      request.type_filling=ORDER_FILLING_IOC;
+   else
+      request.type_filling=((ENUM_SYMBOL_TRADE_EXECUTION)executionMode==SYMBOL_TRADE_EXECUTION_MARKET)
+                           ?ORDER_FILLING_FOK:ORDER_FILLING_RETURN;
+}
+
+string TradeResultText(const MqlTradeResult &result)
+{
+   return StringFormat("retcode=%u comment=%s",result.retcode,result.comment);
+}
+
 bool CloseOwnPosition(const ulong ticket)
 {
    if(!PositionSelectByTicket(ticket)) return false;
    if(PositionGetString(POSITION_SYMBOL)!=_Symbol ||
       (ulong)PositionGetInteger(POSITION_MAGIC)!=MagicNumber) return false;
-   trade.SetExpertMagicNumber(MagicNumber);
-   trade.SetDeviationInPoints(SlippagePoints);
-   bool sent=trade.PositionClose(ticket);
-   uint code=trade.ResultRetcode();
-   if(!sent || (code!=TRADE_RETCODE_DONE && code!=TRADE_RETCODE_DONE_PARTIAL))
+
+   long positionType=PositionGetInteger(POSITION_TYPE);
+   double volume=PositionGetDouble(POSITION_VOLUME);
+   double bid=0,ask=0;
+   if(!SymbolInfoDouble(_Symbol,SYMBOL_BID,bid) ||
+      !SymbolInfoDouble(_Symbol,SYMBOL_ASK,ask) || bid<=0 || ask<=0 || ask<bid ||
+      volume<=0)
    {
-      lastStatus=StringFormat("CLOSE_REJECTED: retcode=%u %s",code,trade.ResultRetcodeDescription());
+      lastStatus="CLOSE_REJECTED: current broker quote or position volume unavailable";
       return false;
    }
-   ulong deal=trade.ResultDeal();
+
+   MqlTradeRequest request={};
+   MqlTradeResult result={};
+   request.action=TRADE_ACTION_DEAL;
+   request.position=ticket;
+   request.symbol=_Symbol;
+   request.volume=volume;
+   request.type=(positionType==POSITION_TYPE_BUY)?ORDER_TYPE_SELL:ORDER_TYPE_BUY;
+   request.price=(positionType==POSITION_TYPE_BUY)?bid:ask;
+   request.comment="Bitcoin Intelligence Lab close";
+   PrepareTradeRequest(request);
+
+   bool sent=OrderSend(request,result);
+   uint code=result.retcode;
+   if(!sent || (code!=TRADE_RETCODE_DONE && code!=TRADE_RETCODE_DONE_PARTIAL &&
+                code!=TRADE_RETCODE_PLACED))
+   {
+      lastStatus="CLOSE_REJECTED: "+TradeResultText(result);
+      return false;
+   }
+   ulong deal=result.deal;
    if(deal>0 && HistoryDealSelect(deal) &&
       HistoryDealGetString(deal,DEAL_SYMBOL)==_Symbol &&
       (ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)==MagicNumber)
       lastStatus=StringFormat("CLOSE_FILL_CONFIRMED: deal=%I64u position=%I64u",deal,ticket);
-   else lastStatus=StringFormat("CLOSE_SUBMITTED_PENDING: retcode=%u position=%I64u",code,ticket);
+   else
+      lastStatus=StringFormat("CLOSE_SUBMITTED_PENDING: retcode=%u position=%I64u",code,ticket);
    return true;
 }
 
@@ -200,27 +243,35 @@ bool OpenBoardPosition(const string side,const double volume,const double sl,con
       { lastStatus="BLOCKED: optional EA-side equity risk cap exceeded"; return false; }
    }
 
-   trade.SetExpertMagicNumber(MagicNumber);
-   trade.SetDeviationInPoints(SlippagePoints);
-   trade.SetTypeFillingBySymbol(_Symbol);
-   bool sent=false;
-   if(side=="BUY") sent=trade.Buy(volume,_Symbol,0.0,sl,tp,"Bitcoin Intelligence Lab");
-   if(side=="SELL") sent=trade.Sell(volume,_Symbol,0.0,sl,tp,"Bitcoin Intelligence Lab");
-   uint code=trade.ResultRetcode();
-   if(!sent || (code!=TRADE_RETCODE_DONE && code!=TRADE_RETCODE_PLACED && code!=TRADE_RETCODE_DONE_PARTIAL))
+   MqlTradeRequest request={};
+   MqlTradeResult result={};
+   request.action=TRADE_ACTION_DEAL;
+   request.symbol=_Symbol;
+   request.volume=volume;
+   request.type=(side=="BUY")?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
+   request.price=(side=="BUY")?ask:bid;
+   request.sl=sl;
+   request.tp=tp;
+   request.comment="Bitcoin Intelligence Lab";
+   PrepareTradeRequest(request);
+
+   bool sent=OrderSend(request,result);
+   uint code=result.retcode;
+   if(!sent || (code!=TRADE_RETCODE_DONE && code!=TRADE_RETCODE_PLACED &&
+                code!=TRADE_RETCODE_DONE_PARTIAL))
    {
-      lastStatus=StringFormat("ORDER_REJECTED: retcode=%u %s",code,trade.ResultRetcodeDescription());
+      lastStatus="ORDER_REJECTED: "+TradeResultText(result);
       return false;
    }
-   ulong deal=trade.ResultDeal();
+   ulong deal=result.deal;
    if(deal>0 && HistoryDealSelect(deal))
    {
       if(HistoryDealGetString(deal,DEAL_SYMBOL)==_Symbol &&
          (ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)==MagicNumber)
-         lastStatus=StringFormat("ORDER_FILL_CONFIRMED: deal=%I64u order=%I64u",deal,trade.ResultOrder());
+         lastStatus=StringFormat("ORDER_FILL_CONFIRMED: deal=%I64u order=%I64u",deal,result.order);
       else lastStatus="ORDER_SUBMITTED: deal identity mismatch; inspect terminal history";
    }
-   else lastStatus=StringFormat("ORDER_SUBMITTED_PENDING: retcode=%u order=%I64u",code,trade.ResultOrder());
+   else lastStatus=StringFormat("ORDER_SUBMITTED_PENDING: retcode=%u order=%I64u",code,result.order);
    return true;
 }
 
@@ -297,8 +348,6 @@ int OnInit()
    FolderCreate("BitcoinIntelligenceLab",FILE_COMMON);
    int store=FileOpen(BaseFolder()+"last_command_id.txt",FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(store!=INVALID_HANDLE) { lastCommandId=FileReadString(store); FileClose(store); }
-   trade.SetExpertMagicNumber(MagicNumber);
-   trade.SetDeviationInPoints(SlippagePoints);
    if(!EventSetTimer(CommandPollSeconds)) return INIT_FAILED;
    lastStatus=TerminalAllowsTrading()?"READY: Headway demo board-execution mode":"WAITING: Headway demo / connection / Algo Trading permission";
    WriteStatus();
