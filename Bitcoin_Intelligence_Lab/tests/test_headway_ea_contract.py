@@ -36,7 +36,8 @@ class HeadwayEAContractTests(unittest.TestCase):
 
     def test_headway_server_identity_is_published_without_account_classification(self):
         self.assertIn("string accountServer=AccountInfoString(ACCOUNT_SERVER)", self.source)
-        self.assertIn("accountServer,CurrentDailyDrawdownPercent(),MaxDailyLossPercent);", self.source)
+        self.assertIn("accountServer,CurrentDailyDrawdownPercent(),MaxDailyLossPercent,", self.source)
+        self.assertIn("equity,tickSize,tickValueLoss,volumeMin,volumeStep,volumeMax);", self.source)
         self.assertNotIn("ACCOUNT_TRADE_MODE", self.source)
         self.assertIn('"TRADE_READY":"TRADE_BLOCKED"', self.source)
 
@@ -96,9 +97,18 @@ class HeadwayEAContractTests(unittest.TestCase):
         self.assertIn("request.type_filling=ORDER_FILLING_RETURN;", self.source)
 
     def test_status_record_ends_with_a_real_newline_and_no_account_mode_field(self):
-        self.assertIn('|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%.4f|%.4f\\n",', self.source)
+        self.assertIn('|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%.4f|%.4f|%.2f|%.10f|%.10f|%.8f|%.8f|%.8f\\n",', self.source)
         self.assertNotIn("ACCOUNT_TRADE_MODE", self.source)
         self.assertNotIn("accountMode", self.source)
+
+    def test_broker_tick_value_and_lot_specs_are_exported_to_python(self):
+        self.assertIn("SYMBOL_TRADE_TICK_SIZE", self.source)
+        self.assertIn("SYMBOL_TRADE_TICK_VALUE_LOSS", self.source)
+        self.assertIn("SYMBOL_VOLUME_MIN", self.source)
+        self.assertIn("SYMBOL_VOLUME_STEP", self.source)
+        self.assertIn("SYMBOL_VOLUME_MAX", self.source)
+        self.assertIn("AccountInfoDouble(ACCOUNT_EQUITY)", self.source)
+        self.assertIn("equity,tickSize,tickValueLoss,volumeMin,volumeStep,volumeMax", self.source)
 
     def test_trade_requests_bind_to_actual_headway_chart_symbol_and_magic(self):
         self.assertIn("request.symbol=_Symbol", self.source)
