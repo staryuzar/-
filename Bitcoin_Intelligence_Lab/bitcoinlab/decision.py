@@ -30,7 +30,12 @@ def central_decision(
     if spot_state.get("status") != "fresh":
         return {
             "action": "HOLD", "score": None, "blockers": ["spot_not_fresh"],
-            "warnings": [], "reasons": [], "weights": DEFAULT_WEIGHTS.copy(),
+            "warnings": [], "reasons": [], "weights": {},
+            "active_domains": [], "unavailable_domains": list(DEFAULT_WEIGHTS),
+            "core_active_domains": [], "aligned_domains": 0,
+            "buy_aligned_domains": 0, "sell_aligned_domains": 0,
+            "risk_context_only": None,
+            "interpretation": "Spot source is not fresh; no decision domain is eligible to vote.",
         }
 
     candidates = {
@@ -71,7 +76,12 @@ def central_decision(
         return {
             "action": "HOLD", "score": None, "blockers": [blocker],
             "warnings": [f"{name}_unavailable_or_stale" for name in unavailable],
-            "reasons": [], "weights": DEFAULT_WEIGHTS.copy(),
+            "reasons": [], "weights": {},
+            "active_domains": [], "unavailable_domains": unavailable,
+            "core_active_domains": [], "aligned_domains": 0,
+            "buy_aligned_domains": 0, "sell_aligned_domains": 0,
+            "risk_context_only": None,
+            "interpretation": "Fresh multi-timeframe technical evidence is required.",
         }
     # New auxiliary engines cannot replace the two original independent
     # evidence domains: technical structure plus either trade flow or derivatives.
@@ -82,9 +92,13 @@ def central_decision(
             "action": "HOLD", "score": None,
             "blockers": ["insufficient_fresh_core_evidence_domains"],
             "warnings": [f"{name}_unavailable" for name in unavailable],
-            "reasons": [], "weights": DEFAULT_WEIGHTS.copy(),
-            "active_domains": list(valid),
+            "reasons": [], "weights": {},
+            "active_domains": [], "available_evidence_domains": list(valid),
+            "unavailable_domains": unavailable,
             "core_active_domains": sorted(active_core),
+            "aligned_domains": 0, "buy_aligned_domains": 0, "sell_aligned_domains": 0,
+            "risk_context_only": None,
+            "interpretation": "Insufficient fresh core evidence; auxiliary domains cannot replace technical/orderflow/derivatives.",
         }
 
     active_weights = {name: DEFAULT_WEIGHTS[name] for name in valid}
@@ -138,7 +152,13 @@ def central_decision(
             "reasons": [f"{name}:{value:+.2f}" for name, value in valid.items()],
             "weights": normalized,
             "active_domains": list(valid),
+            "unavailable_domains": unavailable,
             "core_active_domains": sorted(active_core),
+            "aligned_domains": 0, "buy_aligned_domains": 0, "sell_aligned_domains": 0,
+            "risk_context_only": (
+                liquidation_risk.get("use_in_decision")
+                if isinstance(liquidation_risk, Mapping) else None
+            ),
             "interpretation": "The daily and four-hour regimes materially disagree; wait for structure to resolve.",
         }
 
@@ -150,6 +170,14 @@ def central_decision(
             "warnings": warnings,
             "reasons": [f"{name}:{value:+.2f}" for name, value in valid.items()],
             "weights": normalized,
+            "active_domains": list(valid), "unavailable_domains": unavailable,
+            "core_active_domains": sorted(active_core),
+            "aligned_domains": 0, "buy_aligned_domains": 0, "sell_aligned_domains": 0,
+            "risk_context_only": (
+                liquidation_risk.get("use_in_decision")
+                if isinstance(liquidation_risk, Mapping) else None
+            ),
+            "interpretation": "Strong directional domains conflict; no new direction is authorized.",
         }
 
     positive = sum(1 for value in valid.values() if value >= 0.10)
