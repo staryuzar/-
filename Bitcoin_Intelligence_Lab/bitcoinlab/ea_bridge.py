@@ -39,19 +39,26 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
         return {"status": "invalid", "reason": "EA status contains invalid numeric fields."}
     now = int(time.time()) if now_seconds is None else int(now_seconds)
     age = now - timestamp
-    detail = "|".join(fields[8:])
+    detail = fields[8]
+    readiness_marker = fields[11] if len(fields) > 11 else None
+    trading_ready = (
+        readiness_marker == "TRADE_READY"
+        if readiness_marker is not None
+        else "READY:" in detail
+    )
     result = {
         "status": "fresh" if -5 <= age <= max_age_seconds else "stale",
         "age_seconds": age, "symbol": fields[1], "timeframe": fields[2],
         "connection": fields[4], "bid": bid, "ask": ask,
         "open_positions": open_positions, "ea_message": detail,
         "point": point, "stops_level_points": stops_points,
+        "trading_ready": trading_ready, "readiness_marker": readiness_marker,
         "observed_at_utc": datetime.fromtimestamp(timestamp, timezone.utc).isoformat(),
     }
     symbol = fields[1].upper()
     if "BTC" not in symbol:
         result["status"] = "wrong_symbol"
-    elif result["connection"] != "CONNECTED" or "READY:" not in detail:
+    elif result["connection"] != "CONNECTED" or not trading_ready:
         result["status"] = "not_ready"
     elif not all(math.isfinite(x) and x > 0 for x in (bid, ask)) or ask < bid:
         result["status"] = "invalid_quote"
