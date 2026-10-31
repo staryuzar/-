@@ -194,6 +194,37 @@ class _ServiceLock:
             pass
 
 
+def read_snapshot_service_status(
+    path: str | Path | None = None,
+    *,
+    max_age_seconds: int = 90,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    target = Path(path) if path is not None else default_status_path()
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"status": "unavailable", "freshness_status": "unavailable", "reason": "Snapshot service status file is missing."}
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return {"status": "invalid", "freshness_status": "invalid", "reason": f"{type(exc).__name__}: {exc}"}
+    if not isinstance(payload, dict) or payload.get("schema") != STATUS_SCHEMA:
+        return {"status": "invalid", "freshness_status": "invalid", "reason": "Snapshot service status schema is invalid."}
+    try:
+        observed = datetime.fromisoformat(
+            str(payload.get("updated_at_utc", "")).replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return {"status": "invalid", "freshness_status": "invalid", "reason": "Snapshot service heartbeat timestamp is invalid."}
+    current = now or _utc_now()
+    age = (current.astimezone(timezone.utc) - observed).total_seconds()
+    freshness_status = "fresh" if -5 <= age <= max_age_seconds else "stale"
+    return {
+        **payload,
+        "freshness_status": freshness_status,
+        "age_seconds": round(max(0.0, age), 2),
+    }
+
+
 def _consume_refresh_request_payload(
     path: Path,
     *,
