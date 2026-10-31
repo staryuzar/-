@@ -27,7 +27,7 @@ bool IsBitcoinSymbol()
    return (StringFind(symbol,"BTC")>=0);
 }
 
-bool IsAllowedAccount()
+bool IsHeadwayBroker()
 {
    // Account mode is deliberately not inspected. The broker identity is Headway.
    string server = AccountInfoString(ACCOUNT_SERVER);
@@ -40,7 +40,7 @@ bool TerminalAllowsTrading()
 {
    return (EnableTrading && TerminalInfoInteger(TERMINAL_CONNECTED) &&
            TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED) &&
-           IsAllowedAccount());
+           IsHeadwayBroker());
 }
 
 bool WriteTextFile(const string relativePath, const string content)
@@ -76,7 +76,6 @@ void WriteStatus()
    SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL,stops);
    string accountServer=AccountInfoString(ACCOUNT_SERVER);
    StringReplace(accountServer,"|","/");
-   int accountMode=(int)AccountInfoInteger(ACCOUNT_TRADE_MODE);
    int ownPositions=0;
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
@@ -85,12 +84,12 @@ void WriteStatus()
       if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
          (ulong)PositionGetInteger(POSITION_MAGIC)==MagicNumber) ownPositions++;
    }
-   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%d\n",
+   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s\n",
       _Symbol,EnumToString(_Period),(long)TimeGMT(),
       TerminalInfoInteger(TERMINAL_CONNECTED)?"CONNECTED":"DISCONNECTED",
       bid,ask,ownPositions,lastStatus,point,(int)stops,
       TerminalAllowsTrading()?"TRADE_READY":"TRADE_BLOCKED",
-      accountServer,accountMode);
+      accountServer);
    WriteTextFile("ea_status.tsv",line);
 }
 
@@ -379,7 +378,7 @@ int OnInit()
    WriteStatus();
    WritePositions();
    Print("BTCIL|INIT|symbol=",_Symbol,"|period=",EnumToString(_Period),
-         "|server=",AccountInfoString(ACCOUNT_SERVER),"|demo=",IsAllowedAccount()?"true":"false",
+         "|server=",AccountInfoString(ACCOUNT_SERVER),"|demo=",IsHeadwayBroker()?"true":"false",
          "|trade_enabled=",EnableTrading?"true":"false","|magic=",MagicNumber);
    return INIT_SUCCEEDED;
 }
