@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import math\nfrom typing import Any, Mapping, Sequence
+import math
+from typing import Any, Mapping, Sequence
 
 
 def _mapping(value: object) -> Mapping[str, Any]:
