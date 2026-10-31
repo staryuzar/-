@@ -109,9 +109,12 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
         animations="disabled",
     )
 
-    refresh = page.get_by_role("button", name=REFRESH_BUTTON)
+    refresh = page.locator("button").filter(has_text=REFRESH_BUTTON).first
     refresh.wait_for(state="visible", timeout=20_000)
+    refresh.scroll_into_view_if_needed()
     refresh.click(timeout=15_000)
+    # Streamlit callback reruns the script asynchronously; wait for its atomic file.
+    page.wait_for_timeout(1_000)
 
     refresh_file = scratch / "refresh-request.json"
     deadline = time.monotonic() + 20
@@ -127,7 +130,15 @@ def run_browser(browser: Browser, name: str, base_url: str, scratch: Path) -> di
                 pass
         time.sleep(0.25)
     if payload is None:
-        raise AssertionError(f"{name}: manual refresh button did not publish a request file.")
+        log_tail = ""
+        try:
+            log_tail = (scratch / "streamlit.log").read_text(encoding="utf-8", errors="replace")[-5000:]
+        except OSError:
+            pass
+        raise AssertionError(
+            f"{name}: manual refresh button did not publish {refresh_file}. "
+            f"Button text={refresh.inner_text(timeout=3000)!r}. Streamlit log tail: {log_tail}"
+        )
     if payload.get("symbol") != "BTCUSDT" or payload.get("interval") != "1m":
         raise AssertionError(f"{name}: refresh request did not preserve selected market/timeframe: {payload}")
 
