@@ -104,6 +104,7 @@ def read_execution_loop_status(
     age = (now - observed).total_seconds()
     return {
         **payload,
+        "cycle_status": payload.get("status"),
         "status": "fresh" if -5 <= age <= max_age_seconds else "stale",
         "age_seconds": round(max(0.0, age), 2),
     }
