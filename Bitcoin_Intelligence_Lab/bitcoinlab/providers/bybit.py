@@ -3,7 +3,7 @@ from __future__ import annotations
 from urllib.parse import urlencode
 import math
 
-from ..quality import freshness, utc_now_ms
+from ..quality import freshness
 from .http import get_json
 
 
