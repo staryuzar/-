@@ -38,10 +38,10 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - `providers/`: قراءة Spot/Futures وMempool وCFTC وCoin Metrics وDeribit، دون واجهات تنفيذ تداول.
 - `indicators.py`: EMA وRSI وATR والزخم والكسر من شموع مكتملة.
 - `multi_timeframe.py`: تحليل 1D/4H/1H/15M/5M/1M بأوزان الدور ورفض الأطر القديمة أو الناقصة.
-- `orderflow.py`: Spread وDepth وImbalance وAggressor Buy/Sell ودلتا الصفقات.
+- `orderflow.py`: يصوّت فقط على دلتا الصفقات المنفذة (Aggressor/Taker Buy-Sell)، ويعرض اختلال الدفتر والسبريد كسياق غير تصويتي. لا يكرر وزن دفتر Spot داخل مجال Cross-Venue.
 - `derivatives.py`: Funding وOpen Interest وTaker ratios؛ التمويل وOI سياق تمركز ولا يحددان الاتجاه منفردين.
 - `market_structure.py`: Volume Profile لعينة الصفقات المجمعة، VWAP مشتق من الشموع، Relative Volume، Realized Volatility وRange Expansion.
-- `market_intelligence.py`: إشارة موقع السعر بالنسبة إلى Session VWAP وعينة Delta، وتوافق دفاتر الأوامر عبر المنصات، وضغط التصفية كتحذير مخاطر.
+- `market_intelligence.py`: Market Structure يصوّت على موقع السعر بالنسبة إلى Session VWAP فقط؛ عينة Delta تعرض كسياق لا يعاد احتسابه. ويحسب توافق دفاتر الأوامر عبر المنصات وضغط التصفية كتحذير مخاطر.
 - `feed_health.py`: يراجع freshness للمصادر الأساسية، وعمر آخر دفتر، وحالة الاتصال وheartbeat لكل WebSocket. يميز `live` و`connected_quiet_ok` و`stale` و`recovering` و`unavailable`. قنوات التصفية event-driven؛ غياب حدث جديد لا يصنفها stale ما دام heartbeat مستمراً.
 - `orderbook_sync.py`: إعادة بناء Binance Spot L2 من REST Snapshot وتحديثات Diff مع كشف فجوات update IDs.
 - `venue_books.py`: موائم دفتر Bybit وOKX، مع update ID في Bybit وseqId/prevSeqId في OKX.
@@ -61,7 +61,7 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 - `onchain.py`: يحسب MVRV عند توافره أو يشتقه من Market/Realized Cap، ويعرض NUPL مشتقاً وMVRV Z إن توفر وتغيرات 7 أيام وحداثة بيانات يومية. لا يقدّر SOPR ولا يصوت في مركز القرار.
 - `providers/coinmetrics.py`: Core network metrics مع مجموعات MVRV/Realized Cap وMVRV Z اختيارية؛ فشل مجموعة اختيارية لا يسقط نشاط الشبكة الأساسي.
 - `decision.py`: يجمع خمسة مجالات: Technical 35%، Orderflow 25%، Derivatives 20%، Market Structure 10%، Cross-Venue 10%. يضيف تحذيرات Cross-Venue derivatives وScreener دون تغيير score أو weights. يعيد تطبيع الأوزان حسب توافر المجالات وحداثتها، ويفرض Technical مع واحد على الأقل من Orderflow أو Derivatives.
-- `live_snapshot.py`: يجلب بيانات المصادر السريعة، يحقق حداثتها، يبني كل محركات اللقطة، يقرأ حالة الجامع محلياً بوضع read-only ويرسل أدلة المحركات إلى مركز القرار.
+- `live_snapshot.py`: يفصل جلب عمق REST عن جلب الصفقات؛ تعذر العمق لا يلغي صوت Orderflow إذا كانت الصفقات حديثة. كما يعيد إرفاق سياق المشتقات المتعددة بعد اختيار بديل Bybit حتى لا تضيع تحذيراته، ويقرأ حالة الجامع محلياً بوضع read-only.
 - `app.py`: لوحة Streamlit الحالية، تعرض القرار وأدلة كل محرك ومصادر السوق والتصفية والخيارات، ولا تتصل بـMT5.
 - `ea_bridge.py` و`command_protocol.py` و`automation.py` و`position_manager.py` و`mql5/BitcoinIntelligenceLabEA.mq5`: ملفات محفوظة لمرحلة ربط Headway المستقبلية؛ ليست جزءاً من تشغيل اللوحة الآن.
 
@@ -70,13 +70,14 @@ Deribit public instruments + book summaries + DVOL → ربط instrument metadat
 | المجال | الوزن الأساسي | الاستخدام |
 |---|---:|---|
 | Technical / Multi-timeframe | 35% | الاتجاه من شموع مكتملة متعددة الأطر |
-| Orderflow | 25% | تدفق الصفقات ودفتر Spot وSpread |
+| Orderflow | 25% | Aggressor trade delta وCVD؛ العمق والسبريد سياق فقط |
 | Derivatives | 20% | Taker flow مع Funding/OI كسياق |
 | Market Structure | 10% | VWAP location + sampled trade delta |
 | Cross-Venue | 10% | Median normalized imbalance عبر منصتين أو أكثر |
 
 - إذا لم تتوفر بيانات حديثة لمجال اختياري، يعاد توزيع الوزن المتاح على بقية المجالات الصالحة.
-- يجب أن يبقى المجال الفني صالحاً، ومعه واحد على الأقل من Orderflow أو Derivatives. لا تكفي Market Structure وCross-Venue وحدهما.
+- يجب أن يبقى المجال الفني حديثاً وصالحاً، ومعه واحد على الأقل من Orderflow أو Derivatives. يتطلب MTF ثلاث أطر حديثة على الأقل وسياقاً واحداً على الأقل من 1D أو 4H؛ ولا تكفي Market Structure وCross-Venue وحدهما.
+- يمنع تكرار نفس متغير العمق كصوت داخل Orderflow وCross-Venue، ويمنع تكرار Trade Delta كصوت داخل Orderflow وMarket Structure. قد يظل Taker ratio في المشتقات مرتبطاً إحصائياً بتدفق CVD؛ لا يعامل Score كمقياس احتمال ولا كأدلة مستقلة إحصائياً.
 - الدليل القوي المتعارض من أكثر من مجال يفرض HOLD.
 - التصفية تعرض ضغط LONG/SHORT عبر المنصات كتحذير مخاطر؛ لا تضيف صوتاً اتجاهياً ولا تضمن انعكاساً.
 - خيارات Deribit وDVOL وCFTC وOn-chain سياق أبطأ؛ لا تُستخدم كمحفز دخول لحظي.
