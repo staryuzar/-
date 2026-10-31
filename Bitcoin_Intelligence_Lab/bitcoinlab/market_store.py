@@ -515,6 +515,7 @@ class MarketDataStore:
                         if total_usd > 0 else None
                     ),
                     "total_notional_usd": round(total_usd, 2),
+                    "total_base_volume_btc": round(total_btc, 8),
                     "buy_trade_count": buy_count,
                     "sell_trade_count": sell_count,
                     "trade_count": buy_count + sell_count,
