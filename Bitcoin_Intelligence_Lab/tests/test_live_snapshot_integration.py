@@ -24,6 +24,10 @@ class LiveSnapshotIntegrationContractTests(unittest.TestCase):
         self.assertNotIn("if depth and trades:", self.snapshot)
         self.assertIn('"minimum_fresh_frames": MINIMUM_FRESH_TIMEFRAMES', self.snapshot)
 
+    def test_dashboard_live_snapshot_uses_configurable_collector_database_path(self):
+        self.assertIn('os.environ.get("BTCIL_MARKET_DB", "data/market_stream.sqlite")', self.snapshot)
+        self.assertEqual(self.snapshot.count("market_db_path, symbol=symbol"), 4)
+
     def test_okx_perpetual_derivatives_fallback_runs_after_binance_and_bybit(self):
         bybit_fallback = self.snapshot.index('if deriv_engine.get("status") != "ok":')
         okx_fallback = self.snapshot.index("fetch_okx_derivatives_snapshot(")
