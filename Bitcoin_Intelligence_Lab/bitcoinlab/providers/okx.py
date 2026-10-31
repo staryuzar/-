@@ -54,7 +54,7 @@ def fetch_derivatives_snapshot(
 
     context_row = None
     if isinstance(cross_venue_context, Mapping):
-        for row in cross_venue_context.get("venues", []):
+        for row in (cross_venue_context.get("venues") or []):
             if isinstance(row, Mapping) and row.get("venue") == "okx_swap":
                 context_row = row
                 break
@@ -71,6 +71,7 @@ def fetch_derivatives_snapshot(
     # Reuse the already validated cross-venue row where possible. This avoids
     # repeating the same public ticker/mark/funding/OI requests on each refresh.
     if isinstance(context_row, Mapping) and context_row.get("status") in {"ok", "partial"}:
+        warnings.extend(str(item) for item in context_row.get("warnings", []))
         funding_rate = context_row.get("funding_rate_per_settlement")
         funding_interval = context_row.get("funding_interval_minutes")
         oi_btc = context_row.get("open_interest_btc")
@@ -78,6 +79,10 @@ def fetch_derivatives_snapshot(
         oi_quote = context_row.get("open_interest_quote_value")
         observed_context = context_row.get("observed_at_ms")
         funding_kind = context_row.get("funding_rate_kind", "source_reported_current_period_rate")
+        if funding_rate is None:
+            warnings.append("okx_funding_unavailable_in_cross_venue_context")
+        if funding_kind == "current_period_estimate":
+            warnings.append("okx_funding_rate_is_current_period_estimate_not_settled")
     else:
         warnings.append("cross_venue_okx_context_unavailable")
         try:
