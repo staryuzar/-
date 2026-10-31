@@ -10,6 +10,7 @@ from .orderflow import order_book_metrics, orderflow_profile, trade_flow_metrics
 from .providers import binance, bybit
 from .quality import freshness, utc_now_ms, validate_bars
 from .multi_timeframe import build_multi_timeframe_profile
+from .market_structure import market_structure_profile
 
 
 def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms: int | None = None) -> dict[str, Any]:
@@ -157,6 +158,12 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "reason": "; ".join(multi_timeframe["blockers"]) if multi_timeframe["blockers"] else None,
     }
 
+    market_structure = market_structure_profile(bars, trades) if bars and trades else {
+        "status": "incomplete",
+        "bars": {"status": "incomplete", "reason": "Spot bars unavailable."},
+        "volume_profile": {"status": "unavailable", "reason": "Recent trade sample unavailable."},
+    }
+
     spread_bps = float(book_metrics["spread_bps"]) if book_metrics else float("inf")
     decision = central_decision(
         technical=decision_technical, orderflow=flow_engine, derivatives=deriv_engine,
@@ -183,6 +190,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "technical": technical,
         "multi_timeframe": multi_timeframe,
         "decision_technical": decision_technical,
+        "market_structure": market_structure,
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
         "decision": decision,
