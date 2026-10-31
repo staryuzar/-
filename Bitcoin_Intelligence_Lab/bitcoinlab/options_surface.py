@@ -222,7 +222,7 @@ def build_btc_options_surface(
             "limitations": [
                 "ATM IV uses the four strikes closest to spot, not a fitted arbitrage-free surface.",
                 "25-delta skew uses Black-Scholes spot delta with zero rates as a descriptive approximation.",
-                "Open interest is aggregate, not dealer inventory; gamma_oi_proxy is unsigned and is not dealer GEX.",
+                "Open interest is reported in BTC for BTC options and is aggregate, not dealer inventory.",
             ],
         })
 
@@ -246,8 +246,8 @@ def build_btc_options_surface(
         "expiry_count": len(expiry_rows),
         "rejected_count": rejected,
         "expiries": expiry_rows,
-        "gross_gamma_oi_map": [
-            {"strike": strike, "gamma_oi_proxy": round(value, 10)}
+        "unsigned_gamma_open_interest_btc_proxy_by_strike": [
+            {"strike": strike, "gamma_oi_proxy_btc_weighted": round(value, 12)}
             for strike, value in sorted(
                 gamma_by_strike.items(), key=lambda pair: pair[1], reverse=True,
             )[:20]
@@ -257,7 +257,7 @@ def build_btc_options_surface(
             "25-delta risk reversal, put/call OI and unsigned gamma-weighted OI concentration."
         ),
         "limitations": [
-            "Open interest is the total outstanding contract count and does not identify net dealer positioning.",
+            "Open interest for BTC options is reported in underlying BTC units and does not identify net dealer positioning.",
             "Gamma-weighted BTC open interest is unsigned and must not be labelled dealer GEX or net dealer exposure.",
             "Black-Scholes Greeks use zero rates and spot as a simplified forward proxy.",
             "Only active options with valid mark IV, OI, strike and expiry are included.",
