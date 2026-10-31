@@ -12,6 +12,7 @@ class DashboardMT5IntegrationContractTests(unittest.TestCase):
             "read_ea_status",
             "read_execution_loop_status",
             "read_positions",
+            "current_ack",
         )
         for symbol in allowed_read_only:
             with self.subTest(symbol=symbol):
