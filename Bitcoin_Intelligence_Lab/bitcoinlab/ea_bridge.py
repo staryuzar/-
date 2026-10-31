@@ -16,6 +16,7 @@ from .command_protocol import (
     read_ack,
 )
 from .scenarios import build_trade_levels
+from .risk import calculate_position_size_from_tick_value
 
 
 def default_common_files() -> Path:
@@ -56,6 +57,28 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
         daily_loss_limit_percent = float(fields[14]) if len(fields) > 14 else None
     except ValueError:
         return {"status": "invalid", "reason": "EA daily-risk fields are malformed."}
+
+    if 15 < len(fields) < 21:
+        return {"status": "invalid", "reason": "EA broker risk-specification record is truncated."}
+    equity = tick_size = tick_value_loss = volume_min = volume_step = volume_max = None
+    risk_specs_ready = False
+    if len(fields) >= 21:
+        try:
+            equity = float(fields[15])
+            tick_size = float(fields[16])
+            tick_value_loss = float(fields[17])
+            volume_min = float(fields[18])
+            volume_step = float(fields[19])
+            volume_max = float(fields[20])
+            risk_specs_ready = (
+                all(math.isfinite(value) and value > 0 for value in (
+                    equity, tick_size, tick_value_loss,
+                    volume_min, volume_step, volume_max,
+                ))
+                and volume_max >= volume_min
+            )
+        except ValueError:
+            return {"status": "invalid", "reason": "EA broker risk-specification fields are malformed."}
     server_normalized = (account_server or "").lower()
     # Broker identity is verified independently of the account trade mode.
     # Do not inspect or gate execution based on DEMO/LIVE classification.
@@ -80,6 +103,13 @@ def read_ea_status(common_files: str | Path, *, now_seconds: int | None = None, 
         "account_server": account_server,
         "daily_loss_percent": daily_loss_percent,
         "daily_loss_limit_percent": daily_loss_limit_percent,
+        "account_equity": equity,
+        "tick_size": tick_size,
+        "tick_value_loss": tick_value_loss,
+        "volume_min": volume_min,
+        "volume_step": volume_step,
+        "volume_max": volume_max,
+        "risk_specs_ready": risk_specs_ready,
         "headway_server_ok": headway_server_ok,
         "observed_at_utc": datetime.fromtimestamp(timestamp, timezone.utc).isoformat(),
     }
