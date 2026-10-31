@@ -174,6 +174,14 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     multi_timeframe = build_multi_timeframe_profile(
         symbol=symbol, now_ms=now, preloaded_bars=timeframe_inputs,
     )
+    # Publish technical freshness as a first-class source state so the central
+    # decision engine can reject stale/incomplete MTF evidence independently.
+    source_states["technical"] = {
+        "status": "fresh" if multi_timeframe.get("status") == "ok" else "incomplete",
+        "fresh_frames": multi_timeframe.get("coverage", {}).get("fresh_frames", 0),
+        "required_frames": 6,
+        "blockers": list(multi_timeframe.get("blockers", [])),
+    }
     # The spot gate and command de-duplication timestamp always use the latest 1m candle,
     # irrespective of the chart interval currently selected by the user.
     one_minute = multi_timeframe["frames"].get("1m", {})
