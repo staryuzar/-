@@ -38,6 +38,11 @@ def _finish_cycle(directory: Path, result: dict[str, Any]) -> dict[str, Any]:
         result.get("decision", {}).get("action")
         or previous.get("decision_action")
     )
+    risk_sizing = command.get("risk_sizing") or previous.get("risk_sizing")
+    levels = command.get("levels") or previous.get("levels") or {}
+    last_command_side = command.get("side") or previous.get("last_command_side")
+    last_command_volume = command.get("volume") or previous.get("last_command_volume")
+    last_command_status = command.get("status") or previous.get("last_command_status")
     payload = {
         "schema": "BTCIL-EXEC1",
         "updated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -45,6 +50,12 @@ def _finish_cycle(directory: Path, result: dict[str, Any]) -> dict[str, Any]:
         "plan": result.get("plan", {}),
         "command_id": last_command_id,
         "last_command_id": last_command_id,
+        "last_command_status": last_command_status,
+        "last_command_side": last_command_side,
+        "last_command_volume": last_command_volume,
+        "last_risk_sizing": risk_sizing,
+        "last_stop_loss": levels.get("stop_loss") if isinstance(levels, dict) else None,
+        "last_take_profit": levels.get("take_profit") if isinstance(levels, dict) else None,
         "decision_action": decision_action,
     }
     target = folder / "execution_loop_status.json"
