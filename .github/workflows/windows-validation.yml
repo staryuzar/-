@@ -53,6 +53,14 @@ jobs:
           set -euo pipefail
           # The paid/live provider test runs once only when the latest PR commit explicitly opts in.
           echo "run_live_e2e=false" >> "$GITHUB_OUTPUT"
+          # Bitcoin Intelligence Lab is an independent, read-only project.
+          # Its PR updates must never invoke Aurora's unrelated Windows/MT5 jobs.
+          if [[ "${GITHUB_HEAD_REF:-}" == "bitcoin-intelligence-lab" || "${GITHUB_REF_NAME:-}" == "bitcoin-intelligence-lab" ]]; then
+            echo "run_validation=false" >> "$GITHUB_OUTPUT"
+            echo "scope_reason=independent_bitcoin_intelligence_lab" >> "$GITHUB_OUTPUT"
+            echo "Standalone Bitcoin Intelligence Lab branch: skip Aurora Windows, browser, and MT5 validation."
+            exit 0
+          fi
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
             subject="$(git log -1 --format=%s)"
             if [[ "$subject" == *"[run-live-assistant-e2e]"* ]]; then
