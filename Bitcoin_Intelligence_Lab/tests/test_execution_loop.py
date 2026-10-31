@@ -1,3 +1,4 @@
+import json
 import tempfile
 import time
 import unittest
@@ -97,6 +98,70 @@ class ExecutionLoopTests(unittest.TestCase):
             self.assertEqual(first["command"]["command_id"], "BTC-CLOSE-4321-V1000000")
             self.assertEqual(second["command"]["command_id"], "BTC-CLOSE-4321-V500000")
             self.assertNotEqual(first["command"]["command_id"], second["command"]["command_id"])
+
+    def test_inflight_broker_command_is_not_overwritten_by_new_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_terminal(tmp)
+            first = execute_once(common_files=tmp, report=self.report("BUY"), volume=0.01)
+            first_command = first["command"]["command_id"]
+            command_path = folder / "trade_command.txt"
+            original_command = command_path.read_text(encoding="ascii")
+            (folder / "trade_command_ack.txt").write_text(
+                json.dumps({
+                    "schema": "BTCIL1",
+                    "id": first_command,
+                    "status": "PARTIAL_FILL_PENDING",
+                    "action": "OPEN",
+                    "detail": "broker has not finalized residual order",
+                }),
+                encoding="utf-8",
+            )
+
+            later = execute_once(common_files=tmp, report=self.report("SELL"), volume=0.01)
+            self.assertEqual(later["status"], "command_pending")
+            self.assertEqual(later["pending_command"]["ack_status"], "PARTIAL_FILL_PENDING")
+            self.assertEqual(command_path.read_text(encoding="ascii"), original_command)
+
+    def test_unacknowledged_command_is_preserved_until_ttl_grace_expires(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_terminal(tmp)
+            first = execute_once(common_files=tmp, report=self.report("BUY"), volume=0.01)
+            fields = (folder / "trade_command.txt").read_text(encoding="ascii").strip().split("|")
+            fields[2] = str(int(time.time()) - 100)
+            fields[3] = str(int(time.time()) - 40)
+            (folder / "trade_command.txt").write_text("|".join(fields) + "\\n", encoding="ascii")
+
+            retry = execute_once(common_files=tmp, report=self.report("SELL"), volume=0.01)
+            self.assertNotEqual(retry["status"], "command_pending")
+            new_fields = (folder / "trade_command.txt").read_text(encoding="ascii").strip().split("|")
+            self.assertNotEqual(new_fields[1], first["command"]["command_id"])
+            self.assertEqual(new_fields[6], "SELL")
+
+    def test_final_broker_ack_allows_the_next_cycle_to_manage_updated_position(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_terminal(tmp)
+            first = execute_once(common_files=tmp, report=self.report("BUY"), volume=0.01)
+            command_id = first["command"]["command_id"]
+            (folder / "trade_command_ack.txt").write_text(
+                json.dumps({
+                    "schema": "BTCIL1",
+                    "id": command_id,
+                    "status": "OPEN_FILL_CONFIRMED",
+                    "action": "OPEN",
+                    "detail": "broker order filled",
+                }),
+                encoding="utf-8",
+            )
+            (folder / "positions.tsv").write_text(
+                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\\n"
+                "4321|BTCUSD|0|0.01|70000|70100|69800|70400|1.0\\n",
+                encoding="utf-8",
+            )
+            later = execute_once(common_files=tmp, report=self.report("SELL"))
+            fields = (folder / "trade_command.txt").read_text(encoding="ascii").strip().split("|")
+            self.assertEqual(later["status"], "published")
+            self.assertEqual(fields[5], "CLOSE")
+            self.assertEqual(fields[10], "4321")
 
     def test_execution_loop_writes_fresh_dashboard_heartbeat(self):
         with tempfile.TemporaryDirectory() as tmp:
