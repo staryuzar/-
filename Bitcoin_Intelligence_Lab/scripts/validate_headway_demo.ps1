@@ -9,6 +9,8 @@ New-Item -ItemType Directory -Path $installDir,$expertsDir,$logDir -Force | Out-
 $report = Join-Path $logDir "bitcoin-headway-demo-report.txt"
 $terminalProcess = $null
 $loginConfig = $null
+$runtimeConfig = $null
+$rawPasswordForRuntime = $null
 $login = ""
 $server = "mt5.demo.trade-hw.online"
 
@@ -27,7 +29,7 @@ function Mask-Text([string]$Text) {
 try {
     "Bitcoin Intelligence Lab — Headway DEMO validation" | Set-Content -LiteralPath $report -Encoding utf8
     Add-Report "UTC start: $([DateTime]::UtcNow.ToString('o'))"
-    Add-Report "Trading actions are disabled in this CI job; no EA is attached and no orders are sent."
+    Add-Report "The real BitcoinIntelligenceLabEA will be attached to a Headway BTC demo chart. Terminal automated trading is disabled; the only test command must be rejected before OrderSend."
 
     # Reuse the existing GitHub Actions secret named mt5 from the previous Headway setup.
     $raw = [string]$env:MT5_CREDENTIALS
@@ -41,6 +43,7 @@ try {
         $login = [string]$obj.login
         if (!$login) { $login = [string]$obj.account }
         $password = [string]$obj.password
+        $rawPasswordForRuntime = $password
         if ($obj.server) { $server = [string]$obj.server }
     } else {
         $lines = @($raw -split "\r?\n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -54,10 +57,12 @@ try {
             $login = [string]$named["login"]
             if (!$login) { $login = [string]$named["account"] }
             $password = [string]$named["password"]
+            $rawPasswordForRuntime = $password
             if ($named["server"]) { $server = [string]$named["server"] }
         } elseif ($lines.Count -ge 2) {
             $login = [string]$lines[0]
             $password = [string]$lines[1]
+            $rawPasswordForRuntime = $password
             if ($lines.Count -ge 3) { $server = [string]$lines[2] }
         } else {
             throw "Secret format invalid. Expected JSON or separate login/password lines; values suppressed."
@@ -191,7 +196,190 @@ MaxBars=10000
         foreach ($line in $diagnostics) { Add-Report "Sanitized diagnostic: $line" }
         throw "Headway demo authorization was not confirmed within 120 seconds."
     }
-    Add-Report "No expert was attached; Algo Trading remained disabled; zero trade requests were sent."
+    Add-Report "RESULT: HEADWAY_AUTH_PASS — fresh MT5 logs confirmed authorization to the Headway demo server."
+
+    # Connect through the official MetaTrader5 Python package to discover the exact broker BTC symbol.
+    $probeScript = Join-Path $PWD "Bitcoin_Intelligence_Lab\\scripts\\mt5_runtime_probe.py"
+    if (!(Test-Path -LiteralPath $probeScript)) { throw "Read-only MT5 runtime probe is missing." }
+    $env:BTCIL_MT5_TERMINAL = $terminal.FullName
+    $env:BTCIL_MT5_LOGIN = $loginForRedaction
+    $env:BTCIL_MT5_PASSWORD = $rawPasswordForRuntime
+    $env:BTCIL_MT5_SERVER = $server
+    try {
+        $probeOutput = @(& python $probeScript 2>&1)
+        $probeExit = $LASTEXITCODE
+    } finally {
+        Remove-Item Env:BTCIL_MT5_TERMINAL,Env:BTCIL_MT5_LOGIN,Env:BTCIL_MT5_PASSWORD,Env:BTCIL_MT5_SERVER -ErrorAction SilentlyContinue
+    }
+    if ($probeExit -ne 0) {
+        foreach ($line in $probeOutput) { Add-Report ("MT5 runtime probe: " + (Mask-Text ([string]$line))) }
+        throw "Read-only MetaTrader5 runtime probe failed."
+    }
+    try { $probe = ($probeOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "MetaTrader5 runtime probe did not return valid JSON." }
+    if ($probe.status -ne "ok" -or !$probe.symbol -or !$probe.common_data_path) {
+        throw "MetaTrader5 runtime probe returned incomplete account/symbol metadata."
+    }
+    $btcSymbol = [string]$probe.symbol
+    if ($btcSymbol -notmatch '^[A-Za-z0-9._-]{3,32}}
+catch {
+    Add-Report "RESULT: FAIL — $($_.Exception.Message)"
+    Get-Content -LiteralPath $report
+    throw
+}
+finally {
+    if ($terminalProcess -and !$terminalProcess.HasExited) {
+        Stop-Process -Id $terminalProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+    if ($runtimeConfig -and (Test-Path -LiteralPath $runtimeConfig)) {
+        Remove-Item -LiteralPath $runtimeConfig -Force -ErrorAction SilentlyContinue
+    }
+    if ($loginConfig -and (Test-Path -LiteralPath $loginConfig)) {
+        Remove-Item -LiteralPath $loginConfig -Force -ErrorAction SilentlyContinue
+    }
+}
+ -or $btcSymbol -notmatch '(?i)BTC') {
+        throw "Broker BTC symbol failed safe-name validation."
+    }
+    if ([bool]$probe.terminal_trade_allowed) {
+        throw "Safety gate failed: terminal automated trading must remain disabled."
+    }
+    Add-Report "Read-only terminal probe PASS: connected Headway DEMO; BTC symbol selected: $btcSymbol; terminal trade_allowed=false."
+    Add-Report "BTC contract: digits=$($probe.digits), point=$($probe.point), volume_min=$($probe.volume_min), volume_step=$($probe.volume_step), trade_mode=$($probe.trade_mode)."
+
+    # Stop the login-only instance before restarting with the real EA attached.
+    if ($terminalProcess -and !$terminalProcess.HasExited) {
+        Stop-Process -Id $terminalProcess.Id -Force -ErrorAction SilentlyContinue
+        Wait-Process -Id $terminalProcess.Id -Timeout 20 -ErrorAction SilentlyContinue
+    }
+    $terminalProcess = $null
+    Start-Sleep -Seconds 2
+
+    $commonFiles = Join-Path ([string]$probe.common_data_path) "Files"
+    $eaCommonFolder = Join-Path $commonFiles "BitcoinIntelligenceLab"
+    if (Test-Path -LiteralPath $eaCommonFolder) {
+        Remove-Item -LiteralPath $eaCommonFolder -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $eaCommonFolder -Force | Out-Null
+
+    # Start the actual EA on the broker's BTC chart. EA execution is enabled,
+    # but AllowLiveTrading=0 is a terminal-wide hard block checked inside the EA.
+    $runtimeConfig = Join-Path $root "headway-demo-ea-runtime.ini"
+    $runtimeIni = @"
+[Common]
+Login=$loginForRedaction
+Password=$rawPasswordForRuntime
+Server=$server
+ProxyEnable=0
+KeepPrivate=0
+NewsEnable=0
+CertInstall=0
+
+[Experts]
+Enabled=1
+AllowLiveTrading=0
+AllowDllImport=0
+Account=0
+Profile=0
+
+[Charts]
+ProfileLast=Default
+MaxBars=10000
+
+[StartUp]
+Expert=BitcoinIntelligenceLabEA
+Symbol=$btcSymbol
+Period=M1
+"@
+    [IO.File]::WriteAllText($runtimeConfig,$runtimeIni,[Text.UTF8Encoding]::new($false))
+    $rawPasswordForRuntime = $null
+    $runtimeStart = Get-Date
+    $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @("/portable","/config:$runtimeConfig") -WorkingDirectory $installDir -PassThru
+    Add-Report "Runtime integration: launched terminal with BitcoinIntelligenceLabEA on $btcSymbol M1 and AllowLiveTrading=0."
+
+    $statusPath = Join-Path $eaCommonFolder "ea_status.tsv"
+    $positionsPath = Join-Path $eaCommonFolder "positions.tsv"
+    $statusFields = @()
+    $statusReady = $false
+    $runtimeDeadline = (Get-Date).AddSeconds(90)
+    while ((Get-Date) -lt $runtimeDeadline) {
+        if (Test-Path -LiteralPath $statusPath) {
+            try {
+                $statusRaw = Get-Content -LiteralPath $statusPath -Raw -ErrorAction Stop
+                $statusFields = @($statusRaw.Trim() -split "\\|")
+                if ($statusFields.Count -ge 14 -and $statusFields[0] -eq "BTCIL1" -and
+                    $statusFields[1] -eq $btcSymbol -and $statusFields[4] -eq "CONNECTED" -and
+                    $statusFields[11] -eq "TRADE_BLOCKED" -and
+                    $statusFields[12] -match '(?i)(Headway-Demo|trade-hw.online)' -and
+                    $statusFields[13].Trim() -eq "0") {
+                    $statusReady = $true
+                    break
+                }
+            } catch {}
+        }
+        if ($terminalProcess.HasExited) { throw "MT5 terminal exited before the Bitcoin EA published its status file." }
+        Start-Sleep -Seconds 2
+    }
+    if (!$statusReady) {
+        Add-Report "EA status file expected at: $statusPath"
+        if (Test-Path -LiteralPath $statusPath) {
+            Add-Report ("EA status observed: " + (Mask-Text (Get-Content -LiteralPath $statusPath -Raw)))
+        }
+        throw "BitcoinIntelligenceLabEA did not publish fresh connected Headway DEMO status with trading blocked."
+    }
+    Add-Report "RESULT: EA_RUNTIME_PASS — actual EA attached to $btcSymbol M1; status heartbeat reports CONNECTED, Headway DEMO, and TRADE_BLOCKED."
+
+    # Submit a deliberately valid OPEN envelope. The EA must consume and reject it at
+    # the terminal-permission gate before any OrderSend call can be reached.
+    $nowUtc = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $commandId = "BTCIL-CI-GATE-$nowUtc"
+    $expiresUtc = $nowUtc + 120
+    $volume = [Math]::Max(0.01,[double]$probe.volume_min)
+    $bid = [double]$probe.bid
+    $ask = [double]$probe.ask
+    if ($bid -le 0 -or $ask -le 0 -or $ask -lt $bid) {
+        $bid = 50000.0
+        $ask = 50001.0
+    }
+    $stopLoss = [Math]::Round([Math]::Max(1.0,$bid-1000.0),8)
+    $takeProfit = [Math]::Round($ask+1000.0,8)
+    $command = "BTCIL1|$commandId|$nowUtc|$expiresUtc|BTC|OPEN|BUY|$($volume.ToString('0.########', [Globalization.CultureInfo]::InvariantCulture))|$($stopLoss.ToString('0.########', [Globalization.CultureInfo]::InvariantCulture))|$($takeProfit.ToString('0.########', [Globalization.CultureInfo]::InvariantCulture))|0"
+    $commandPath = Join-Path $eaCommonFolder "trade_command.txt"
+    [IO.File]::WriteAllText($commandPath,$command,[Text.Encoding]::ASCII)
+
+    $ackPath = Join-Path $eaCommonFolder "trade_command_ack.txt"
+    $ack = $null
+    $ackDeadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $ackDeadline) {
+        if (Test-Path -LiteralPath $ackPath) {
+            try {
+                $candidate = Get-Content -LiteralPath $ackPath -Raw | ConvertFrom-Json -ErrorAction Stop
+                if ($candidate.id -eq $commandId) { $ack = $candidate; break }
+            } catch {}
+        }
+        if ($terminalProcess.HasExited) { throw "MT5 terminal exited while waiting for the EA command acknowledgment." }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($null -eq $ack) { throw "Bitcoin EA did not acknowledge the guarded test command within 30 seconds." }
+    if ($ack.status -ne "REJECTED" -or $ack.action -ne "OPEN" -or
+        ([string]$ack.detail) -notmatch 'BLOCKED: Headway DEMO/terminal permission gate') {
+        throw "EA did not reject the test OPEN command at the expected terminal trading-permission gate."
+    }
+    Add-Report "RESULT: COMMAND_PIPELINE_PASS — EA consumed the BTC OPEN test envelope and returned REJECTED at the terminal-permission gate."
+
+    if (!(Test-Path -LiteralPath $positionsPath)) { throw "EA did not publish positions.tsv." }
+    $positionLines = @(Get-Content -LiteralPath $positionsPath)
+    if ($positionLines.Count -gt 1) {
+        throw "Safety check failed: the isolated test EA reported one or more owned positions."
+    }
+    $finalStatus = Get-Content -LiteralPath $statusPath -Raw
+    $finalFields = @($finalStatus.Trim() -split "\\|")
+    if ($finalFields.Count -lt 14 -or $finalFields[11] -ne "TRADE_BLOCKED") {
+        throw "Safety check failed: terminal trading permission was not blocked in the final EA heartbeat."
+    }
+    Add-Report "SAFETY PASS — AllowLiveTrading=0; test command rejected; no order was sent; no EA-owned position was created."
+    Add-Report "Runtime elapsed seconds: $([Math]::Round(((Get-Date)-$runtimeStart).TotalSeconds,1))"
+    Add-Report "RESULT: HEADWAY_BTC_EA_INTEGRATION_PASS"
     Get-Content -LiteralPath $report
 }
 catch {
