@@ -24,8 +24,10 @@ def freshness(observed_at_ms: int | None, max_age_seconds: float, *, now_ms: int
     else:
         status = "fresh"
     # Small negative ages come from sequential HTTP requests against a
-    # snapshot clock captured at function entry; report zero, not negative age.
-    return {"status": status, "age_seconds": round(max(0.0, age), 3), "observed_at_utc": stamp}
+    # snapshot clock captured at function entry; report zero for this harmless skew.
+    # A larger future timestamp remains visible as a clock-skew magnitude.
+    reported_age = abs(age) if status == "clock_skew" else max(0.0, age)
+    return {"status": status, "age_seconds": round(reported_age, 3), "observed_at_utc": stamp}
 
 
 def validate_bars(
