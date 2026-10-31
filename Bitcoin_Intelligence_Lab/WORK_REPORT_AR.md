@@ -4,7 +4,7 @@
 **المستودع:** [staryuzar/-](https://github.com/staryuzar/-)  
 **الفرع:** `bitcoin-intelligence-lab`  
 **طلب المراجعة:** [PR #9 — Draft](https://github.com/staryuzar/-/pull/9)  
-**أحدث تحقق كامل لخط التنفيذ والخبير:** `7ee7ce624802e99db02920c95717ced6b406e8ae` (CI #63852؛ **259 اختباراً ناجحاً على Python 3.12 و259 على Python 3.13**، وWindows Runtime #63881 نجح في اختبارات Windows وتجميع EA الحقيقي بـMetaEditor بصفر أخطاء/تحذيرات وتشغيل WebSocket/SQLite/Streamlit). رأس الفرع الأحدث `03a20b5b9e0e53b3d8d3c20b5f0261b424ae5151` يتضمن فقط توثيق المعمارية بعد تضييق إشارة اكتمال أمر الوسيط إلى ORDER_DELETE، وإعادة CI/Windows الخاصة به ما زالت جارية.
+**أحدث تحقق كامل لرأس الفرع الحالي:** `01c9b78c54a1e29ca025863231408267be16e8fc`؛ CI #48995 نجح مع **262 اختباراً على Python 3.12 و262 على Python 3.13**، وWindows Runtime #49039 نجح بكل خطواته. MetaEditor جمع `BitcoinIntelligenceLabEA.mq5` بنتيجة **0 errors, 0 warnings** في 712ms، ثم نجح اختبار WebSocket/SQLite/Streamlit وقراءة اللوحة لقاعدة الجامع.
 
 ---
 
@@ -110,10 +110,11 @@ https://github.com/staryuzar/-/actions/runs/41158793678
 - أضيف إعداد `BTCIL_MARKET_DB` إلى `live_snapshot.py`، بحيث يمكن توجيه جميع قارئات الدفاتر والتصفية والصفقات والعمق إلى قاعدة الجامع نفسها. اختبار Windows يضبط المتغير على `data/windows_runtime.sqlite` التي يكتب إليها الجامع.
 - أضيف Workflow مستقل `.github/workflows/bitcoin-intelligence-lab-windows.yml` وسكربت `scripts/windows_runtime_smoke.py` على فرع البيتكوين. يتحقق السكربت من WebSocket حي واحد على الأقل، لقطة دفتر محفوظة، تدفق صفقة محفوظ، WAL وSQLite integrity، وعمل Streamlit وقارئه read-only.
 - حُذف ملفا Windows المؤقتان من `main` وأُضيفا إلى `bitcoin-intelligence-lab` فقط؛ والتحقق من الشجرة يؤكد عدم وجودهما على `main`.
-- خط الأساس الأحدث الذي اجتاز CI وWindows: [CI #63852](https://github.com/staryuzar/-/actions/runs/41163863852) شغّل **259 اختباراً على كل من Python 3.12 و3.13**، و[Windows Runtime #63881](https://github.com/staryuzar/-/actions/runs/41163863881) اجتاز اختبارات Windows وتجميع EA الفعلي بـMetaEditor (0 أخطاء و0 تحذيرات) وتشغيل الجامع الحي وSQLite وStreamlit وقارئ اللوحة.
-- في لقطة Windows Runtime كانت Bybit وOKX قناتي دفاتر/صفقات حية، بينما Binance Spot أعادت HTTP 451؛ استمر الجامع مع المصادر المتاحة، وحُفظت البيانات مع SQLite WAL وسلامة integrity.
-- بعد هذا الخط الأساسي نُقل تأكيد التنفيذ إلى TRADE_TRANSACTION_REQUEST المطابق لـrequest_id، ويستخدم MqlTradeResult.volume الذي يؤكده الوسيط. للطلبات PLACED/DONE_PARTIAL التي تبقى نشطة، يستطلع EA حالة Order ويجمع الصفقات التاريخية المرتبطة به حتى يختفي الأمر؛ عندها يميز التعبئة الكاملة من الجزئية أو الإلغاء. النسخة الأحدث تعيد الاختبار عبر [CI #10536](https://github.com/staryuzar/-/actions/runs/41164310536) و[Windows Runtime #10543](https://github.com/staryuzar/-/actions/runs/41164310543).
-- إعادة إثبات العزل على خط الأساس: [Aurora #63860](https://github.com/staryuzar/-/actions/runs/41163863860) نجح فحص النطاق وتخطّى وظائف MT5 وChrome وGemini. لا يُخلط هذا مع اختبار EA الخاص بالبيتكوين.
+- خط الأساس الحالي الذي اجتاز CI وWindows: [CI #48995](https://github.com/staryuzar/-/actions/runs/41164448995) شغّل **262 اختباراً على كل من Python 3.12 و3.13**، و[Windows Runtime #49039](https://github.com/staryuzar/-/actions/runs/41164449039) اجتاز كل خطوات Windows.
+- MetaEditor جمع ملف EA الفعلي `BitcoinIntelligenceLabEA.mq5` بنتيجة **0 errors, 0 warnings** في 712ms؛ والاختبار نفسه شغّل جامع WebSocket وSQLite/Integrity/WAL وStreamlit وقارئ اللوحة على القاعدة نفسها.
+- لقطة Windows أكدت توفر Bybit وOKX كمصادر دفاتر/صفقات؛ Binance Spot بقيت محجوبة HTTP 451، واستمر الجامع مع المنصات المتاحة.
+- خط أساس معالجة أمر الوسيط صار يطابق `TRADE_TRANSACTION_REQUEST` بواسطة `request_id` ويستخدم `MqlTradeResult.volume` الذي يؤكده الوسيط. لطلبات PLACED/DONE_PARTIAL النشطة، يستطلع EA الأمر المفتوح ثم سجل الأوامر والصفقات حتى انتهاء الأمر، ويميّز التنفيذ الجزئي من الكامل. كما يطلب إلغاء أي أمر متبقٍ مملوك له عند فك الخبير، ويمنع فتح مركز جديد عند وجود مركز خارجي على الرمز.
+- إعادة إثبات العزل على الرأس الحالي: [Aurora #48957](https://github.com/staryuzar/-/actions/runs/41164448957) نجح فحص النطاق وتخطّى وظائف MT5 وChrome وGemini. هذا مستقل عن تجميع EA الخاص بالبيتكوين.
 
 ### 2.9 ربط Headway وحلقة التنفيذ ومراقبة ACK — 31 أكتوبر 2026
 
@@ -126,7 +127,7 @@ https://github.com/staryuzar/-/actions/runs/41158793678
 - أضيف نبض تنفيذ ذري إلى `execution_loop_status.json` وتقرأه اللوحة مع EA status وpositions وACK المطابق لمعرّف آخر أمر؛ Streamlit يظل قارئاً فقط.
 - عُدّل MQL ليحتفظ بـrequest_id الذي يصدره MT5 ويطابق TRADE_TRANSACTION_REQUEST معه؛ ويستعمل حجم التعبئة المؤكد في MqlTradeResult. إذا كان الأمر PLACED أو DONE_PARTIAL وظل نشطاً، يوقف الأوامر التالية حتى تختفي التذكرة من الأوامر النشطة ويقرأ Deals التاريخية حسب Order ticket وSymbol وMagicNumber. الإقرار الجزئي لا يُسمى تنفيذاً كاملاً، ويُعاد تقييم الإغلاق حسب حجم المركز المتبقي.
 - أحدث Windows baseline قبل إعادة التحقق الأخيرة اجتاز تجميع EA الفعلي بـMetaEditor بنتيجة 0 أخطاء و0 تحذيرات. لم يسجل هذا الاختبار دخول Headway أو إرسال أي أمر.
-- **لم تُنفذ بعد صفقة فعلية من EA على جلسة MT5 دائمة للمستخدم.** لا يمكن اعتبار نجاح تجميع/اختبار GitHub بمنزلة تسجيل دخول أو أمر منفذ. جهاز Windows المتاح حالياً عبر Remote Desktop كان Offline.
+- **لم تُنفذ بعد صفقة فعلية مؤكدة من EA على جلسة MT5 دائمة للمستخدم.** Windows Runtime يثبت التجميع والتكامل الحي لمكونات السوق/اللوحة على runner مؤقت، لكنه لا يسجل الدخول إلى Headway ولا يضع صفقة. عند آخر تحقق كان جهاز Windows المرتبط عبر Remote Desktop `DESKTOP-BCGR98A` بحالة Offline (آخر ظهور قبل ساعة تقريباً)، لذلك لا يمكن إبقاء MT5 وحلقة التنفيذ في جلسة متابعة دائمة حتى يعود الجهاز Online.
 
 ## 3. المحركات التي تم بناؤها
 
