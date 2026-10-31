@@ -237,7 +237,7 @@ bool CloseOwnPosition(const ulong ticket)
 
 bool OpenBoardPosition(const string side,const double volume,const double sl,const double tp)
 {
-   if(!TerminalAllowsTrading()) { lastStatus="BLOCKED: Headway DEMO/terminal permission gate"; return false; }
+   if(!TerminalAllowsTrading()) { lastStatus="BLOCKED: Headway server/terminal permission gate"; return false; }
    if(!IsBitcoinSymbol()) { lastStatus="BLOCKED: chart symbol is not a Bitcoin instrument"; return false; }
    if(MaxOpenPositions>0 && CountOwnPositions()>=MaxOpenPositions)
    { lastStatus="BLOCKED: configured maximum open positions reached"; return false; }
@@ -378,7 +378,7 @@ int OnInit()
    WriteStatus();
    WritePositions();
    Print("BTCIL|INIT|symbol=",_Symbol,"|period=",EnumToString(_Period),
-         "|server=",AccountInfoString(ACCOUNT_SERVER),"|demo=",IsHeadwayBroker()?"true":"false",
+         "|server=",AccountInfoString(ACCOUNT_SERVER),"|headway_server=",IsHeadwayBroker()?"true":"false",
          "|trade_enabled=",EnableTrading?"true":"false","|magic=",MagicNumber);
    return INIT_SUCCEEDED;
 }
