@@ -51,7 +51,7 @@ class LiveSnapshotIntegrationContractTests(unittest.TestCase):
         self.assertIn('options=[30, 60, 120], value=60', self.dashboard)
         self.assertIn('@st.cache_data(ttl=3, max_entries=12, show_spinner=False)', self.dashboard)
         self.assertIn('request_snapshot_refresh(', self.dashboard)
-        self.assertIn('return read_latest_snapshot(max_age_seconds=900)', self.dashboard)
+        self.assertIn('report = read_latest_snapshot(max_age_seconds=900)', self.dashboard)
         self.assertIn('cached_snapshot_service_status()', self.dashboard)
         self.assertNotIn('build_live_snapshot(', self.dashboard)
 
