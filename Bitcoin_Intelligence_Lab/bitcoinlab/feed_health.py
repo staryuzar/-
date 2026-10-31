@@ -67,6 +67,7 @@ def _stream_states(
     for name, status_row in status_rows.items():
         status = str(status_row.get("status", "unavailable")).lower()
         last_message = _age_seconds(status_row.get("last_message_ms"), now_ms)
+        heartbeat_age = _age_seconds(status_row.get("updated_at_ms"), now_ms)
         book = latest_by_venue.get(name)
         book_age = _age_seconds(book.get("observed_at_ms"), now_ms) if book else None
         is_book_feed = name in BOOK_VENUES
@@ -78,9 +79,14 @@ def _stream_states(
             else:
                 health = "live"
         elif status in {"live", "connected"}:
-            # Liquidations are event-driven and may be quiet for long periods.
-            # Connection/heartbeat state, not event count, determines feed health.
-            health = "live" if status == "live" else "connected_quiet_ok"
+            # Liquidation feeds are event-driven: event silence is acceptable,
+            # but an old heartbeat means the collector itself may have stopped.
+            if heartbeat_age is None or heartbeat_age < -5 or heartbeat_age > 45:
+                health = "stale"
+            elif status == "connected" or last_message is None or last_message > 45:
+                health = "connected_quiet_ok"
+            else:
+                health = "live"
         else:
             health = "unavailable"
         result.append({
@@ -91,6 +97,10 @@ def _stream_states(
             "last_message_age_seconds": (
                 round(max(0.0, last_message), 2)
                 if last_message is not None else None
+            ),
+            "heartbeat_age_seconds": (
+                round(max(0.0, heartbeat_age), 2)
+                if heartbeat_age is not None else None
             ),
             "book_age_seconds": (
                 round(max(0.0, book_age), 2)
