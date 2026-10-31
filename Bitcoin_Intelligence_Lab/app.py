@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import streamlit as st
 
@@ -57,18 +58,144 @@ def _friendly_provider_error(name, error):
         return "تعذر تحليل أو جلب تقرير CFTC في هذه القراءة؛ راجع التفاصيل التشخيصية."
     return "تعذر تحديث هذا المصدر؛ لم تُنشأ بيانات بديلة أو تقديرية."
 
-st.markdown("""
+def _load_dashboard_design_tokens():
+    token_path = Path(__file__).resolve().parent / "design" / "bitcoin_dashboard.tokens.json"
+    fallback = {
+        "canvas": "#0B1220", "surface": "#111C2D", "raised": "#17253A",
+        "subtle": "#1E2E45", "border": "#2B3C54", "text": "#F4F7FB",
+        "secondary": "#A9B8CC", "muted": "#7E91AA", "bull": "#2CCB9A",
+        "bear": "#F16D75", "warning": "#EAB85C", "info": "#65A8E8",
+    }
+    names = {
+        "Canvas/Background": "canvas", "Surface/Default": "surface",
+        "Surface/Raised": "raised", "Surface/Subtle": "subtle",
+        "Border/Default": "border", "Text/Primary": "text",
+        "Text/Secondary": "secondary", "Text/Muted": "muted",
+        "Signal/Bull": "bull", "Signal/Bear": "bear",
+        "Signal/Warning": "warning", "Signal/Info": "info",
+    }
+    try:
+        payload = json.loads(token_path.read_text(encoding="utf-8"))
+        raw = payload.get("colors", {})
+        colors = {
+            target: raw[source]
+            for source, target in names.items()
+            if isinstance(raw.get(source), str) and raw[source].startswith("#")
+        }
+        if len(colors) != len(names):
+            raise ValueError("Design token palette is incomplete.")
+        return colors, None
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        return fallback, f"{type(exc).__name__}: {exc}"
+
+
+_DESIGN_COLORS, _DESIGN_TOKEN_WARNING = _load_dashboard_design_tokens()
+_CSS_VARIABLES = "\\n".join(
+    f"--btc-{name}: {value};" for name, value in _DESIGN_COLORS.items()
+)
+st.markdown(f"""
 <style>
-.stApp {background: linear-gradient(180deg,#f1f5f9,#ffffff 42%,#f8fafc);}
-.block-container {max-width: 1600px; padding-top: 1.25rem;}
-.hero {background: linear-gradient(120deg,#101f35,#1e4265); color:#f8fafc; padding:26px 30px; border-radius:20px; margin-bottom:18px;}
-.hero h1 {color:white; margin:0;}
-.hero p {color:#d9e5ef; margin:.5rem 0 0;}
-div[data-testid="stMetric"] {background:white; border:1px solid #e2e8f0; border-radius:14px; padding:12px;}
+:root {{
+    {{_CSS_VARIABLES}}
+    color-scheme: dark;
+}}
+html, body, [data-testid="stAppViewContainer"] {{
+    background: var(--btc-canvas) !important;
+}}
+[data-testid="stAppViewContainer"] .main {{
+    background: var(--btc-canvas);
+}}
+.block-container {{
+    max-width: 1640px;
+    padding-top: 1.15rem;
+    padding-bottom: 3rem;
+}}
+[data-testid="stSidebar"] {{
+    background: var(--btc-surface) !important;
+    border-inline-end: 1px solid var(--btc-border);
+}}
+[data-testid="stSidebar"] > div:first-child {{
+    background: var(--btc-surface);
+}}
+[data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3,
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li {{
+    color: var(--btc-text);
+}}
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li {{
+    line-height: 1.65;
+}}
+.stApp, .stApp input, .stApp button, .stApp textarea, .stApp select {{
+    font-family: "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+}}
+.hero {{
+    background: linear-gradient(118deg, var(--btc-raised), var(--btc-subtle));
+    border: 1px solid var(--btc-border);
+    color: var(--btc-text);
+    padding: 24px 28px;
+    border-radius: 18px;
+    margin-bottom: 18px;
+}}
+.hero h1 {{ color: var(--btc-text); margin: 0; }}
+.hero p {{ color: var(--btc-secondary); margin: .45rem 0 0; }}
+div[data-testid="stMetric"] {{
+    background: var(--btc-surface);
+    border: 1px solid var(--btc-border);
+    border-radius: 14px;
+    padding: 13px 15px;
+}}
+div[data-testid="stMetricLabel"] {{ color: var(--btc-muted); }}
+div[data-testid="stMetricValue"] {{ color: var(--btc-text); }}
+div[data-testid="stMetricDelta"] {{ font-weight: 600; }}
+.stButton > button {{
+    border-radius: 10px;
+    border: 1px solid var(--btc-border);
+    min-height: 2.55rem;
+}}
+.stButton > button[kind="primary"] {{
+    background: var(--btc-info);
+    border-color: var(--btc-info);
+    color: #081321;
+    font-weight: 700;
+}}
+.stButton > button:hover {{ border-color: var(--btc-info); }}
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div {{
+    background: var(--btc-raised);
+    border-color: var(--btc-border);
+    color: var(--btc-text);
+    border-radius: 10px;
+}}
+[data-testid="stExpander"] {{
+    background: var(--btc-surface);
+    border: 1px solid var(--btc-border);
+    border-radius: 12px;
+}}
+[data-testid="stDataFrame"], [data-testid="stTable"] {{
+    border: 1px solid var(--btc-border);
+    border-radius: 12px;
+    overflow: hidden;
+}}
+[data-testid="stAlert"] {{ border-radius: 12px; }}
+hr {{ border-color: var(--btc-border); }}
+small, [data-testid="stCaptionContainer"] {{ color: var(--btc-muted); }}
+@media (max-width: 800px) {{
+    .block-container {{ padding-left: .8rem; padding-right: .8rem; }}
+    .hero {{ padding: 18px; border-radius: 14px; }}
+    div[data-testid="stMetric"] {{ padding: 10px; }}
+}}
 </style>
 <div class="hero"><h1>₿ Bitcoin Intelligence Lab</h1>
 <p>بيانات بيتكوين الحقيقية · محركات متعددة · قرار مركزي · تدقيق جودة البيانات</p></div>
 """, unsafe_allow_html=True)
+if _DESIGN_TOKEN_WARNING:
+    st.warning("ملف ألوان التصميم غير مكتمل؛ تُستخدم لوحة الألوان الاحتياطية. " + _DESIGN_TOKEN_WARNING)
+
 
 def _queue_snapshot_refresh():
     request = request_snapshot_refresh(
