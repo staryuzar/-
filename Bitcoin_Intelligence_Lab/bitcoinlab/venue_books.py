@@ -101,10 +101,12 @@ class IncrementalOrderBook:
             ask_rows = list(asks)
             bid_changes = _parse_levels(bid_rows)
             ask_changes = _parse_levels(ask_rows)
-            for price_raw, size_raw in bid_rows:
+            for row in bid_rows:
+                price_raw, size_raw = row[0], row[1]
                 if float(size_raw) == 0:
                     bid_changes[float(price_raw)] = 0.0
-            for price_raw, size_raw in ask_rows:
+            for row in ask_rows:
+                price_raw, size_raw = row[0], row[1]
                 if float(size_raw) == 0:
                     ask_changes[float(price_raw)] = 0.0
             self._apply_side(self.bids, bid_changes)
