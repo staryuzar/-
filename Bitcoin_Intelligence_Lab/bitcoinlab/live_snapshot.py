@@ -18,6 +18,7 @@ from .trade_analytics import read_trade_analytics
 from .depth_analytics import read_depth_liquidity_context
 from .cross_venue_derivatives import build_cross_venue_derivatives_context
 from .providers.cross_venue import fetch_cross_venue_derivatives_rows
+from .screener import build_market_screener
 from .trade_profile import (
     blend_orderflow_evidence,
     build_streamed_footprint_profiles,
@@ -285,6 +286,20 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     }
 
     spread_bps = float(book_metrics["spread_bps"]) if book_metrics else float("inf")
+    screener = build_market_screener(
+        multi_timeframe=multi_timeframe,
+        market_structure=market_structure,
+        market_interval=interval,
+        order_book={
+            **(book_metrics or {}),
+            "observed_at_ms": depth.get("fetched_at_ms"),
+        },
+        streamed_trade_flow=streamed_trade_flow,
+        derivatives=deriv_engine,
+        cross_venue_derivatives=cross_derivatives_context,
+        liquidation_risk=liquidation_risk,
+        now_ms=now,
+    )
     data_health = build_data_health(
         source_states=source_states,
         stream_state=stream_state,
@@ -294,7 +309,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         technical=decision_technical, orderflow=flow_engine, derivatives=deriv_engine,
         market_structure=market_structure_signal, cross_venue=cross_venue_engine,
         liquidation_risk=liquidation_risk,
-        source_states=source_states, spread_bps=spread_bps,
+        source_states=source_states, event_context=screener, spread_bps=spread_bps,
     )
     return {
         "status": "ok" if all(source_states.get(key, {}).get("status") == "fresh" for key in ("spot", "orderflow", "derivatives")) else "partial",
@@ -328,6 +343,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
         "cross_venue_derivatives_context": cross_derivatives_context,
+        "screener": screener,
         "decision": decision,
         "limitations": [
             "Binance is one venue, not the entire Bitcoin market.",

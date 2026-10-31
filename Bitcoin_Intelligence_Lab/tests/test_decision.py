@@ -102,6 +102,21 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(enriched["weights"], base["weights"])
         self.assertIn("funding_rate_dispersion_across_venues", enriched["warnings"])
 
+    def test_screener_events_are_context_only_and_do_not_change_decision(self):
+        context = {
+            "status": "ok",
+            "event_count": 1,
+            "decision_warnings": ["relative_volume_surge", "wide_spread"],
+            "events": [{"type": "wide_spread", "creates_order": False}],
+        }
+        base = self.call()
+        enriched = self.call(event_context=context)
+        self.assertEqual(enriched["action"], base["action"])
+        self.assertEqual(enriched["score"], base["score"])
+        self.assertEqual(enriched["weights"], base["weights"])
+        self.assertIn("wide_spread", enriched["warnings"])
+        self.assertIn("relative_volume_surge", enriched["warnings"])
+
     def test_weak_confluence_holds(self):
         result = self.call(
             technical={"status": "ok", "score": 0.1},

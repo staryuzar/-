@@ -13,6 +13,7 @@ def central_decision(
     market_structure: Mapping[str, object] | None = None,
     cross_venue: Mapping[str, object] | None = None,
     liquidation_risk: Mapping[str, object] | None = None,
+    event_context: Mapping[str, object] | None = None,
     spread_bps: float | None = None, reward_risk_ratio: float | None = None,
     min_abs_score: float = 0.15, max_spread_bps: float | None = None,
     minimum_active_domains: int = 2,
@@ -100,6 +101,10 @@ def central_decision(
             warnings.extend(
                 str(item) for item in derivatives_context.get("warnings", [])
             )
+    if isinstance(event_context, Mapping):
+        warnings.extend(
+            str(item) for item in event_context.get("decision_warnings", [])
+        )
     if spread_bps is not None:
         if not math.isfinite(float(spread_bps)) or spread_bps < 0:
             warnings.append("spread_data_invalid")

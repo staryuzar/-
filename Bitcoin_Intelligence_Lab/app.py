@@ -259,6 +259,63 @@ def render_live_dashboard():
     else:
         st.caption("سيظهر محرك CVD وFootprint بعد إنشاء لقطة السوق.")
 
+    st.subheader("ماسح أحداث السوق والفرص — دون تنفيذ")
+    if isinstance(report, dict):
+        screener = report.get("screener", {})
+        events = screener.get("events", [])
+        counts = screener.get("counts_by_severity", {})
+        alert_cols = st.columns(4)
+        alert_cols[0].metric("الأحداث النشطة", str(screener.get("event_count", 0)))
+        alert_cols[1].metric("عالية", str(counts.get("high", 0)))
+        alert_cols[2].metric("متوسطة", str(counts.get("medium", 0)))
+        alert_cols[3].metric("منخفضة", str(counts.get("low", 0)))
+        if events:
+            st.caption(
+                "هذه كواشف أحداث من شموع مكتملة وبيانات حديثة. لا تنشئ أوامر، "
+                "ولا تمثل احتمال نجاح، وجميع الحدود الحالية أولية قابلة للمعايرة."
+            )
+            st.dataframe(
+                [
+                    {
+                        "الخطورة": row["severity"],
+                        "الحدث": row["type"],
+                        "الإطار": row["timeframe"],
+                        "الاتجاه المرجعي": row.get("direction") or "غير اتجاهي",
+                        "القيمة": row["value"],
+                        "الحد": row["threshold"],
+                        "وقت الرصد UTC": datetime.fromtimestamp(
+                            row["observed_at_ms"] / 1000, timezone.utc,
+                        ).isoformat(),
+                        "المصدر": row["source"],
+                        "تنفيذ أمر": "لا",
+                    }
+                    for row in events
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            with st.expander("تفاصيل الأدلة والحدود لكل حدث"):
+                for row in events:
+                    st.markdown(
+                        f"**{row['type']} · {row['timeframe']} · {row['severity']}**"
+                    )
+                    st.write("الأدلة:", row["evidence"])
+                    st.caption(row["limitation"])
+        else:
+            st.caption(
+                "لا توجد أحداث تتجاوز العتبات حالياً، أو أن بعض المدخلات غير مكتملة/قديمة. "
+                "لن يصطنع الماسح حدثاً من بيانات ناقصة."
+            )
+        if screener.get("rejected_inputs"):
+            with st.expander("مدخلات لم تدخل في كشف الأحداث"):
+                st.write(screener["rejected_inputs"])
+        st.caption(
+            "الأحداث عالية/متوسطة تظهر كتحذيرات مساندة في مركز القرار، "
+            "لكنها لا تغير Score أو أوزان المحركات."
+        )
+    else:
+        st.caption("يظهر ماسح الأحداث بعد تكوين لقطة السوق.")
+
     st.subheader("محرك رصد تصفيات المشتقات — آخر 60 دقيقة")
     liquidation_groups = stream_state.get("liquidation_summary", [])
     if liquidation_groups:

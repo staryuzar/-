@@ -194,7 +194,11 @@ def liquidation_risk_profile(
         side = str(row.get("liquidated_side", "unknown"))
         count = int(row.get("event_count") or 0)
         total_events += count
-        record = by_venue.setdefault(venue, {"long_events": 0, "short_events": 0})
+        record = by_venue.setdefault(venue, {"long_events": 0, "short_events": 0, "latest_event_time_ms": None})
+        event_time = _finite(row.get("latest_event_time_ms"))
+        if event_time is not None:
+            previous_time = record.get("latest_event_time_ms")
+            record["latest_event_time_ms"] = max(int(previous_time or 0), int(event_time))
         if side == "LONG":
             record["long_events"] += count
             if count:
