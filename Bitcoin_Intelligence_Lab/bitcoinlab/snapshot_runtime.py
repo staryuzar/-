@@ -200,6 +200,8 @@ def read_snapshot_service_status(
     max_age_seconds: int = 90,
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    if not 5 <= max_age_seconds <= 900:
+        raise ValueError("max_age_seconds must be between 5 and 900.")
     target = Path(path) if path is not None else default_status_path()
     try:
         payload = json.loads(target.read_text(encoding="utf-8"))
@@ -316,6 +318,16 @@ def run_snapshot_service(
     last_cycle_seconds: float | None = None
     next_due = 0.0
     last_result: dict[str, Any] = {"status": "not_started"}
+    try:
+        previous_status = json.loads(state_file.read_text(encoding="utf-8"))
+        if (
+            isinstance(previous_status, dict)
+            and previous_status.get("schema") == STATUS_SCHEMA
+            and isinstance(previous_status.get("last_success_utc"), str)
+        ):
+            last_success = previous_status["last_success_utc"]
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        pass
 
     with _ServiceLock(lock_file):
         _publish_status(
