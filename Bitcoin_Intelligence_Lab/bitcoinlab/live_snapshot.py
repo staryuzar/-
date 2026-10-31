@@ -181,15 +181,24 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         structure_age = freshness(
             bars[-1].close_time_ms, interval_max_age, now_ms=now,
         )
+        uses_trade_delta = "sampled_trade_delta" in market_structure_signal.get("components", {})
+        trade_input_fresh = source_states.get("orderflow", {}).get("status") == "fresh"
+        structure_is_fresh = (
+            structure_age["status"] == "fresh"
+            and (not uses_trade_delta or trade_input_fresh)
+        )
         source_states["market_structure"] = {
-            "status": structure_age["status"],
+            "status": "fresh" if structure_is_fresh else "stale",
             **structure_age,
             "timeframe": interval,
+            "trade_sample_fresh": trade_input_fresh if uses_trade_delta else None,
         }
-        if structure_age["status"] != "fresh":
+        if not structure_is_fresh:
             market_structure_signal = {
                 "status": "incomplete", "score": None,
-                "reason": "Market-structure input bars are stale.",
+                "reason": (
+                    "Market-structure candles or sampled trade delta are stale."
+                ),
                 "warnings": market_structure_signal.get("warnings", []),
             }
     else:
