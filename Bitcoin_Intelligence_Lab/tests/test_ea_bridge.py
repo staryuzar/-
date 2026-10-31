@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import unittest
 from pathlib import Path
 
-from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order, read_positions, publish_close_order
+from bitcoinlab.ea_bridge import read_ea_status, publish_decision_order, read_positions, publish_close_order, pending_command_state
 
 
 class EABridgeTests(unittest.TestCase):
@@ -165,6 +165,31 @@ class EABridgeTests(unittest.TestCase):
         self.assertEqual(result["status"], "published")
         self.assertEqual(command[5], "CLOSE")
         self.assertEqual(command[10], "12345")
+
+    def test_future_issued_command_is_invalid_and_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            folder.mkdir(parents=True)
+            (folder / "trade_command.txt").write_text(
+                "BTCIL1|future-1|2000000010|2000000070|BTC|OPEN|BUY|0.01000000|69000|72000|0\\n",
+                encoding="ascii",
+            )
+            state = pending_command_state(tmp, now_seconds=2_000_000_000)
+        self.assertEqual(state["status"], "invalid")
+        self.assertTrue(state["pending"])
+        self.assertIn("inconsistent", state["reason"])
+
+    def test_command_ttl_outside_protocol_range_is_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            folder.mkdir(parents=True)
+            (folder / "trade_command.txt").write_text(
+                "BTCIL1|long-ttl|2000000000|2000000400|BTC|OPEN|BUY|0.01000000|69000|72000|0\\n",
+                encoding="ascii",
+            )
+            state = pending_command_state(tmp, now_seconds=2_000_000_000)
+        self.assertEqual(state["status"], "invalid")
+        self.assertTrue(state["pending"])
 
     def test_hold_does_not_publish_command(self):
         with tempfile.TemporaryDirectory() as tmp:
