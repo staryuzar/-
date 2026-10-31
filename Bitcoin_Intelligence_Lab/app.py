@@ -554,13 +554,48 @@ def render_live_dashboard():
     else:
         st.info("HOLD — لا توجد موافقة كافية من الأدلة المتاحة")
 
+    # Show the exact five voting domains, each source freshness and normalized weight.
+    decision_domains = [
+        ("technical", "Technical / Multi-Timeframe", report.get("decision_technical", {})),
+        ("orderflow", "Orderflow / CVD", report.get("orderflow", {})),
+        ("derivatives", "Derivatives", report.get("derivatives", {})),
+        ("market_structure", "Market Structure", structure_engine),
+        ("cross_venue", "Cross-Venue Order Book", cross_venue_engine),
+    ]
+    active_domains = set(decision.get("active_domains", []))
+    actual_weights = decision.get("weights", {})
+    domain_rows = []
+    for key, label, engine in decision_domains:
+        state = report.get("source_states", {}).get(key, {})
+        is_active = key in active_domains
+        domain_rows.append({
+            "مجال القرار": label,
+            "حالة المصدر": state.get("status", "غير متاح"),
+            "حالة المحرك": engine.get("status", "غير متاح"),
+            "الدرجة": engine.get("score"),
+            "الوزن الفعلي بعد التطبيع": actual_weights.get(key, 0.0) if is_active else 0.0,
+            "يشارك في الدرجة": "نعم" if is_active else "لا",
+            "سبب النقص": state.get("reason") or engine.get("reason") or "—",
+        })
+    st.subheader("خريطة تصويت المجالات الخمسة")
+    st.dataframe(domain_rows, use_container_width=True, hide_index=True)
+    st.caption(
+        "الأوزان المعروضة هي الأوزان الفعلية بعد تطبيع المجالات المتاحة والحديثة. "
+        "المجال غير الحديث أو غير المكتمل لا يشارك في الدرجة؛ وتحذيرات التصفية والخيارات "
+        "والسياق البطيء لا تصبح أصواتاً إضافية."
+    )
+    if decision.get("blockers"):
+        st.warning("موانع القرار المركزي: " + " · ".join(decision["blockers"]))
+    if decision.get("warnings"):
+        st.caption("تحذيرات القرار المركزي: " + " · ".join(decision["warnings"]))
+
     mtf = report.get("multi_timeframe", {})
     st.subheader("محرك الاتجاه متعدد الأطر الزمنية")
     mtf_cols = st.columns(4)
     mtf_cols[0].metric("اتجاه الأطر", mtf.get("direction", "HOLD"))
     mtf_cols[1].metric(
         "اتساع التغطية",
-        f"{mtf.get('coverage', {}).get('fresh_frames', 0)}/6",
+        f"{mtf.get('coverage', {}).get('fresh_frames', 0)}/{mtf.get('coverage', {}).get('total_frames', 6)}",
     )
     mtf_cols[2].metric(
         "الاتجاه الأكبر 1D/4H",
