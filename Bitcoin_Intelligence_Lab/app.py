@@ -160,6 +160,41 @@ def render_live_dashboard():
     else:
         st.info("HOLD — لا توجد موافقة كافية من الأدلة المتاحة")
 
+    mtf = report.get("multi_timeframe", {})
+    st.subheader("محرك الاتجاه متعدد الأطر الزمنية")
+    mtf_cols = st.columns(4)
+    mtf_cols[0].metric("اتجاه الأطر", mtf.get("direction", "HOLD"))
+    mtf_cols[1].metric(
+        "اتساع التغطية",
+        f"{mtf.get('coverage', {}).get('fresh_frames', 0)}/6",
+    )
+    mtf_cols[2].metric(
+        "الاتجاه الأكبر 1D/4H",
+        f"{mtf['macro_score']:+.3f}" if mtf.get("macro_score") is not None else "غير متاح",
+    )
+    mtf_cols[3].metric(
+        "التوافق",
+        f"{mtf['alignment_ratio']:.0%}" if mtf.get("alignment_ratio") is not None else "غير متاح",
+    )
+    mtf_rows = []
+    for timeframe in ("1d", "4h", "1h", "15m", "5m", "1m"):
+        item = mtf.get("frames", {}).get(timeframe, {})
+        mtf_rows.append({
+            "الإطار": timeframe,
+            "الدور": mtf.get("roles", {}).get(timeframe, item.get("role")),
+            "الحالة": item.get("status"),
+            "الدرجة": item.get("score"),
+            "الاتجاه": item.get("state"),
+            "RSI": item.get("rsi14"),
+            "الكسر": item.get("breakout"),
+            "عمر البيانات (ث)": item.get("age_seconds"),
+        })
+    st.dataframe(mtf_rows, use_container_width=True, hide_index=True)
+    if mtf.get("warnings"):
+        st.caption("تنبيهات توافق الأطر: " + " · ".join(mtf["warnings"]))
+    if mtf.get("blockers"):
+        st.warning("محرك الأطر لم يكتمل: " + " · ".join(mtf["blockers"]))
+
     price_history = report["spot"].get("price_history", {})
     if price_history.get("time_utc"):
         st.subheader("حركة سعر BTC — الشموع المكتملة")
@@ -190,6 +225,41 @@ def render_live_dashboard():
         if report.get("derivatives_data") and report["derivatives_data"].get("taker_buy_sell_ratio") is not None
         else "غير متاح",
     )
+
+    structure = report.get("market_structure", {})
+    bar_structure = structure.get("bars", {})
+    structure_cols = st.columns(3)
+    structure_cols[0].metric(
+        "Relative Volume (20)",
+        f"{bar_structure['relative_volume_20']:.2f}×"
+        if bar_structure.get("relative_volume_20") is not None else "غير متاح",
+    )
+    structure_cols[1].metric(
+        "VWAP جلسة UTC",
+        f"{bar_structure['session_vwap_utc']:.2f}"
+        if bar_structure.get("session_vwap_utc") is not None else "غير متاح",
+    )
+    structure_cols[2].metric(
+        "اتساع النطاق",
+        f"{bar_structure['range_expansion_vs_prior_median']:.2f}×"
+        if bar_structure.get("range_expansion_vs_prior_median") is not None else "غير متاح",
+    )
+    vp = structure.get("volume_profile", {})
+    if vp.get("status") == "ok":
+        with st.expander("Volume Profile وFootprint من الصفقات المنفذة"):
+            st.caption(
+                f"العينة: {vp.get('sample_trade_count')} صفقة مجمعة · "
+                f"نافذتها الزمنية: {vp.get('sample_window_seconds')} ثانية. "
+                "هذه ليست قيمة يوم كامل؛ إنها عينة الصفقات الحديثة التي جلبها المصدر."
+            )
+            vp_cols = st.columns(4)
+            vp_cols[0].metric("POC", f"{vp['poc']:.2f}")
+            vp_cols[1].metric("VAH", f"{vp['vah']:.2f}")
+            vp_cols[2].metric("VAL", f"{vp['val']:.2f}")
+            vp_cols[3].metric("Delta BTC", f"{vp['delta_btc']:+.4f}")
+            st.dataframe(vp.get("bins", []), use_container_width=True, hide_index=True)
+    else:
+        st.caption("Volume Profile غير مكتمل: " + str(vp.get("reason", "لا تتوفر عينة صفقات صالحة.")))
 
     cols = st.columns(4)
     cols[0].metric(
