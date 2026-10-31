@@ -199,6 +199,30 @@ class MarketDataStore:
         );
         CREATE INDEX IF NOT EXISTS liquidation_events_venue_time
             ON liquidation_events(venue, symbol, event_time_ms);
+        CREATE TABLE IF NOT EXISTS trade_seen (
+            event_key TEXT PRIMARY KEY,
+            venue TEXT NOT NULL,
+            event_time_ms INTEGER NOT NULL,
+            seen_at_ms INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS trade_seen_venue_time
+            ON trade_seen(venue, seen_at_ms);
+        CREATE TABLE IF NOT EXISTS trade_flow_minutes (
+            venue TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            market_type TEXT NOT NULL,
+            bucket_start_ms INTEGER NOT NULL,
+            buy_base_volume_btc REAL NOT NULL DEFAULT 0,
+            sell_base_volume_btc REAL NOT NULL DEFAULT 0,
+            buy_notional_usd REAL NOT NULL DEFAULT 0,
+            sell_notional_usd REAL NOT NULL DEFAULT 0,
+            buy_trade_count INTEGER NOT NULL DEFAULT 0,
+            sell_trade_count INTEGER NOT NULL DEFAULT 0,
+            last_trade_time_ms INTEGER NOT NULL,
+            PRIMARY KEY(venue, symbol, bucket_start_ms)
+        );
+        CREATE INDEX IF NOT EXISTS trade_flow_minutes_venue_time
+            ON trade_flow_minutes(venue, symbol, bucket_start_ms);
         """)
         self.db.commit()
 
@@ -290,6 +314,8 @@ class MarketDataStore:
             ("stream_events", "received_at_ms"),
             ("orderbook_snapshots", "observed_at_ms"),
             ("liquidation_events", "event_time_ms"),
+            ("trade_flow_minutes", "bucket_start_ms"),
+            ("trade_seen", "seen_at_ms"),
         ):
             cursor = self.db.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
             removed[table] = cursor.rowcount
@@ -332,6 +358,152 @@ class MarketDataStore:
             }
             for row in reversed(rows)
         ]
+
+    def record_trade_event(
+        self,
+        *,
+        event: Mapping[str, Any],
+        received_at_ms: int,
+    ) -> bool:
+        required = (
+            "event_key", "venue", "symbol", "market_type", "event_time_ms",
+            "aggressor_side", "price", "base_quantity", "quantity_unit",
+            "notional_usd", "trade_count",
+        )
+        if any(key not in event for key in required):
+            raise ValueError("Trade event is missing required normalized fields.")
+        price = float(event["price"])
+        quantity = float(event["base_quantity"])
+        notional = float(event["notional_usd"])
+        event_time = int(event["event_time_ms"])
+        received = int(received_at_ms)
+        count = int(event["trade_count"])
+        side = str(event["aggressor_side"])
+        if (
+            not math.isfinite(price) or price <= 0
+            or not math.isfinite(quantity) or quantity <= 0
+            or not math.isfinite(notional) or notional <= 0
+            or event_time <= 0 or received <= 0 or count < 1
+            or side not in {"BUY", "SELL"}
+            or event["quantity_unit"] != "BTC"
+        ):
+            raise ValueError("Invalid normalized BTC trade event.")
+        venue = str(event["venue"])
+        symbol = str(event["symbol"])
+        market_type = str(event["market_type"])
+        if not venue or not symbol or not market_type:
+            raise ValueError("Trade venue, symbol and market type must be non-empty.")
+        bucket = event_time // 60_000 * 60_000
+
+        cursor = self.db.execute(
+            """INSERT OR IGNORE INTO trade_seen
+            (event_key,venue,event_time_ms,seen_at_ms) VALUES (?,?,?,?)""",
+            (str(event["event_key"]), venue, event_time, received),
+        )
+        if cursor.rowcount != 1:
+            return False
+
+        if side == "BUY":
+            self.db.execute(
+                """INSERT INTO trade_flow_minutes
+                (venue,symbol,market_type,bucket_start_ms,buy_base_volume_btc,
+                 buy_notional_usd,buy_trade_count,last_trade_time_ms)
+                VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(venue,symbol,bucket_start_ms) DO UPDATE SET
+                  buy_base_volume_btc=buy_base_volume_btc+excluded.buy_base_volume_btc,
+                  buy_notional_usd=buy_notional_usd+excluded.buy_notional_usd,
+                  buy_trade_count=buy_trade_count+excluded.buy_trade_count,
+                  last_trade_time_ms=MAX(last_trade_time_ms,excluded.last_trade_time_ms),
+                  market_type=excluded.market_type""",
+                (venue, symbol, market_type, bucket, quantity, notional, count, event_time),
+            )
+        else:
+            self.db.execute(
+                """INSERT INTO trade_flow_minutes
+                (venue,symbol,market_type,bucket_start_ms,sell_base_volume_btc,
+                 sell_notional_usd,sell_trade_count,last_trade_time_ms)
+                VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(venue,symbol,bucket_start_ms) DO UPDATE SET
+                  sell_base_volume_btc=sell_base_volume_btc+excluded.sell_base_volume_btc,
+                  sell_notional_usd=sell_notional_usd+excluded.sell_notional_usd,
+                  sell_trade_count=sell_trade_count+excluded.sell_trade_count,
+                  last_trade_time_ms=MAX(last_trade_time_ms,excluded.last_trade_time_ms),
+                  market_type=excluded.market_type""",
+                (venue, symbol, market_type, bucket, quantity, notional, count, event_time),
+            )
+        self.db.commit()
+        return True
+
+    def trade_flow_summary(
+        self,
+        *,
+        symbol: str = "BTCUSDT",
+        now_ms: int,
+        windows_seconds: tuple[int, ...] = (60, 300, 900, 3600, 14400),
+    ) -> list[dict[str, Any]]:
+        if not windows_seconds or any(
+            isinstance(item, bool) or not isinstance(item, int) or item < 60
+            for item in windows_seconds
+        ):
+            raise ValueError("Trade-flow windows must contain positive whole seconds >= 60.")
+        largest_window = max(windows_seconds)
+        since_ms = int(now_ms) - largest_window * 1000
+        self.db.row_factory = sqlite3.Row
+        rows = self.db.execute(
+            """SELECT venue,symbol,market_type,bucket_start_ms,
+            buy_base_volume_btc,sell_base_volume_btc,
+            buy_notional_usd,sell_notional_usd,
+            buy_trade_count,sell_trade_count,last_trade_time_ms
+            FROM trade_flow_minutes
+            WHERE symbol=? AND bucket_start_ms>=?
+            ORDER BY venue,bucket_start_ms""",
+            (symbol.upper(), since_ms // 60_000 * 60_000),
+        ).fetchall()
+        by_venue: dict[tuple[str, str], list[sqlite3.Row]] = {}
+        for row in rows:
+            by_venue.setdefault((row["venue"], row["market_type"]), []).append(row)
+
+        labels = {60: "1m", 300: "5m", 900: "15m", 3600: "1h", 14400: "4h"}
+        result: list[dict[str, Any]] = []
+        for (venue, market_type), venue_rows in sorted(by_venue.items()):
+            for window in windows_seconds:
+                start = int(now_ms) - window * 1000
+                selected = [row for row in venue_rows if row["bucket_start_ms"] >= start // 60_000 * 60_000]
+                buy_btc = sum(float(row["buy_base_volume_btc"]) for row in selected)
+                sell_btc = sum(float(row["sell_base_volume_btc"]) for row in selected)
+                buy_usd = sum(float(row["buy_notional_usd"]) for row in selected)
+                sell_usd = sum(float(row["sell_notional_usd"]) for row in selected)
+                buy_count = sum(int(row["buy_trade_count"]) for row in selected)
+                sell_count = sum(int(row["sell_trade_count"]) for row in selected)
+                total_usd = buy_usd + sell_usd
+                total_btc = buy_btc + sell_btc
+                result.append({
+                    "venue": venue,
+                    "symbol": symbol.upper(),
+                    "market_type": market_type,
+                    "timeframe": labels.get(window, f"{window}s"),
+                    "window_seconds": window,
+                    "status": "ok" if total_usd > 0 else "empty",
+                    "buy_base_volume_btc": round(buy_btc, 8),
+                    "sell_base_volume_btc": round(sell_btc, 8),
+                    "delta_base_volume_btc": round(buy_btc - sell_btc, 8),
+                    "buy_notional_usd": round(buy_usd, 2),
+                    "sell_notional_usd": round(sell_usd, 2),
+                    "delta_notional_usd": round(buy_usd - sell_usd, 2),
+                    "delta_notional_ratio": (
+                        round((buy_usd - sell_usd) / total_usd, 6)
+                        if total_usd > 0 else None
+                    ),
+                    "total_notional_usd": round(total_usd, 2),
+                    "buy_trade_count": buy_count,
+                    "sell_trade_count": sell_count,
+                    "trade_count": buy_count + sell_count,
+                    "last_trade_time_ms": (
+                        max(int(row["last_trade_time_ms"]) for row in selected)
+                        if selected else None
+                    ),
+                })
+        return result
 
     def record_liquidation(
         self,
