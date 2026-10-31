@@ -53,6 +53,10 @@ class LiveSnapshotIntegrationContractTests(unittest.TestCase):
         self.assertIn('btc_report_revision', self.dashboard)
         self.assertIn('التحديث الكامل يدوي للحفاظ على استقرار اللوحة', self.dashboard)
 
+    def test_dashboard_keeps_last_snapshot_when_refresh_fails(self):
+        self.assertIn('if not isinstance(report, dict):', self.dashboard)
+        self.assertIn('التحديث الكامل للقرار يدوي افتراضياً', self.dashboard)
+
     def test_dashboard_exposes_five_domain_vote_and_normalized_weights(self):
         self.assertIn("خريطة تصويت المجالات الخمسة", self.dashboard)
         self.assertIn("الوزن الفعلي بعد التطبيع", self.dashboard)
