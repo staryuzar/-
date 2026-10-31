@@ -106,6 +106,10 @@ def central_decision(
     # Cross-venue derivatives are context attached to the derivatives
     # domain; their warnings are surfaced but they add no independent vote.
     if isinstance(derivatives, Mapping):
+        warnings.extend(str(item) for item in derivatives.get("warnings", []))
+        crowding_warning = derivatives.get("crowding_warning")
+        if crowding_warning:
+            warnings.append(str(crowding_warning))
         derivatives_context = derivatives.get("cross_venue_context_only")
         if isinstance(derivatives_context, Mapping):
             warnings.extend(
