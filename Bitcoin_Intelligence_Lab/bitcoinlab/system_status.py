@@ -14,6 +14,7 @@ def build_system_readiness(
     execution_loop: Mapping[str, Any] | None,
     positions: Sequence[Mapping[str, Any]] | None = None,
     pending_command: Mapping[str, Any] | None = None,
+    snapshot_service: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Join independently observed components into one honest system state.
 
@@ -24,6 +25,7 @@ def build_system_readiness(
     ea = _mapping(terminal)
     loop = _mapping(execution_loop)
     pending = _mapping(pending_command)
+    service = _mapping(snapshot_service)
     decision = _mapping(report.get("decision"))
     sources = _mapping(report.get("source_states"))
     market_stream = _mapping(report.get("market_stream"))
@@ -71,7 +73,13 @@ def build_system_readiness(
     )
     execution_loop_ready = loop.get("status") == "fresh"
     pending_now = bool(pending.get("pending"))
-    execution_pipeline_ready = terminal_ready and execution_loop_ready
+    snapshot_service_ready = (
+        service.get("status") == "healthy"
+        and service.get("freshness_status") == "fresh"
+    )
+    execution_pipeline_ready = (
+        terminal_ready and execution_loop_ready and snapshot_service_ready
+    )
 
     position_rows = list(positions or [])
     btc_positions = [
@@ -92,6 +100,8 @@ def build_system_readiness(
         blockers.append(f"headway_terminal_{ea.get('status', 'unavailable')}")
     if not execution_loop_ready:
         blockers.append(f"execution_loop_{loop.get('status', 'unavailable')}")
+    if not snapshot_service_ready:
+        blockers.append(f"snapshot_service_{service.get('status', 'unavailable')}")
     if pending_now:
         blockers.append("broker_command_pending_acknowledgement")
 
@@ -121,6 +131,16 @@ def build_system_readiness(
             "blockers": list(decision_blockers),
             "warnings": list(decision.get("warnings", []))
             if isinstance(decision.get("warnings", []), (list, tuple)) else [],
+        },
+        "snapshot_service": {
+            "status": (
+                "healthy" if snapshot_service_ready
+                else str(service.get("status", "unavailable"))
+            ),
+            "freshness_status": service.get("freshness_status", "unavailable"),
+            "age_seconds": service.get("age_seconds"),
+            "last_success_utc": service.get("last_success_utc"),
+            "last_error": service.get("last_error"),
         },
         "headway_mt5": {
             "status": "ready" if terminal_ready else str(ea.get("status", "unavailable")),
