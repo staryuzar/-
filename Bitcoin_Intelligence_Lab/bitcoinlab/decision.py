@@ -144,6 +144,9 @@ def central_decision(
         elif reward_risk_ratio < 1.5:
             warnings.append("reward_risk_below_optional_reference")
 
+    positive = sum(1 for value in valid.values() if value >= 0.10)
+    negative = sum(1 for value in valid.values() if value <= -0.10)
+
     if technical.get("macro_conflict") is True:
         return {
             "action": "HOLD", "score": round(score, 6),
@@ -163,8 +166,6 @@ def central_decision(
             "interpretation": "The daily and four-hour regimes materially disagree; wait for structure to resolve.",
         }
 
-    positive = sum(1 for value in valid.values() if value >= 0.10)
-    negative = sum(1 for value in valid.values() if value <= -0.10)
     strong = [value for value in valid.values() if abs(value) >= 0.80]
     if any(value > 0 for value in strong) and any(value < 0 for value in strong):
         return {
@@ -175,7 +176,8 @@ def central_decision(
             "weights": normalized,
             "active_domains": list(valid), "unavailable_domains": unavailable,
             "core_active_domains": sorted(active_core),
-            "aligned_domains": 0, "buy_aligned_domains": 0, "sell_aligned_domains": 0,
+            "aligned_domains": max(positive, negative),
+            "buy_aligned_domains": positive, "sell_aligned_domains": negative,
             "risk_context_only": (
                 liquidation_risk.get("use_in_decision")
                 if isinstance(liquidation_risk, Mapping) else None
