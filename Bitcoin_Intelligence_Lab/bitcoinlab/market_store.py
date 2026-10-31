@@ -359,9 +359,8 @@ class MarketDataStore:
             for row in reversed(rows)
         ]
 
-    def record_trade_event(
+    def _insert_trade_event(
         self,
-        *,
         event: Mapping[str, Any],
         received_at_ms: int,
     ) -> bool:
@@ -431,8 +430,29 @@ class MarketDataStore:
                   market_type=excluded.market_type""",
                 (venue, symbol, market_type, bucket, quantity, notional, count, event_time),
             )
-        self.db.commit()
         return True
+
+    def record_trade_event(
+        self,
+        *,
+        event: Mapping[str, Any],
+        received_at_ms: int,
+    ) -> bool:
+        with self.db:
+            return self._insert_trade_event(event, received_at_ms)
+
+    def record_trade_events(
+        self,
+        *,
+        events: list[Mapping[str, Any]],
+        received_at_ms: int,
+    ) -> int:
+        """Insert a WebSocket batch in one SQLite transaction."""
+        inserted = 0
+        with self.db:
+            for event in events:
+                inserted += int(self._insert_trade_event(event, received_at_ms))
+        return inserted
 
     def trade_flow_summary(
         self,
