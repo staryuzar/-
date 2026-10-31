@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -16,6 +18,40 @@ from .ea_bridge import (
 )
 from .live_snapshot import build_live_snapshot
 from .position_manager import next_position_action
+
+
+def _finish_cycle(directory: Path, result: dict[str, Any]) -> dict[str, Any]:
+    """Publish a small heartbeat for the dashboard without exposing credentials."""
+    folder = directory / "BitcoinIntelligenceLab"
+    folder.mkdir(parents=True, exist_ok=True)
+    command = result.get("command", {})
+    payload = {
+        "schema": "BTCIL-EXEC1",
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "status": result.get("status"),
+        "plan": result.get("plan", {}),
+        "command_id": command.get("command_id"),
+        "decision_action": result.get("decision", {}).get("action"),
+    }
+    target = folder / "execution_loop_status.json"
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=folder,
+            prefix="execution_loop_status.", suffix=".tmp", delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            json.dump(payload, handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, target)
+    except OSError:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return result
 
 
 def execute_once(
@@ -36,11 +72,11 @@ def execute_once(
     snapshot = report if report is not None else report_builder()
     terminal = read_ea_status(directory)
     if terminal.get("status") != "fresh":
-        return {
+        return _finish_cycle(directory, {
             "status": "terminal_not_ready",
             "terminal": terminal,
             "action": "HOLD",
-        }
+        })
 
     positions = read_positions(directory)
     plan = next_position_action(snapshot.get("decision", {}), positions)
@@ -52,31 +88,31 @@ def execute_once(
             common_files=directory,
             volume=volume,
         )
-        return {
+        return _finish_cycle(directory, {
             "status": published.get("status", "unknown"),
             "plan": plan,
             "command": published,
             "decision": snapshot.get("decision", {}),
-        }
+        })
 
     if action == "CLOSE":
         published = publish_close_order(
             ticket=int(plan["ticket"]),
             common_files=directory,
         )
-        return {
+        return _finish_cycle(directory, {
             "status": published.get("status", "unknown"),
             "plan": plan,
             "command": published,
             "decision": snapshot.get("decision", {}),
-        }
+        })
 
-    return {
+    return _finish_cycle(directory, {
         "status": "no_command",
         "plan": plan,
         "decision": snapshot.get("decision", {}),
         "positions": positions,
-    }
+    })
 
 
 def main() -> int:
