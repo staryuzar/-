@@ -194,6 +194,21 @@ class EABridgeTests(unittest.TestCase):
         self.assertEqual(rows[0]["type"], "BUY")
         self.assertAlmostEqual(rows[0]["profit"], 1.25)
 
+    def test_close_command_remains_available_without_new_entry_risk_specs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp, include_risk_specs=False)
+            folder = Path(tmp) / "BitcoinIntelligenceLab"
+            (folder / "positions.tsv").write_text(
+                "ticket|symbol|type|volume|price_open|price_current|stop_loss|take_profit|profit\\n"
+                "12345|BTCUSD|0|0.01|70000|70100|69800|70400|1.25\\n",
+                encoding="utf-8",
+            )
+            terminal = read_ea_status(tmp)
+            result = publish_close_order(ticket=12345, common_files=tmp)
+        self.assertEqual(terminal["status"], "fresh")
+        self.assertFalse(terminal["risk_specs_ready"])
+        self.assertEqual(result["status"], "published")
+
     def test_close_command_requires_position_owned_by_ea(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.write_status(tmp)
