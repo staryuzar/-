@@ -4,7 +4,6 @@ import csv
 from datetime import datetime, timezone
 import io
 import math
-from pathlib import Path
 import zipfile
 
 from ..quality import utc_now_ms
