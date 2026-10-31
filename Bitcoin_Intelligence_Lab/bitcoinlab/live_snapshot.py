@@ -107,7 +107,18 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "status": "ok" if all(source_states.get(key, {}).get("status") == "fresh" for key in ("spot", "orderflow", "derivatives")) else "partial",
         "symbol": symbol, "interval": interval, "as_of_utc": datetime.fromtimestamp(now / 1000, tz=timezone.utc).isoformat(),
         "source_states": source_states, "errors": errors,
-        "spot": {"bar_count": len(bars), "last_bar": bars[-1].__dict__ if bars else None},
+        "spot": {
+            "bar_count": len(bars),
+            "last_bar": bars[-1].__dict__ if bars else None,
+            "price_history": {
+                "time_utc": [
+                    datetime.fromtimestamp(bar.close_time_ms / 1000, tz=timezone.utc).isoformat()
+                    for bar in bars[-120:]
+                ],
+                "close": [bar.close for bar in bars[-120:]],
+                "volume": [bar.volume for bar in bars[-120:]],
+            },
+        },
         "technical": technical,
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
