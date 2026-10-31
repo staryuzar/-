@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from .market_store import MarketDataStore
+from .liquidation_stream import run_liquidation_streams
 from .orderbook_sync import BinanceOrderBook
 from .providers.binance import fetch_spot_depth
 from .venue_books import IncrementalOrderBook, apply_bybit_message, apply_okx_message
@@ -436,6 +437,7 @@ async def run_market_stream(
     venues: tuple[str, ...] = ("binance", "bybit", "okx"),
     depth: int = 50,
     retention_hours: int = 24,
+    liquidations_enabled: bool = True,
 ) -> None:
     symbol = symbol.upper().strip()
     if not symbol.isalnum() or not symbol.startswith("BTC"):
@@ -456,6 +458,8 @@ async def run_market_stream(
             tasks.append(_run_bybit(store, symbol, depth))
         if "okx" in venues:
             tasks.append(_run_okx(store, symbol, depth))
+        if liquidations_enabled:
+            tasks.append(run_liquidation_streams(store, symbol=symbol, venues=venues))
         cleanup_task = asyncio.create_task(_periodic_prune(store))
         try:
             await asyncio.gather(*tasks)
@@ -473,6 +477,10 @@ def main() -> None:
     parser.add_argument("--venues", default="binance,bybit,okx")
     parser.add_argument("--depth", type=int, default=50)
     parser.add_argument("--retention-hours", type=int, default=24)
+    parser.add_argument(
+        "--liquidations", action=argparse.BooleanOptionalAction, default=True,
+        help="Enable public liquidation feeds from Binance, Bybit and OKX.",
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     args = parser.parse_args()
     logging.basicConfig(
@@ -484,6 +492,7 @@ def main() -> None:
         asyncio.run(run_market_stream(
             symbol=args.symbol, db_path=args.db, venues=venues,
             depth=args.depth, retention_hours=args.retention_hours,
+            liquidations_enabled=args.liquidations,
         ))
     except KeyboardInterrupt:
         LOG.info("Market data collector stopped by user.")
