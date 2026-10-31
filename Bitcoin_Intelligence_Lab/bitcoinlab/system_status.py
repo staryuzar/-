@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+import math\nfrom typing import Any, Mapping, Sequence
 
 
 def _mapping(value: object) -> Mapping[str, Any]:
@@ -94,6 +94,16 @@ def build_system_readiness(
     )
     execution_loop_ready = loop.get("status") == "fresh"
     risk_specs_ready = bool(ea.get("risk_specs_ready"))
+    daily_loss = ea.get("daily_loss_percent")
+    daily_loss_limit = ea.get("daily_loss_limit_percent")
+    daily_risk_status_ready = (
+        isinstance(daily_loss, (int, float))
+        and isinstance(daily_loss_limit, (int, float))
+        and math.isfinite(float(daily_loss))
+        and math.isfinite(float(daily_loss_limit))
+        and 0 <= float(daily_loss) < float(daily_loss_limit)
+        and float(daily_loss_limit) > 0
+    )
     pending_now = bool(pending.get("pending"))
     snapshot_service_ready = (
         service.get("status") == "healthy"
@@ -129,6 +139,14 @@ def build_system_readiness(
         blockers.append(f"snapshot_service_{service_problem}")
     if terminal_ready and not risk_specs_ready:
         blockers.append("mt5_broker_risk_specs_unavailable")
+    if terminal_ready and not daily_risk_status_ready:
+        blockers.append(
+            "mt5_daily_loss_limit_reached"
+            if isinstance(daily_loss, (int, float))
+            and isinstance(daily_loss_limit, (int, float))
+            and float(daily_loss) >= float(daily_loss_limit)
+            else "mt5_daily_risk_status_unavailable"
+        )
     if pending_now:
         blockers.append("broker_command_pending_acknowledgement")
 
@@ -187,6 +205,9 @@ def build_system_readiness(
             "age_seconds": ea.get("age_seconds"),
             "trading_ready": bool(ea.get("trading_ready")),
             "risk_sizing_ready": risk_specs_ready,
+            "daily_risk_status_ready": daily_risk_status_ready,
+            "daily_loss_percent": daily_loss,
+            "daily_loss_limit_percent": daily_loss_limit,
             "account_equity": ea.get("account_equity"),
             "tick_size": ea.get("tick_size"),
             "tick_value_loss": ea.get("tick_value_loss"),
@@ -212,6 +233,7 @@ def build_system_readiness(
             and decision_ready
             and action in {"BUY", "SELL"}
             and risk_specs_ready
+            and daily_risk_status_ready
             and not pending_now
         ),
         "blockers": list(dict.fromkeys(blockers)),
