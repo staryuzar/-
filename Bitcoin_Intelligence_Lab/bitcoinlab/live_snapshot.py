@@ -11,6 +11,8 @@ from .providers import binance, bybit
 from .quality import freshness, utc_now_ms, validate_bars
 from .multi_timeframe import build_multi_timeframe_profile
 from .market_structure import market_structure_profile
+from .market_intelligence import build_market_intelligence
+from .market_store import read_market_stream_dashboard
 
 
 def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms: int | None = None) -> dict[str, Any]:
@@ -164,9 +166,49 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "volume_profile": {"status": "unavailable", "reason": "Recent trade sample unavailable."},
     }
 
+    # Read the local read-only market collector. Its data is never connected to MT5.
+    stream_state = read_market_stream_dashboard(
+        "data/market_stream.sqlite", symbol=symbol,
+    )
+    market_intelligence = build_market_intelligence(
+        stream_state, market_structure, now_ms=now,
+    )
+    market_structure_signal = market_intelligence["market_structure_signal"]
+    cross_venue_engine = market_intelligence["cross_venue_orderbook"]
+    liquidation_risk = market_intelligence["liquidation_risk"]
+
+    if market_structure_signal.get("status") == "ok" and bars:
+        structure_age = freshness(
+            bars[-1].close_time_ms, interval_max_age, now_ms=now,
+        )
+        source_states["market_structure"] = {
+            "status": structure_age["status"],
+            **structure_age,
+            "timeframe": interval,
+        }
+        if structure_age["status"] != "fresh":
+            market_structure_signal = {
+                "status": "incomplete", "score": None,
+                "reason": "Market-structure input bars are stale.",
+                "warnings": market_structure_signal.get("warnings", []),
+            }
+    else:
+        source_states["market_structure"] = {
+            "status": "unavailable",
+            "reason": market_structure_signal.get("reason", "Market-structure profile incomplete."),
+        }
+
+    source_states["cross_venue"] = {
+        "status": "fresh" if cross_venue_engine.get("status") == "ok" else "unavailable",
+        "venue_count": cross_venue_engine.get("venue_count", 0),
+        "active_venues": cross_venue_engine.get("active_venues", []),
+    }
+
     spread_bps = float(book_metrics["spread_bps"]) if book_metrics else float("inf")
     decision = central_decision(
         technical=decision_technical, orderflow=flow_engine, derivatives=deriv_engine,
+        market_structure=market_structure_signal, cross_venue=cross_venue_engine,
+        liquidation_risk=liquidation_risk,
         source_states=source_states, spread_bps=spread_bps,
     )
     return {
@@ -191,6 +233,8 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "multi_timeframe": multi_timeframe,
         "decision_technical": decision_technical,
         "market_structure": market_structure,
+        "market_intelligence": market_intelligence,
+        "market_stream": stream_state,
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
         "decision": decision,
