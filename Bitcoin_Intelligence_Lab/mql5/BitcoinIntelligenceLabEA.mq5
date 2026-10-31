@@ -92,6 +92,15 @@ bool DailyRiskAllowsNewEntry()
    return (drawdownPercent<MaxDailyLossPercent);
 }
 
+double CurrentDailyDrawdownPercent()
+{
+   RefreshDailyRiskBaseline();
+   double baseline=GlobalVariableGet(DailyEquityName());
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   if(baseline<=0.0 || equity<=0.0) return -1.0;
+   return MathMax(0.0,(baseline-equity)/baseline*100.0);
+}
+
 bool WriteTextFile(const string relativePath, const string content)
 {
    int handle = FileOpen(BaseFolder()+relativePath, FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
@@ -133,12 +142,12 @@ void WriteStatus()
       if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
          (ulong)PositionGetInteger(POSITION_MAGIC)==MagicNumber) ownPositions++;
    }
-   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s\n",
+   string line=StringFormat("BTCIL1|%s|%s|%I64d|%s|%.8f|%.8f|%d|%s|%.10f|%d|%s|%s|%.4f|%.4f\n",
       _Symbol,EnumToString(_Period),(long)TimeGMT(),
       TerminalInfoInteger(TERMINAL_CONNECTED)?"CONNECTED":"DISCONNECTED",
       bid,ask,ownPositions,lastStatus,point,(int)stops,
       TerminalAllowsTrading()?"TRADE_READY":"TRADE_BLOCKED",
-      accountServer);
+      accountServer,CurrentDailyDrawdownPercent(),MaxDailyLossPercent);
    WriteTextFile("ea_status.tsv",line);
 }
 
