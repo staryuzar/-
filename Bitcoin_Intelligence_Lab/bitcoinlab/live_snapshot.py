@@ -300,11 +300,11 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         minimum_cluster_events=1,
     )
     trade_analytics = read_trade_analytics(
-        "data/market_stream.sqlite", symbol=symbol, now_ms=now,
+        market_db_path, symbol=symbol, now_ms=now,
     )
     stream_state["trade_feed_status"] = trade_analytics.get("trade_feed_status", [])
     liquidity_context = read_depth_liquidity_context(
-        "data/market_stream.sqlite", symbol=symbol, now_ms=now,
+        market_db_path, symbol=symbol, now_ms=now,
         lookback_minutes=30, bucket_step_usd=50.0,
     )
     streamed_trade_flow = build_streamed_trade_flow_profile(
