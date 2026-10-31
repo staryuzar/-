@@ -106,6 +106,16 @@ def render_live_dashboard():
                 f"عمر النبضة: {ea_status.get('age_seconds')} ثانية · "
                 f"حالة الإذن: {ea_status.get('readiness_marker')}"
             )
+            daily_loss = ea_status.get("daily_loss_percent")
+            daily_limit = ea_status.get("daily_loss_limit_percent")
+            if daily_loss is not None and daily_limit is not None and daily_loss >= 0:
+                risk_text = (
+                    f"السحب اليومي: {daily_loss:.2f}% من حد الإيقاف {daily_limit:.2f}%"
+                )
+                if daily_loss >= daily_limit:
+                    st.warning(risk_text + " — تم إيقاف المداخل الجديدة، وإدارة الإغلاق باقية.")
+                else:
+                    st.caption(risk_text)
         if loop_status.get("status") == "fresh":
             st.caption(
                 f"آخر دورة: {loop_status.get('updated_at_utc')} · "
