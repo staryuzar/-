@@ -15,6 +15,9 @@ input int    MaxOpenPositions = 1; // one BTCIL-managed position at a time
 string lastCommandId = "";
 string pendingCommandId = "";
 string pendingCommandAction = "";
+uint pendingRequestId = 0;
+uint pendingRetcode = 0;
+datetime pendingRequestTime = 0;
 ulong pendingOrderTicket = 0;
 ulong pendingPositionTicket = 0;
 double pendingRequestedVolume = 0.0;
@@ -235,17 +238,20 @@ bool CloseOwnPosition(const ulong ticket)
       lastStatus="CLOSE_REJECTED: "+TradeResultText(result);
       return false;
    }
-   if(result.order==0)
+   if(result.request_id==0 || (code==TRADE_RETCODE_PLACED && result.order==0))
    {
-      lastStatus="CLOSE_REJECTED: broker returned no order ticket for acknowledgment tracking";
+      lastStatus="CLOSE_REJECTED: broker returned no request/order identifier for acknowledgment tracking";
       return false;
    }
+   pendingRequestId=result.request_id;
+   pendingRetcode=code;
+   pendingRequestTime=TimeCurrent();
    pendingOrderTicket=result.order;
    pendingPositionTicket=ticket;
    pendingRequestedVolume=volume;
-   pendingFilledVolume=0.0;
-   lastStatus=StringFormat("CLOSE_SUBMITTED_PENDING: order=%I64u position=%I64u retcode=%u",
-      result.order,ticket,code);
+   pendingFilledVolume=result.volume;
+   lastStatus=StringFormat("CLOSE_SUBMITTED_PENDING: request=%u order=%I64u position=%I64u retcode=%u",
+      result.request_id,result.order,ticket,code);
    return true;
 }
 
@@ -299,17 +305,20 @@ bool OpenBoardPosition(const string side,const double volume,const double sl,con
       lastStatus="ORDER_REJECTED: "+TradeResultText(result);
       return false;
    }
-   if(result.order==0)
+   if(result.request_id==0 || (code==TRADE_RETCODE_PLACED && result.order==0))
    {
-      lastStatus="ORDER_REJECTED: broker returned no order ticket for acknowledgment tracking";
+      lastStatus="ORDER_REJECTED: broker returned no request/order identifier for acknowledgment tracking";
       return false;
    }
+   pendingRequestId=result.request_id;
+   pendingRetcode=code;
+   pendingRequestTime=TimeCurrent();
    pendingOrderTicket=result.order;
    pendingPositionTicket=0;
    pendingRequestedVolume=volume;
-   pendingFilledVolume=0.0;
-   lastStatus=StringFormat("ORDER_SUBMITTED_PENDING: order=%I64u retcode=%u",
-      result.order,code);
+   pendingFilledVolume=result.volume;
+   lastStatus=StringFormat("ORDER_SUBMITTED_PENDING: request=%u order=%I64u retcode=%u",
+      result.request_id,result.order,code);
    return true;
 }
 
@@ -365,6 +374,9 @@ void PollProgramCommand()
    {
       pendingCommandId="";
       pendingCommandAction="";
+      pendingRequestId=0;
+      pendingRetcode=0;
+      pendingRequestTime=0;
       pendingOrderTicket=0;
       pendingPositionTicket=0;
       pendingRequestedVolume=0.0;
@@ -411,6 +423,7 @@ int OnInit()
 void OnTimer()
 {
    PollProgramCommand();
+   PollPendingOrderStatus();
    datetime now=TimeGMT();
    if(now-lastHeartbeat>=10)
    {
@@ -421,85 +434,149 @@ void OnTimer()
    if(ShowStatusOnChart) Comment("Bitcoin Intelligence Lab\n",lastStatus);
 }
 
-void FinalizePendingOrder(const bool brokerOrderDeleted)
+void ClearPendingCommand()
 {
-   string finalStatus="";
-   if(pendingFilledVolume<=0.0)
-      finalStatus=brokerOrderDeleted?"ORDER_REJECTED_OR_CANCELLED":"ORDER_STATUS_UNKNOWN";
-   else if(pendingCommandAction=="OPEN")
-      finalStatus=(pendingFilledVolume+1e-8>=pendingRequestedVolume)
-         ?"OPEN_FILL_CONFIRMED":"OPEN_PARTIAL_FILL_CONFIRMED";
-   else if(pendingCommandAction=="CLOSE")
-   {
-      bool stillOpen=PositionSelectByTicket(pendingPositionTicket);
-      double remainingVolume=stillOpen?PositionGetDouble(POSITION_VOLUME):0.0;
-      finalStatus=(stillOpen && remainingVolume>1e-8)
-         ?"CLOSE_PARTIAL_FILL_CONFIRMED":"CLOSE_FILL_CONFIRMED";
-   }
-   else finalStatus="ORDER_STATUS_UNKNOWN";
-
-   double remainingVolume=0.0;
-   if(pendingPositionTicket>0 && PositionSelectByTicket(pendingPositionTicket))
-      remainingVolume=PositionGetDouble(POSITION_VOLUME);
-   string detail=StringFormat(
-      "order=%I64u filled=%.8f requested=%.8f remaining_position=%.8f",
-      pendingOrderTicket,pendingFilledVolume,pendingRequestedVolume,remainingVolume);
-   lastStatus=finalStatus+": "+detail;
-   WriteAck(pendingCommandId,finalStatus,pendingCommandAction,detail);
-   WriteStatus();
-   WritePositions();
    pendingCommandId="";
    pendingCommandAction="";
+   pendingRequestId=0;
+   pendingRetcode=0;
+   pendingRequestTime=0;
    pendingOrderTicket=0;
    pendingPositionTicket=0;
    pendingRequestedVolume=0.0;
    pendingFilledVolume=0.0;
 }
 
+void FinalizePendingOrder()
+{
+   string finalStatus="";
+   if(pendingFilledVolume<=0.0)
+      finalStatus="ORDER_REJECTED_OR_CANCELLED";
+   else if(pendingCommandAction=="OPEN")
+      finalStatus=(pendingFilledVolume+1e-8>=pendingRequestedVolume)
+         ?"OPEN_FILL_CONFIRMED":"OPEN_PARTIAL_FILL_CONFIRMED";
+   else if(pendingCommandAction=="CLOSE")
+      finalStatus=(pendingFilledVolume+1e-8>=pendingRequestedVolume)
+         ?"CLOSE_FILL_CONFIRMED":"CLOSE_PARTIAL_FILL_CONFIRMED";
+   else finalStatus="ORDER_STATUS_UNKNOWN";
+
+   double remainingVolume=0.0;
+   if(pendingPositionTicket>0 && PositionSelectByTicket(pendingPositionTicket))
+      remainingVolume=PositionGetDouble(POSITION_VOLUME);
+   string detail=StringFormat(
+      "request=%u order=%I64u filled=%.8f requested=%.8f remaining_position=%.8f retcode=%u",
+      pendingRequestId,pendingOrderTicket,pendingFilledVolume,pendingRequestedVolume,
+      remainingVolume,pendingRetcode);
+   string commandId=pendingCommandId;
+   string action=pendingCommandAction;
+   lastStatus=finalStatus+": "+detail;
+   WriteAck(commandId,finalStatus,action,detail);
+   WriteStatus();
+   WritePositions();
+   ClearPendingCommand();
+}
+
+void PollPendingOrderStatus()
+{
+   if(pendingCommandId=="" || pendingOrderTicket==0 ||
+      (pendingRetcode!=TRADE_RETCODE_PLACED &&
+       pendingRetcode!=TRADE_RETCODE_DONE_PARTIAL))
+      return;
+
+   // Do not finalize a partial fill while the residual order remains active.
+   if(OrderSelect(pendingOrderTicket)) return;
+
+   datetime fromTime=(datetime)MathMax(0,(long)pendingRequestTime-120);
+   datetime toTime=TimeCurrent()+60;
+   if(!HistorySelect(fromTime,toTime)) return;
+
+   double historyFilled=0.0;
+   int totalDeals=HistoryDealsTotal();
+   for(int i=0;i<totalDeals;i++)
+   {
+      ulong deal=HistoryDealGetTicket(i);
+      if(deal==0) continue;
+      if((ulong)HistoryDealGetInteger(deal,DEAL_ORDER)!=pendingOrderTicket) continue;
+      if(HistoryDealGetString(deal,DEAL_SYMBOL)!=_Symbol ||
+         (ulong)HistoryDealGetInteger(deal,DEAL_MAGIC)!=MagicNumber) continue;
+      long entry=HistoryDealGetInteger(deal,DEAL_ENTRY);
+      bool expectedEntry=(pendingCommandAction=="OPEN" && entry==DEAL_ENTRY_IN) ||
+         (pendingCommandAction=="CLOSE" &&
+          (entry==DEAL_ENTRY_OUT || entry==DEAL_ENTRY_OUT_BY));
+      if(expectedEntry)
+         historyFilled+=HistoryDealGetDouble(deal,DEAL_VOLUME);
+   }
+
+   if(historyFilled>0.0)
+   {
+      pendingFilledVolume=historyFilled;
+      FinalizePendingOrder();
+      return;
+   }
+
+   if(HistoryOrderSelect(pendingOrderTicket))
+   {
+      ENUM_ORDER_STATE state=(ENUM_ORDER_STATE)HistoryOrderGetInteger(
+         pendingOrderTicket,ORDER_STATE);
+      if(state==ORDER_STATE_CANCELED || state==ORDER_STATE_REJECTED ||
+         state==ORDER_STATE_EXPIRED)
+      {
+         pendingFilledVolume=0.0;
+         FinalizePendingOrder();
+      }
+   }
+}
+
 void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result)
 {
-   if(pendingCommandId=="" || pendingOrderTicket==0) return;
-
-   // The server can emit several DEAL_ADD events for one order. Accumulate
-   // only deals belonging to this exact broker order; never infer a fill
-   // from a matching symbol/magic alone.
-   if(trans.type==TRADE_TRANSACTION_DEAL_ADD && trans.deal>0)
+   // This transaction type carries the authoritative result for the matching
+   // request_id, including the broker-confirmed deal volume and retcode.
+   if(trans.type==TRADE_TRANSACTION_REQUEST &&
+      pendingCommandId!="" && pendingRequestId>0 &&
+      result.request_id==pendingRequestId)
    {
-      if(!HistoryDealSelect(trans.deal)) return;
-      ulong dealOrder=(ulong)HistoryDealGetInteger(trans.deal,DEAL_ORDER);
-      if(dealOrder!=pendingOrderTicket) return;
-      if(HistoryDealGetString(trans.deal,DEAL_SYMBOL)!=_Symbol ||
-         (ulong)HistoryDealGetInteger(trans.deal,DEAL_MAGIC)!=MagicNumber)
-         return;
-
-      long entry=HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
-      bool expectedEntry=(pendingCommandAction=="OPEN" && entry==DEAL_ENTRY_IN) ||
-         (pendingCommandAction=="CLOSE" &&
-          (entry==DEAL_ENTRY_OUT || entry==DEAL_ENTRY_OUT_BY));
-      if(!expectedEntry) return;
-
-      double dealVolume=HistoryDealGetDouble(trans.deal,DEAL_VOLUME);
-      pendingFilledVolume+=dealVolume;
-      string detail=StringFormat(
-         "deal=%I64u order=%I64u fill_volume=%.8f cumulative_fill=%.8f requested=%.8f",
-         trans.deal,dealOrder,dealVolume,pendingFilledVolume,pendingRequestedVolume);
-      string interimStatus=(pendingFilledVolume+1e-8>=pendingRequestedVolume)
-         ?"FILL_VOLUME_COMPLETE_WAITING_ORDER_FINALITY":"PARTIAL_FILL_PENDING";
-      lastStatus=interimStatus+": "+detail;
-      WriteAck(pendingCommandId,interimStatus,pendingCommandAction,detail);
-      if(pendingFilledVolume+1e-8>=pendingRequestedVolume)
-         FinalizePendingOrder(false);
+      pendingRetcode=result.retcode;
+      if(result.order>0) pendingOrderTicket=result.order;
+      if(result.retcode==TRADE_RETCODE_DONE)
+      {
+         pendingFilledVolume=result.volume;
+         FinalizePendingOrder();
+      }
+      else if(result.retcode==TRADE_RETCODE_DONE_PARTIAL ||
+              result.retcode==TRADE_RETCODE_PLACED)
+      {
+         pendingFilledVolume=result.volume;
+         string status=(result.retcode==TRADE_RETCODE_PLACED)
+            ?"SUBMITTED_PENDING":"PARTIAL_FILL_PENDING";
+         string detail=StringFormat(
+            "request=%u order=%I64u broker_confirmed_volume=%.8f requested_volume=%.8f retcode=%u",
+            result.request_id,result.order,result.volume,pendingRequestedVolume,result.retcode);
+         lastStatus=status+": "+detail;
+         WriteAck(pendingCommandId,status,pendingCommandAction,detail);
+         if(pendingOrderTicket==0)
+            FinalizePendingOrder();
+         else
+            PollPendingOrderStatus();
+      }
+      else
+      {
+         pendingFilledVolume=0.0;
+         FinalizePendingOrder();
+      }
       return;
    }
 
-   // A partially filled IOC order is commonly followed by ORDER_DELETE.
-   // Finalize the cumulative fill only after the broker signals order finality.
-   if(trans.type==TRADE_TRANSACTION_ORDER_DELETE &&
-      trans.order==pendingOrderTicket)
+   // Deal transaction order is not guaranteed. Use it only to refresh the
+   // displayed position snapshot; the request result above owns the ACK.
+   if(trans.type==TRADE_TRANSACTION_DEAL_ADD && trans.deal>0 &&
+      HistoryDealSelect(trans.deal) &&
+      HistoryDealGetString(trans.deal,DEAL_SYMBOL)==_Symbol &&
+      (ulong)HistoryDealGetInteger(trans.deal,DEAL_MAGIC)==MagicNumber)
    {
-      FinalizePendingOrder(true);
+      WriteStatus();
+      WritePositions();
    }
 }
 
