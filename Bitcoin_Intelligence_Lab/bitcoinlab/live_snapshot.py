@@ -13,6 +13,7 @@ from .multi_timeframe import build_multi_timeframe_profile
 from .market_structure import market_structure_profile
 from .market_intelligence import build_market_intelligence
 from .market_store import read_market_stream_dashboard
+from .feed_health import build_data_health
 
 
 def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms: int | None = None) -> dict[str, Any]:
@@ -214,6 +215,11 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     }
 
     spread_bps = float(book_metrics["spread_bps"]) if book_metrics else float("inf")
+    data_health = build_data_health(
+        source_states=source_states,
+        stream_state=stream_state,
+        now_ms=now,
+    )
     decision = central_decision(
         technical=decision_technical, orderflow=flow_engine, derivatives=deriv_engine,
         market_structure=market_structure_signal, cross_venue=cross_venue_engine,
@@ -244,6 +250,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "market_structure": market_structure,
         "market_intelligence": market_intelligence,
         "market_stream": stream_state,
+        "data_health": data_health,
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
         "decision": decision,
