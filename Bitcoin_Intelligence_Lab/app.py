@@ -5,7 +5,11 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from bitcoinlab.live_snapshot import build_live_snapshot
+from bitcoinlab.snapshot_runtime import (
+    read_latest_snapshot,
+    read_snapshot_service_status,
+    request_snapshot_refresh,
+)
 from bitcoinlab.slow_context import build_slow_context
 from bitcoinlab.ea_bridge import (
     current_ack,
@@ -67,9 +71,17 @@ div[data-testid="stMetric"] {background:white; border:1px solid #e2e8f0; border-
 """, unsafe_allow_html=True)
 
 def _queue_snapshot_refresh():
+    request = request_snapshot_refresh(
+        reason="dashboard_manual_refresh",
+        symbol=st.session_state.get("btc_symbol", "BTCUSDT"),
+        interval=st.session_state.get("btc_interval", "1m"),
+    )
     st.session_state["btc_snapshot_revision"] = int(
         st.session_state.get("btc_snapshot_revision", 0)
     ) + 1
+    st.session_state["btc_refresh_pending"] = True
+    st.session_state["btc_refresh_request_id"] = request["request_id"]
+    st.session_state["btc_refresh_requested_at"] = request["requested_at_utc"]
 
 
 if "btc_snapshot_revision" not in st.session_state:
@@ -77,22 +89,22 @@ if "btc_snapshot_revision" not in st.session_state:
 
 with st.sidebar:
     st.header("إعدادات السوق")
-    symbol = st.selectbox("رمز السوق الفوري", ["BTCUSDT", "BTCUSDC"], index=0)
-    interval = st.selectbox("الإطار الزمني", ["1m", "5m", "15m", "1h", "4h"], index=0)
+    symbol = st.selectbox("رمز السوق الفوري", ["BTCUSDT", "BTCUSDC"], index=0, key="btc_symbol")
+    interval = st.selectbox("الإطار الزمني", ["1m", "5m", "15m", "1h", "4h"], index=0, key="btc_interval")
     st.divider()
-    auto_refresh = st.toggle("تحديث اللقطة الكاملة تلقائياً", value=False)
+    auto_refresh = st.toggle("إعادة قراءة أحدث لقطة تلقائياً", value=False)
     refresh_seconds = st.select_slider(
-        "الفاصل بين التحديثات الكاملة (ثانية)", options=[30, 60, 120], value=60,
+        "الفاصل بين تحديث العرض (ثانية)", options=[30, 60, 120], value=60,
         disabled=not auto_refresh,
     )
     st.button(
-        "تحديث بيانات السوق الآن", type="primary", use_container_width=True,
+        "طلب تحديث التحليل من محرك اللقطات", type="primary", use_container_width=True,
         on_click=_queue_snapshot_refresh,
     )
     st.caption(
         "Binance وBybit وOKX مصادر بيانات فقط. Headway عبر MT5 هو منفذ التنفيذ الوحيد؛ "
         "حلقة التنفيذ عملية مستقلة لا تعمل إلا عند تشغيلها صراحةً على الجهاز المتصل بالطرفية. "
-        "التحديث الكامل للقرار يدوي افتراضياً؛ جامع WebSocket يواصل جمع البيانات في الخلفية دون إعادة تحميل جميع المحركات."
+        "محرك اللقطات يجمع التحليل مرة واحدة ويشاركه مع اللوحة وحلقة التنفيذ؛ جامع WebSocket مستقل ويستمر في الخلفية."
     )
 
 if "btc_report" not in st.session_state:
@@ -103,10 +115,24 @@ if "btc_report_revision" not in st.session_state:
     st.session_state["btc_report_revision"] = None
 
 
-@st.cache_data(ttl=20, max_entries=12, show_spinner=False)
+@st.cache_data(ttl=3, max_entries=12, show_spinner=False)
 def cached_live_snapshot(symbol: str, interval: str, revision: int):
-    """Avoid refetching every exchange feed on incidental Streamlit reruns."""
-    return build_live_snapshot(symbol=symbol, interval=interval)
+    """Read the shared snapshot; this function never fetches exchange feeds."""
+    report = read_latest_snapshot(max_age_seconds=900)
+    if str(report.get("symbol", "")).upper() != symbol.upper():
+        raise RuntimeError(
+            f"Shared snapshot covers {report.get('symbol')}, not {symbol}; request a new snapshot."
+        )
+    if str(report.get("interval", "")).lower() != interval.lower():
+        raise RuntimeError(
+            f"Shared snapshot covers {report.get('interval')}, not {interval}; request a new snapshot."
+        )
+    return report
+
+
+@st.cache_data(ttl=2, show_spinner=False)
+def cached_snapshot_service_status():
+    return read_snapshot_service_status()
 
 
 @st.cache_data(ttl=900, show_spinner=False)
