@@ -107,7 +107,7 @@ def render_live_dashboard():
         if loop_status.get("status") == "fresh":
             st.caption(
                 f"آخر دورة: {loop_status.get('updated_at_utc')} · "
-                f"النتيجة: {loop_status.get('status')} · "
+                f"النتيجة: {loop_status.get('cycle_status')} · "
                 f"الإجراء المخطط: {loop_status.get('plan', {}).get('action', 'HOLD')} · "
                 f"معرّف الأمر: {loop_status.get('command_id') or 'لا يوجد'}"
             )
