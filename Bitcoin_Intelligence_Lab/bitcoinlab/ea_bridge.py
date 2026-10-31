@@ -165,12 +165,39 @@ def pending_command_state(
                 "seconds_until_safe_retry": max(0, expires + max(0, int(expiry_grace_seconds)) - now),
             }
 
+    expired = now > expires + max(0, int(expiry_grace_seconds))
+    if expired and not ack_matches:
+        # The terminal persists the last consumed command ID before returning
+        # its ACK. If it has consumed this command but its ACK is absent,
+        # never replace it: the outcome must be reconciled first.
+        last_id_path = directory / "last_command_id.txt"
+        try:
+            last_consumed_id = last_id_path.read_text(encoding="ascii").strip()
+        except FileNotFoundError:
+            last_consumed_id = ""
+        except (OSError, UnicodeError):
+            return {
+                "status": "expired_unconfirmed",
+                "pending": True,
+                "command_id": command_id,
+                "reason": "Cannot safely read terminal's last consumed command ID.",
+                "requires_reconciliation": True,
+            }
+        if last_consumed_id == command_id:
+            return {
+                "status": "expired_unconfirmed",
+                "pending": True,
+                "command_id": command_id,
+                "reason": "The terminal consumed this command but no final ACK is available.",
+                "requires_reconciliation": True,
+            }
+
     return {
         "status": "final_or_expired",
         "pending": False,
         "command_id": command_id,
         "ack_status": ack_status or None,
-        "expired": now > expires + max(0, int(expiry_grace_seconds)),
+        "expired": expired,
     }
 
 
@@ -235,6 +262,59 @@ def _completed_command_ack(
     return ack
 
 
+def _next_open_command_id(common_files: str | Path, signal_id: str) -> str:
+    """
+    Keep a stable ID for a signal after a final ACK. If its prior envelope
+    expired without being consumed by the EA, issue a distinct retry ID.
+    """
+    directory = Path(common_files) / COMMAND_FOLDER
+    command_path = directory / COMMAND_FILENAME
+    try:
+        fields = command_path.read_text(encoding="ascii").strip().split("|")
+    except (OSError, UnicodeError):
+        return signal_id
+    if len(fields) != 11 or fields[0] != "BTCIL1":
+        return signal_id
+
+    previous_id = fields[1]
+    if previous_id != signal_id and not previous_id.startswith(signal_id + "-R"):
+        return signal_id
+
+    ack = read_ack(Path(common_files))
+    ack_matches = ack.get("id") == previous_id
+    final_statuses = {
+        "OPEN_FILL_CONFIRMED",
+        "OPEN_PARTIAL_FILL_CONFIRMED",
+        "CLOSE_FILL_CONFIRMED",
+        "CLOSE_PARTIAL_FILL_CONFIRMED",
+        "ORDER_REJECTED_OR_CANCELLED",
+        "REJECTED",
+        "FILLED",
+        "CLOSED",
+    }
+    if ack_matches and str(ack.get("status", "")).upper() in final_statuses:
+        return previous_id
+
+    # Only retry after pending_command_state has established that the prior
+    # envelope expired and the terminal did not consume its ID.
+    last_id_path = directory / "last_command_id.txt"
+    try:
+        last_consumed_id = last_id_path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        last_consumed_id = ""
+    if last_consumed_id == previous_id:
+        return previous_id
+
+    attempt = 1
+    if previous_id.startswith(signal_id + "-R"):
+        suffix = previous_id[len(signal_id + "-R"):]
+        try:
+            attempt = max(1, int(suffix) + 1)
+        except ValueError:
+            attempt = 1
+    return f"{signal_id}-R{attempt}"
+
+
 def publish_decision_order(
     *, report: dict, common_files: str | Path | None = None,
     volume: float = 0.01, atr_stop_multiple: float = 1.2,
@@ -283,7 +363,7 @@ def publish_decision_order(
     if bar_key <= 0:
         return {"status": "scenario_unavailable", "reason": "Latest completed candle timestamp is missing."}
     command = build_command(
-        command_id=f"BTC-{bar_key}", action="OPEN", symbol="BTC", side=side,
+        command_id=_next_open_command_id(directory, f"BTC-{bar_key}"), action="OPEN", symbol="BTC", side=side,
         volume=float(volume), stop_loss=float(levels["stop_loss"]),
         take_profit=float(levels["take_profit"]), ttl_seconds=ttl_seconds,
     )
