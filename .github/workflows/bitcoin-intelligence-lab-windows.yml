@@ -1,0 +1,51 @@
+name: Bitcoin Intelligence Lab Windows Runtime
+
+on:
+  push:
+    branches: [bitcoin-intelligence-lab]
+    paths:
+      - "Bitcoin_Intelligence_Lab/**"
+      - ".github/workflows/bitcoin-intelligence-lab-windows.yml"
+  pull_request:
+    paths:
+      - "Bitcoin_Intelligence_Lab/**"
+      - ".github/workflows/bitcoin-intelligence-lab-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-market-runtime:
+    runs-on: windows-latest
+    timeout-minutes: 9
+    defaults:
+      run:
+        working-directory: Bitcoin_Intelligence_Lab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: Bitcoin_Intelligence_Lab/pyproject.toml
+      - name: Install Windows collector and dashboard dependencies
+        run: python -m pip install "streamlit>=1.43,<2" "websockets>=14,<16"
+      - name: Compile package and run deterministic tests on Windows
+        run: |
+          python -m compileall -q bitcoinlab app.py scripts
+          python -m unittest discover -s tests -v
+      - name: Run live Windows WebSocket, SQLite and Streamlit integration
+        run: python scripts/windows_runtime_smoke.py --duration-seconds 180 --port 8502
+      - name: Upload Windows runtime logs and SQLite report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitcoin-windows-runtime-smoke
+          path: |
+            Bitcoin_Intelligence_Lab/artifacts/windows_runtime_smoke.json
+            Bitcoin_Intelligence_Lab/artifacts/windows_market_stream.log
+            Bitcoin_Intelligence_Lab/artifacts/windows_streamlit.log
+            Bitcoin_Intelligence_Lab/data/windows_runtime.sqlite
+          if-no-files-found: warn
+          retention-days: 7
