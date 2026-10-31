@@ -259,6 +259,75 @@ def render_live_dashboard():
     else:
         st.caption("سيظهر محرك CVD وFootprint بعد إنشاء لقطة السوق.")
 
+    st.subheader("خريطة تجمعات التصفية السعرية — آخر 60 دقيقة")
+    if isinstance(report, dict):
+        liquidation_map = report.get("liquidation_heatmap", {})
+        clusters = liquidation_map.get("clusters", [])
+        venues = liquidation_map.get("venues", [])
+        map_cols = st.columns(3)
+        map_cols[0].metric("أحداث ضمن النافذة", str(liquidation_map.get("event_count", 0)))
+        map_cols[1].metric("مجموعات سعرية منفصلة", str(liquidation_map.get("cluster_count", 0)))
+        map_cols[2].metric("منصات ممثلة", str(len(venues)))
+        if clusters:
+            st.caption(
+                "كل مجموعة تبقى مفصولة حسب المنصة ونوع العقد والجهة ووحدة الحجم ونوع السعر المرجعي. "
+                "لا نجمع العقود الخام أو نخلط سعر التنفيذ بسعر الإفلاس."
+            )
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "السوق": row["market_type"],
+                        "المركز المصفّى": row["liquidated_side"],
+                        "من": row["price_bucket_low_usd"],
+                        "إلى": row["price_bucket_high_usd"],
+                        "نوع السعر": row["reference_price_kind"],
+                        "عدد الأحداث": row["event_count"],
+                        "الحجم": row["total_native_size"],
+                        "وحدة الحجم": row["quantity_unit"],
+                        "قيمة USD الموثقة": row["priced_notional_usd"],
+                        "أحداث لها Notional": row["priced_event_count"],
+                        "عمر آخر حدث (ث)": row["latest_event_age_seconds"],
+                    }
+                    for row in clusters
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            if venues:
+                st.markdown("**تغطية الأحداث وحالة اتصال كل منصة**")
+                st.dataframe(
+                    [
+                        {
+                            "المنصة": row["venue"],
+                            "عدد الأحداث": row["event_count"],
+                            "آخر حدث UTC": datetime.fromtimestamp(
+                                row["latest_event_time_ms"] / 1000, timezone.utc,
+                            ).isoformat(),
+                            "وحدات الحجم": ", ".join(row["quantity_units"]),
+                            "أنواع السعر": ", ".join(row["reference_price_kinds"]),
+                            "حالة القناة": row["feed_status"],
+                            "إعادات الاتصال": row["feed_reconnects"],
+                        }
+                        for row in venues
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            if liquidation_map.get("warnings"):
+                st.warning("قيود تغطية خريطة التصفية: " + "، ".join(liquidation_map["warnings"]))
+        else:
+            st.caption(
+                "لا توجد مجموعات تصفية سعرية في النافذة المختارة أو أن الأحداث لم تصل بعد. "
+                "عدم ظهور مجموعة لا يعني عدم وجود تصفيات في السوق كله."
+            )
+        st.caption(
+            "الخريطة دليل مخاطر سياقي فقط؛ بيانات التصفية عيّنية ومتفاوتة بين المنصات، "
+            "ولا تنشئ تصويتاً اتجاهياً أو أمراً."
+        )
+    else:
+        st.caption("تظهر خريطة التصفية عند توفر سجل SQLite المحلي.")
+
     st.subheader("ماسح أحداث السوق والفرص — دون تنفيذ")
     if isinstance(report, dict):
         screener = report.get("screener", {})

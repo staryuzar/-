@@ -19,6 +19,7 @@ from .depth_analytics import read_depth_liquidity_context
 from .cross_venue_derivatives import build_cross_venue_derivatives_context
 from .providers.cross_venue import fetch_cross_venue_derivatives_rows
 from .screener import build_market_screener
+from .liquidation_heatmap import read_liquidation_heatmap
 from .trade_profile import (
     blend_orderflow_evidence,
     build_streamed_footprint_profiles,
@@ -207,6 +208,11 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
     stream_state = read_market_stream_dashboard(
         "data/market_stream.sqlite", symbol=symbol, limit=20,
     )
+    liquidation_heatmap = read_liquidation_heatmap(
+        "data/market_stream.sqlite", symbol=symbol, now_ms=now,
+        lookback_minutes=60, price_bucket_usd=100.0,
+        minimum_cluster_events=1,
+    )
     trade_analytics = read_trade_analytics(
         "data/market_stream.sqlite", symbol=symbol, now_ms=now,
     )
@@ -339,6 +345,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "streamed_trade_flow": streamed_trade_flow,
         "streamed_footprint_profiles": streamed_footprint_profiles,
         "liquidity_context": liquidity_context,
+        "liquidation_heatmap": liquidation_heatmap,
         "data_health": data_health,
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
