@@ -127,6 +127,7 @@ def pending_command_state(
             "status": "invalid", "pending": True,
             "reason": "An unrecognized command envelope exists; refusing to overwrite it.",
         }
+    now = int(time.time()) if now_seconds is None else int(now_seconds)
     try:
         issued = int(fields[2])
         expires = int(fields[3])
@@ -136,8 +137,13 @@ def pending_command_state(
             "command_id": fields[1],
             "reason": "Current command timestamps are malformed; refusing to overwrite it.",
         }
-
-    now = int(time.time()) if now_seconds is None else int(now_seconds)
+    ttl_seconds = expires - issued
+    if issued > now + 5 or not 5 <= ttl_seconds <= 300:
+        return {
+            "status": "invalid", "pending": True,
+            "command_id": fields[1],
+            "reason": "Current command issued/expiry timestamps are inconsistent; refusing to overwrite it.",
+        }
     command_id = fields[1]
     acknowledgement = read_ack(Path(common_files))
     ack_matches = acknowledgement.get("id") == command_id
