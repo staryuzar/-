@@ -5,11 +5,6 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from bitcoinlab.automation import run_auto_management_cycle
-from bitcoinlab.ea_bridge import (
-    current_ack, default_common_files, publish_close_order,
-    publish_decision_order, read_ea_status, read_positions,
-)
 from bitcoinlab.live_snapshot import build_live_snapshot
 from bitcoinlab.market_store import read_market_stream_dashboard
 from bitcoinlab.slow_context import build_slow_context
@@ -26,43 +21,27 @@ st.markdown("""
 div[data-testid="stMetric"] {background:white; border:1px solid #e2e8f0; border-radius:14px; padding:12px;}
 </style>
 <div class="hero"><h1>₿ Bitcoin Intelligence Lab</h1>
-<p>بيانات بيتكوين الحقيقية · محركات متعددة · قرار مركزي · متابعة مراكز وتنفيذ MT5</p></div>
+<p>بيانات بيتكوين الحقيقية · محركات متعددة · قرار مركزي · تدقيق جودة البيانات</p></div>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("إعدادات السوق")
     symbol = st.selectbox("رمز السوق الفوري", ["BTCUSDT", "BTCUSDC"], index=0)
     interval = st.selectbox("الفاصل", ["1m", "5m", "15m", "1h", "4h"], index=0)
-    volume = st.number_input(
-        "حجم الصفقة باللوت", min_value=0.001, max_value=10.0,
-        value=0.01, step=0.001, format="%.3f",
-    )
     st.divider()
-    auto_refresh = st.toggle("تحديث البيانات وحالة MT5 تلقائياً", value=True)
+    auto_refresh = st.toggle("تحديث بيانات السوق تلقائياً", value=True)
     refresh_seconds = st.select_slider(
         "تكرار التحديث (ثانية)", options=[5, 10, 15, 30], value=15,
         disabled=not auto_refresh,
     )
-    auto_execution = st.toggle(
-        "التنفيذ والإدارة التلقائية على Headway-Demo",
-        value=True,
-        help="الإدارة التلقائية تعمل افتراضياً على Headway-Demo، ويمكن إيقافها من هنا. عند التفعيل، ترسل اللوحة أوامرها تلقائياً: تفتح عند قرار جديد بلا مركز، وتغلق المركز المعاكس عند تأكيد انعكاس الاتجاه. HOLD لا يغلق المركز.",
-    )
     refresh_now = st.button("قراءة السوق الآن", type="primary", use_container_width=True)
     st.caption(
-        "Binance Spot وUSDⓈ-M Futures هما مدخلا القرار السريع. "
-        "البيانات العامة لا تحتاج مفتاح API. التنفيذ محصور في خبير BTC على حساب Headway-Demo."
+        "Binance وBybit وOKX مصادر بيانات فقط. هذه النسخة في مرحلة استكمال المحركات والقرار؛ "
+        "لا يوجد اتصال أو إرسال أوامر إلى MT5 في هذه المرحلة."
     )
 
 if "btc_report" not in st.session_state:
     st.session_state["btc_report"] = None
-if "btc_auto_state" not in st.session_state:
-    st.session_state["btc_auto_state"] = {}
-if "btc_last_order_result" not in st.session_state:
-    st.session_state["btc_last_order_result"] = None
-if "btc_last_close_result" not in st.session_state:
-    st.session_state["btc_last_close_result"] = None
-
 
 @st.cache_data(ttl=900, show_spinner=False)
 def cached_slow_context():
@@ -84,42 +63,12 @@ def render_live_dashboard():
                 )
 
     report = st.session_state.get("btc_report")
-    common_files = None
-    try:
-        common_files = default_common_files()
-        terminal = read_ea_status(common_files)
-        ack = current_ack(common_files)
-        managed_positions = read_positions(common_files)
-    except Exception as exc:
-        terminal = {"status": "unavailable", "reason": str(exc)}
-        ack = {}
-        managed_positions = []
-
-    st.subheader("اتصال خبير MT5")
-    terminal_cols = st.columns(5)
-    terminal_cols[0].metric("حالة الخبير", terminal.get("status", "unavailable"))
-    terminal_cols[1].metric("رمز الوسيط", terminal.get("symbol", "غير متصل"))
-    terminal_cols[2].metric(
-        "Bid", f"{terminal['bid']:.2f}" if terminal.get("bid") else "—"
+    st.subheader("مرحلة تطوير النظام")
+    st.info(
+        "ربط الخبير بمنصة MT5 مؤجل عمداً حتى اكتمال المحركات وتوصيلها بمركز القرار "
+        "والانتهاء من تدقيق واختبار اللوحة. هذه النسخة لا تقرأ ملفات MT5 ولا تنشر "
+        "أوامر تداول؛ Headway سيبقى وسيط التنفيذ عند بدء مرحلة الربط لاحقاً."
     )
-    terminal_cols[3].metric(
-        "Ask", f"{terminal['ask']:.2f}" if terminal.get("ask") else "—"
-    )
-    terminal_cols[4].metric(
-        "وسيط التنفيذ",
-        terminal.get("account_server") or "غير موثق",
-    )
-    if terminal.get("reason"):
-        st.caption(terminal["reason"])
-    if terminal.get("status") == "wrong_broker":
-        st.error("تم منع التنفيذ: الخبير ليس متصلاً بخادم Headway-Demo المصرح به.")
-    elif terminal.get("status") == "not_demo_account":
-        st.error("تم منع التنفيذ: الحساب ليس حساب Headway تجريبياً.")
-    if ack:
-        st.caption(
-            f"آخر إقرار MT5: {ack.get('status')} · الأمر {ack.get('id')} · "
-            f"{ack.get('detail', '')}"
-        )
 
     st.subheader("تدفق دفاتر الأوامر الحي — Binance / Bybit / OKX")
     stream_state = read_market_stream_dashboard(
@@ -230,8 +179,7 @@ def render_live_dashboard():
         if st.session_state.get("btc_refresh_error"):
             st.code(st.session_state["btc_refresh_error"])
         st.caption(
-            f"عدد المراكز التي قرأها الخبير: {len(managed_positions)}. "
-            "تحديث حالة MT5 يستمر حتى إذا تعذّر جلب السوق."
+            "لم تتوفر أي بيانات تداول افتراضية أو محاكاة بديلة."
         )
         return
 
@@ -240,26 +188,6 @@ def render_live_dashboard():
         f"الرمز: {report['symbol']} · آخر تحديث UTC: {report['as_of_utc']} · "
         f"حالة اللقطة: {report['status']}"
     )
-
-    if auto_execution and common_files is not None:
-        cycle = run_auto_management_cycle(
-            report=report,
-            positions=managed_positions,
-            common_files=common_files,
-            volume=float(volume),
-            state=st.session_state.get("btc_auto_state", {}),
-        )
-        st.session_state["btc_auto_state"] = cycle["state"]
-        if cycle["status"] in {"published", "confirmed"}:
-            st.success(cycle["message"])
-        elif cycle["status"] in {"rejected", "timeout", "signal_stale"}:
-            st.warning(cycle["message"])
-        else:
-            st.info(cycle["message"])
-        if cycle.get("result"):
-            st.json(cycle["result"])
-    elif auto_execution:
-        st.warning("تعذر تحديد مجلد MT5 Common Files؛ لم يتم إرسال أوامر.")
 
     st.subheader("القرار المركزي")
     action = decision["action"]
@@ -392,69 +320,6 @@ def render_live_dashboard():
         if report["technical"].get("atr14") is not None else "غير متاح",
     )
 
-    st.subheader("الصفقات المفتوحة التي يديرها الخبير")
-    if managed_positions:
-        st.dataframe(managed_positions, use_container_width=True, hide_index=True)
-    else:
-        st.caption("لا توجد حالياً مراكز BTC مرتبطة بهذا الخبير.")
-
-    if not auto_execution:
-        send_col, close_col = st.columns(2)
-        with send_col:
-            send_order = st.button(
-                "إرسال القرار الحالي إلى Headway-Demo",
-                type="primary",
-                disabled=(
-                    decision.get("action") not in {"BUY", "SELL"}
-                    or bool(decision.get("blockers"))
-                    or terminal.get("status") != "fresh"
-                ),
-                use_container_width=True,
-            )
-        with close_col:
-            tickets = [row["ticket"] for row in managed_positions]
-            selected_ticket = st.selectbox(
-                "تذكرة المركز للإغلاق",
-                tickets,
-                format_func=lambda value: f"#{value}",
-                disabled=not tickets,
-            )
-            close_order = st.button(
-                "إرسال أمر إغلاق",
-                disabled=(not tickets or terminal.get("status") != "fresh"),
-                use_container_width=True,
-            )
-        if send_order:
-            try:
-                st.session_state["btc_last_order_result"] = publish_decision_order(
-                    report=report, volume=float(volume),
-                )
-            except Exception as exc:
-                st.session_state["btc_last_order_result"] = {
-                    "status": "error", "reason": f"{type(exc).__name__}: {exc}",
-                }
-        if close_order:
-            try:
-                st.session_state["btc_last_close_result"] = publish_close_order(
-                    ticket=int(selected_ticket),
-                )
-            except Exception as exc:
-                st.session_state["btc_last_close_result"] = {
-                    "status": "error", "reason": f"{type(exc).__name__}: {exc}",
-                }
-    else:
-        st.caption(
-            "وضع الإدارة التلقائية فعّال: لا يفتح مركزاً إضافياً في الاتجاه نفسه، "
-            "ولا يغلق عند HOLD، ويغلق المركز المعاكس أولاً عند انعكاس قرار اللوحة."
-        )
-
-    if st.session_state.get("btc_last_order_result"):
-        st.caption("آخر نتيجة إرسال يدوي")
-        st.json(st.session_state["btc_last_order_result"])
-    if st.session_state.get("btc_last_close_result"):
-        st.caption("آخر نتيجة إغلاق يدوي")
-        st.json(st.session_state["btc_last_close_result"])
-
     st.subheader("صحة مصادر البيانات")
     source_rows = [
         {
@@ -556,8 +421,8 @@ def render_live_dashboard():
         for item in report["limitations"]:
             st.write("• " + item)
         st.caption(
-            "قرار اللوحة مبني على أحدث شموع Spot المكتملة مع تدفق الأوامر والمشتقات "
-            "المتاحة. بيانات COT وOn-chain وDVOL سياق أبطأ ولا تُعامل كتدفق لحظي."
+            "قرار اللوحة قيد التطوير المركزي، ولا يرسل أوامر تداول. "
+            "بيانات COT وOn-chain وDVOL سياق أبطأ ولا تُعامل كتدفق لحظي."
         )
         st.download_button(
             "تصدير لقطة JSON",
