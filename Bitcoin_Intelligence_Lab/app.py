@@ -17,6 +17,39 @@ from bitcoinlab.ea_bridge import (
 
 st.set_page_config(page_title="Bitcoin Intelligence Lab", page_icon="₿", layout="wide")
 
+_STATUS_AR = {
+    "fresh": "حديث", "live": "بيانات حديثة", "connected": "متصل",
+    "connected_quiet_ok": "متصل دون أحداث جديدة", "stale": "متقادم",
+    "recovering": "جارٍ إعادة الاتصال", "connecting": "جارٍ الاتصال",
+    "unavailable": "غير متاح", "partial": "جزئي", "incomplete": "غير مكتمل",
+    "error": "خطأ", "ok": "سليم", "not_started": "لم يبدأ",
+    "bullish": "صاعد", "bearish": "هابط", "mixed": "مختلط", "balanced": "متوازن",
+    "BUY": "شراء", "SELL": "بيع", "HOLD": "انتظار", "not_ready": "غير جاهز",
+    "wrong_broker": "وسيط غير مطابق", "wrong_symbol": "رمز غير مطابق", "invalid_quote": "سعر غير صالح",
+}
+
+def _status_ar(value):
+    if value is None:
+        return "غير متاح"
+    value = str(value)
+    return _STATUS_AR.get(value, _STATUS_AR.get(value.lower(), value))
+
+def _fmt_pct(value, digits=2):
+    try:
+        return f"{float(value) * 100:.{digits}f}%"
+    except (TypeError, ValueError, OverflowError):
+        return "غير متاح"
+
+def _friendly_provider_error(name, error):
+    source, detail = str(name).lower(), str(error).lower()
+    if "coin" in source and "403" in detail:
+        return "رفض خادم Coin Metrics الطلب (HTTP 403)؛ سبب الرفض غير مثبت من رمز الاستجابة وحده."
+    if "coin" in source:
+        return "تعذر جلب Coin Metrics في هذه القراءة؛ لا تستخدم قيمة بديلة غير موثقة."
+    if "cftc" in source:
+        return "تعذر تحليل أو جلب تقرير CFTC في هذه القراءة؛ راجع التفاصيل التشخيصية."
+    return "تعذر تحديث هذا المصدر؛ لم تُنشأ بيانات بديلة أو تقديرية."
+
 st.markdown("""
 <style>
 .stApp {background: linear-gradient(180deg,#f1f5f9,#ffffff 42%,#f8fafc);}
@@ -33,11 +66,11 @@ div[data-testid="stMetric"] {background:white; border:1px solid #e2e8f0; border-
 with st.sidebar:
     st.header("إعدادات السوق")
     symbol = st.selectbox("رمز السوق الفوري", ["BTCUSDT", "BTCUSDC"], index=0)
-    interval = st.selectbox("الفاصل", ["1m", "5m", "15m", "1h", "4h"], index=0)
+    interval = st.selectbox("الإطار الزمني", ["1m", "5m", "15m", "1h", "4h"], index=0)
     st.divider()
     auto_refresh = st.toggle("تحديث بيانات السوق تلقائياً", value=True)
     refresh_seconds = st.select_slider(
-        "تكرار التحديث (ثانية)", options=[5, 10, 15, 30], value=15,
+        "الفاصل بين التحديثات (ثانية)", options=[5, 10, 15, 30], value=15,
         disabled=not auto_refresh,
     )
     refresh_now = st.button("قراءة السوق الآن", type="primary", use_container_width=True)
@@ -76,21 +109,22 @@ def render_live_dashboard():
         loop_status = read_execution_loop_status(common_files)
         managed_positions = read_positions(common_files)
         broker_ack = current_ack(common_files)
+        ea_freshness = ea_status.get("freshness_status", ea_status.get("status"))
         ea_state_label = (
-            f"متصل · {ea_status.get('symbol')}"
+            f"متصل وجاهز · {ea_status.get('symbol')}"
             if ea_status.get("status") == "fresh" else
-            "غير متصل / بيانات قديمة"
+            ("نبض متقادم" if ea_freshness == "stale" else f"غير جاهز · {_status_ar(ea_status.get('status'))}")
         )
         loop_state_label = (
-            f"نشطة · {loop_status.get('age_seconds')}s"
+            f"نشطة · {loop_status.get('age_seconds')} ث"
             if loop_status.get("status") == "fresh" else
-            "متوقفة أو نبضها قديم"
+            ("نبض متقادم" if loop_status.get("status") == "stale" else "حلقة التنفيذ غير نشطة")
         )
         execution_cols = st.columns(3)
-        execution_cols[0].metric("حالة خبير MT5", ea_state_label)
+        execution_cols[0].metric("حالة المستشار الخبير في MT5", ea_state_label)
         execution_cols[1].metric("حلقة القرار والتنفيذ", loop_state_label)
         execution_cols[2].metric(
-            "مراكز الخبير",
+            "مراكز المستشار",
             str(len(managed_positions)) if ea_status.get("status") == "fresh" else "غير متاح",
         )
         if ea_status.get("status") != "fresh":
@@ -155,8 +189,8 @@ def render_live_dashboard():
             + f"{type(exc).__name__}: {exc}"
         )
     st.caption(
-        "اللوحة تقرأ حالة الطرفية والمراكز للعرض فقط. نشر الأوامر يتم من "
-        "bitcoinlab.execution_loop كعملية مستقلة، ولا تُرسل أوامر من إعادة تحميل Streamlit."
+        "اللوحة تعرض حالة الطرفية والمراكز ولا تنشر أوامر عند إعادة تحميلها. "
+        "حلقة التنفيذ المستقلة وحدها تنشر الأمر إلى EA عند تفعيلها صراحةً واجتياز شروط الحداثة والجاهزية."
     )
 
     st.subheader("تدفق دفاتر الأوامر الحي — Binance / Bybit / OKX")
@@ -223,7 +257,7 @@ def render_live_dashboard():
                         "الحالة": row["status"],
                         "عدد اللقطات": row["snapshot_count"],
                         "عمر آخر لقطة (ث)": row["last_snapshot_age_seconds"],
-                        "تغطية تقريبية": row["sample_coverage_ratio"],
+                        "نسبة تغطية البيانات": _fmt_pct(row.get("sample_coverage_ratio"), 1),
                     }
                     for row in depth_profiles
                 ],
@@ -307,7 +341,7 @@ def render_live_dashboard():
                         "بيع BTC": row["sell_base_volume_btc"],
                         "دلتا BTC": row["delta_base_volume_btc"],
                         "دلتا USD": row["delta_notional_usd"],
-                        "CVD نسبة": row["delta_notional_ratio"],
+                        "نسبة دلتا الحجم (CVD)": _fmt_pct(row.get("delta_notional_ratio"), 2),
                         "عدد الصفقات": row["trade_count"],
                         "آخر صفقة UTC": datetime.fromtimestamp(
                             row["last_trade_time_ms"] / 1000, timezone.utc,
@@ -558,7 +592,7 @@ def render_live_dashboard():
         f"{health.get('fresh_core_count', 0)}/{health.get('core_feed_count', 3)}",
     )
     health_cols[2].metric(
-        "دفاتر الأوامر الحية",
+        "دفاتر الأوامر ذات البيانات الحديثة",
         str(len(health.get("live_orderbook_venues", []))),
     )
     live_trade_feeds = [
@@ -647,7 +681,7 @@ def render_live_dashboard():
     # Show the exact five voting domains, each source freshness and normalized weight.
     decision_domains = [
         ("technical", "Technical / Multi-Timeframe", report.get("decision_technical", {})),
-        ("orderflow", "Orderflow / CVD", report.get("orderflow", {})),
+        ("orderflow", "Orderflow / تدفق الصفقات", report.get("orderflow", {})),
         ("derivatives", "Derivatives", report.get("derivatives", {})),
         ("market_structure", "Market Structure", structure_engine),
         ("cross_venue", "Cross-Venue Order Book", cross_venue_engine),
@@ -754,8 +788,8 @@ def render_live_dashboard():
         if bar_structure.get("relative_volume_20") is not None else "غير متاح",
     )
     structure_cols[1].metric(
-        "VWAP جلسة UTC",
-        f"{bar_structure['session_vwap_utc']:.2f}"
+        "VWAP الجلسة (USDT)",
+        f"{bar_structure['session_vwap_utc']:.2f} USDT"
         if bar_structure.get("session_vwap_utc") is not None else "غير متاح",
     )
     structure_cols[2].metric(
@@ -787,7 +821,7 @@ def render_live_dashboard():
     )
     cols[1].metric(
         "السبريد",
-        f"{report['order_book']['spread_bps']:.2f} bps"
+        f"{report['order_book']['spread_bps']:.5f} bps"
         if report["order_book"] else "غير متاح",
     )
     cols[2].metric(
@@ -813,14 +847,19 @@ def render_live_dashboard():
     ]
     st.dataframe(source_rows, use_container_width=True, hide_index=True)
     for name, error in report["errors"].items():
-        st.error(f"{name}: {error}")
+        st.warning(f"{name}: {_friendly_provider_error(name, error)}")
+    if report["errors"]:
+        with st.expander("تفاصيل أخطاء مصادر السوق — للمطور"):
+            st.json(report["errors"])
 
     left, right = st.columns(2)
     with left:
         st.subheader("محرك التحليل الفني")
-        st.json(report["technical"])
+        with st.expander("التفاصيل الفنية الخام — للمطور"):
+            st.json(report["technical"])
         st.subheader("محرك المشتقات")
-        st.json(report["derivatives"])
+        with st.expander("تفاصيل المشتقات الخام — للمطور"):
+            st.json(report["derivatives"])
         cross_derivatives = report.get("cross_venue_derivatives_context", {})
         st.markdown("**مقارنة المشتقات بين المنصات — سياق غير تصويتي**")
         if cross_derivatives.get("venues"):
@@ -855,9 +894,9 @@ def render_live_dashboard():
                         "Perp Mid": row.get("perpetual_mid"),
                         "Perp-Spot bps": row.get("perpetual_vs_spot_bps"),
                         "Mark-Index bps": row.get("mark_vs_index_bps"),
-                        "Funding الحالي": row.get("funding_rate_per_settlement"),
+                        "التمويل الحالي": _fmt_pct(row.get("funding_rate_per_settlement"), 4),
                         "فترة التمويل (دقيقة)": row.get("funding_interval_minutes"),
-                        "Funding مكافئ 8h": row.get("funding_rate_per_8h_equivalent"),
+                        "التمويل المكافئ لكل 8 ساعات": _fmt_pct(row.get("funding_rate_per_8h_equivalent"), 4),
                     }
                     for row in cross_derivatives.get("venues", [])
                 ],
@@ -870,9 +909,9 @@ def render_live_dashboard():
                     [
                         {
                             "المنصة": row["venue"],
-                            "OI BTC": row.get("open_interest_btc"),
-                            "OI Native": row.get("open_interest_native"),
-                            "وحدة Native": row.get("open_interest_native_unit"),
+                            "الفائدة المفتوحة (BTC موثق)": (row.get("open_interest_btc") if row.get("open_interest_btc") is not None else "غير متاح — وحدة BTC غير مثبتة"),
+                            "القيمة الخام من المصدر": row.get("open_interest_native"),
+                            "وحدة المصدر الخام": row.get("open_interest_native_unit"),
                             "قيمة المصدر": row.get("open_interest_quote_value"),
                             "عملة القيمة": row.get("open_interest_quote_currency"),
                         }
@@ -1097,8 +1136,9 @@ def render_live_dashboard():
         for item in report["limitations"]:
             st.write("• " + item)
         st.caption(
-            "قرار اللوحة قيد التطوير المركزي، ولا يرسل أوامر تداول. "
-            "بيانات COT وOn-chain وDVOL سياق أبطأ ولا تُعامل كتدفق لحظي."
+            "اللوحة تعرض التحليل والقرار ولا ترسل أمرًا بمجرد تحديث الصفحة. حلقة التنفيذ المستقلة وحدها تنشر الأمر إلى EA "
+            "عند تفعيلها صراحةً واجتياز شروط الحداثة والسلامة. ظهور شراء أو بيع في اللوحة لا يثبت إرسال الأمر أو تنفيذه. "
+            "بيانات COT وOn-chain وDVOL سياق أبطأ."
         )
         st.download_button(
             "تصدير لقطة JSON",
