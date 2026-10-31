@@ -195,7 +195,6 @@ async def _run_okx(store: MarketDataStore, symbol: str) -> None:
     from websockets.asyncio.client import connect
 
     venue = "okx_swap_liquidations"
-    instrument = "BTC-USDT-SWAP"
     reconnects, backoff = 0, 1
     while True:
         now = int(time.time() * 1000)
