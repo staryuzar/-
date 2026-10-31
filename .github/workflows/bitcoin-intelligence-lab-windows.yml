@@ -35,6 +35,21 @@ jobs:
         run: |
           python -m compileall -q bitcoinlab app.py scripts
           python -m unittest discover -s tests -v
+      - name: Parse Windows supervisor script
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts\\BitcoinIntelligenceLabSupervisor.ps1'),
+            [ref]$tokens,
+            [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.ToString() }
+            exit 1
+          }
+          Write-Output 'PASS: supervisor PowerShell syntax'
       - name: Compile the real Bitcoin EA with MetaEditor (no login or trading)
         shell: pwsh
         run: ./scripts/compile_mql5_ea.ps1
