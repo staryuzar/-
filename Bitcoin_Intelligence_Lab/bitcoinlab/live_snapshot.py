@@ -16,6 +16,8 @@ from .market_store import read_market_stream_dashboard
 from .feed_health import build_data_health
 from .trade_analytics import read_trade_analytics
 from .depth_analytics import read_depth_liquidity_context
+from .cross_venue_derivatives import build_cross_venue_derivatives_context
+from .providers.cross_venue import fetch_cross_venue_derivatives_rows
 from .trade_profile import (
     blend_orderflow_evidence,
     build_streamed_footprint_profiles,
@@ -116,6 +118,30 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         except Exception as exc:
             errors["derivatives_binance"] = f"{type(exc).__name__}: {exc}"[:300]
             source_states["derivatives"] = {"status": "error", "venue": "Binance"}
+
+    try:
+        cross_derivatives_rows, cross_derivatives_errors = fetch_cross_venue_derivatives_rows(symbol)
+        cross_derivatives_context = build_cross_venue_derivatives_context(
+            cross_derivatives_rows, now_ms=now, max_age_seconds=120,
+        )
+        cross_derivatives_context["fetch_errors"] = cross_derivatives_errors
+        source_states["cross_venue_derivatives_context"] = {
+            "status": "fresh" if cross_derivatives_context.get("status") == "ok" else "partial",
+            "venue_count": cross_derivatives_context.get("venue_count", 0),
+            "venues": [row.get("venue") for row in cross_derivatives_context.get("venues", [])],
+        }
+    except Exception as exc:
+        cross_derivatives_context = {
+            "status": "unavailable",
+            "venue_count": 0,
+            "venues": [],
+            "warnings": ["cross_venue_derivatives_context_unavailable"],
+            "fetch_errors": {"collector": f"{type(exc).__name__}: {exc}"[:240]},
+            "vote_policy": "context_only_not_a_decision_vote",
+        }
+        source_states["cross_venue_derivatives_context"] = {
+            "status": "unavailable",
+        }
 
     # A second, independent venue is used only when Binance derivatives are unavailable/stale.
     if deriv_engine.get("status") != "ok":
@@ -299,6 +325,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
         "data_health": data_health,
         "order_book": book_metrics, "trade_flow": flow_metrics, "orderflow": flow_engine,
         "derivatives_data": deriv_data, "derivatives": deriv_engine,
+        "cross_venue_derivatives_context": cross_derivatives_context,
         "decision": decision,
         "limitations": [
             "Binance is one venue, not the entire Bitcoin market.",
@@ -306,7 +333,7 @@ def build_live_snapshot(*, symbol: str = "BTCUSDT", interval: str = "1m", now_ms
             "The REST trade sample is bounded; streamed CVD is limited to selected public venues and its displayed window.",
             "Spot and linear perpetual trade volumes remain separate and are never summed into a single market-wide size.",
             "Historical depth heatmap and Pull/Stack are sampled context proxies, not proof of executable liquidity or confirmed cancellations.",
-            "Funding, open interest and taker ratios describe one derivatives venue.",
+            "The separate cross-venue derivatives context compares per-venue basis and funding; open-interest units are retained per source and never summed.",
             "CFTC and on-chain metrics are slow context and are deliberately not used as live entry triggers.",
             "This module is read-only and never sends or modifies orders.",
         ],

@@ -563,6 +563,77 @@ def render_live_dashboard():
         st.json(report["technical"])
         st.subheader("محرك المشتقات")
         st.json(report["derivatives"])
+        cross_derivatives = report.get("cross_venue_derivatives_context", {})
+        st.markdown("**مقارنة المشتقات بين المنصات — سياق غير تصويتي**")
+        if cross_derivatives.get("venues"):
+            funding_summary = cross_derivatives.get("funding_8h_equivalent", {})
+            basis_summary = cross_derivatives.get("perpetual_spot_basis", {})
+            oi_rows = cross_derivatives.get("open_interest_by_venue", [])
+            cross_cols = st.columns(3)
+            cross_cols[0].metric(
+                "عدد المنصات الحديثة",
+                str(cross_derivatives.get("venue_count", 0)),
+            )
+            cross_cols[1].metric(
+                "وسيط التمويل / 8h",
+                (
+                    f"{funding_summary['median'] * 100:.4f}%"
+                    if funding_summary.get("median") is not None else "غير متاح"
+                ),
+            )
+            cross_cols[2].metric(
+                "وسيط Perp-Spot (bps)",
+                (
+                    f"{basis_summary['median']:+.2f}"
+                    if basis_summary.get("median") is not None else "غير متاح"
+                ),
+            )
+            st.dataframe(
+                [
+                    {
+                        "المنصة": row["venue"],
+                        "الحالة": row["status"],
+                        "Spot Mid": row.get("spot_mid"),
+                        "Perp Mid": row.get("perpetual_mid"),
+                        "Perp-Spot bps": row.get("perpetual_vs_spot_bps"),
+                        "Mark-Index bps": row.get("mark_vs_index_bps"),
+                        "Funding الحالي": row.get("funding_rate_per_settlement"),
+                        "فترة التمويل (دقيقة)": row.get("funding_interval_minutes"),
+                        "Funding مكافئ 8h": row.get("funding_rate_per_8h_equivalent"),
+                    }
+                    for row in cross_derivatives.get("venues", [])
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            if oi_rows:
+                st.markdown("**الفائدة المفتوحة — وحدات كل مصدر كما وردت**")
+                st.dataframe(
+                    [
+                        {
+                            "المنصة": row["venue"],
+                            "OI BTC": row.get("open_interest_btc"),
+                            "OI Native": row.get("open_interest_native"),
+                            "وحدة Native": row.get("open_interest_native_unit"),
+                            "قيمة المصدر": row.get("open_interest_quote_value"),
+                            "عملة القيمة": row.get("open_interest_quote_currency"),
+                        }
+                        for row in oi_rows
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            if cross_derivatives.get("warnings"):
+                st.warning("تنبيهات المقارنة: " + "، ".join(cross_derivatives["warnings"]))
+        else:
+            st.caption("لا تتوفر بعد بيانات كافية من منصتين على الأقل للمقارنة المشتركة.")
+        if cross_derivatives.get("fetch_errors"):
+            with st.expander("أخطاء مصادر مقارنة المشتقات"):
+                st.json(cross_derivatives["fetch_errors"])
+        st.caption(
+            "هذا المحرك سياقي فقط: لا يضيف صوتاً سادساً إلى القرار. "
+            "Funding مطبّع حسب فترة التسوية، وOI يبقى منفصلاً حسب وحدة كل منصة."
+        )
     with right:
         st.subheader("محرك السيولة وتدفق الأوامر")
         st.json({

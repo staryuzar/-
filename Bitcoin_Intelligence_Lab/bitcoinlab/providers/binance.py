@@ -140,3 +140,40 @@ def normalize_derivatives(
         "observed_at_ms": observed_at,
         "observed_at_utc": datetime.fromtimestamp(observed_at / 1000, tz=timezone.utc).isoformat(),
     }
+
+
+def fetch_usdm_premium_index(symbol: str = "BTCUSDT") -> dict:
+    """Return USDⓈ-M mark/index prices and current last funding rate."""
+    if not symbol.isalnum():
+        raise ValueError("Invalid USDⓈ-M futures symbol.")
+    payload = get_json(_url(FUTURES_BASE, "/fapi/v1/premiumIndex", {"symbol": symbol.upper()}))
+    required = {"symbol", "markPrice", "indexPrice", "lastFundingRate", "time"}
+    if not isinstance(payload, dict) or not required.issubset(payload):
+        raise ValueError("Malformed USDⓈ-M premium-index response.")
+    if payload["symbol"] != symbol.upper():
+        raise ValueError("USDⓈ-M premium-index symbol mismatch.")
+    return payload
+
+
+def fetch_usdm_book_ticker(symbol: str = "BTCUSDT") -> dict:
+    """Return the current USDⓈ-M perpetual best bid/ask."""
+    if not symbol.isalnum():
+        raise ValueError("Invalid USDⓈ-M futures symbol.")
+    payload = get_json(_url(FUTURES_BASE, "/fapi/v1/ticker/bookTicker", {"symbol": symbol.upper()}))
+    if not isinstance(payload, dict) or payload.get("symbol") != symbol.upper():
+        raise ValueError("Malformed USDⓈ-M book-ticker response.")
+    if "bidPrice" not in payload or "askPrice" not in payload:
+        raise ValueError("USDⓈ-M book ticker lacks a best bid or ask.")
+    return payload
+
+
+def fetch_spot_book_ticker(symbol: str = "BTCUSDT") -> dict:
+    """Return current spot best bid/ask without downloading a full depth snapshot."""
+    if not symbol.isalnum():
+        raise ValueError("Invalid Binance spot symbol.")
+    payload = get_json(_url(SPOT_BASE, "/api/v3/ticker/bookTicker", {"symbol": symbol.upper()}))
+    if not isinstance(payload, dict) or payload.get("symbol") != symbol.upper():
+        raise ValueError("Malformed Binance spot book-ticker response.")
+    if "bidPrice" not in payload or "askPrice" not in payload:
+        raise ValueError("Binance spot book ticker lacks a best bid or ask.")
+    return payload
