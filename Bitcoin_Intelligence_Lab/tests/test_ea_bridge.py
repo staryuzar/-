@@ -104,8 +104,9 @@ class EABridgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.write_status(tmp)
             path = Path(tmp) / "BitcoinIntelligenceLab" / "ea_status.tsv"
-            line = path.read_text(encoding="utf-8")
-            path.write_text(line.replace("|0.25|2.00", "|not-a-number|2.00"), encoding="utf-8")
+            fields = path.read_text(encoding="utf-8").strip().split("|")
+            fields[13] = "not-a-number"
+            path.write_text("|".join(fields) + "\\n", encoding="utf-8")
             result = read_ea_status(tmp)
         self.assertEqual(result["status"], "invalid")
 
