@@ -57,6 +57,12 @@ async def _run_binance(store: MarketDataStore, symbol: str) -> None:
             ) as ws:
                 LOG.info("Connected liquidation stream: %s", venue)
                 backoff = 1
+                connected_at = int(time.time() * 1000)
+                store.record_status(
+                    venue=venue, symbol=symbol, status="connected",
+                    updated_at_ms=connected_at, last_message_ms=connected_at,
+                    reconnects=reconnects,
+                )
                 last_status = 0.0
                 while True:
                     raw = await asyncio.wait_for(ws.recv(), timeout=60)
@@ -115,8 +121,16 @@ async def _run_bybit(store: MarketDataStore, symbol: str) -> None:
                         if raw == "pong":
                             continue
                         payload = json.loads(raw)
-                        if isinstance(payload, dict) and payload.get("op") == "subscribe" and payload.get("success") is False:
-                            raise RuntimeError(str(payload.get("ret_msg", "Bybit liquidation subscription rejected.")))
+                        if isinstance(payload, dict) and payload.get("op") == "subscribe":
+                            if payload.get("success") is False:
+                                raise RuntimeError(str(payload.get("ret_msg", "Bybit liquidation subscription rejected.")))
+                            connected_at = int(time.time() * 1000)
+                            store.record_status(
+                                venue=venue, symbol=symbol, status="connected",
+                                updated_at_ms=connected_at, last_message_ms=connected_at,
+                                reconnects=reconnects,
+                            )
+                            continue
                         if not isinstance(payload, dict) or payload.get("topic") != topic:
                             continue
                         events = normalize_bybit_liquidation(payload)
@@ -181,6 +195,14 @@ async def _run_okx(store: MarketDataStore, symbol: str) -> None:
                             continue
                         if payload.get("event") == "error":
                             raise RuntimeError(str(payload.get("msg", "OKX liquidation subscription error")))
+                        if payload.get("event") == "subscribe":
+                            connected_at = int(time.time() * 1000)
+                            store.record_status(
+                                venue=venue, symbol=symbol, status="connected",
+                                updated_at_ms=connected_at, last_message_ms=connected_at,
+                                reconnects=reconnects,
+                            )
+                            continue
                         arg = payload.get("arg")
                         if not isinstance(arg, dict) or arg.get("channel") != "liquidation-orders":
                             continue
