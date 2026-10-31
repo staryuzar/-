@@ -13,7 +13,7 @@ class EABridgeTests(unittest.TestCase):
         folder = Path(root) / "BitcoinIntelligenceLab"
         folder.mkdir(parents=True, exist_ok=True)
         stamp = int(time.time()) if when is None else when
-        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0|{trading}|{server}\n"
+        line = f"BTCIL1|{symbol}|PERIOD_M1|{stamp}|CONNECTED|70000.0|70001.0|0|{message}|0.01|0|{trading}|{server}|0.25|2.00\n"
         (folder / "ea_status.tsv").write_text(line, encoding="utf-8")
 
     def report(self):
@@ -84,6 +84,14 @@ class EABridgeTests(unittest.TestCase):
             )
             result = read_ea_status(tmp)
         self.assertEqual(result["status"], "wrong_broker")
+
+    def test_status_exposes_daily_loss_and_limit_for_dashboard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_status(tmp)
+            result = read_ea_status(tmp)
+        self.assertEqual(result["status"], "fresh")
+        self.assertAlmostEqual(result["daily_loss_percent"], 0.25)
+        self.assertAlmostEqual(result["daily_loss_limit_percent"], 2.0)
 
     def test_status_accepts_broker_suffix_symbol(self):
         with tempfile.TemporaryDirectory() as tmp:
