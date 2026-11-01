@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from mirsad.engines.chart import analyze_chart_image
+from mirsad.engines.chart import _patterns, analyze_chart_image
 
 
 class ChartEngineTests(unittest.TestCase):
@@ -68,6 +68,50 @@ class ChartEngineTests(unittest.TestCase):
             if metadata:
                 meta.update(metadata)
             return analyze_chart_image(image_path, meta, expected_symbol=expected)
+
+    @staticmethod
+    def _pattern_bar(colour: str, top: int, bottom: int, shape: str = "normal") -> dict:
+        return {
+            "colour": colour,
+            "shape": shape,
+            "body_top_y_px": top,
+            "body_bottom_y_px": bottom,
+        }
+
+    def test_harami_candidate_detected_from_contained_opposite_body(self) -> None:
+        bars = [
+            self._pattern_bar("RED", 100, 150),
+            self._pattern_bar("GREEN", 112, 128),
+        ]
+        patterns = _patterns(bars)
+        harami = [x for x in patterns if x["pattern"] == "harami_candidate"]
+        self.assertEqual(len(harami), 1)
+        self.assertEqual(harami[0]["start_index"], 0)
+        self.assertEqual(harami[0]["index"], 1)
+
+    def test_morning_star_candidate_detected_from_three_candle_reversal(self) -> None:
+        bars = [
+            self._pattern_bar("RED", 100, 150),
+            self._pattern_bar("RED", 151, 158),
+            self._pattern_bar("GREEN", 95, 120),
+        ]
+        patterns = _patterns(bars)
+        stars = [x for x in patterns if x["pattern"] == "morning_star_candidate"]
+        self.assertEqual(len(stars), 1)
+        self.assertEqual(stars[0]["start_index"], 0)
+        self.assertEqual(stars[0]["index"], 2)
+
+    def test_evening_star_candidate_detected_from_three_candle_reversal(self) -> None:
+        bars = [
+            self._pattern_bar("GREEN", 100, 150),
+            self._pattern_bar("GREEN", 90, 98),
+            self._pattern_bar("RED", 130, 155),
+        ]
+        patterns = _patterns(bars)
+        stars = [x for x in patterns if x["pattern"] == "evening_star_candidate"]
+        self.assertEqual(len(stars), 1)
+        self.assertEqual(stars[0]["start_index"], 0)
+        self.assertEqual(stars[0]["index"], 2)
 
     def test_calibrated_chart_detects_bars_and_returns_consistent_ohlc(self) -> None:
         result = self._analyze(direction="up", colour="GREEN")

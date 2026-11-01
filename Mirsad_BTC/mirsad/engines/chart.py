@@ -181,23 +181,104 @@ def _extract_bars(
         diagnostics["rejected_groups"] = rejection_counts
     return sorted(bars, key=lambda item: item["x_px"])
 
-def _patterns(bars:list[dict[str,Any]])->list[dict[str,Any]]:
-    patterns=[]
-    for i,bar in enumerate(bars):
-        if bar["shape"]!="normal":
-            patterns.append({"index":i,"pattern":bar["shape"],"colour":bar["colour"],"confidence":"LOW"})
-        if i==0:
-            continue
-        prev=bars[i-1]
-        prev_top=min(prev["body_top_y_px"],prev["body_bottom_y_px"])
-        prev_bottom=max(prev["body_top_y_px"],prev["body_bottom_y_px"])
-        curr_top=min(bar["body_top_y_px"],bar["body_bottom_y_px"])
-        curr_bottom=max(bar["body_top_y_px"],bar["body_bottom_y_px"])
-        if prev["colour"]=="RED" and bar["colour"]=="GREEN" and curr_top<=prev_top and curr_bottom>=prev_bottom:
-            patterns.append({"index":i,"pattern":"bullish_engulfing_candidate","confidence":"LOW"})
-        elif prev["colour"]=="GREEN" and bar["colour"]=="RED" and curr_top<=prev_top and curr_bottom>=prev_bottom:
-            patterns.append({"index":i,"pattern":"bearish_engulfing_candidate","confidence":"LOW"})
-    return patterns[-30:]
+def _body_bounds(bar: dict[str, Any]) -> tuple[float, float]:
+    top = float(min(bar["body_top_y_px"], bar["body_bottom_y_px"]))
+    bottom = float(max(bar["body_top_y_px"], bar["body_bottom_y_px"]))
+    return top, bottom
+
+
+def _patterns(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return low-confidence visual pattern candidates; never directional votes.
+
+    The rules use only visible candle geometry. They are intentionally
+    conservative and remain diagnostics until compared with labelled,
+    out-of-sample chart images.
+    """
+    patterns: list[dict[str, Any]] = []
+
+    def add(index: int, start_index: int, name: str, colour: str | None = None) -> None:
+        item: dict[str, Any] = {
+            "index": index,
+            "start_index": start_index,
+            "pattern": name,
+            "confidence": "LOW",
+        }
+        if colour is not None:
+            item["colour"] = colour
+        patterns.append(item)
+
+    for i, bar in enumerate(bars):
+        if bar.get("shape", "normal") != "normal":
+            add(i, i, str(bar["shape"]), str(bar.get("colour", "UNKNOWN")))
+        if i >= 1:
+            previous = bars[i - 1]
+            prev_top, prev_bottom = _body_bounds(previous)
+            curr_top, curr_bottom = _body_bounds(bar)
+            prev_size = max(1.0, prev_bottom - prev_top)
+            curr_size = max(1.0, curr_bottom - curr_top)
+            opposite_colours = previous.get("colour") != bar.get("colour")
+
+            if (
+                previous.get("colour") == "RED"
+                and bar.get("colour") == "GREEN"
+                and curr_top <= prev_top
+                and curr_bottom >= prev_bottom
+            ):
+                add(i, i - 1, "bullish_engulfing_candidate")
+            elif (
+                previous.get("colour") == "GREEN"
+                and bar.get("colour") == "RED"
+                and curr_top <= prev_top
+                and curr_bottom >= prev_bottom
+            ):
+                add(i, i - 1, "bearish_engulfing_candidate")
+
+            # Harami: a materially smaller opposite-colour body contained
+            # inside the preceding real body.
+            if (
+                opposite_colours
+                and curr_size <= prev_size * 0.75
+                and curr_top >= prev_top
+                and curr_bottom <= prev_bottom
+            ):
+                add(i, i - 1, "harami_candidate")
+
+        if i >= 2:
+            first, middle, last = bars[i - 2], bars[i - 1], bar
+            first_top, first_bottom = _body_bounds(first)
+            middle_top, middle_bottom = _body_bounds(middle)
+            last_top, last_bottom = _body_bounds(last)
+            first_size = max(1.0, first_bottom - first_top)
+            middle_size = max(1.0, middle_bottom - middle_top)
+            last_size = max(1.0, last_bottom - last_top)
+            first_mid = (first_top + first_bottom) / 2.0
+            middle_mid = (middle_top + middle_bottom) / 2.0
+            last_mid = (last_top + last_bottom) / 2.0
+            large_first_and_last = (
+                first_size >= middle_size * 1.4
+                and last_size >= middle_size * 1.4
+            )
+
+            # Pixel y increases downwards. A morning star falls, pauses low,
+            # then a bullish third body recovers above the first body's midpoint.
+            if (
+                first.get("colour") == "RED"
+                and last.get("colour") == "GREEN"
+                and large_first_and_last
+                and middle_mid >= first_mid
+                and last_mid < first_mid
+            ):
+                add(i, i - 2, "morning_star_candidate")
+            elif (
+                first.get("colour") == "GREEN"
+                and last.get("colour") == "RED"
+                and large_first_and_last
+                and middle_mid <= first_mid
+                and last_mid > first_mid
+            ):
+                add(i, i - 2, "evening_star_candidate")
+
+    return patterns[-60:]
 
 def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,expected_symbol:str|None=None)->dict[str,Any]:
     path=Path(image_path)
