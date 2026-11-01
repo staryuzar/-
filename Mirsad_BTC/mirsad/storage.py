@@ -45,10 +45,32 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
     conn=connect(db_path)
     try:
         with conn:
+            # Keep a compact index row here. Candle, order book and trade detail
+            # are stored in their dedicated tables below, not duplicated in every
+            # 10-second market snapshot.
+            summary = {
+                "captured_at_ms": captured,
+                "symbol": snapshot["symbol"],
+                "price": snapshot.get("price"),
+                "primary_venue": snapshot.get("primary_venue"),
+                "venue_count": snapshot.get("venue_count", 0),
+                "status": snapshot.get("status", "unknown"),
+                "venues": {
+                    name: {
+                        "status": item.get("status"),
+                        "bid": item.get("bid"),
+                        "ask": item.get("ask"),
+                        "latency_ms": item.get("latency_ms"),
+                        "error": item.get("error"),
+                        "orderflow": item.get("orderflow"),
+                    }
+                    for name, item in snapshot.get("venues", {}).items()
+                },
+            }
             conn.execute(
                 "INSERT INTO market_snapshots(captured_at_ms,symbol,aggregate_price,primary_venue,payload_json) VALUES(?,?,?,?,?)",
                 (captured,snapshot["symbol"],snapshot.get("price"),snapshot.get("primary_venue"),
-                 json.dumps(snapshot,ensure_ascii=False,separators=(",",":"))))
+                 json.dumps(summary,ensure_ascii=False,separators=(",",":"))))
             for venue,item in snapshot.get("venues",{}).items():
                 conn.execute(
                     """INSERT INTO feed_health(venue,checked_at_ms,status,latency_ms,error)
@@ -75,7 +97,8 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
                          float(trade["price"]),float(trade["quantity"]),trade.get("taker_side")))
             cutoff=captured-7*24*60*60*1000
             conn.execute("DELETE FROM market_snapshots WHERE captured_at_ms < ?",(cutoff,))
-            conn.execute("DELETE FROM orderbook_snapshots WHERE captured_at_ms < ?",(cutoff,))
+            orderbook_cutoff=captured-24*60*60*1000
+            conn.execute("DELETE FROM orderbook_snapshots WHERE captured_at_ms < ?",(orderbook_cutoff,))
             conn.execute("DELETE FROM public_trades WHERE trade_time_ms < ?",(captured-30*24*60*60*1000,))
             conn.execute("DELETE FROM candles WHERE open_time_ms < ?",(captured-30*24*60*60*1000,))
     finally:
