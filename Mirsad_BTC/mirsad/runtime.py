@@ -11,94 +11,87 @@ from .engines.mt5_bridge import MT5BridgeEngine
 from .storage import save_market_snapshot,write_json_atomic,read_json
 
 def _chart_file()->Path|None:
-    if not CHART_DIR.exists(): return None
-    files=[p for p in CHART_DIR.iterdir() if p.is_file() and p.suffix.lower() in {".png",".jpg",".jpeg",".webp"}]
-    return max(files,key=lambda p:p.stat().st_mtime) if files else None
+ if not CHART_DIR.exists(): return None
+ files=[p for p in CHART_DIR.iterdir() if p.is_file() and p.suffix.lower() in {".png",".jpg",".jpeg",".webp"}]
+ return max(files,key=lambda p:p.stat().st_mtime) if files else None
 
 def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEngine|None=None)->dict[str,Any]:
-    started=int(time.time()*1000)
-    market=(market_engine or MarketEngine()).collect()
-    save_market_snapshot(market)
-    write_json_atomic(SNAPSHOT_PATH,market)
-    image=_chart_file()
-    metadata=read_json(CHART_METADATA_PATH,{})
-    if image:
-        chart=analyze_chart_image(image,metadata,expected_symbol=market.get("symbol"))
-    else:
-        chart={"engine":"engine_2_chart_visual_analysis","status":"WAITING_FOR_IMAGE",
-            "decision_eligible":False,"ai_used":False,
-            "message":"Upload an actual chart screenshot and specify symbol/timeframe/price-axis scale."}
-    bridge=(bridge_engine or MT5BridgeEngine()).inspect()
-    decision=DecisionEngine().analyze(market,chart,bridge)
-    now=int(time.time()*1000)
-    age=max(0,(now-int(market.get("captured_at_ms",now)))/1000)
-    market_status=market.get("status","OFFLINE")
-    if age>MARKET_MAX_AGE_SECONDS: market_status="STALE"
-    readiness={
-        "engine_1_market":market_status=="LIVE",
-        "engine_2_chart":bool(chart.get("decision_eligible")),
-        "engine_3_mt5_bridge":bridge.get("status")=="CONNECTED",
-        "engine_4_decision":decision.get("status")=="READY",
-    }
-    overall="FULLY_OPERATIONAL" if all(readiness.values()) and decision.get("command_ready") else "PARTIAL_OR_WAITING"
-    engine_states={
-        "engine_1_market":market_status,
-        "engine_2_chart":chart.get("status","NOT_STARTED"),
-        "engine_3_mt5_bridge":bridge.get("status","NOT_STARTED"),
-        "engine_4_decision":decision.get("status","NOT_STARTED"),
-    }
-    report={
-        "project":"Mirsad BTC","version":"0.2.0","heartbeat_at_ms":now,
-        "cycle_started_at_ms":started,"market_age_seconds":round(age,2),
-        "overall_status":overall,"readiness":readiness,"engines":engine_states,
-        "market":{
-            "symbol":market.get("symbol"),"price":market.get("price"),
-            "primary_venue":market.get("primary_venue"),"venue_count":market.get("venue_count"),
-            "status":market_status,
-            "venues":{n:{"status":v.get("status"),"latency_ms":v.get("latency_ms"),"error":v.get("error"),
-                "timeframe_count":len(v.get("candles_by_tf",{})),
-                "orderflow":v.get("orderflow")} for n,v in market.get("venues",{}).items()},
-        },
-        "chart":chart,"bridge":bridge,"decision":decision,
-        "wiring":{
-            "engine_1_to_engine_4":True,
-            "engine_2_to_engine_4":True,
-            "engine_3_to_engine_4":True,
-            "engine_4_to_engine_3_command_publication":"disabled_by_default",
-            "expert_connection":"pending_later_phase",
-        },
-        "notices":[
-            "The role order is Engine 1 market, Engine 2 chart vision, Engine 3 MT5 bridge, Engine 4 decision/risk.",
-            "Engine 3 performs no account-type classification and no risk calculations.",
-            "Engine 4 owns all decision and position-risk calculations.",
-            "No trade is sent by this runtime; the execution expert is a later phase.",
-            "No simulated market prices or simulated trades are used.",
-        ],
-    }
-    write_json_atomic(STATUS_PATH,report)
-    return report
+ started=int(time.time()*1000)
+ market=(market_engine or MarketEngine()).collect()
+ save_market_snapshot(market)
+ write_json_atomic(SNAPSHOT_PATH,market)
+ image=_chart_file()
+ metadata=read_json(CHART_METADATA_PATH,{})
+ if image:
+  chart=analyze_chart_image(image,metadata,expected_symbol=market.get("symbol"))
+ else:
+  chart={"engine":"engine_2_chart_visual_analysis","status":"WAITING_FOR_IMAGE",
+   "decision_eligible":False,"ai_used":False,
+   "message":"Upload a real chart screenshot and enter its price-axis scale."}
+ bridge=(bridge_engine or MT5BridgeEngine()).inspect()
+ decision=DecisionEngine().analyze(market,chart,bridge)
+ now=int(time.time()*1000)
+ age=max(0,(now-int(market.get("captured_at_ms",now)))/1000)
+ market_status=market.get("status","OFFLINE")
+ if age>MARKET_MAX_AGE_SECONDS: market_status="STALE"
+ readiness={
+  "engine_1_market":market_status in {"LIVE","PARTIAL"},
+  "engine_2_chart":bool(chart.get("decision_eligible")),
+  "engine_3_mt5_bridge":bridge.get("status")=="CONNECTED",
+  "engine_4_decision":decision.get("status")=="READY",
+ }
+ overall="FULLY_OPERATIONAL" if all(readiness.values()) else "PARTIAL_OR_WAITING"
+ engine_states={
+  "engine_1_market":market_status,"engine_2_chart":chart.get("status","NOT_STARTED"),
+  "engine_3_mt5_bridge":bridge.get("status","NOT_STARTED"),
+  "engine_4_decision":decision.get("status","NOT_STARTED"),
+ }
+ report={
+  "project":"Mirsad BTC","version":"0.2.0","heartbeat_at_ms":now,
+  "cycle_started_at_ms":started,"market_age_seconds":round(age,2),
+  "overall_status":overall,"readiness":readiness,"engines":engine_states,
+  "market":{"symbol":market.get("symbol"),"price":market.get("price"),
+   "primary_venue":market.get("primary_venue"),"venue_count":market.get("venue_count"),
+   "status":market_status,
+   "venues":{n:{"status":v.get("status"),"latency_ms":v.get("latency_ms"),
+    "error":v.get("error"),"timeframe_count":len(v.get("candles_by_tf",{})),
+    "orderflow":v.get("orderflow")} for n,v in market.get("venues",{}).items()}},
+  "chart":chart,"bridge":bridge,"decision":decision,
+  "wiring":{"engine_1_to_engine_4":True,"engine_2_to_engine_4":True,
+   "engine_3_to_engine_4":True,
+   "engine_4_to_engine_3_command_envelope":"implemented_but_disabled_by_default",
+   "expert_connection":"pending_next_phase"},
+  "notices":[
+   "Engine 1: actual public market feeds. Engine 2: classical chart vision. Engine 3: MT5 bridge. Engine 4: central decision and risk.",
+   "Engine 3 never classifies account type and never computes risk.",
+   "Engine 4 owns every decision, stop, target and volume calculation.",
+   "No market simulation or simulated order is used.",
+   "The expert is not yet built; command publishing is disabled until its protocol and live integration are verified."
+  ],
+ }
+ write_json_atomic(STATUS_PATH,report)
+ return report
 
 def run_forever(interval:int=COLLECT_INTERVAL_SECONDS)->None:
-    print("Mirsad BTC: Engine 1 + Engine 2 + Engine 3 -> Engine 4. No order is sent.")
-    while True:
-        try:
-            report=collect_once()
-            print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | overall={report['overall_status']} | engines={report['engines']} | BTC={report['market'].get('price')}")
-        except Exception as exc:
-            print(f"Runtime cycle error: {type(exc).__name__}: {exc}")
-            write_json_atomic(STATUS_PATH,{"project":"Mirsad BTC","heartbeat_at_ms":int(time.time()*1000),
-                "overall_status":"ERROR","engines":{"runtime":"ERROR"},"runtime_error":f"{type(exc).__name__}: {exc}"})
-        time.sleep(max(5,int(interval)))
+ print("Mirsad BTC runtime: Engine 1 + Engine 2 + Engine 3 -> Engine 4. No trading orders are sent.")
+ while True:
+  try:
+   report=collect_once()
+   print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | overall={report['overall_status']} | engines={report['engines']} | BTC={report['market'].get('price')}")
+  except Exception as exc:
+   print(f"Runtime cycle error: {type(exc).__name__}: {exc}")
+   write_json_atomic(STATUS_PATH,{"project":"Mirsad BTC","heartbeat_at_ms":int(time.time()*1000),
+    "overall_status":"ERROR","engines":{"runtime":"ERROR"},"runtime_error":f"{type(exc).__name__}: {exc}"})
+  time.sleep(max(5,int(interval)))
 
 def main()->None:
-    parser=argparse.ArgumentParser(description="Mirsad BTC live runtime")
-    parser.add_argument("--once",action="store_true")
-    parser.add_argument("--interval",type=int,default=COLLECT_INTERVAL_SECONDS)
-    args=parser.parse_args()
-    if args.once:
-        report=collect_once()
-        print({"overall_status":report["overall_status"],"engines":report["engines"],
-               "decision":report["decision"].get("action"),"command_ready":report["decision"].get("command_ready")})
-    else: run_forever(args.interval)
-
+ parser=argparse.ArgumentParser(description="Mirsad BTC live runtime")
+ parser.add_argument("--once",action="store_true")
+ parser.add_argument("--interval",type=int,default=COLLECT_INTERVAL_SECONDS)
+ args=parser.parse_args()
+ if args.once:
+  report=collect_once()
+  print({"overall_status":report["overall_status"],"engines":report["engines"],
+   "decision":report["decision"].get("action"),"command_ready":report["decision"].get("command_ready")})
+ else: run_forever(args.interval)
 if __name__=="__main__": main()
