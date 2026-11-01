@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -10,6 +11,7 @@ from unittest.mock import patch
 from mirsad.engines.decision import DecisionEngine, _matching_positions, _price_to_tick, calculate_volume
 import mirsad.engines.mt5_bridge as bridge_module
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
+from mirsad.storage import save_market_snapshot
 
 
 def make_open_decision(command_id: str = "MIR-" + "a" * 24) -> dict:
@@ -156,6 +158,45 @@ class DecisionBoundaryTests(unittest.TestCase):
         }
         positions = _matching_positions(bridge, "BTC")
         self.assertEqual([p["ticket"] for p in positions], [1])
+
+
+class StorageTests(unittest.TestCase):
+    def test_market_snapshot_stores_summary_not_duplicate_candle_trade_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            db = Path(temp) / "storage.sqlite3"
+            now = int(time.time() * 1000)
+            candle = {
+                "open_time_ms": now, "open": 100.0, "high": 101.0,
+                "low": 99.0, "close": 100.5, "volume": 3.0, "closed": True,
+            }
+            snapshot = {
+                "captured_at_ms": now, "symbol": "BTCUSDT",
+                "price": 100.0, "primary_venue": "OKX Spot",
+                "venue_count": 1, "status": "PARTIAL",
+                "venues": {
+                    "OKX Spot": {
+                        "status": "LIVE", "bid": 99.9, "ask": 100.1,
+                        "latency_ms": 10.0,
+                        "candles_by_tf": {"1m": [candle]},
+                        "orderbook": {"bids": [[99.9, 2.0]], "asks": [[100.1, 3.0]], "imbalance": -0.2},
+                        "trades": [{"id": "1", "time_ms": now, "price": 100.0, "quantity": 0.1, "taker_side": "BUY"}],
+                    }
+                },
+            }
+            save_market_snapshot(snapshot, db_path=db)
+            conn = sqlite3.connect(db)
+            try:
+                payload_text = conn.execute("SELECT payload_json FROM market_snapshots").fetchone()[0]
+                payload = json.loads(payload_text)
+                candles = conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0]
+                books = conn.execute("SELECT COUNT(*) FROM orderbook_snapshots").fetchone()[0]
+                trades = conn.execute("SELECT COUNT(*) FROM public_trades").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertNotIn("candles_by_tf", payload["venues"]["OKX Spot"])
+            self.assertNotIn("orderbook", payload["venues"]["OKX Spot"])
+            self.assertNotIn("trades", payload["venues"]["OKX Spot"])
+            self.assertEqual((candles, books, trades), (1, 1, 1))
 
 
 class BridgeProtocolTests(unittest.TestCase):
