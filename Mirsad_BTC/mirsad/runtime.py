@@ -3,7 +3,7 @@ import argparse
 import time
 from pathlib import Path
 from typing import Any
-from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH
+from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH
 from .engines.market import MarketEngine
 from .engines.chart import analyze_chart_image
 from .engines.decision import DecisionEngine
@@ -24,6 +24,13 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
  metadata=read_json(CHART_METADATA_PATH,{})
  if image:
   chart=analyze_chart_image(image,metadata,expected_symbol=market.get("symbol"))
+  saved_at=int(metadata.get("saved_at_ms",0) or 0)
+  chart_age=max(0,(int(time.time()*1000)-saved_at)/1000) if saved_at else None
+  chart["input_age_seconds"]=round(chart_age,2) if chart_age is not None else None
+  if chart_age is None or chart_age>CHART_MAX_AGE_SECONDS:
+   chart["decision_eligible"]=False
+   chart["status"]="STALE"
+   chart["stale_reason"]="Chart screenshot metadata is missing or older than the configured freshness limit."
  else:
   chart={"engine":"engine_2_chart_visual_analysis","status":"WAITING_FOR_IMAGE",
    "decision_eligible":False,"ai_used":False,
