@@ -87,7 +87,7 @@ try{
  $compileText|Set-Content -LiteralPath (Join-Path $evidence 'Mirsad_BTC_ExecutionBridge_compile.log') -Encoding utf8
  if($compileText -notmatch '(?i)0 errors' -or $compileText -match '(?i)[1-9][0-9]* errors'){throw 'MetaEditor did not report zero errors.'}
  Copy-Item -LiteralPath $eaBinary -Destination (Join-Path $evidence 'Mirsad_BTC_ExecutionBridge.ex5') -Force
- Add-Report 'PASS — MetaEditor compiled Mirsad_BTC_ExecutionBridge.ex5 with zero errors.'
+ Add-Report 'PASS — MetaEditor compiled Mirsad_BTC_ExecutionBridge.ex5 with zero errors and zero warnings.'
 
  $loginConfig=Join-Path $root 'mt5-demo.ini'
  $ini=@"
@@ -152,6 +152,8 @@ Period=M1
  Add-Report 'PASS — Mirsad EA loaded and produced MIR1 Common Files telemetry.'
  Add-Report ("Broker symbol: {0}; market mapping: {1}; account currency: {2}" -f $telemetry.symbol,$telemetry.market_symbol,$telemetry.account.currency)
  Add-Report ("Current Ask quote available: {0}" -f ([double]$telemetry.quote.ask -gt 0))
+ Add-Report ("Broker tick age (seconds): {0}" -f $telemetry.quote.tick_age_seconds)
+ if([double]$telemetry.quote.tick_age_seconds -gt 10 -or [double]$telemetry.quote.tick_age_seconds -lt 0){throw 'Broker quote tick is stale or has an invalid age.'}
  $commandFile=Join-Path $folder 'command.json'
  if(Test-Path $commandFile){throw 'Unexpected command.json found; no trade test will be attempted.'}
  Add-Report 'No trade command exists. The EA remained in command-listening mode and did not send an order.'
