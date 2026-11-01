@@ -120,14 +120,15 @@ def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,exp
     patterns=_patterns(bars)
     counts={"GREEN":sum(b["colour"]=="GREEN" for b in bars),
             "RED":sum(b["colour"]=="RED" for b in bars)}
+    # Direction must come from calibrated price movement, not candle colours alone.
+    # A sequence of green candles can still form lower closes (and vice versa).
     bias="NEUTRAL"
-    if len(bars)>=5:
-        recent=bars[-8:]
-        signed=sum(1 if b["colour"]=="GREEN" else -1 for b in recent)
-        if signed>=4:
-            bias="BULLISH"
-        elif signed<=-4:
-            bias="BEARISH"
+    visual_trend={
+        "sample_bars":0,"net_change":None,"net_change_pct":None,
+        "visible_range_fraction":None,"rising_close_steps":0,
+        "falling_close_steps":0,"required_directional_steps":0,
+        "minimum_move":None,
+    }
 
     top_price=meta.get("price_top")
     bottom_price=meta.get("price_bottom")
@@ -158,6 +159,36 @@ def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,exp
                 **bar,"open":open_price,"close":close_price,
                 "high":price_at(bar["high_y_px"]),"low":price_at(bar["low_y_px"]),
             })
+
+    # Use a short, calibrated close-price sequence as visual trend evidence.
+    # Require both a meaningful net move relative to the visible axis range and
+    # directional consistency across most adjacent closes to avoid colour-count
+    # false positives.
+    if scale_valid and len(calibrated)>=6:
+        recent=calibrated[-8:]
+        closes=np.asarray([float(bar["close"]) for bar in recent],dtype=float)
+        steps=np.diff(closes)
+        rising=int(np.count_nonzero(steps>0))
+        falling=int(np.count_nonzero(steps<0))
+        net_change=float(closes[-1]-closes[0])
+        visible_range=float(top_price-bottom_price)
+        minimum_move=max(abs(float(closes[0]))*0.0002,visible_range*0.015)
+        required=int(np.ceil(len(steps)*0.60))
+        visual_trend={
+            "sample_bars":len(recent),
+            "net_change":round(net_change,8),
+            "net_change_pct":round((net_change/abs(float(closes[0])))*100,6) if closes[0] else None,
+            "visible_range_fraction":round(net_change/visible_range,6) if visible_range>0 else None,
+            "rising_close_steps":rising,
+            "falling_close_steps":falling,
+            "required_directional_steps":required,
+            "minimum_move":round(minimum_move,8),
+        }
+        if net_change>=minimum_move and rising>=required:
+            bias="BULLISH"
+        elif net_change<=-minimum_move and falling>=required:
+            bias="BEARISH"
+
     symbol_matches=bool(expected_symbol and meta.get("symbol")==expected_symbol)
     timeframe=meta.get("timeframe")
     timeframe_valid=timeframe in {"1m","5m","15m","1h","4h","1d"}
@@ -166,7 +197,8 @@ def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,exp
     return {
         **result,"status":state,"image_width":width,"image_height":height,
         "detected_bar_count":len(bars),"calibrated_bar_count":len(calibrated),
-        "colour_counts":counts,"visual_bias":bias,"pattern_candidates":patterns,
+        "colour_counts":counts,"visual_bias":bias,"visual_trend":visual_trend,
+        "pattern_candidates":patterns,
         "bars":calibrated[-80:] if scale_valid else bars[-80:],
         "decision_eligible":eligible,
         "calibration":{
