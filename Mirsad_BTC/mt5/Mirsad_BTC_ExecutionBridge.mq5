@@ -128,9 +128,52 @@ string ReadLastCommandId()
    return ReadCommonText("last_command_id.txt");
 }
 
+bool WasCommandSeen(const string command_id)
+{
+   int handle = FileOpen(CommonPath("command_ledger.txt"),
+                         FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON,
+                         0, CP_UTF8);
+   if(handle != INVALID_HANDLE)
+   {
+      while(!FileIsEnding(handle))
+      {
+         string stored_id = FileReadString(handle);
+         if(stored_id == command_id)
+         {
+            FileClose(handle);
+            return true;
+         }
+      }
+      FileClose(handle);
+   }
+
+   // Backward compatibility with an ID persisted by earlier EA versions.
+   return (ReadLastCommandId() == command_id);
+}
+
 bool SaveLastCommandId(const string command_id)
 {
-   return WriteCommonText("last_command_id.txt", command_id);
+   int handle = FileOpen(CommonPath("command_ledger.txt"),
+                         FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON,
+                         0, CP_UTF8);
+   if(handle == INVALID_HANDLE)
+   {
+      PrintFormat("Mirsad: cannot open command ledger. Error=%d", GetLastError());
+      return false;
+   }
+   if(!FileSeek(handle, 0, SEEK_END))
+   {
+      FileClose(handle);
+      PrintFormat("Mirsad: cannot seek command ledger. Error=%d", GetLastError());
+      return false;
+   }
+   FileWriteString(handle, command_id + "\r\n");
+   FileFlush(handle);
+   FileClose(handle);
+
+   // Keep a last-ID marker for compatibility and fast manual diagnostics.
+   WriteCommonText("last_command_id.txt", command_id);
+   return true;
 }
 
 long NowUtcMs()
@@ -345,11 +388,10 @@ void ProcessCommand()
       return;
    }
 
-   string last_id = ReadLastCommandId();
-   if(last_id == command_id)
+   if(WasCommandSeen(command_id))
    {
       PublishAck(command_id, "UNKNOWN", 0, 0, 0, 0.0, 0.0,
-                 "This command ID was already seen. It will not be resent to avoid a duplicate trade.");
+                 "This command ID exists in the persistent ledger. It will not be resent to avoid a duplicate trade.");
       g_processing = false;
       return;
    }
