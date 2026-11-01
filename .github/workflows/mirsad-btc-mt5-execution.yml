@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: mirsad-mt5-execution-demo
-  cancel-in-progress: false
+  group: mirsad-mt5-execution-clean-build
+  cancel-in-progress: true
 
 jobs:
   compile-attach-heartbeat:
