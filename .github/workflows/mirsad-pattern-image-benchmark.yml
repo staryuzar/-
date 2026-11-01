@@ -55,8 +55,8 @@ jobs:
           PYTHONPATH: Mirsad_BTC
         run: |
           python Mirsad_BTC/scripts/candlestick_pattern_benchmark.py \
-            --batch-size "\${{ github.event.inputs.batch_size || '25' }}" \
-            --max-images "\${{ github.event.inputs.max_images || '0' }}" \
+            --batch-size "${{ github.event.inputs.batch_size || '25' }}" \
+            --max-images "${{ github.event.inputs.max_images || '0' }}" \
             --workers 4 \
             --output mirsad-candlestick-pattern-benchmark.json
 
