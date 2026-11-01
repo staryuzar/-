@@ -29,7 +29,9 @@ STATUS_AR={
  "DETECTED_UNCALIBRATED":"تم كشف الشموع — بانتظار معايرة المحور",
  "LOW_DETECTION":"اكتشاف ضعيف","CONNECTED":"جسر الخبير متصل",
  "WAITING_FOR_EXPERT":"بانتظار الخبير التنفيذي","NOT_CONFIGURED":"مسار MT5 غير محدد",
- "PUBLISH_DISABLED":"نشر أوامر الخبير معطل","ERROR":"خطأ",
+ "PUBLISH_DISABLED":"نشر أوامر الخبير معطل","PUBLISHED":"أُرسل أمر للجسر",
+ "ALREADY_ACKNOWLEDGED":"الأمر له إقرار سابق","ALREADY_PUBLISHED":"الأمر منشور مسبقاً",
+ "PENDING_COMMAND_BLOCKED":"أمر سابق ينتظر التسوية","REJECTED":"الأمر مرفوض","ERROR":"خطأ",
  "FULLY_OPERATIONAL":"المحركات الأربعة جاهزة","PARTIAL_OR_WAITING":"تشغيل جزئي — توجد وصلات تنتظر",
  "WAITING_FOR_ENGINE_2":"بانتظار معايرة الرسم","STALE":"بيانات قديمة — يلزم تحديث الصورة",
  "WAITING_FOR_ENGINE_3_QUOTE":"بانتظار سعر MT5 الحي","BLOCKED":"محجوب حتى تكتمل البيانات"}
@@ -126,6 +128,14 @@ def render_engine_dashboard():
   e2.metric("وقف الخسارة",f"{decision.get('stop_loss'):,.2f}" if decision.get("stop_loss") else "—")
   e3.metric("الهدف",f"{decision.get('take_profit'):,.2f}" if decision.get("take_profit") else "—")
   e4.metric("بوابة الرسم",decision.get("chart_gate","—"))
+  q1,q2,q3,q4=st.columns(4)
+  divergence=decision.get("broker_market_price_divergence_pct")
+  spread=decision.get("broker_spread_pct")
+  quote=decision.get("broker_quote") or {}
+  q1.metric("فرق سعر MT5 عن السوق",f"{divergence:.3f}%" if divergence is not None else "—")
+  q2.metric("سبريد MT5",f"{spread:.3f}%" if spread is not None else "—")
+  q3.metric("عمر سعر الوسيط",f"{quote.get('tick_age_seconds')} ثانية" if quote.get("tick_age_seconds") is not None else "—")
+  q4.metric("رمز الوسيط",state.get("bridge",{}).get("symbol") or "—")
   if decision.get("timeframes"):
    tf_rows=[{"الإطار":tf,"الاتجاه":item.get("trend"),"حالة البيانات":item.get("status"),
     "عدد الشموع المغلقة":item.get("closed_candles")} for tf,item in decision["timeframes"].items()]
