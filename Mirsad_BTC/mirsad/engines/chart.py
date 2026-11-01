@@ -97,6 +97,15 @@ def _extract_bars(
     # Public chart images vary significantly in resolution and candle thickness.
     # A 1.2% / 18 px cap discarded valid ~19 px candles on high-resolution charts.
     max_bar_width = max(6, min(32, int(round(area.shape[1] * 0.02))))
+    try:
+        expected_candle_count = int(meta.get("expected_candle_count", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        expected_candle_count = 0
+    if expected_candle_count > 0:
+        # Fixed-window educational renders have known candle slots. Use the
+        # slot geometry so thick bodies are not mistaken for overlays.
+        slot_width = area.shape[1] / expected_candle_count
+        max_bar_width = max(max_bar_width, min(48, int(round(slot_width * 0.90))))
     rejection_counts = {"wide_group": 0, "low_pixel_count": 0, "mixed_palette": 0, "short_component": 0, "no_body": 0}
     if diagnostics is not None:
         diagnostics.update({
