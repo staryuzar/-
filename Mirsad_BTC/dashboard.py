@@ -198,6 +198,23 @@ def render_engine_dashboard():
   st.write("المحرك 1 يقرأ السوق العام. المحرك 2 رؤية حاسوبية تقليدية. المحرك 3 ينقل بيانات وأوامر MT5. المحرك 4 وحده يقرر ويدير المخاطر.")
   st.write("لا ذكاء اصطناعي، ولا بيانات سوق وهمية، ولا صفقات محاكاة.")
 
+ st.divider()
+ st.subheader("تقرير الإنجاز والتدقيق التفصيلي")
+ report_path=Path(__file__).resolve().parent/"reports"/"MIRSAD_PROGRESS_REPORT_AR_20261102.md"
+ with st.expander("فتح تقرير مرصاد الكامل - 2 نوفمبر 2026",expanded=False):
+  if report_path.is_file():
+   report_text=report_path.read_text(encoding="utf-8")
+   st.markdown(report_text)
+   st.download_button(
+    "تنزيل التقرير بصيغة Markdown",
+    data=report_text,
+    file_name="MIRSAD_PROGRESS_REPORT_AR_20261102.md",
+    mime="text/markdown",
+    key="mirsad_progress_report_download",
+   )
+  else:
+   st.error("ملف تقرير الإنجاز غير موجود في مجلد reports.")
+
 @st.fragment(run_every=10)
 def live_fragment():
  render_engine_dashboard()
