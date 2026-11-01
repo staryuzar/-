@@ -263,6 +263,7 @@ class DecisionEngine:
         else:
             chart_gate = "NO_MARKET_SETUP"
 
+        market_entry = float(market["price"])
         broker_symbol = str(bridge.get("symbol", ""))
         market_symbol = str(market.get("symbol", ""))
         quote = bridge.get("quote", {})
