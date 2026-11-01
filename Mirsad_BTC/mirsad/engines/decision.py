@@ -1,4 +1,5 @@
 from __future__ import annotations
+import hashlib
 import math
 from typing import Any
 from ..config import RISK_PER_TRADE
@@ -170,9 +171,13 @@ class DecisionEngine:
                     volume_max=specs["volume_max"])
         command_ready=bool(action in {"BUY","SELL"} and size.get("status")=="READY"
                             and bridge and bridge.get("status")=="CONNECTED")
+        last_closed=one[-1].get("open_time_ms") if one else 0
+        signal_source=f"{market.get('symbol')}|{action}|{last_closed}|{chart.get('image','')}"
+        signal_id=("MIR-"+hashlib.sha256(signal_source.encode("utf-8")).hexdigest()[:24]
+                   if action in {"BUY","SELL"} else None)
         return {
             **base,"status":"READY" if chart_eligible else "WAITING_FOR_ENGINE_2",
-            "action":action,"candidate_action":candidate,"command_ready":command_ready,
+            "action":action,"candidate_action":candidate,"signal_id":signal_id,"command_ready":command_ready,
             "chart_gate":chart_gate,"chart_visual_bias":visual_bias,
             "as_of_ms":market.get("captured_at_ms"),"symbol":market.get("symbol"),
             "entry_reference":entry,"stop_loss":sl,"take_profit":tp,
