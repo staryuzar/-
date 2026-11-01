@@ -40,7 +40,7 @@ def request_bytes(url: str, timeout: int = 45, max_bytes: int = 8 * 1024 * 1024)
         },
     )
     last_error: Exception | None = None
-    for attempt in range(4):
+    for attempt in range(7):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 payload = response.read(max_bytes + 1)
@@ -49,9 +49,21 @@ def request_bytes(url: str, timeout: int = 45, max_bytes: int = 8 * 1024 * 1024)
                 if not payload:
                     raise ValueError("empty HTTP response")
                 return payload
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code not in {429, 500, 502, 503, 504}:
+                raise
+            retry_after = 0.0
+            try:
+                retry_after = float(exc.headers.get("Retry-After", "0"))
+            except (TypeError, ValueError):
+                retry_after = 0.0
+            delay = max(retry_after, min(60.0, 2.0 ** (attempt + 1)))
+            print(f"HTTP {exc.code}; backing off {delay:.1f}s (attempt {attempt + 1}/7)", flush=True)
+            time.sleep(delay)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last_error = exc
-            time.sleep(min(2 ** attempt, 8))
+            time.sleep(min(2.0 ** (attempt + 1), 30.0))
     raise RuntimeError(f"download failed after retries: {last_error}")
 
 
@@ -106,6 +118,9 @@ def fetch_dataset_rows(split: str, ticker: str | None, max_images: int) -> tuple
         if offset == 0:
             page = first
         else:
+            # Hugging Face viewer API enforces per-client request limits.
+            # Keep pagination below its typical 30-requests/minute threshold.
+            time.sleep(2.2)
             page = request_json(build_page_url(split, offset, 100, ticker if api_ticker_filter else None))
         page_rows = page.get("rows", [])
         if not page_rows:
