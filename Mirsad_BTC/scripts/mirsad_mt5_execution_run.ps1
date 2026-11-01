@@ -86,6 +86,7 @@ try{
  $compileText=Get-Content -LiteralPath $compileLog -Raw
  $compileText|Set-Content -LiteralPath (Join-Path $evidence 'Mirsad_BTC_ExecutionBridge_compile.log') -Encoding utf8
  if($compileText -notmatch '(?i)0 errors' -or $compileText -match '(?i)[1-9][0-9]* errors'){throw 'MetaEditor did not report zero errors.'}
+ if($compileText -notmatch '(?i)0 warnings' -or $compileText -match '(?i)[1-9][0-9]* warnings'){throw 'MetaEditor did not report zero compile warnings.'}
  Copy-Item -LiteralPath $eaBinary -Destination (Join-Path $evidence 'Mirsad_BTC_ExecutionBridge.ex5') -Force
  Add-Report 'PASS — MetaEditor compiled Mirsad_BTC_ExecutionBridge.ex5 with zero errors and zero warnings.'
 
