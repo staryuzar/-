@@ -99,6 +99,18 @@ class MT5BridgeEngine:
         current=_read_object(target)
         if current.get("command_id")==envelope["command_id"]:
             return {"status":"ALREADY_PUBLISHED","command_id":envelope["command_id"]}
+        # Never overwrite a different command until its acknowledgement is reconciled.
+        current_id=current.get("command_id")
+        if current_id:
+            current_ack=_read_object(self.root/"ack.json")
+            ack_matches=current_ack.get("command_id")==current_id
+            settled=ack_matches and current_ack.get("state") in {
+                "REJECTED","FILLED","CANCELLED","EXPIRED"
+            }
+            if not settled:
+                return {"status":"PENDING_COMMAND_BLOCKED","pending_command_id":current_id,
+                        "ack_state":current_ack.get("state") if ack_matches else "MISSING",
+                        "message":"Existing command must be acknowledged/reconciled before a new command can replace it."}
         now=int(time.time()*1000)
         envelope.update({"created_at_ms":now,"expires_at_ms":now+60000})
         temp=self.root/("command."+envelope["command_id"]+".tmp")
