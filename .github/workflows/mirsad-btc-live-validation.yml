@@ -1,0 +1,31 @@
+name: Mirsad BTC — Live Data Validation
+on:
+  push:
+    branches: [mirsad-mt5-demo]
+    paths:
+      - 'Mirsad_BTC/**'
+      - '.github/workflows/mirsad-btc-live-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-market-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Mirsad branch
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: Mirsad_BTC/requirements.txt
+      - name: Install open-source dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r Mirsad_BTC/requirements.txt
+      - name: Compile Python modules
+        run: python -m compileall -q Mirsad_BTC/mirsad Mirsad_BTC/dashboard.py Mirsad_BTC/run_mirsad.py
+      - name: Verify actual public BTC market feeds
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: python Mirsad_BTC/scripts/live_smoke.py
