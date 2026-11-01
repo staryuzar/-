@@ -160,15 +160,16 @@ string BuildPositionsJson()
       double sl = PositionGetDouble(POSITION_SL);
       double tp = PositionGetDouble(POSITION_TP);
       double profit = PositionGetDouble(POSITION_PROFIT);
+      long position_magic = PositionGetInteger(POSITION_MAGIC);
       string currency = AccountInfoString(ACCOUNT_CURRENCY);
 
       if(!first) output += ",";
       first = false;
       output += StringFormat(
-         "{\"ticket\":%I64u,\"symbol\":\"%s\",\"type\":%d,\"volume\":%s,"
+         "{\"ticket\":%I64u,\"symbol\":\"%s\",\"type\":%d,\"magic\":%I64d,\"volume\":%s,"
          "\"price_open\":%s,\"stop_loss\":%s,\"take_profit\":%s,"
          "\"profit\":%s,\"profit_currency\":\"%s\"}",
-         ticket, JsonEscape(symbol), (int)type,
+         ticket, JsonEscape(symbol), (int)type, position_magic,
          NumberJson(volume, 8), NumberJson(open_price, 10),
          NumberJson(sl, 10), NumberJson(tp, 10),
          NumberJson(profit, 2), JsonEscape(currency)
@@ -235,9 +236,9 @@ void PublishTelemetry()
 
    string payload = StringFormat(
       "{\"schema\":\"MIR1\",\"terminal_connected\":%s,\"heartbeat_at_ms\":%I64d,"
-      "\"symbol\":\"%s\",\"market_symbol\":\"%s\",%s,%s,%s,\"positions\":%s}",
+      "\"symbol\":\"%s\",\"market_symbol\":\"%s\",\"magic_number\":%I64u,%s,%s,%s,\"positions\":%s}",
       connected ? "true" : "false", NowUtcMs(),
-      JsonEscape(g_broker_symbol), JsonEscape(InpMarketSymbol),
+      JsonEscape(g_broker_symbol), JsonEscape(InpMarketSymbol), InpMagicNumber,
       account, quote, spec, BuildPositionsJson()
    );
 
