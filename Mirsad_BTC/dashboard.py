@@ -143,7 +143,7 @@ def render_engine_dashboard():
   st.caption(publication.get("message","لا يوجد أمر جاهز للإرسال."))
   if decision.get("open_block_reason"): st.caption(decision["open_block_reason"])
   if decision.get("position_ticket"): st.caption(f"تذكرة المركز المطلوب إغلاقه: {decision['position_ticket']}")
-  st.caption("لن يرسل أمر إلى MT5 إلا بعد جاهزية القرار ووصول نبض الجسر وسعر MT5 المتطابق والحديث، ومع تشغيل نشر الأوامر صراحةً.")
+  st.caption("لن يرسل أمر إلى MT5 إلا بعد جاهزية القرار ووصول نبض الجسر وسعر MT5 المتطابق والحديث. الإرسال مفعّل وفق تفويض المستخدم، ويمكن تعطيله من إعداد MIRSAD_ENABLE_ORDER_PUBLISH=0.")
 
  st.divider()
  st.subheader("تهيئة صورة الرسم للمحرك الثاني")
