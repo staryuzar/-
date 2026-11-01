@@ -137,6 +137,12 @@ def _signal_id(*parts: Any) -> str:
 
 def _matching_positions(bridge: dict[str, Any], broker_symbol: str) -> list[dict[str, Any]]:
     result = []
+    try:
+        expected_magic = int(bridge.get("magic_number", 0))
+    except (TypeError, ValueError, OverflowError):
+        expected_magic = 0
+    if expected_magic <= 0:
+        return result
     for item in bridge.get("positions", []) or []:
         if str(item.get("symbol", "")).upper() != broker_symbol.upper():
             continue
@@ -144,10 +150,11 @@ def _matching_positions(bridge: dict[str, Any], broker_symbol: str) -> list[dict
             ticket = int(item.get("ticket", 0))
             side_code = int(item.get("type", -1))
             volume = float(item.get("volume", 0))
+            magic = int(item.get("magic", -1))
         except (TypeError, ValueError, OverflowError):
             continue
-        if ticket > 0 and side_code in (0, 1) and math.isfinite(volume) and volume > 0:
-            result.append({**item, "ticket": ticket, "type": side_code, "volume": volume,
+        if ticket > 0 and side_code in (0, 1) and magic == expected_magic and math.isfinite(volume) and volume > 0:
+            result.append({**item, "ticket": ticket, "type": side_code, "magic": magic, "volume": volume,
                            "side": "BUY" if side_code == 0 else "SELL"})
     return result
 

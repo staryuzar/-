@@ -51,6 +51,7 @@ class MT5BridgeEngine:
             "account": payload.get("account", {}),
             "symbol": payload.get("symbol"),
             "market_symbol": payload.get("market_symbol"),
+            "magic_number": payload.get("magic_number"),
             "quote": quote,
             "symbol_spec": payload.get("symbol_spec", {}),
             "positions": payload.get("positions", []),
