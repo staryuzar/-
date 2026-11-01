@@ -414,6 +414,13 @@ void ProcessCommand()
          g_processing = false;
          return;
       }
+      long position_magic = PositionGetInteger(POSITION_MAGIC);
+      if((ulong)position_magic != InpMagicNumber)
+      {
+         RejectAndRemember(command_id, "CLOSE is restricted to positions owned by this Mirsad EA magic number.");
+         g_processing = false;
+         return;
+      }
       existing_position_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
       double current_volume = PositionGetDouble(POSITION_VOLUME);
       if(!MathIsValidNumber(volume) || volume <= 0.0 ||
