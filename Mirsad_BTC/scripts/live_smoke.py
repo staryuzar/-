@@ -25,7 +25,12 @@ def main()->int:
     if saved<1 or candles<1:
         print("FAIL: live snapshot/candles were not persisted to SQLite.")
         return 1
-    print(f"PASS: {report['market']['venue_count']} actual venue(s); SQLite snapshots={saved}, candles={candles}, trades={trades}.")
+    live_count=int(report["market"].get("venue_count",0) or 0)
+    if live_count>=2:
+        print(f"PASS: {live_count} actual venues; Engine 4 market quorum is available. SQLite snapshots={saved}, candles={candles}, trades={trades}.")
+    else:
+        print(f"PARTIAL: only {live_count} actual venue is reachable from this runner. SQLite snapshots={saved}, candles={candles}, trades={trades}.")
+        print("Engine 4 correctly remains in WAIT/NOT_READY until two independent live venues are available; no directional order can be published.")
     print("No fake data, no paper-trading, no simulated orders, and no order was sent.")
     return 0
 if __name__=="__main__":
