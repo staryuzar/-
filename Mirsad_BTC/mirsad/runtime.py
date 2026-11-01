@@ -3,7 +3,7 @@ import argparse
 import time
 from pathlib import Path
 from typing import Any
-from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS
+from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH
 from .engines.market import MarketEngine
 from .engines.chart import analyze_chart_image
 from .engines.decision import DecisionEngine
@@ -30,12 +30,17 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
    "message":"Upload a real chart screenshot and enter its price-axis scale."}
  bridge=(bridge_engine or MT5BridgeEngine()).inspect()
  decision=DecisionEngine().analyze(market,chart,bridge)
+ command_publish={"status":"NOT_READY","message":"No command-ready BUY/SELL decision."}
+ if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
+  command_publish=(bridge_engine or MT5BridgeEngine()).publish_decision(decision,bridge)
+ elif decision.get("command_ready"):
+  command_publish={"status":"PUBLISH_DISABLED","message":"Decision is sized but the bridge command switch is disabled."}
  now=int(time.time()*1000)
  age=max(0,(now-int(market.get("captured_at_ms",now)))/1000)
  market_status=market.get("status","OFFLINE")
  if age>MARKET_MAX_AGE_SECONDS: market_status="STALE"
  readiness={
-  "engine_1_market":market_status in {"LIVE","PARTIAL"},
+  "engine_1_market":market_status=="LIVE",
   "engine_2_chart":bool(chart.get("decision_eligible")),
   "engine_3_mt5_bridge":bridge.get("status")=="CONNECTED",
   "engine_4_decision":decision.get("status")=="READY",
@@ -56,10 +61,10 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
    "venues":{n:{"status":v.get("status"),"latency_ms":v.get("latency_ms"),
     "error":v.get("error"),"timeframe_count":len(v.get("candles_by_tf",{})),
     "orderflow":v.get("orderflow")} for n,v in market.get("venues",{}).items()}},
-  "chart":chart,"bridge":bridge,"decision":decision,
+  "chart":chart,"bridge":bridge,"decision":decision,"command_publish":command_publish,
   "wiring":{"engine_1_to_engine_4":True,"engine_2_to_engine_4":True,
    "engine_3_to_engine_4":True,
-   "engine_4_to_engine_3_command_envelope":"implemented_but_disabled_by_default",
+   "engine_4_to_engine_3_command_envelope":"implemented_idempotent_disabled_by_default",
    "expert_connection":"pending_next_phase"},
   "notices":[
    "Engine 1: actual public market feeds. Engine 2: classical chart vision. Engine 3: MT5 bridge. Engine 4: central decision and risk.",
