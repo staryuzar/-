@@ -86,11 +86,15 @@ def calculate_volume(*,equity:float,entry:float,stop_loss:float,tick_size:float,
             "tick_value_basis":"loss-side tick value reported by MT5 in account currency"}
 
 class DecisionEngine:
-    """Engine 4: receives Engine 1 market, Engine 2 chart and Engine 3 MT5 bridge outputs."""
+    """Engine 4: signal evidence comes only from Engines 1 and 2.
+    Engine 3 supplies live account/specification data for program-side sizing
+    and carries the final MIR1 command; it never votes on direction.
+    """
     def analyze(self,market:dict[str,Any],chart:dict[str,Any]|None,
                 bridge:dict[str,Any]|None)->dict[str,Any]:
         base={"engine":"engine_4_decision_and_risk","method":"rules_only",
-              "inputs":["engine_1_market","engine_2_chart","engine_3_mt5_bridge"],
+              "direction_inputs":["engine_1_market","engine_2_chart"],
+              "bridge_role":"engine_3 transports commands and supplies live account/specification fields for risk sizing only",
               "risk_owner":"Mirsad_BTC_program"}
         if market.get("status") not in {"LIVE","PARTIAL"} or not market.get("primary_venue"):
             return {**base,"status":"NOT_READY","action":"WAIT","candidate_action":"WAIT",
@@ -184,8 +188,8 @@ class DecisionEngine:
             "trend_score":round(trend_score,4),"timeframes":tf_data,
             "indicators":{"ema20_1m":fast,"ema50_1m":slow,"rsi14_1m":rsi,"atr14_1m":atr1,"atr14_5m":atr5},
             "orderflow":flow,"risk_plan":size,
-            "engine_inputs":{"engine_1_market":market.get("status"),
-                "engine_2_chart":"READY" if chart_eligible else chart.get("status","NOT_READY"),
-                "engine_3_bridge":(bridge or {}).get("status","NOT_CONFIGURED")},
+            "engine_inputs":{"direction_from_engine_1_market":market.get("status"),
+                "direction_from_engine_2_chart":"READY" if chart_eligible else chart.get("status","NOT_READY"),
+                "engine_3_bridge_for_risk_specs_and_transport":(bridge or {}).get("status","NOT_CONFIGURED")},
             "reason":"Engine 4 requires agreement between closed-candle market rules, public taker flow and a calibrated chart screenshot. No AI or certainty is claimed.",
         }
