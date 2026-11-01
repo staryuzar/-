@@ -231,7 +231,11 @@ void PublishTelemetry()
       NumberJson(tick_size, 10), NumberJson(tick_value_loss, 10),
       NumberJson(volume_min, 8), NumberJson(volume_step, 8),
       NumberJson(volume_max, 8), digits, NumberJson(point, 10),
-      NumberJson(contract_size, 4), trade_mode
+      NumberJson(contract_size, 4), trade_mode,
+      SymbolInfoInteger(g_broker_symbol, SYMBOL_TRADE_STOPS_LEVEL),
+      SymbolInfoInteger(g_broker_symbol, SYMBOL_TRADE_FREEZE_LEVEL),
+      SymbolInfoInteger(g_broker_symbol, SYMBOL_FILLING_MODE),
+      SymbolInfoInteger(g_broker_symbol, SYMBOL_TRADE_EXEMODE)
    );
 
    string payload = StringFormat(
@@ -276,14 +280,26 @@ bool IsVolumeOnBrokerStep(const string symbol, const double volume)
    return (MathAbs(steps - MathRound(steps)) <= 1e-6);
 }
 
-ENUM_ORDER_TYPE_FILLING BrokerFillingMode(const string symbol)
+bool ResolveBrokerFillingMode(const string symbol, ENUM_ORDER_TYPE_FILLING &mode)
 {
    long modes = SymbolInfoInteger(symbol, SYMBOL_FILLING_MODE);
+   long execution = SymbolInfoInteger(symbol, SYMBOL_TRADE_EXEMODE);
    if((modes & SYMBOL_FILLING_IOC) == SYMBOL_FILLING_IOC)
-      return ORDER_FILLING_IOC;
+   {
+      mode = ORDER_FILLING_IOC;
+      return true;
+   }
    if((modes & SYMBOL_FILLING_FOK) == SYMBOL_FILLING_FOK)
-      return ORDER_FILLING_FOK;
-   return ORDER_FILLING_RETURN;
+   {
+      mode = ORDER_FILLING_FOK;
+      return true;
+   }
+   if(execution != SYMBOL_TRADE_EXECUTION_MARKET)
+   {
+      mode = ORDER_FILLING_RETURN;
+      return true;
+   }
+   return false;
 }
 
 void RejectAndRemember(const string command_id, const string reason,
@@ -449,13 +465,16 @@ void ProcessCommand()
          g_processing = false;
          return;
       }
-      if(action == "BUY" && !(stop_loss < tick.ask && take_profit > tick.ask))
+      double minimum_stop_distance = SymbolInfoInteger(command_symbol, SYMBOL_TRADE_STOPS_LEVEL) * SymbolInfoDouble(command_symbol, SYMBOL_POINT);
+      if(action == "BUY" && (!(stop_loss < tick.ask && take_profit > tick.ask) ||
+         (tick.ask-stop_loss) < minimum_stop_distance || (take_profit-tick.ask) < minimum_stop_distance))
       {
          RejectAndRemember(command_id, "BUY stop-loss/take-profit levels are inconsistent with current broker Ask.");
          g_processing = false;
          return;
       }
-      if(action == "SELL" && !(take_profit < tick.bid && stop_loss > tick.bid))
+      if(action == "SELL" && (!(take_profit < tick.bid && stop_loss > tick.bid) ||
+         (stop_loss-tick.bid) < minimum_stop_distance || (tick.bid-take_profit) < minimum_stop_distance))
       {
          RejectAndRemember(command_id, "SELL stop-loss/take-profit levels are inconsistent with current broker Bid.");
          g_processing = false;
@@ -465,7 +484,13 @@ void ProcessCommand()
 
    // Persist the ID before a request. If execution outcome is uncertain,
    // the EA will report UNKNOWN instead of resubmitting the same command.
-   SaveLastCommandId(command_id);
+   if(!SaveLastCommandId(command_id))
+   {
+      PublishAck(command_id, "REJECTED", 0, 0, 0, 0.0, 0.0,
+                 "Could not persist the command ID; no broker request was sent.");
+      g_processing = false;
+      return;
+   }
    PublishAck(command_id, "RECEIVED", 0, 0, 0, 0.0, 0.0,
               "Command accepted by MIR1 protocol. Preparing one broker request.");
 
@@ -478,7 +503,13 @@ void ProcessCommand()
    request.symbol = command_symbol;
    request.volume = volume;
    request.deviation = (ulong)MathMax(0, InpDeviationPoints);
-   request.type_filling = BrokerFillingMode(command_symbol);
+   if(!ResolveBrokerFillingMode(command_symbol, request.type_filling))
+   {
+      PublishAck(command_id, "REJECTED", 0, 0, 0, 0.0, 0.0,
+                 "No broker-supported filling policy is available for this execution mode.");
+      g_processing = false;
+      return;
+   }
    request.type_time = ORDER_TIME_GTC;
    request.comment = command_id;
 
@@ -499,7 +530,8 @@ void ProcessCommand()
    }
 
    ResetLastError();
-   if(!OrderCheck(request, check))
+   bool checked = OrderCheck(request, check);
+   if(!checked || check.retcode != 0)
    {
       int error_code = GetLastError();
       PublishAck(command_id, "REJECTED", check.retcode, 0, 0, 0.0, 0.0,
