@@ -164,11 +164,14 @@ class DecisionEngine:
             bid=float(quote.get("bid",0))
             ask=float(quote.get("ask",0))
             quote_age=float(bridge.get("quote_age_seconds",float("inf")))
+            tick_age=float(quote.get("tick_age_seconds",float("inf")))
             quote_ok=(bridge.get("status")=="CONNECTED"
                 and mapped_market_symbol.upper()==str(market.get("symbol","")).upper()
                 and bool(broker_symbol) and 0<bid<=ask
                 and math.isfinite(bid) and math.isfinite(ask)
-                and 0<=quote_age<=MT5_QUOTE_MAX_AGE_SECONDS)
+                and math.isfinite(quote_age) and math.isfinite(tick_age)
+                and 0<=quote_age<=MT5_QUOTE_MAX_AGE_SECONDS
+                and 0<=tick_age<=MT5_QUOTE_MAX_AGE_SECONDS)
         except (TypeError,ValueError,OverflowError):
             quote_ok=False
             bid=ask=0.0
