@@ -85,7 +85,7 @@ class ChartEngineTests(unittest.TestCase):
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["visual_bias"], "BEARISH")
         self.assertGreater(result["visual_trend"]["falling_close_steps"], 0)
-        self.assertGreater(result["visual_trend"]["net_change"], 0)  # Pixel y rises as price falls.
+        self.assertLess(result["visual_trend"]["net_change"], 0)  # Pixel y rises as price falls, so price decreases.
 
     def test_red_candles_with_rising_closes_are_not_labelled_bearish(self) -> None:
         result = self._analyze(direction="up", colour="RED")
