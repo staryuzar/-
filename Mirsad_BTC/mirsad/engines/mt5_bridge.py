@@ -3,7 +3,6 @@ import json
 import os
 import re
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 from ..config import ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,MT5_HEARTBEAT_MAX_AGE_SECONDS
@@ -57,7 +56,9 @@ class MT5BridgeEngine:
         if risk.get("status")!="READY":
             raise ValueError("Engine 4 has not completed risk-based position sizing.")
         symbol=str(decision.get("symbol",""))
-        command_id=str(uuid.uuid4())
+        command_id=str(decision.get("signal_id",""))
+        if not re.fullmatch(r"MIR-[A-Fa-f0-9]{24}",command_id):
+            raise ValueError("Decision signal ID is missing or invalid.")
         volume=float(risk.get("volume",0))
         entry=float(decision.get("entry_reference",0))
         sl=float(decision.get("stop_loss",0))
@@ -87,12 +88,21 @@ class MT5BridgeEngine:
                     "message":"Command publication is disabled; no file or order was sent."}
         if self.root is None or bridge_state.get("status")!="CONNECTED":
             return {"status":"BLOCKED","message":"A fresh Engine 3 bridge heartbeat is required."}
+        self.root.mkdir(parents=True,exist_ok=True)
+        ack=_read_object(self.root/"ack.json")
+        if ack.get("command_id")==envelope["command_id"] and ack.get("state") in {
+            "RECEIVED","SUBMITTED","PARTIAL","FILLED","CANCELLED","UNKNOWN"
+        }:
+            return {"status":"ALREADY_ACKNOWLEDGED","command_id":envelope["command_id"],
+                    "ack_state":ack.get("state")}
+        target=self.root/"command.json"
+        current=_read_object(target)
+        if current.get("command_id")==envelope["command_id"]:
+            return {"status":"ALREADY_PUBLISHED","command_id":envelope["command_id"]}
         now=int(time.time()*1000)
         envelope.update({"created_at_ms":now,"expires_at_ms":now+60000})
-        self.root.mkdir(parents=True,exist_ok=True)
-        target=self.root/"command.json"
         temp=self.root/("command."+envelope["command_id"]+".tmp")
         temp.write_text(json.dumps(envelope,separators=(",",":")),encoding="utf-8")
         os.replace(temp,target)
         return {"status":"PUBLISHED","command_id":envelope["command_id"],
-                "message":"Command envelope published to Common Files; EA acknowledgement is still required."}
+                "message":"Command envelope published; matching EA acknowledgement is required."}
