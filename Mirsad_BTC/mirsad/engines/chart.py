@@ -69,16 +69,25 @@ def _extract_bars(
     # Moving-average curves and other colored indicators can run across nearly
     # every x-column. Retain vertically persistent candle cores/wicks for the
     # column projection; use the original color masks below for OHLC geometry.
-    vertical_kernel_height = min(
-        max(3, int(round(area.shape[0] * 0.015))),
-        max(3, area.shape[0]),
-    )
+    desired_kernel_height = max(3, int(round(area.shape[0] * 0.015)))
+    if desired_kernel_height % 2 == 0:
+        desired_kernel_height += 1
+    largest_odd_height = area.shape[0] if area.shape[0] % 2 else max(1, area.shape[0] - 1)
+    vertical_kernel_height = max(1, min(desired_kernel_height, largest_odd_height))
     vertical_kernel = np.ones((vertical_kernel_height, 1), dtype=np.uint8)
     candle_core = cv2.morphologyEx(
         mask.astype(np.uint8) * 255,
         cv2.MORPH_OPEN,
         vertical_kernel,
     ) > 0
+    # Expand the candle core only along y to restore the original wick/body
+    # edges; indicator lines removed by opening stay excluded from OHLC geometry.
+    candle_support = cv2.dilate(
+        candle_core.astype(np.uint8) * 255,
+        vertical_kernel,
+    ) > 0
+    candle_bullish = bullish & candle_support
+    candle_bearish = bearish & candle_support
 
     activity = candle_core.sum(axis=0)
     minimum_activity = max(1, int(np.ceil(area.shape[0] * 0.0008)))
@@ -95,7 +104,9 @@ def _extract_bars(
             "raw_active_columns": int(np.count_nonzero(mask.sum(axis=0) >= minimum_activity)),
             "active_columns": int(np.count_nonzero(activity >= minimum_activity)),
             "vertical_kernel_height": vertical_kernel_height,
-            "indicator_pixels_suppressed": int(mask.sum() - candle_core.sum()),
+            "indicator_pixels_suppressed": int(
+                mask.sum() - np.count_nonzero(candle_bullish | candle_bearish)
+            ),
             "projection_groups": len(groups),
             "projection_group_widths": [int(x1 - x0 + 1) for x0, x1 in groups[:500]],
             "minimum_activity_per_column": minimum_activity,
@@ -107,8 +118,8 @@ def _extract_bars(
         if group_width > max_bar_width:
             rejection_counts["wide_group"] += 1
             continue
-        bull_roi = bullish[:, x0:x1 + 1]
-        bear_roi = bearish[:, x0:x1 + 1]
+        bull_roi = candle_bullish[:, x0:x1 + 1]
+        bear_roi = candle_bearish[:, x0:x1 + 1]
         bull_pixels = int(bull_roi.sum())
         bear_pixels = int(bear_roi.sum())
         total_pixels = bull_pixels + bear_pixels

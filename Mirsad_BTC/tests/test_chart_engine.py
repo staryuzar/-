@@ -113,6 +113,7 @@ class ChartEngineTests(unittest.TestCase):
                 "diagnostics": result["extraction_diagnostics"],
             }),
         )
+        self.assertGreater(result["visual_trend"]["net_change"], 0)
         self.assertTrue(result["decision_eligible"])
         diagnostics = result["extraction_diagnostics"]
         self.assertGreater(diagnostics["raw_active_columns"], diagnostics["active_columns"])
