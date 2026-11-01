@@ -64,7 +64,8 @@ jobs:
             --split test \
             --ticker all \
             --max-images 0 \
-            --workers 24 \
+            --workers 6 \
+            --batch-size 25 \
             --output mirsad-crypto-chart-benchmark.json
       - name: Upload per-image decisions and metrics
         if: always()

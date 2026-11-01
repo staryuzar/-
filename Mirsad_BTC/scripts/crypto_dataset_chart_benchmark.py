@@ -329,6 +329,7 @@ def main() -> int:
     parser.add_argument("--ticker", default="BTC-USD", help="Dataset ticker such as BTC-USD; use 'all' for all 15 crypto tickers.")
     parser.add_argument("--max-images", type=int, default=0, help="0 means all matching images.")
     parser.add_argument("--workers", type=int, default=12)
+    parser.add_argument("--batch-size", type=int, default=25, help="Number of images per audited batch; a checkpoint is written after every batch.")
     parser.add_argument("--crop", default="0.03,0.04,0.97,0.78", help="left,top,right,bottom fractions")
     parser.add_argument("--output", default="mirsad-crypto-chart-benchmark.json")
     args = parser.parse_args()
@@ -342,91 +343,184 @@ def main() -> int:
     dataset_rows, source_info = fetch_dataset_rows(args.split, ticker_filter, args.max_images)
     print(f"Selected {len(dataset_rows)} held-out image records.", flush=True)
 
+    if args.batch_size < 1:
+        raise ValueError("--batch-size must be at least 1")
+    if args.workers < 1:
+        raise ValueError("--workers must be at least 1")
+
     results: list[dict[str, Any]] = []
+    batch_history: list[dict[str, Any]] = []
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    total_images = len(dataset_rows)
+    total_batches = math.ceil(total_images / args.batch_size)
+
+    def persist_checkpoint(complete: bool) -> dict[str, Any]:
+        ordered_results = sorted(results, key=lambda r: int(r.get("sample_index", 0)))
+        current_stats = aggregate(ordered_results)
+        progress = {
+            "completed_batches": len(batch_history),
+            "total_batches": total_batches,
+            "batch_size": args.batch_size,
+            "images_completed": len(ordered_results),
+            "images_total": total_images,
+            "is_complete": complete,
+            "next_sample_index": len(ordered_results),
+        }
+        output = {
+            "project": "Mirsad BTC",
+            "benchmark": "huggingface_crypto_chart_dataset",
+            "dataset": DATASET,
+            "dataset_license": "CC-BY-4.0",
+            "split": args.split,
+            "ticker_filter": ticker_filter or "ALL_CRYPTO",
+            "source": source_info,
+            "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "progress": progress,
+            "image_count": len(ordered_results),
+            "batch_history": batch_history,
+            "label_semantics": (
+                "The future-return label and pct_return are evaluation-only ground truth. "
+                "Neither is passed to the visual analyzer. Direction is scored by the sign of pct_return."
+            ),
+            "important_limitations": [
+                "The chart images are percentage-normalized and omit numeric price axes; a virtual positive scale is used only to preserve visual direction.",
+                "This measures future-direction agreement on the dataset label, not trading profitability, fees, slippage, risk-adjusted return, or live execution.",
+                "The dataset documents a held-out test split; evaluation should not be confused with training or tuning on those labels.",
+                "The first run is an audit of the current analyzer, not a claim of validated predictive performance.",
+            ],
+            "metrics": current_stats,
+            "results": ordered_results,
+        }
+        tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_path.replace(output_path)
+
+        overall = current_stats["overall"]
+        lines = [
+            "# Mirsad - Crypto chart image benchmark",
+            "",
+            f"- Dataset: {DATASET}",
+            f"- Split: {args.split}",
+            f"- Ticker filter: {ticker_filter or 'all crypto'}",
+            f"- Progress: {len(ordered_results)}/{total_images} images",
+            f"- Batches: {len(batch_history)}/{total_batches} (size {args.batch_size})",
+            f"- Decision-eligible: {overall['decision_eligible_images']}",
+            f"- Directional predictions: {overall['directional_predictions']}",
+            f"- Directional coverage: {overall['directional_coverage_pct']}%",
+            f"- Directional accuracy: {overall['accuracy_on_directional_predictions_pct']}%",
+            "",
+            "| Batch | Samples | Eligible | Predictions | Coverage | Accuracy |",
+            "|---:|---:|---:|---:|---:|---:|",
+        ]
+        for item in batch_history:
+            metric = item["metrics"]
+            lines.append(
+                f"| {item['batch_number']} | {item['sample_start']}-{item['sample_end']} | "
+                f"{metric['decision_eligible_images']} | {metric['directional_predictions']} | "
+                f"{metric['directional_coverage_pct']}% | {metric['accuracy_on_directional_predictions_pct']}% |"
+            )
+        lines.extend([
+            "",
+            "| Ticker | Images | Eligible | Predictions | Coverage | Accuracy |",
+            "|---|---:|---:|---:|---:|---:|",
+        ])
+        for ticker, metric in current_stats["by_ticker"].items():
+            lines.append(
+                f"| {ticker} | {metric['total_images']} | {metric['decision_eligible_images']} | "
+                f"{metric['directional_predictions']} | {metric['directional_coverage_pct']}% | "
+                f"{metric['accuracy_on_directional_predictions_pct']}% |"
+            )
+        lines.extend([
+            "",
+            "## Confidence audit",
+            "",
+            "| Confidence threshold | Predictions | Accuracy |",
+            "|---|---:|---:|",
+        ])
+        for threshold, metric in overall["accuracy_by_confidence"].items():
+            lines.append(f"| {threshold} | {metric['count']} | {metric['accuracy']} |")
+        lines.extend([
+            "",
+            f"- Complete: {complete}",
+            "> Future-return labels are evaluation-only and never enter the analyzer. Accuracy is not trading profitability.",
+            "> Full diagnostics and per-image decisions are stored in the JSON artifact.",
+        ])
+        summary_tmp = Path("mirsad-crypto-chart-benchmark-summary.md.tmp")
+        summary_tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        summary_tmp.replace(Path("mirsad-crypto-chart-benchmark-summary.md"))
+        return current_stats
+
     with tempfile.TemporaryDirectory(prefix="mirsad_crypto_dataset_") as temp:
         temp_dir = Path(temp)
-        # Download/decode in a bounded thread pool. Analysis remains isolated per sample.
-        for start in range(0, len(dataset_rows), 40):
-            batch = dataset_rows[start:start + 40]
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(args.workers, 24))) as pool:
+        # Analyze small, auditable batches. Persist the cumulative results after
+        # each batch so an interrupted Actions job still retains completed work.
+        for batch_offset in range(0, total_images, args.batch_size):
+            batch_number = len(batch_history) + 1
+            batch = dataset_rows[batch_offset:batch_offset + args.batch_size]
+            batch_results: list[dict[str, Any]] = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(args.workers, 24)) as pool:
                 futures = [
-                    pool.submit(decode_and_analyze, row, start + i, temp_dir, crop_values)
+                    pool.submit(decode_and_analyze, row, batch_offset + i, temp_dir, crop_values)
                     for i, row in enumerate(batch)
                 ]
                 for future in concurrent.futures.as_completed(futures):
-                    results.append(future.result())
-            if len(results) % 200 == 0 or len(results) >= len(dataset_rows):
-                done = len(results)
-                eligible = sum(bool(r.get("decision_eligible")) for r in results)
-                print(f"Analyzed {done}/{len(dataset_rows)} | decision-eligible={eligible}", flush=True)
+                    batch_results.append(future.result())
 
-    results.sort(key=lambda r: int(r.get("sample_index", 0)))
-    stats = aggregate(results)
-    output = {
-        "project": "Mirsad BTC",
-        "benchmark": "huggingface_crypto_chart_dataset",
-        "dataset": DATASET,
-        "dataset_license": "CC-BY-4.0",
-        "split": args.split,
-        "ticker_filter": ticker_filter or "ALL_CRYPTO",
-        "source": source_info,
-        "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "image_count": len(results),
-        "label_semantics": (
-            "The future-return label and pct_return are evaluation-only ground truth. "
-            "Neither is passed to the visual analyzer. Direction is scored by the sign of pct_return."
-        ),
-        "important_limitations": [
-            "The chart images are percentage-normalized and omit numeric price axes; a virtual positive scale is used only to preserve visual direction.",
-            "This measures future-direction agreement on the dataset label, not trading profitability, fees, slippage, risk-adjusted return, or live execution.",
-            "The dataset documents a held-out test split; evaluation should not be confused with training or tuning on those labels.",
-            "The first run is an audit of the current analyzer, not a claim of validated predictive performance.",
-        ],
-        "metrics": stats,
-        "results": results,
-    }
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+            batch_results.sort(key=lambda r: int(r.get("sample_index", 0)))
+            results.extend(batch_results)
+            batch_metric = aggregate(batch_results)["overall"]
+            sample_start = batch_offset + 1
+            sample_end = batch_offset + len(batch)
+            batch_history.append({
+                "batch_number": batch_number,
+                "sample_start": sample_start,
+                "sample_end": sample_end,
+                "image_count": len(batch_results),
+                "metrics": batch_metric,
+            })
 
-    overall = stats["overall"]
-    lines = [
-        "# Mirsad - Crypto chart image benchmark",
-        "",
-        f"- Dataset: {DATASET}",
-        f"- Split: {args.split}",
-        f"- Ticker filter: {ticker_filter or 'all crypto'}",
-        f"- Images tested: {len(results)}",
-        f"- Decision-eligible: {overall['decision_eligible_images']}",
-        f"- Directional predictions: {overall['directional_predictions']}",
-        f"- Directional coverage: {overall['directional_coverage_pct']}%",
-        f"- Directional accuracy: {overall['accuracy_on_directional_predictions_pct']}%",
-        "",
-        "| Ticker | Images | Eligible | Predictions | Coverage | Accuracy |",
-        "|---|---:|---:|---:|---:|---:|",
-    ]
-    for ticker, m in stats["by_ticker"].items():
-        lines.append(
-            f"| {ticker} | {m['total_images']} | {m['decision_eligible_images']} | "
-            f"{m['directional_predictions']} | {m['directional_coverage_pct']}% | "
-            f"{m['accuracy_on_directional_predictions_pct']}% |"
-        )
-    lines.extend([
-        "",
-        "## Confidence audit",
-        "",
-        "| Confidence threshold | Predictions | Accuracy |",
-        "|---|---:|---:|",
-    ])
-    for threshold, m in overall["accuracy_by_confidence"].items():
-        lines.append(f"| {threshold} | {m['count']} | {m['accuracy']} |")
-    lines.extend([
-        "",
-        "> Future-return labels are evaluation-only and never enter the analyzer. Accuracy is not trading profitability.",
-        "> Original images are not republished; the artifact stores per-image metrics and source identifiers only.",
-    ])
-    Path("mirsad-crypto-chart-benchmark-summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print("\n".join(lines), flush=True)
+            print(
+                f"\n=== BATCH {batch_number}/{total_batches} | images {sample_start}-{sample_end} "
+                f"of {total_images} ===",
+                flush=True,
+            )
+            for row in batch_results:
+                confidence = float(row.get("analysis_confidence") or 0.0)
+                correct = row.get("correct_direction")
+                verdict = "CORRECT" if correct is True else "WRONG" if correct is False else "UNSCORED"
+                print(
+                    f"IMAGE {int(row.get('sample_index', 0)) + 1}/{total_images} | "
+                    f"{row.get('ticker', '?')} | {row.get('end_date', '?')} | "
+                    f"bars={row.get('detected_bars', 0)} calibrated={row.get('calibrated_bars', 0)} | "
+                    f"eligible={bool(row.get('decision_eligible'))} | "
+                    f"prediction={row.get('predicted_direction', 'ABSTAIN')} | "
+                    f"target={row.get('target_direction', 'UNKNOWN')} | "
+                    f"confidence={confidence:.3f} | {verdict} | "
+                    f"status={row.get('engine_status', 'UNKNOWN')}"
+                    + (f" | error={row['error']}" if row.get("error") else ""),
+                    flush=True,
+                )
+
+            current_stats = persist_checkpoint(complete=(len(results) == total_images))
+            overall = current_stats["overall"]
+            print(
+                f"BATCH SUMMARY {batch_number}/{total_batches}: "
+                f"coverage={batch_metric['directional_coverage_pct']}% "
+                f"accuracy={batch_metric['accuracy_on_directional_predictions_pct']}% "
+                f"eligible={batch_metric['decision_eligible_images']}/{len(batch_results)}; "
+                f"CUMULATIVE={len(results)}/{total_images} "
+                f"coverage={overall['directional_coverage_pct']}% "
+                f"accuracy={overall['accuracy_on_directional_predictions_pct']}%",
+                flush=True,
+            )
+
+    stats = persist_checkpoint(complete=True)
+    print(
+        f"\nBENCHMARK COMPLETE: {len(results)} images in {total_batches} batches "
+        f"of at most {args.batch_size}.",
+        flush=True,
+    )
     print(f"RESULT_JSON={output_path.resolve()}", flush=True)
     return 0 if stats["overall"]["analyzed_images"] else 1
 

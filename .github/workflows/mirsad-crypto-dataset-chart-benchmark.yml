@@ -5,14 +5,17 @@ on:
     branches: [mirsad-mt5-demo]
     paths:
       - 'Mirsad_BTC/mirsad/engines/chart.py'
-      - 'Mirsad_BTC/scripts/crypto_dataset_chart_benchmark.py'
-      - '.github/workflows/mirsad-crypto-dataset-chart-benchmark.yml'
   workflow_dispatch:
     inputs:
       ticker:
         description: Dataset ticker, or all
         required: true
         default: BTC-USD
+        type: string
+      batch_size:
+        description: Images per auditable batch; results are checkpointed after each batch
+        required: true
+        default: '25'
         type: string
       max_images:
         description: 0 means every image in the selected held-out split
@@ -58,7 +61,8 @@ jobs:
             --split test \
             --ticker "${{ github.event.inputs.ticker || 'BTC-USD' }}" \
             --max-images "${{ github.event.inputs.max_images || '0' }}" \
-            --workers 12 \
+            --workers 6 \
+            --batch-size "${{ github.event.inputs.batch_size || '25' }}" \
             --output mirsad-crypto-chart-benchmark.json
 
       - name: Upload per-image decisions and metrics
