@@ -353,9 +353,9 @@ void ProcessCommand()
    double stop_loss = JsonNumber(json, "stop_loss");
    double take_profit = JsonNumber(json, "take_profit");
 
-   if(action != "BUY" && action != "SELL")
+   if(action != "BUY" && action != "SELL" && action != "CLOSE")
    {
-      RejectAndRemember(command_id, "Only BUY and SELL OPEN commands are supported by this EA version.");
+      RejectAndRemember(command_id, "Unsupported MIR1 action. Expected BUY, SELL or CLOSE.");
       g_processing = false;
       return;
    }
@@ -374,26 +374,9 @@ void ProcessCommand()
       return;
    }
 
-   if(!MathIsValidNumber(entry_reference) || entry_reference <= 0.0 ||
-      !MathIsValidNumber(volume) || volume <= 0.0 ||
-      !MathIsValidNumber(stop_loss) || stop_loss <= 0.0 ||
-      !MathIsValidNumber(take_profit) || take_profit <= 0.0)
-   {
-      RejectAndRemember(command_id, "Command contains non-positive or non-finite execution fields.");
-      g_processing = false;
-      return;
-   }
-
    if(!SymbolSelect(command_symbol, true))
    {
       RejectAndRemember(command_id, "Broker symbol could not be selected.");
-      g_processing = false;
-      return;
-   }
-
-   if(!IsVolumeOnBrokerStep(command_symbol, volume))
-   {
-      RejectAndRemember(command_id, "Program volume does not meet the broker's declared min/max/step.");
       g_processing = false;
       return;
    }
@@ -406,24 +389,77 @@ void ProcessCommand()
       return;
    }
 
-   if(action == "BUY" && !(stop_loss < tick.ask && take_profit > tick.ask))
+   ulong position_ticket = 0;
+   ENUM_POSITION_TYPE existing_position_type = POSITION_TYPE_BUY;
+   if(action == "CLOSE")
    {
-      RejectAndRemember(command_id, "BUY stop-loss/take-profit levels are inconsistent with current broker Ask.");
-      g_processing = false;
-      return;
+      long ticket_value = JsonLong(json, "position_ticket");
+      if(ticket_value <= 0)
+      {
+         RejectAndRemember(command_id, "CLOSE requires a positive position_ticket.");
+         g_processing = false;
+         return;
+      }
+      position_ticket = (ulong)ticket_value;
+      if(!PositionSelectByTicket(position_ticket))
+      {
+         RejectAndRemember(command_id, "Position ticket is no longer open; no close request was sent.");
+         g_processing = false;
+         return;
+      }
+      if(PositionGetString(POSITION_SYMBOL) != command_symbol)
+      {
+         RejectAndRemember(command_id, "Position symbol does not match the requested close symbol.");
+         g_processing = false;
+         return;
+      }
+      existing_position_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double current_volume = PositionGetDouble(POSITION_VOLUME);
+      if(!MathIsValidNumber(volume) || volume <= 0.0 ||
+         volume > current_volume + 1e-8 ||
+         !IsVolumeOnBrokerStep(command_symbol, volume))
+      {
+         RejectAndRemember(command_id, "Close volume is invalid or exceeds the current position volume.");
+         g_processing = false;
+         return;
+      }
    }
-   if(action == "SELL" && !(take_profit < tick.bid && stop_loss > tick.bid))
+   else
    {
-      RejectAndRemember(command_id, "SELL stop-loss/take-profit levels are inconsistent with current broker Bid.");
-      g_processing = false;
-      return;
+      if(!MathIsValidNumber(entry_reference) || entry_reference <= 0.0 ||
+         !MathIsValidNumber(volume) || volume <= 0.0 ||
+         !MathIsValidNumber(stop_loss) || stop_loss <= 0.0 ||
+         !MathIsValidNumber(take_profit) || take_profit <= 0.0)
+      {
+         RejectAndRemember(command_id, "OPEN command contains non-positive or non-finite execution fields.");
+         g_processing = false;
+         return;
+      }
+      if(!IsVolumeOnBrokerStep(command_symbol, volume))
+      {
+         RejectAndRemember(command_id, "Program volume does not meet the broker's declared min/max/step.");
+         g_processing = false;
+         return;
+      }
+      if(action == "BUY" && !(stop_loss < tick.ask && take_profit > tick.ask))
+      {
+         RejectAndRemember(command_id, "BUY stop-loss/take-profit levels are inconsistent with current broker Ask.");
+         g_processing = false;
+         return;
+      }
+      if(action == "SELL" && !(take_profit < tick.bid && stop_loss > tick.bid))
+      {
+         RejectAndRemember(command_id, "SELL stop-loss/take-profit levels are inconsistent with current broker Bid.");
+         g_processing = false;
+         return;
+      }
    }
 
-   // Persist the ID before the trade request. After an interruption the EA
-   // reports UNKNOWN rather than risking an automatic duplicate submission.
+   // Persist the ID before a request. If execution outcome is uncertain,
+   // the EA will report UNKNOWN instead of resubmitting the same command.
    SaveLastCommandId(command_id);
    PublishAck(command_id, "RECEIVED", 0, 0, 0, 0.0, 0.0,
-              "Command accepted by protocol parser. Preparing one broker request.");
+              "Command accepted by MIR1 protocol. Preparing one broker request.");
 
    MqlTradeRequest request = {};
    MqlTradeCheckResult check = {};
@@ -433,14 +469,26 @@ void ProcessCommand()
    request.magic = InpMagicNumber;
    request.symbol = command_symbol;
    request.volume = volume;
-   request.type = (action == "BUY") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-   request.price = entry_reference;
-   request.sl = stop_loss;
-   request.tp = take_profit;
    request.deviation = (ulong)MathMax(0, InpDeviationPoints);
    request.type_filling = BrokerFillingMode(command_symbol);
    request.type_time = ORDER_TIME_GTC;
    request.comment = command_id;
+
+   if(action == "CLOSE")
+   {
+      request.position = position_ticket;
+      request.type = (existing_position_type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+      request.price = (existing_position_type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
+      request.sl = 0.0;
+      request.tp = 0.0;
+   }
+   else
+   {
+      request.type = (action == "BUY") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+      request.price = entry_reference;
+      request.sl = stop_loss;
+      request.tp = take_profit;
+   }
 
    ResetLastError();
    if(!OrderCheck(request, check))
