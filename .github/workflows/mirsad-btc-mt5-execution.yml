@@ -1,0 +1,51 @@
+name: Mirsad BTC — MT5 execution EA build and demo runtime
+
+on:
+  push:
+    branches: [mirsad-mt5-demo]
+    paths:
+      - 'Mirsad_BTC/mt5/Mirsad_BTC_ExecutionBridge.mq5'
+      - 'Mirsad_BTC/scripts/mirsad_mt5_execution_run.ps1'
+      - '.github/workflows/mirsad-btc-mt5-execution.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-mt5-execution-demo
+  cancel-in-progress: false
+
+jobs:
+  compile-attach-heartbeat:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Mirsad project
+        uses: actions/checkout@v4
+
+      - name: Verify Windows runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_OS -ne 'Windows') { throw 'MetaTrader 5 requires a Windows runner.' }
+          Write-Output "Windows runner: $([System.Environment]::OSVersion.VersionString)"
+
+      - name: Compile EA, launch demo MT5 and verify live heartbeat
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+        shell: pwsh
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_execution_run.ps1
+
+      - name: Upload compiled expert and sanitized runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-btc-mt5-execution-build
+          path: |
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-execution-report.txt
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/Mirsad_BTC_ExecutionBridge_compile.log
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/Mirsad_BTC_ExecutionBridge.ex5
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-telemetry.json
+          if-no-files-found: warn
+          retention-days: 14
