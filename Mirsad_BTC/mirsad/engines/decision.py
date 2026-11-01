@@ -121,6 +121,10 @@ def calculate_volume(
             "status": "BLOCKED", "reason": "Risk-calculated volume is below broker minimum.",
             "risk_cash": risk_cash, "unrounded_volume": raw,
         }
+    steps = math.floor((min(raw, volume_max) - volume_min + 1e-12) / volume_step)
+    volume = round(volume_min + max(0, steps) * volume_step, 8)
+    if volume > volume_max + 1e-9:
+        volume = round(volume_min + math.floor((volume_max - volume_min) / volume_step) * volume_step, 8)
     return {
         "status": "READY", "volume": volume, "risk_cash": risk_cash,
         "risk_fraction": risk_fraction, "loss_per_lot": loss_per_lot,
