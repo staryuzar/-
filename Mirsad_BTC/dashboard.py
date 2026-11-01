@@ -21,12 +21,12 @@ div[data-testid="stMetric"] {background:#111d30;border:1px solid #263750;padding
 h1,h2,h3,p,label {color:#e5edf8}
 </style>
 """,unsafe_allow_html=True)
-
 STATUS_AR={"RUNNING":"يعمل","LIVE":"متصل وبياناته حية","PARTIAL":"اتصال جزئي",
 "OFFLINE":"غير متصل","STALE":"بيانات قديمة","READY":"جاهز","NOT_READY":"غير جاهز",
 "WAITING_FOR_IMAGE":"بانتظار صورة الرسم","LOW_DETECTION":"اكتشاف ضعيف",
 "CONNECTED":"متصل بالخبير","WAITING_FOR_EXPERT":"بانتظار الخبير",
-"NOT_CONFIGURED":"لم يحدد مسار MT5","PUBLISH_DISABLED":"إرسال الأوامر معطل","ERROR":"خطأ"}
+"NOT_CONFIGURED":"لم يحدد مسار MT5","PUBLISH_DISABLED":"إرسال الأوامر معطل",
+"ERROR":"خطأ","FULLY_OPERATIONAL":"المحركات الأربعة متصلة","PARTIAL_OR_WAITING":"تشغيل جزئي — توجد وصلات تنتظر"}
 def ar(value): return STATUS_AR.get(str(value),str(value or "غير متاح"))
 def freshness(ts):
     if not ts: return "لا توجد إشارة حياة"
@@ -34,14 +34,16 @@ def freshness(ts):
 
 st.title("₿ مرصاد البيتكوين")
 st.caption("أربعة محركات — بيانات عامة فعلية — دون ذكاء اصطناعي أو أسعار مصطنعة.")
-left,right=st.columns([1,1])
 state=read_json(STATUS_PATH,{})
-with left:
-    st.write("**حالة البرنامج:**")
-    if not state: st.warning("لم يبدأ محرك التشغيل. شغّل run_mirsad.py في نافذة مستقلة.")
-    else: st.caption(freshness(state.get("heartbeat_at_ms")))
-with right:
-    if st.button("تحديث قراءة اللوحة",use_container_width=True): st.rerun()
+a,b=st.columns([3,1])
+with a:
+    if state:
+        st.metric("الحالة العامة",ar(state.get("overall_status","PARTIAL_OR_WAITING")))
+        st.caption(freshness(state.get("heartbeat_at_ms")))
+    else:
+        st.warning("لم يبدأ محرك التشغيل. شغّل run_mirsad.py في نافذة مستقلة.")
+with b:
+    if st.button("تحديث اللوحة",use_container_width=True): st.rerun()
 
 if state:
     eng=state.get("engines",{})
