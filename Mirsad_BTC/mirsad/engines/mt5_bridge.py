@@ -95,7 +95,7 @@ class MT5BridgeEngine:
         self.root.mkdir(parents=True,exist_ok=True)
         ack=_read_object(self.root/"ack.json")
         if ack.get("command_id")==envelope["command_id"] and ack.get("state") in {
-            "RECEIVED","SUBMITTED","PARTIAL","FILLED","CANCELLED","UNKNOWN"
+            "RECEIVED","REJECTED","SUBMITTED","PARTIAL","FILLED","CANCELLED","EXPIRED","UNKNOWN"
         }:
             return {"status":"ALREADY_ACKNOWLEDGED","command_id":envelope["command_id"],
                     "ack_state":ack.get("state")}
