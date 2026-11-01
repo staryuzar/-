@@ -1,4 +1,4 @@
-name: Mirsad BTC — MT5 execution EA build and demo runtime
+name: Mirsad BTC — MT5 OPEN/CLOSE EA compile and demo runtime
 
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
 jobs:
   compile-attach-heartbeat:
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - name: Checkout Mirsad project
         uses: actions/checkout@v4
@@ -31,7 +31,7 @@ jobs:
           if ($env:RUNNER_OS -ne 'Windows') { throw 'MetaTrader 5 requires a Windows runner.' }
           Write-Output "Windows runner: $([System.Environment]::OSVersion.VersionString)"
 
-      - name: Compile EA, launch demo MT5 and verify live heartbeat
+      - name: Compile OPEN/CLOSE EA, launch demo MT5 and verify MIR1 heartbeat
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
         shell: pwsh
