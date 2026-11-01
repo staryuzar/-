@@ -3,20 +3,30 @@ import sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from mirsad.engines.market import MarketEngine
+from mirsad.runtime import collect_once
+from mirsad.config import DB_PATH
+from mirsad.storage import connect
 
-def main() -> int:
-    print("Mirsad BTC live market connection check — real public endpoints only.")
-    snapshot=MarketEngine().collect()
-    for name,venue in snapshot["venues"].items():
-        print(f"{name}: {venue['status']} | latency_ms={venue.get('latency_ms')} | error={venue.get('error')}")
-    if snapshot.get("price") is None or snapshot.get("venue_count",0)<1:
-        print("FAIL: no live public BTC/USDT market feed was reachable.")
+def main()->int:
+    print("Mirsad BTC end-to-end live connection check. Actual public data only; order execution is not invoked.")
+    report=collect_once()
+    for name,row in report["market"]["venues"].items():
+        print(f"{name}: {row['status']} | latency_ms={row.get('latency_ms')} | error={row.get('error')}")
+    if report["market"].get("price") is None or report["market"].get("venue_count",0)<1:
+        print("FAIL: no live BTC/USDT venue was reachable.")
         return 1
-    if not snapshot.get("primary_venue"):
-        print("FAIL: live price returned without a primary venue.")
+    conn=connect(DB_PATH)
+    try:
+        saved=conn.execute("SELECT COUNT(*) FROM market_snapshots").fetchone()[0]
+        candles=conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0]
+        trades=conn.execute("SELECT COUNT(*) FROM public_trades").fetchone()[0]
+    finally:
+        conn.close()
+    if saved<1 or candles<1:
+        print("FAIL: live snapshot/candles were not persisted to SQLite.")
         return 1
-    print(f"PASS: live BTC/USDT reference price={snapshot['price']}; venue={snapshot['primary_venue']}")
-    print("No order was placed or simulated.")
+    print(f"PASS: {report['market']['venue_count']} actual venue(s); SQLite snapshots={saved}, candles={candles}, trades={trades}.")
+    print("No fake data, no paper-trading, no simulated orders, and no order was sent.")
     return 0
-if __name__=="__main__": raise SystemExit(main())
+if __name__=="__main__":
+    raise SystemExit(main())
