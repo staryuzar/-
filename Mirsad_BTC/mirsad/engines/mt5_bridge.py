@@ -35,8 +35,12 @@ class MT5BridgeEngine:
         return {
             **base,"status":"CONNECTED" if alive else "STALE",
             "heartbeat_age_seconds":round(age,2) if age is not None else None,
+            "quote_age_seconds":round((int(time.time()*1000)-int(payload.get("quote",{}).get("time_ms",0)))/1000,2)
+                if payload.get("quote",{}).get("time_ms") else None,
             "account":payload.get("account",{}),
             "symbol":payload.get("symbol"),
+            "market_symbol":payload.get("market_symbol"),
+            "quote":payload.get("quote",{}),
             "symbol_spec":payload.get("symbol_spec",{}),
             "positions":payload.get("positions",[]),
             "last_order_ack":_read_object(self.root/"ack.json"),
@@ -73,8 +77,8 @@ class MT5BridgeEngine:
             raise ValueError("SELL stop-loss/entry/take-profit levels are inconsistent.")
         return {
             "schema":"MIR1","command_id":command_id,"action":action,
-            "symbol":symbol,"volume":volume,"entry_reference":entry,
-            "stop_loss":sl,"take_profit":tp,
+            "symbol":symbol,"market_symbol":str(decision.get("market_symbol","")),
+            "volume":volume,"entry_reference":entry,"stop_loss":sl,"take_profit":tp,
         }
 
     def publish_decision(self,decision:dict[str,Any],bridge_state:dict[str,Any])->dict[str,Any]:
