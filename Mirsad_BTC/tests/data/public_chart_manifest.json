@@ -1,0 +1,78 @@
+[
+  {
+    "id": "itb_btcusdt_daily_2025_08_18",
+    "title": "Bitcoin Analysis Aug 18 2025",
+    "image_url": "https://itbfx.com/wp-content/uploads/2025/08/Bitcoin-Analysis-1.png",
+    "source_url": "https://itbfx.com/analysis/bitcoin-analysis-aug-18-2025/",
+    "symbol": "BTCUSDT",
+    "timeframe": "1d",
+    "snapshot_date": "2025-08-18",
+    "price_top": 127500,
+    "price_bottom": 70000,
+    "crop": [
+      0,
+      0.07,
+      0.92,
+      0.96
+    ],
+    "reference_bias": "BULLISH",
+    "reference_note": "Source describes a broader uptrend, with rejection near 122k-125k and conditional support at 110k-107k. This is analyst context, not ground truth."
+  },
+  {
+    "id": "coinbase_btcusd_daily_2025_07_04",
+    "title": "BTC USD daily chart with moving averages and volume",
+    "image_url": "https://cryptomaniaks.com/wp-content/uploads/2025/07/BTCUSD_2025-07-04_11-16-00-e1751624229124.png",
+    "source_url": "https://cryptomaniaks.com/news/top-bitcoin-predictions-second-half-2025",
+    "symbol": "BTCUSD",
+    "timeframe": "1d",
+    "snapshot_date": "2025-07-04T11:16:00Z",
+    "price_top": 115000,
+    "price_bottom": 90000,
+    "crop": [
+      0,
+      0.05,
+      1,
+      0.69
+    ],
+    "reference_bias": "BULLISH",
+    "reference_note": "The source describes a bullish backdrop above 50-day and 200-day moving averages while the last displayed candle is down. Analyst context only."
+  },
+  {
+    "id": "bybit_btcusdt_weekly_2026_01_30",
+    "title": "BTCUSDT weekly support and higher-lows chart",
+    "image_url": "https://s3.tradingview.com/news/image/invezz%3A24bb7b0c3094b-fd2a87d507293b72ecd83dbf29f4c8b1-resized.webp",
+    "source_url": "https://www.tradingview.com/news/invezz%3A24bb7b0c3094b%3A0-crypto-market-sheds-150b-as-bitcoin-drops-to-81k-and-long-liquidations-top-1-7b/",
+    "symbol": "BTCUSDT",
+    "timeframe": "1w",
+    "snapshot_date": "2026-01-30T08:05:00Z",
+    "price_top": 110000,
+    "price_bottom": 60000,
+    "crop": [
+      0,
+      0.03,
+      0.98,
+      0.76
+    ],
+    "reference_bias": "NEUTRAL",
+    "reference_note": "The source highlights a longer sequence of higher lows but a sharp latest weekly decline. Mixed context."
+  },
+  {
+    "id": "tradingview_btcusdt_weekly_2025",
+    "title": "BTCUSDT perpetual weekly ascending channel",
+    "image_url": "https://s3.tradingview.com/3/39JQQKsN_mid.webp",
+    "source_url": "https://www.tradingview.com/chart/BTCUSDT.P/39JQQKsN-Bitcoin-vs-Saylor-The-Power-and-Danger-of-fanatical-promotion/",
+    "symbol": "BTCUSDT",
+    "timeframe": "1w",
+    "snapshot_date": null,
+    "price_top": 105000,
+    "price_bottom": 15000,
+    "crop": [
+      0,
+      0.04,
+      0.96,
+      0.78
+    ],
+    "reference_bias": "NEUTRAL",
+    "reference_note": "The annotated chart shows a rising long-term channel with several support/resistance levels; no single short-term direction is asserted."
+  }
+]

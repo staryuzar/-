@@ -96,6 +96,21 @@ def render_engine_dashboard():
   c2.metric("شموع مكتشفة",chart.get("detected_bar_count",0))
   c3.metric("شموع معايرة سعرياً",chart.get("calibrated_bar_count",0))
   c4.metric("الميل المرئي",chart.get("visual_bias","—"))
+  a1,a2,a3=st.columns(3)
+  a1.metric("درجة المحلل",f"{chart.get('analysis_score',0)*100:.1f} / 100")
+  a2.metric("ثقة المحلل",f"{chart.get('analysis_confidence',0)*100:.1f}%")
+  a3.metric("الزخم البصري",chart.get("momentum",{}).get("score","—"))
+  structure=chart.get("market_structure",{})
+  st.caption(
+   f"بنية السوق في الصورة: {structure.get('direction','غير كافية')} | "
+   f"دعم مرئي: {structure.get('support','—')} | مقاومة مرئية: {structure.get('resistance','—')}"
+  )
+  components=chart.get("analysis_components",{})
+  st.caption(
+   f"مكونات قراءة المحلل - اتجاه: {components.get('trend','—')} | "
+   f"بنية: {components.get('structure','—')} | زخم: {components.get('momentum','—')} | "
+   f"أنماط: {components.get('patterns','—')}"
+  )
   if chart.get("input_age_seconds") is not None:
    st.caption(f"عمر صورة الشارت: {chart['input_age_seconds']} ثانية")
   if chart.get("pattern_candidates"):
