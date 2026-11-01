@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: mirsad-mt5-execution-clean-build
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   compile-attach-heartbeat:
