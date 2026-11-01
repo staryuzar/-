@@ -2,7 +2,7 @@ from __future__ import annotations
 import hashlib
 import math
 from typing import Any
-from ..config import RISK_PER_TRADE
+from ..config import RISK_PER_TRADE, MT5_QUOTE_MAX_AGE_SECONDS
 
 TIMEFRAME_WEIGHTS={"1m":1.0,"5m":2.0,"15m":3.0,"1h":4.0,"4h":5.0,"1d":5.0}
 
@@ -152,8 +152,34 @@ class DecisionEngine:
         else:
             chart_gate="NO_MARKET_SETUP"
 
-        entry=float(market["price"])
+        market_entry=float(market["price"])
         sl=tp=None
+        bridge=bridge or {}
+        account=bridge.get("account",{})
+        specs=bridge.get("symbol_spec",{})
+        quote=bridge.get("quote",{})
+        broker_symbol=str(bridge.get("symbol",""))
+        mapped_market_symbol=str(bridge.get("market_symbol",""))
+        try:
+            bid=float(quote.get("bid",0))
+            ask=float(quote.get("ask",0))
+            quote_age=float(bridge.get("quote_age_seconds",float("inf")))
+            quote_ok=(bridge.get("status")=="CONNECTED"
+                and mapped_market_symbol.upper()==str(market.get("symbol","")).upper()
+                and bool(broker_symbol) and 0<bid<=ask
+                and math.isfinite(bid) and math.isfinite(ask)
+                and 0<=quote_age<=MT5_QUOTE_MAX_AGE_SECONDS)
+        except (TypeError,ValueError,OverflowError):
+            quote_ok=False
+            bid=ask=0.0
+            quote_age=None
+
+        if action=="BUY" and quote_ok:
+            entry=ask
+        elif action=="SELL" and quote_ok:
+            entry=bid
+        else:
+            entry=market_entry
         if action=="BUY":
             sl=entry-1.5*atr5
             tp=entry+3.0*atr5
@@ -161,20 +187,22 @@ class DecisionEngine:
             sl=entry+1.5*atr5
             tp=entry-3.0*atr5
 
-        size={"status":"WAITING_FOR_ENGINE_3_BRIDGE",
-              "reason":"Engine 3 must return live equity and symbol loss/volume specifications."}
-        if action in {"BUY","SELL"} and sl is not None and bridge:
-            account=bridge.get("account",{})
-            specs=bridge.get("symbol_spec",{})
+        size={"status":"WAITING_FOR_ENGINE_3_QUOTE",
+              "reason":"Engine 3 must provide a fresh broker quote mapped to the market symbol."}
+        if action in {"BUY","SELL"} and sl is not None:
             account_fields=("equity",)
             spec_fields=("tick_size","tick_value_loss","volume_min","volume_step","volume_max")
-            if bridge.get("status")=="CONNECTED" and all(k in account for k in account_fields) and all(k in specs for k in spec_fields):
+            if not quote_ok:
+                size={"status":"BLOCKED","reason":"No fresh MT5 quote or broker symbol mapping does not match the market instrument."}
+            elif not all(k in account for k in account_fields) or not all(k in specs for k in spec_fields):
+                size={"status":"UNAVAILABLE","reason":"Engine 3 account equity or loss/volume symbol specifications are incomplete."}
+            else:
                 size=calculate_volume(equity=account["equity"],entry=entry,stop_loss=sl,
                     tick_size=specs["tick_size"],tick_value_loss=specs["tick_value_loss"],
                     volume_min=specs["volume_min"],volume_step=specs["volume_step"],
                     volume_max=specs["volume_max"])
         command_ready=bool(action in {"BUY","SELL"} and size.get("status")=="READY"
-                            and bridge and bridge.get("status")=="CONNECTED")
+            and quote_ok and bridge.get("status")=="CONNECTED")
         last_closed=one[-1].get("open_time_ms") if one else 0
         signal_source=f"{market.get('symbol')}|{action}|{last_closed}|{chart.get('image','')}"
         signal_id=("MIR-"+hashlib.sha256(signal_source.encode("utf-8")).hexdigest()[:24]
@@ -183,13 +211,17 @@ class DecisionEngine:
             **base,"status":"READY" if chart_eligible else "WAITING_FOR_ENGINE_2",
             "action":action,"candidate_action":candidate,"signal_id":signal_id,"command_ready":command_ready,
             "chart_gate":chart_gate,"chart_visual_bias":visual_bias,
-            "as_of_ms":market.get("captured_at_ms"),"symbol":market.get("symbol"),
+            "as_of_ms":market.get("captured_at_ms"),"market_symbol":market.get("symbol"),
+            "symbol":broker_symbol if quote_ok else market.get("symbol"),
+            "market_price_reference":market_entry,"broker_quote":quote if quote_ok else None,
             "entry_reference":entry,"stop_loss":sl,"take_profit":tp,
             "trend_score":round(trend_score,4),"timeframes":tf_data,
             "indicators":{"ema20_1m":fast,"ema50_1m":slow,"rsi14_1m":rsi,"atr14_1m":atr1,"atr14_5m":atr5},
             "orderflow":flow,"risk_plan":size,
             "engine_inputs":{"direction_from_engine_1_market":market.get("status"),
                 "direction_from_engine_2_chart":"READY" if chart_eligible else chart.get("status","NOT_READY"),
-                "engine_3_bridge_for_risk_specs_and_transport":(bridge or {}).get("status","NOT_CONFIGURED")},
+                "engine_3_bridge_for_quote_risk_specs_and_transport":(bridge or {}).get("status","NOT_CONFIGURED"),
+                "engine_3_market_symbol_mapping":mapped_market_symbol,
+                "engine_3_quote_fresh":quote_ok},
             "reason":"Engine 4 requires agreement between closed-candle market rules, public taker flow and a calibrated chart screenshot. No AI or certainty is claimed.",
         }
