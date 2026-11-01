@@ -94,7 +94,9 @@ def _extract_bars(
     # Allow tiny anti-alias gaps between wick/body pixels, as seen in resized web charts.
     groups = _groups(activity >= minimum_activity, gap=2)
     bars: list[dict[str, Any]] = []
-    max_bar_width = max(6, min(18, int(round(area.shape[1] * 0.012))))
+    # Public chart images vary significantly in resolution and candle thickness.
+    # A 1.2% / 18 px cap discarded valid ~19 px candles on high-resolution charts.
+    max_bar_width = max(6, min(32, int(round(area.shape[1] * 0.02))))
     rejection_counts = {"wide_group": 0, "low_pixel_count": 0, "mixed_palette": 0, "short_component": 0, "no_body": 0}
     if diagnostics is not None:
         diagnostics.update({

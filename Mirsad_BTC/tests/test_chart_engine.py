@@ -91,6 +91,27 @@ class ChartEngineTests(unittest.TestCase):
         self.assertEqual(result["calibrated_bar_count"], result["detected_bar_count"])
         self.assertEqual(result["visual_bias"], "BULLISH")
 
+    def test_high_resolution_wide_candles_are_not_discarded(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "wide_candles.png"
+            width, height = 1000, self.HEIGHT
+            image = np.full((height, width, 3), 255, dtype=np.uint8)
+            for index in range(24):
+                close_y = 210 - index * 4
+                open_y = close_y + 8
+                x = 20 + index * 40
+                cv2.line(image, (x, close_y - 5), (x, open_y + 5), (0, 200, 0), 1)
+                cv2.rectangle(image, (x - 9, close_y), (x + 9, open_y), (0, 200, 0), -1)
+            self.assertTrue(cv2.imwrite(str(path), image))
+            metadata = dict(self.META)
+            metadata["plot_right_px"] = width
+            result = analyze_chart_image(path, metadata, expected_symbol="BTCUSDT")
+
+        self.assertGreaterEqual(result["detected_bar_count"], 20)
+        self.assertEqual(result["visual_bias"], "BULLISH")
+        self.assertTrue(result["decision_eligible"])
+        self.assertEqual(result["extraction_diagnostics"]["maximum_bar_width"], 20)
+
     def test_horizontal_indicator_line_does_not_merge_all_candles(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "chart_with_moving_average.png"
