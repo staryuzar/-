@@ -138,6 +138,7 @@ def analyze_sample(sample: dict[str, Any]) -> dict[str, Any]:
         "last_bar_x_ratio": result.get("last_bar_x_ratio"),
         "mean_colour_purity": result.get("mean_colour_purity"),
         "palette_mode": result.get("palette_mode"),
+        "extraction_diagnostics": result.get("extraction_diagnostics"),
         "detected_bars": result.get("detected_bar_count", 0),
         "calibrated_bars": result.get("calibrated_bar_count", 0),
         "visual_bias": actual,

@@ -17,6 +17,7 @@ from mirsad.engines.decision import (
     _price_to_tick,
     _weighted_direction_score,
     calculate_volume,
+    _ema,
 )
 import mirsad.engines.mt5_bridge as bridge_module
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
@@ -125,6 +126,69 @@ class WeightedDecisionTests(unittest.TestCase):
     def test_non_finite_directional_scores_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
             _weighted_direction_score(float("nan"), 0.0)
+
+
+class ChartDominantDecisionIntegrationTests(unittest.TestCase):
+    def _market(self, direction: str) -> dict:
+        now = int(time.time() * 1000)
+        candles = []
+        for i in range(90):
+            close = 100.0 + (i * 0.6 if direction == "up" else -i * 0.6)
+            candles.append({
+                "open_time_ms": now - (90 - i) * 60_000,
+                "open": close - 0.2 if direction == "up" else close + 0.2,
+                "high": close + 1.0, "low": close - 1.0,
+                "close": close, "volume": 2.0, "closed": True,
+            })
+        frames = {tf: candles for tf in ("1m", "5m", "15m", "1h", "4h", "1d")}
+        flow = {
+            "unit": "BTC",
+            "taker_buy_quantity": 10.0 if direction == "up" else 1.0,
+            "taker_sell_quantity": 1.0 if direction == "up" else 10.0,
+            "trade_count": 11,
+        }
+        book = {"imbalance": 0.6 if direction == "up" else -0.6}
+        return {
+            "status": "LIVE", "venue_count": 2, "symbol": "BTCUSDT",
+            "price": candles[-1]["close"], "captured_at_ms": now,
+            "primary_venue": "Venue A",
+            "venues": {
+                "Venue A": {"status": "LIVE", "candles_by_tf": frames, "orderflow": flow, "orderbook": book},
+                "Venue B": {"status": "LIVE", "orderflow": flow, "orderbook": book},
+            },
+        }
+
+    def test_eighty_percent_chart_analyst_can_overrule_opposite_market_vote(self) -> None:
+        result = DecisionEngine().analyze(
+            self._market("down"),
+            {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
+             "analysis_score": 0.95, "analysis_confidence": 0.90, "image": "chart.png"},
+            {},
+        )
+        self.assertEqual(result["direction_inputs"], ["engine_1_market", "engine_2_chart"])
+        self.assertEqual(result["candidate_action"], "BUY")
+        self.assertAlmostEqual(result["decision_weights"]["engine_2_chart"], 0.80)
+        self.assertLess(result["decision_scores"]["market_score"], 0)
+
+    def test_market_cannot_create_direction_when_chart_is_weak(self) -> None:
+        result = DecisionEngine().analyze(
+            self._market("up"),
+            {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
+             "analysis_score": 0.10, "analysis_confidence": 0.90, "image": "chart.png"},
+            {},
+        )
+        self.assertEqual(result["candidate_action"], "WAIT")
+        self.assertLess(result["decision_scores"]["combined_score"], 0.40)
+
+    def test_low_confidence_chart_never_creates_direction_even_with_extreme_market(self) -> None:
+        result = DecisionEngine().analyze(
+            self._market("up"),
+            {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
+             "analysis_score": 1.0, "analysis_confidence": 0.30, "image": "chart.png"},
+            {},
+        )
+        self.assertEqual(result["candidate_action"], "WAIT")
+        self.assertEqual(result["chart_gate"], "INSUFFICIENT_ANALYSIS_CONFIDENCE")
 
 
 class DecisionBoundaryTests(unittest.TestCase):

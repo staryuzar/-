@@ -41,7 +41,9 @@ def _hue_mask(hsv: np.ndarray, ranges: list[tuple[int, int]]) -> np.ndarray:
     return mask
 
 
-def _extract_bars(image: np.ndarray, meta: dict[str, Any]) -> list[dict[str, Any]]:
+def _extract_bars(
+    image: np.ndarray, meta: dict[str, Any], diagnostics: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     height, width = image.shape[:2]
     left = int(meta.get("plot_left_px", 0) or 0)
     right_value = int(meta.get("plot_right_px", 0) or 0)
@@ -66,13 +68,27 @@ def _extract_bars(image: np.ndarray, meta: dict[str, Any]) -> list[dict[str, Any
 
     activity = mask.sum(axis=0)
     minimum_activity = max(1, int(np.ceil(area.shape[0] * 0.0008)))
-    groups = _groups(activity >= minimum_activity, gap=0)
+    # Allow tiny anti-alias gaps between wick/body pixels, as seen in resized web charts.
+    groups = _groups(activity >= minimum_activity, gap=2)
     bars: list[dict[str, Any]] = []
     max_bar_width = max(6, min(18, int(round(area.shape[1] * 0.012))))
+    rejection_counts = {"wide_group": 0, "low_pixel_count": 0, "mixed_palette": 0, "short_component": 0, "no_body": 0}
+    if diagnostics is not None:
+        diagnostics.update({
+            "palette_mode": palette_mode,
+            "bullish_palette_pixels": int(bullish.sum()),
+            "bearish_palette_pixels": int(bearish.sum()),
+            "active_columns": int(np.count_nonzero(activity >= minimum_activity)),
+            "projection_groups": len(groups),
+            "projection_group_widths": [int(x1 - x0 + 1) for x0, x1 in groups[:500]],
+            "minimum_activity_per_column": minimum_activity,
+            "maximum_bar_width": max_bar_width,
+        })
 
     for x0, x1 in groups:
         group_width = x1 - x0 + 1
-        if group_width < 2 or group_width > max_bar_width:
+        if group_width > max_bar_width:
+            rejection_counts["wide_group"] += 1
             continue
         bull_roi = bullish[:, x0:x1 + 1]
         bear_roi = bearish[:, x0:x1 + 1]
@@ -80,22 +96,26 @@ def _extract_bars(image: np.ndarray, meta: dict[str, Any]) -> list[dict[str, Any
         bear_pixels = int(bear_roi.sum())
         total_pixels = bull_pixels + bear_pixels
         if total_pixels < max(8, int(area.shape[0] * 0.008)) or bull_pixels == bear_pixels:
+            rejection_counts["low_pixel_count"] += 1
             continue
         colour_purity = max(bull_pixels, bear_pixels) / total_pixels
         if colour_purity < 0.68:
+            rejection_counts["mixed_palette"] += 1
             continue
         colour = "GREEN" if bull_pixels > bear_pixels else "RED"
         roi = bull_roi | bear_roi
         ys, _ = np.where(roi)
         if len(ys) < 5:
+            rejection_counts["short_component"] += 1
             continue
         y_high, y_low = int(ys.min()), int(ys.max())
         row_width = roi.sum(axis=1)
         strongest = int(row_width.max())
         if strongest <= 0:
             continue
-        body_rows = np.flatnonzero(row_width >= max(2, int(np.ceil(strongest * 0.48))))
+        body_rows = np.flatnonzero(row_width >= max(1, int(np.ceil(strongest * 0.48))))
         if len(body_rows) == 0:
+            rejection_counts["no_body"] += 1
             continue
         body_top, body_bottom = int(body_rows.min()), int(body_rows.max())
         total_h = max(1, y_low - y_high + 1)
@@ -126,6 +146,9 @@ def _extract_bars(image: np.ndarray, meta: dict[str, Any]) -> list[dict[str, Any
             "bearish_colour_pixels": bear_pixels,
             "palette_mode": palette_mode,
         })
+    if diagnostics is not None:
+        diagnostics["accepted_bars"] = len(bars)
+        diagnostics["rejected_groups"] = rejection_counts
     return sorted(bars, key=lambda item: item["x_px"])
 
 def _patterns(bars:list[dict[str,Any]])->list[dict[str,Any]]:
@@ -168,7 +191,8 @@ def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,exp
         crop_bottom=height if crop_bottom_value<=0 else crop_bottom_value
         if not (0<=crop_left<crop_right<=width and 0<=crop_top<crop_bottom<=height):
             raise ValueError("plot bounds must be inside the image and have positive width/height")
-        bars=_extract_bars(image,meta)
+        extraction_diagnostics: dict[str, Any] = {}
+        bars=_extract_bars(image,meta,diagnostics=extraction_diagnostics)
     except (TypeError,ValueError,OverflowError) as exc:
         return {**result,"status":"ERROR","error":f"Invalid chart crop metadata: {exc}"}
     patterns=_patterns(bars)
@@ -363,6 +387,7 @@ def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,exp
         "last_bar_x_ratio":round(last_bar_x_ratio,4) if last_bar_x_ratio is not None else None,
         "mean_colour_purity":round(mean_colour_purity,4),
         "palette_mode":str(meta.get("palette_mode","auto")),
+        "extraction_diagnostics":extraction_diagnostics,
         "colour_counts":counts,"visual_bias":bias,"visual_trend":visual_trend,
         "market_structure":market_structure,"momentum":momentum,
         "analysis_score":round(analysis_score,4),
