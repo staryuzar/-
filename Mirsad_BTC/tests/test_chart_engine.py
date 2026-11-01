@@ -70,13 +70,70 @@ class ChartEngineTests(unittest.TestCase):
             return analyze_chart_image(image_path, meta, expected_symbol=expected)
 
     @staticmethod
-    def _pattern_bar(colour: str, top: int, bottom: int, shape: str = "normal") -> dict:
+    def _pattern_bar(
+        colour: str,
+        top: int,
+        bottom: int,
+        shape: str = "normal",
+        high: int | None = None,
+        low: int | None = None,
+    ) -> dict:
         return {
             "colour": colour,
             "shape": shape,
+            "high_y_px": top - 3 if high is None else high,
+            "low_y_px": bottom + 3 if low is None else low,
             "body_top_y_px": top,
             "body_bottom_y_px": bottom,
         }
+
+    def test_doji_uses_previous_ten_candle_ranges(self) -> None:
+        bars = [
+            self._pattern_bar("GREEN", 100, 105, high=98, low=112)
+            for _ in range(10)
+        ]
+        bars.append(self._pattern_bar("GREEN", 100, 101, high=98, low=112))
+        patterns = _patterns(bars)
+        self.assertEqual(
+            len([x for x in patterns if x["pattern"] == "doji_candidate" and x["index"] == 10]),
+            1,
+        )
+
+    def test_hammer_requires_short_body_long_lower_shadow_and_prior_low_context(self) -> None:
+        bars = [
+            self._pattern_bar("RED", 100, 105, high=98, low=110)
+            for _ in range(10)
+        ]
+        bars.append(self._pattern_bar("GREEN", 108, 110, high=107, low=125))
+        patterns = _patterns(bars)
+        self.assertEqual(
+            len([x for x in patterns if x["pattern"] == "hammer_candidate" and x["index"] == 10]),
+            1,
+        )
+
+    def test_shooting_star_requires_real_body_gap_up(self) -> None:
+        bars = [
+            self._pattern_bar("GREEN", 100, 105, high=98, low=110)
+            for _ in range(10)
+        ]
+        bars.append(self._pattern_bar("RED", 80, 82, high=65, low=83))
+        patterns = _patterns(bars)
+        self.assertEqual(
+            len([x for x in patterns if x["pattern"] == "shooting_star_candidate" and x["index"] == 10]),
+            1,
+        )
+
+    def test_shooting_star_without_gap_up_is_not_emitted(self) -> None:
+        bars = [
+            self._pattern_bar("GREEN", 100, 105, high=98, low=110)
+            for _ in range(10)
+        ]
+        bars.append(self._pattern_bar("RED", 101, 103, high=86, low=104))
+        patterns = _patterns(bars)
+        self.assertEqual(
+            len([x for x in patterns if x["pattern"] == "shooting_star_candidate" and x["index"] == 10]),
+            0,
+        )
 
     def test_harami_candidate_detected_from_contained_opposite_body(self) -> None:
         bars = [

@@ -162,13 +162,8 @@ def _extract_bars(
         upper, lower = max(0, body_top - y_high), max(0, y_low - body_bottom)
         ratio = min(1.0, body_h / total_h)
 
+        # Single-candle patterns are classified later using prior-candle context.
         shape = "normal"
-        if ratio <= 0.16:
-            shape = "doji_candidate"
-        elif lower >= 2.2 * body_h and upper <= body_h * 0.8:
-            shape = "hammer_candidate"
-        elif upper >= 2.2 * body_h and lower <= body_h * 0.8:
-            shape = "shooting_star_candidate"
 
         bars.append({
             "x_px": int((x0 + x1) / 2) + left,
@@ -216,9 +211,58 @@ def _patterns(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
             item["colour"] = colour
         patterns.append(item)
 
+    body_sizes = [
+        max(1.0, abs(float(bar["body_bottom_y_px"]) - float(bar["body_top_y_px"])))
+        for bar in bars
+    ]
+    candle_ranges = [
+        max(1.0, float(bar["low_y_px"]) - float(bar["high_y_px"]))
+        for bar in bars
+    ]
+
     for i, bar in enumerate(bars):
-        if bar.get("shape", "normal") != "normal":
-            add(i, i, str(bar["shape"]), str(bar.get("colour", "UNKNOWN")))
+        if i >= 10:
+            previous_10_body = float(np.mean(body_sizes[i - 10:i]))
+            previous_10_range = float(np.mean(candle_ranges[i - 10:i]))
+            current_body = body_sizes[i]
+            body_top, body_bottom = _body_bounds(bar)
+            upper_shadow = max(0.0, body_top - float(bar["high_y_px"]))
+            lower_shadow = max(0.0, float(bar["low_y_px"]) - body_bottom)
+            very_short_shadow = previous_10_range * 0.10
+
+            # TA-Lib defaults: BodyDoji = 10% of previous 10 High-Low ranges.
+            # Use prior candles only; do not validate an earlier candle with
+            # future bars that would not have been available at its close.
+            if current_body <= very_short_shadow:
+                add(i, i, "doji_candidate", str(bar.get("colour", "UNKNOWN")))
+
+            # TA-Lib hammer geometry: short real body, lower shadow longer
+            # than the body, very short upper shadow, and body near prior low.
+            if i >= 5:
+                near_range = float(np.mean(candle_ranges[i - 5:i]))
+                previous_low_y = float(bars[i - 1]["low_y_px"])
+                body_near_prior_low = body_bottom >= previous_low_y - near_range * 0.20
+                if (
+                    current_body < previous_10_body
+                    and lower_shadow > current_body
+                    and upper_shadow < very_short_shadow
+                    and body_near_prior_low
+                ):
+                    add(i, i, "hammer_candidate", str(bar.get("colour", "UNKNOWN")))
+
+            # TA-Lib shooting star also requires a real-body gap up from the
+            # previous candle. Pixel y is inverted, so a price gap up means
+            # today's body-bottom y is above yesterday's body-top y.
+            previous_body_top, _ = _body_bounds(bars[i - 1])
+            gap_up = body_bottom < previous_body_top
+            if (
+                current_body < previous_10_body
+                and upper_shadow > current_body
+                and lower_shadow < very_short_shadow
+                and gap_up
+            ):
+                add(i, i, "shooting_star_candidate", str(bar.get("colour", "UNKNOWN")))
+
         if i >= 1:
             previous = bars[i - 1]
             prev_top, prev_bottom = _body_bounds(previous)
