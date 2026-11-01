@@ -177,7 +177,7 @@ class ChartEngineTests(unittest.TestCase):
 
         self.assertGreaterEqual(result["detected_bar_count"], 18)
         self.assertEqual(result["visual_bias"], "BULLISH")
-        self.assertEqual(result["extraction_diagnostics"]["maximum_bar_width"], 29)
+        self.assertEqual(result["extraction_diagnostics"]["maximum_bar_width"], 34)
 
     def test_horizontal_indicator_line_does_not_merge_all_candles(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

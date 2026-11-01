@@ -105,7 +105,7 @@ def _extract_bars(
         # Fixed-window educational renders have known candle slots. Use the
         # slot geometry so thick bodies are not mistaken for overlays.
         slot_width = area.shape[1] / expected_candle_count
-        max_bar_width = max(max_bar_width, min(48, int(round(slot_width * 0.90))))
+        max_bar_width = max(max_bar_width, min(48, int(round(slot_width * 1.05))))
     rejection_counts = {"wide_group": 0, "low_pixel_count": 0, "mixed_palette": 0, "short_component": 0, "no_body": 0}
     if diagnostics is not None:
         diagnostics.update({

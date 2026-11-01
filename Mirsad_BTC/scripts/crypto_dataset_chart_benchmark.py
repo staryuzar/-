@@ -211,6 +211,7 @@ def decode_and_analyze(
             "plot_top_px": int(round(top * height)),
             "plot_bottom_px": int(round(bottom * height)),
             "palette_mode": "auto",
+            "expected_candle_count": 20,
         }
         image_path = temp_dir / f"crypto_chart_{index:06d}.png"
         if not cv2.imwrite(str(image_path), image):
