@@ -227,7 +227,9 @@ void PublishTelemetry()
    string spec = StringFormat(
       "\"symbol_spec\":{\"tick_size\":%s,\"tick_value_loss\":%s,"
       "\"volume_min\":%s,\"volume_step\":%s,\"volume_max\":%s,"
-      "\"digits\":%I64d,\"point\":%s,\"contract_size\":%s,\"trade_mode\":%I64d}",
+      "\"digits\":%I64d,\"point\":%s,\"contract_size\":%s,\"trade_mode\":%I64d,"
+      "\"stops_level_points\":%I64d,\"freeze_level_points\":%I64d,"
+      "\"filling_mode\":%I64d,\"execution_mode\":%I64d}",
       NumberJson(tick_size, 10), NumberJson(tick_value_loss, 10),
       NumberJson(volume_min, 8), NumberJson(volume_step, 8),
       NumberJson(volume_max, 8), digits, NumberJson(point, 10),
