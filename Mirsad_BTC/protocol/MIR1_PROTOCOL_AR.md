@@ -27,8 +27,12 @@ Common\\Files\\MirsadBTC\\
 - position_ticket: مطلوب عند CLOSE.
 
 ## Status heartbeat
-schema=MIR1, terminal_connected, heartbeat_at_ms, account, symbol, symbol_spec, positions.
+schema=MIR1, terminal_connected, heartbeat_at_ms, account, symbol, market_symbol, quote, symbol_spec, positions.
 account يحمل equity وbalance وfree_margin وcurrency وserver وlogin عند توافرها. لا يستنتج الخبير أو الجسر نوع الحساب.
+market_symbol هو رمز محرك السوق الذي تم ضبطه صراحة ليتطابق مع الأداة المقابلة لدى الوسيط. لا يرسل المحرك الرابع أمراً إذا لم يتطابق هذا الحقل مع أداة السوق التي حللها.
+
+quote يحمل bid وask وtime_ms من الرمز لدى MT5. يستخدم المحرك الرابع ask لأمر BUY وbid لأمر SELL، ويتحقق من حداثة السعر قبل إكمال حساب الحجم.
+
 symbol_spec يحمل tick_size وtick_value_loss وvolume_min وvolume_step وvolume_max وdigits وpoint وcontract_size وtrade_mode وفق خصائص MT5.
 
 ## ACK
