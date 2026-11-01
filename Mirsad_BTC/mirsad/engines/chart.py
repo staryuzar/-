@@ -23,9 +23,11 @@ def _groups(columns:np.ndarray,gap:int=2)->list[tuple[int,int]]:
 def _extract_bars(image:np.ndarray,meta:dict[str,Any])->list[dict[str,Any]]:
     height,width=image.shape[:2]
     left=max(0,min(width-1,int(meta.get("plot_left_px",0))))
-    right=max(left+1,min(width,int(meta.get("plot_right_px",width))))
+    right_value=int(meta.get("plot_right_px",0) or 0)
+    right=width if right_value<=0 else max(left+1,min(width,right_value))
     top=max(0,min(height-1,int(meta.get("plot_top_px",0))))
-    bottom=max(top+1,min(height,int(meta.get("plot_bottom_px",height))))
+    bottom_value=int(meta.get("plot_bottom_px",0) or 0)
+    bottom=height if bottom_value<=0 else max(top+1,min(height,bottom_value))
     area=image[top:bottom,left:right]
     if area.size==0:
         return []
@@ -134,7 +136,8 @@ def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,exp
     scale_valid=False
     try:
         top_price=float(top_price); bottom_price=float(bottom_price)
-        plot_top=int(plot_top); plot_bottom=int(plot_bottom)
+        plot_top=int(plot_top); plot_bottom_value=int(plot_bottom)
+        plot_bottom=height if plot_bottom_value<=0 else plot_bottom_value
         scale_valid=(top_price>bottom_price>0 and 0<=plot_top<plot_bottom<=height)
     except (TypeError,ValueError,OverflowError):
         scale_valid=False
