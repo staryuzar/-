@@ -97,6 +97,25 @@ class ChartEngineTests(unittest.TestCase):
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["visual_bias"], "NEUTRAL")
 
+    def test_analyzer_returns_trend_structure_support_and_confidence(self) -> None:
+        result = self._analyze(direction="up", colour="GREEN")
+        self.assertIn("analysis_score", result)
+        self.assertGreater(result["analysis_score"], 0.3)
+        self.assertGreaterEqual(result["analysis_confidence"], 0.55)
+        self.assertIn("support", result["market_structure"])
+        self.assertIn("resistance", result["market_structure"])
+        self.assertIn("trend", result["analysis_components"])
+
+    def test_image_crop_bounds_outside_image_return_controlled_error(self) -> None:
+        result = self._analyze(metadata={"plot_left_px": 700, "plot_right_px": 800})
+        self.assertEqual(result["status"], "ERROR")
+        self.assertIn("Invalid chart crop metadata", result["error"])
+
+    def test_non_finite_price_axis_is_not_accepted(self) -> None:
+        result = self._analyze(metadata={"price_top": float("inf")})
+        self.assertFalse(result["decision_eligible"])
+        self.assertFalse(result["calibration"]["price_scale_valid"])
+
     def test_symbol_mismatch_blocks_decision_eligibility(self) -> None:
         result = self._analyze(expected="ETHUSDT")
         self.assertFalse(result["decision_eligible"])

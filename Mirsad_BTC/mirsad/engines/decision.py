@@ -175,6 +175,65 @@ def _matching_positions(bridge: dict[str, Any], broker_symbol: str) -> list[dict
     return result
 
 
+CHART_DECISION_WEIGHT = 0.80
+MARKET_CONFIRMATION_WEIGHT = 0.20
+DIRECTIONAL_SCORE_THRESHOLD = 0.40
+MIN_CHART_SCORE = 0.30
+MIN_CHART_CONFIDENCE = 0.55
+
+
+def _weighted_direction_score(chart_score: float, market_score: float) -> float:
+    """Engine 2 owns 80% of direction; Engine 1 contributes 20% confirmation."""
+    chart_value = float(chart_score)
+    market_value = float(market_score)
+    if not math.isfinite(chart_value) or not math.isfinite(market_value):
+        raise ValueError("Directional scores must be finite.")
+    if not -1.0 <= chart_value <= 1.0 or not -1.0 <= market_value <= 1.0:
+        raise ValueError("Directional scores must be between -1 and 1.")
+    return max(-1.0, min(1.0,
+        CHART_DECISION_WEIGHT * chart_value
+        + MARKET_CONFIRMATION_WEIGHT * market_value
+    ))
+
+
+def _market_confirmation_score(
+    trend_score: float, orderflow: dict[str, Any], venues: dict[str, Any]
+) -> tuple[float, dict[str, Any]]:
+    """Compress Engine 1 evidence to a normalized confirmation score in [-1, 1]."""
+    flow_ratio = orderflow.get("taker_buy_ratio")
+    flow_score = None
+    if flow_ratio is not None:
+        ratio = float(flow_ratio)
+        if math.isfinite(ratio):
+            flow_score = max(-1.0, min(1.0, (ratio - 0.5) / 0.25))
+    book_values = []
+    for row in venues.values():
+        if row.get("status") != "LIVE":
+            continue
+        imbalance = (row.get("orderbook") or {}).get("imbalance")
+        try:
+            value = float(imbalance)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if math.isfinite(value) and -1.0 <= value <= 1.0:
+            book_values.append(value)
+    book_score = sum(book_values) / len(book_values) if book_values else None
+
+    components = [(max(-1.0, min(1.0, float(trend_score))), 0.60)]
+    if flow_score is not None:
+        components.append((flow_score, 0.25))
+    if book_score is not None:
+        components.append((book_score, 0.15))
+    total_weight = sum(weight for _, weight in components)
+    score = sum(value * weight for value, weight in components) / total_weight
+    return max(-1.0, min(1.0, score)), {
+        "trend": round(float(trend_score), 4),
+        "orderflow": round(flow_score, 4) if flow_score is not None else None,
+        "orderbook": round(book_score, 4) if book_score is not None else None,
+        "contributors": len(book_values),
+    }
+
+
 class DecisionEngine:
     """Engine 4. Direction comes only from Engines 1 and 2.
     Engine 3 supplies execution/account facts and transports MIR1 commands.
@@ -225,43 +284,51 @@ class DecisionEngine:
             weighted += weight * (1 if row["trend"] == "BULLISH" else -1 if row["trend"] == "BEARISH" else 0)
         trend_score = weighted / weight_total if weight_total else 0.0
         orderflow = _aggregate_orderflow(market.get("venues", {}))
-        buy_ratio = orderflow.get("taker_buy_ratio")
-
-        candidate = "WAIT"
-        if (
-            timeframe_data["1m"]["trend"] == "BULLISH"
-            and timeframe_data["5m"]["trend"] == "BULLISH"
-            and timeframe_data["15m"]["trend"] == "BULLISH"
-            and trend_score >= 0.35 and 50 < rsi < 72
-            and buy_ratio is not None and buy_ratio >= 0.52
-        ):
-            candidate = "BUY"
-        elif (
-            timeframe_data["1m"]["trend"] == "BEARISH"
-            and timeframe_data["5m"]["trend"] == "BEARISH"
-            and timeframe_data["15m"]["trend"] == "BEARISH"
-            and trend_score <= -0.35 and 28 < rsi < 50
-            and buy_ratio is not None and buy_ratio <= 0.48
-        ):
-            candidate = "SELL"
-
         chart = chart or {}
         chart_eligible = bool(chart.get("decision_eligible")) and chart.get("status") == "READY"
         visual_bias = chart.get("visual_bias", "NEUTRAL")
+        try:
+            chart_score = float(chart.get("analysis_score", 0.0))
+            chart_confidence = float(chart.get("analysis_confidence", 0.0))
+        except (TypeError, ValueError, OverflowError):
+            chart_score = chart_confidence = 0.0
+        if not math.isfinite(chart_score) or not math.isfinite(chart_confidence):
+            chart_score = chart_confidence = 0.0
+        chart_score = max(-1.0, min(1.0, chart_score))
+        chart_confidence = max(0.0, min(1.0, chart_confidence))
+        market_score, market_score_parts = _market_confirmation_score(
+            trend_score, orderflow, market.get("venues", {})
+        )
+        combined_score = _weighted_direction_score(chart_score, market_score)
+
+        candidate = "WAIT"
+        chart_quality_ok = chart_eligible and chart_confidence >= MIN_CHART_CONFIDENCE
+        if chart_quality_ok:
+            if (
+                chart_score >= MIN_CHART_SCORE
+                and combined_score >= DIRECTIONAL_SCORE_THRESHOLD
+                and visual_bias == "BULLISH"
+            ):
+                candidate = "BUY"
+            elif (
+                chart_score <= -MIN_CHART_SCORE
+                and combined_score <= -DIRECTIONAL_SCORE_THRESHOLD
+                and visual_bias == "BEARISH"
+            ):
+                candidate = "SELL"
+
         aligned_signal = candidate
         chart_gate = "NOT_CALIBRATED"
         if not chart_eligible:
             aligned_signal = "WAIT"
             chart_gate = "WAITING_FOR_ENGINE_2_CALIBRATION"
-        elif candidate in {"BUY", "SELL"}:
-            expected = "BULLISH" if candidate == "BUY" else "BEARISH"
-            if visual_bias != expected:
-                aligned_signal = "WAIT"
-                chart_gate = "VISUAL_CONFLICT_OR_NEUTRAL"
-            else:
-                chart_gate = "CONFIRMED"
+        elif chart_confidence < MIN_CHART_CONFIDENCE:
+            aligned_signal = "WAIT"
+            chart_gate = "INSUFFICIENT_ANALYSIS_CONFIDENCE"
+        elif candidate == "WAIT":
+            chart_gate = "80_20_SCORE_BELOW_THRESHOLD_OR_CONFLICT"
         else:
-            chart_gate = "NO_MARKET_SETUP"
+            chart_gate = "80_20_ANALYSIS_CONFIRMED"
 
         market_entry = float(market["price"])
         broker_symbol = str(bridge.get("symbol", ""))
@@ -398,6 +465,18 @@ class DecisionEngine:
             "stop_loss": stop_loss if action in {"BUY", "SELL"} else 0.0,
             "take_profit": take_profit if action in {"BUY", "SELL"} else 0.0,
             "trend_score": round(trend_score, 4), "timeframes": timeframe_data,
+            "decision_weights": {
+                "engine_2_chart": CHART_DECISION_WEIGHT,
+                "engine_1_market": MARKET_CONFIRMATION_WEIGHT,
+            },
+            "decision_scores": {
+                "chart_score": round(chart_score, 4),
+                "chart_confidence": round(chart_confidence, 4),
+                "market_score": round(market_score, 4),
+                "market_components": market_score_parts,
+                "combined_score": round(combined_score, 4),
+                "threshold": DIRECTIONAL_SCORE_THRESHOLD,
+            },
             "indicators": {
                 "ema20_1m": fast, "ema50_1m": slow, "rsi14_1m": rsi,
                 "atr14_1m": atr1, "atr14_5m": atr5,

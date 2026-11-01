@@ -8,7 +8,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mirsad.engines.decision import DecisionEngine, _matching_positions, _price_to_tick, calculate_volume
+from mirsad.engines.decision import (
+    CHART_DECISION_WEIGHT,
+    MARKET_CONFIRMATION_WEIGHT,
+    DecisionEngine,
+    _market_confirmation_score,
+    _matching_positions,
+    _price_to_tick,
+    _weighted_direction_score,
+    calculate_volume,
+)
 import mirsad.engines.mt5_bridge as bridge_module
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
 from mirsad.storage import save_market_snapshot
@@ -90,6 +99,32 @@ class RiskSizingTests(unittest.TestCase):
             volume_max=10,
         )
         self.assertEqual(result["status"], "UNAVAILABLE")
+
+
+class WeightedDecisionTests(unittest.TestCase):
+    def test_chart_analysis_has_eighty_percent_of_directional_score(self) -> None:
+        self.assertAlmostEqual(CHART_DECISION_WEIGHT, 0.80)
+        self.assertAlmostEqual(MARKET_CONFIRMATION_WEIGHT, 0.20)
+        self.assertAlmostEqual(_weighted_direction_score(0.8, -0.5), 0.54)
+
+    def test_market_signal_cannot_override_a_neutral_or_weak_chart_analysis(self) -> None:
+        score = _weighted_direction_score(0.1, 1.0)
+        self.assertAlmostEqual(score, 0.28)
+        self.assertLess(score, 0.40)
+
+    def test_market_confirmation_score_uses_flow_and_book_as_minor_evidence(self) -> None:
+        orderflow = {"taker_buy_ratio": 0.75}
+        venues = {
+            "A": {"status": "LIVE", "orderbook": {"imbalance": 0.5}},
+            "B": {"status": "LIVE", "orderbook": {"imbalance": 0.5}},
+        }
+        score, parts = _market_confirmation_score(0.0, orderflow, venues)
+        self.assertAlmostEqual(score, 0.4, places=4)
+        self.assertEqual(parts["contributors"], 2)
+
+    def test_non_finite_directional_scores_are_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            _weighted_direction_score(float("nan"), 0.0)
 
 
 class DecisionBoundaryTests(unittest.TestCase):
