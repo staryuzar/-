@@ -203,8 +203,11 @@ def _market_confirmation_score(
     flow_ratio = orderflow.get("taker_buy_ratio")
     flow_score = None
     if flow_ratio is not None:
-        ratio = float(flow_ratio)
-        if math.isfinite(ratio):
+        try:
+            ratio = float(flow_ratio)
+        except (TypeError,ValueError,OverflowError):
+            ratio = float("nan")
+        if math.isfinite(ratio) and 0.0 <= ratio <= 1.0:
             flow_score = max(-1.0, min(1.0, (ratio - 0.5) / 0.25))
     book_values = []
     for row in venues.values():

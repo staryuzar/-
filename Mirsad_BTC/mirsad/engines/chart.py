@@ -118,6 +118,14 @@ def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,exp
         return {**result,"status":"ERROR","error":"The image could not be read."}
     height,width=image.shape[:2]
     try:
+        crop_left=int(meta.get("plot_left_px",0) or 0)
+        crop_right_value=int(meta.get("plot_right_px",0) or 0)
+        crop_right=width if crop_right_value<=0 else crop_right_value
+        crop_top=int(meta.get("plot_top_px",0) or 0)
+        crop_bottom_value=int(meta.get("plot_bottom_px",0) or 0)
+        crop_bottom=height if crop_bottom_value<=0 else crop_bottom_value
+        if not (0<=crop_left<crop_right<=width and 0<=crop_top<crop_bottom<=height):
+            raise ValueError("plot bounds must be inside the image and have positive width/height")
         bars=_extract_bars(image,meta)
     except (TypeError,ValueError,OverflowError) as exc:
         return {**result,"status":"ERROR","error":f"Invalid chart crop metadata: {exc}"}

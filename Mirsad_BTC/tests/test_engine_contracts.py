@@ -119,7 +119,7 @@ class WeightedDecisionTests(unittest.TestCase):
             "B": {"status": "LIVE", "orderbook": {"imbalance": 0.5}},
         }
         score, parts = _market_confirmation_score(0.0, orderflow, venues)
-        self.assertAlmostEqual(score, 0.4, places=4)
+        self.assertAlmostEqual(score, 0.325, places=4)
         self.assertEqual(parts["contributors"], 2)
 
     def test_non_finite_directional_scores_are_rejected(self) -> None:
