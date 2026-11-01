@@ -14,7 +14,6 @@ input ulong  InpMagicNumber        = 26110201;
 input int    InpDeviationPoints    = 20;
 
 string g_broker_symbol = "";
-string g_last_command_id = "";
 bool   g_processing = false;
 
 string CommonPath(const string name)
@@ -341,6 +340,7 @@ void ProcessCommand()
    string action = JsonGet(json, "action");
    string command_symbol = JsonGet(json, "symbol");
    string market_symbol = JsonGet(json, "market_symbol");
+   double entry_reference = JsonNumber(json, "entry_reference");
    double volume = JsonNumber(json, "volume");
    double stop_loss = JsonNumber(json, "stop_loss");
    double take_profit = JsonNumber(json, "take_profit");
@@ -366,7 +366,8 @@ void ProcessCommand()
       return;
    }
 
-   if(!MathIsValidNumber(volume) || volume <= 0.0 ||
+   if(!MathIsValidNumber(entry_reference) || entry_reference <= 0.0 ||
+      !MathIsValidNumber(volume) || volume <= 0.0 ||
       !MathIsValidNumber(stop_loss) || stop_loss <= 0.0 ||
       !MathIsValidNumber(take_profit) || take_profit <= 0.0)
    {
@@ -425,13 +426,13 @@ void ProcessCommand()
    request.symbol = command_symbol;
    request.volume = volume;
    request.type = (action == "BUY") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-   request.price = (action == "BUY") ? tick.ask : tick.bid;
+   request.price = entry_reference;
    request.sl = stop_loss;
    request.tp = take_profit;
    request.deviation = (ulong)MathMax(0, InpDeviationPoints);
    request.type_filling = BrokerFillingMode(command_symbol);
    request.type_time = ORDER_TIME_GTC;
-   request.comment = "MIR1 " + command_id;
+   request.comment = command_id;
 
    ResetLastError();
    if(!OrderCheck(request, check))
@@ -481,7 +482,6 @@ int OnInit()
       return INIT_FAILED;
 
    FolderCreate("MirsadBTC", FILE_COMMON);
-   g_last_command_id = ReadLastCommandId();
 
    if(!SymbolSelect(g_broker_symbol, true))
       PrintFormat("Mirsad: broker symbol %s was not selected yet. Waiting for terminal quote feed.",
