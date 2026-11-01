@@ -101,7 +101,18 @@ class ChartEngineTests(unittest.TestCase):
             result = analyze_chart_image(path, self.META, expected_symbol="BTCUSDT")
 
         self.assertGreaterEqual(result["detected_bar_count"], 20)
-        self.assertEqual(result["visual_bias"], "BULLISH")
+        self.assertEqual(
+            result["visual_bias"],
+            "BULLISH",
+            msg=repr({
+                "bars": result["detected_bar_count"],
+                "bias": result["visual_bias"],
+                "score": result["analysis_score"],
+                "confidence": result["analysis_confidence"],
+                "trend": result["visual_trend"],
+                "diagnostics": result["extraction_diagnostics"],
+            }),
+        )
         self.assertTrue(result["decision_eligible"])
         diagnostics = result["extraction_diagnostics"]
         self.assertGreater(diagnostics["raw_active_columns"], diagnostics["active_columns"])
