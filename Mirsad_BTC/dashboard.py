@@ -189,6 +189,20 @@ def render_engine_dashboard():
   options=["1m","5m","15m","1h","4h","1d"]
   old_tf=saved_meta.get("timeframe","1m")
   timeframe=st.selectbox("الإطار الزمني الظاهر بالصورة",options,index=options.index(old_tf) if old_tf in options else 0)
+  palette_labels={
+   "auto":"تلقائي: أخضر/تركوازي/أزرق مقابل أحمر/برتقالي",
+   "green_red":"أخضر مقابل أحمر",
+   "blue_orange":"أزرق مقابل برتقالي",
+   "teal_magenta":"تركوازي مقابل أرجواني",
+  }
+  palette_keys=list(palette_labels)
+  old_palette=saved_meta.get("palette_mode","auto")
+  palette_mode=st.selectbox(
+   "ألوان الشموع في هذا الشارت",
+   palette_keys,
+   index=palette_keys.index(old_palette) if old_palette in palette_keys else 0,
+   format_func=lambda key:palette_labels[key],
+  )
   p1,p2=st.columns(2)
   with p1: top_price=st.number_input("أعلى سعر ظاهر على المحور",min_value=0.0,value=float(saved_meta.get("price_top",0.0)),format="%.2f")
   with p2: bottom_price=st.number_input("أدنى سعر ظاهر على المحور",min_value=0.0,value=float(saved_meta.get("price_bottom",0.0)),format="%.2f")
@@ -213,7 +227,8 @@ def render_engine_dashboard():
     "price_top":float(top_price),"price_bottom":float(bottom_price),
     "plot_left_px":int(plot_left),"plot_top_px":int(plot_top),
     "plot_right_px":int(plot_right),"plot_bottom_px":int(plot_bottom),
-    "source_filename":uploaded.name,"saved_at_ms":int(time.time()*1000)}
+    "source_filename":uploaded.name,"palette_mode":palette_mode,
+    "saved_at_ms":int(time.time()*1000)}
    write_json_atomic(CHART_METADATA_PATH,metadata)
    st.success("تم حفظ الصورة ومعايرتها. ستدخل نتيجة التحليل في الدورة التالية لمحرك القرار.")
 

@@ -135,6 +135,9 @@ def analyze_sample(sample: dict[str, Any]) -> dict[str, Any]:
         "image_height": height,
         "engine_status": result.get("status"),
         "decision_eligible": result.get("decision_eligible"),
+        "last_bar_x_ratio": result.get("last_bar_x_ratio"),
+        "mean_colour_purity": result.get("mean_colour_purity"),
+        "palette_mode": result.get("palette_mode"),
         "detected_bars": result.get("detected_bar_count", 0),
         "calibrated_bars": result.get("calibrated_bar_count", 0),
         "visual_bias": actual,
@@ -178,6 +181,9 @@ def main() -> int:
             })
 
     successful = sum(1 for row in rows if row.get("engine_status") not in {"DOWNLOAD_OR_ANALYSIS_ERROR", "ERROR"})
+    eligible_count = sum(1 for row in rows if row.get("decision_eligible"))
+    last_candle_checks = sum(1 for row in rows if row.get("last_candle_direction_match") in {"MATCH", "MISMATCH"})
+    last_candle_matches = sum(1 for row in rows if row.get("last_candle_direction_match") == "MATCH")
     result = {
         "project": "Mirsad BTC",
         "benchmark": "public_chart_image_robustness",
@@ -185,6 +191,9 @@ def main() -> int:
         "image_count": len(rows),
         "successful_analyses": successful,
         "failed_downloads_or_analyses": len(rows) - successful,
+        "decision_eligible_images": eligible_count,
+        "last_candle_checks": last_candle_checks,
+        "last_candle_direction_matches": last_candle_matches,
         "important_note": (
             "Agreement with an article's written interpretation is not proof that a trade would be profitable. "
             "True outcome validation requires an exact chart cutoff timestamp, the same market/instrument, "
@@ -202,13 +211,15 @@ def main() -> int:
         f"- Images in manifest: {len(rows)}",
         f"- Successful downloads and analyses: {successful}",
         f"- Failed downloads/analyses: {len(rows) - successful}",
+        f"- Images eligible for decision: {eligible_count}",
+        f"- Last-candle direction checks: {last_candle_matches}/{last_candle_checks}",
         "",
-        "| Image | Engine | Bars | Bias | Last candle | Hue | Score | Confidence | Comparison |",
-        "|---|---:|---:|---|---|---:|---:|---:|---|",
+        "| Image | Engine | Bars | Bias | Last candle | Right-edge | Purity | Score | Confidence | Comparison |",
+        "|---|---:|---:|---|---|---:|---:|---:|---:|---|",
     ]
     for row in rows:
         lines.append(
-            "| {id} | {status} | {bars} | {bias} | {last} ({match}) | {hue} | {score} | {confidence} | {comparison} |".format(
+            "| {id} | {status} | {bars} | {bias} | {last} ({match}) | {right} | {purity} | {score} | {confidence} | {comparison} |".format(
                 id=row.get("id", "unknown"),
                 status=row.get("engine_status", "ERROR"),
                 bars=row.get("detected_bars", 0),
@@ -216,6 +227,8 @@ def main() -> int:
                 last=row.get("last_detected_candle_direction", "—"),
                 match=row.get("last_candle_direction_match", "—"),
                 hue=(row.get("palette_profile", {}).get("dominant_hues") or [{}])[0].get("hue", "—"),
+                right=row.get("last_bar_x_ratio", "—"),
+                purity=row.get("mean_colour_purity", "—"),
                 score=row.get("analysis_score", "—"),
                 confidence=row.get("analysis_confidence", "—"),
                 comparison=row.get("published_context_comparison", "—"),

@@ -21,70 +21,112 @@ def _groups(columns:np.ndarray,gap:int=2)->list[tuple[int,int]]:
     result.append((start,previous))
     return result
 
-def _extract_bars(image:np.ndarray,meta:dict[str,Any])->list[dict[str,Any]]:
-    height,width=image.shape[:2]
-    left=max(0,min(width-1,int(meta.get("plot_left_px",0))))
-    right_value=int(meta.get("plot_right_px",0) or 0)
-    right=width if right_value<=0 else max(left+1,min(width,right_value))
-    top=max(0,min(height-1,int(meta.get("plot_top_px",0))))
-    bottom_value=int(meta.get("plot_bottom_px",0) or 0)
-    bottom=height if bottom_value<=0 else max(top+1,min(height,bottom_value))
-    area=image[top:bottom,left:right]
-    if area.size==0:
+PALETTE_PRESETS: dict[str, dict[str, list[tuple[int, int]]]] = {
+    "auto": {"bullish": [(34, 96), (97, 140)], "bearish": [(0, 30), (160, 179)]},
+    "green_red": {"bullish": [(34, 96)], "bearish": [(0, 12), (165, 179)]},
+    "blue_orange": {"bullish": [(97, 140)], "bearish": [(8, 30), (165, 179)]},
+    "teal_magenta": {"bullish": [(75, 110)], "bearish": [(135, 179)]},
+}
+
+
+def _hue_mask(hsv: np.ndarray, ranges: list[tuple[int, int]]) -> np.ndarray:
+    mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+    for lower, upper in ranges:
+        part = cv2.inRange(
+            hsv,
+            np.array([lower, 45, 35], dtype=np.uint8),
+            np.array([upper, 255, 255], dtype=np.uint8),
+        )
+        mask = cv2.bitwise_or(mask, part)
+    return mask
+
+
+def _extract_bars(image: np.ndarray, meta: dict[str, Any]) -> list[dict[str, Any]]:
+    height, width = image.shape[:2]
+    left = int(meta.get("plot_left_px", 0) or 0)
+    right_value = int(meta.get("plot_right_px", 0) or 0)
+    right = width if right_value <= 0 else right_value
+    top = int(meta.get("plot_top_px", 0) or 0)
+    bottom_value = int(meta.get("plot_bottom_px", 0) or 0)
+    bottom = height if bottom_value <= 0 else bottom_value
+    if not (0 <= left < right <= width and 0 <= top < bottom <= height):
+        raise ValueError("plot bounds must be inside the image and have positive width/height")
+
+    area = image[top:bottom, left:right]
+    if area.size == 0:
         return []
-    hsv=cv2.cvtColor(area,cv2.COLOR_BGR2HSV)
-    green=cv2.inRange(hsv,np.array([32,45,40]),np.array([95,255,255]))
-    red_a=cv2.inRange(hsv,np.array([0,55,45]),np.array([12,255,255]))
-    red_b=cv2.inRange(hsv,np.array([168,55,45]),np.array([180,255,255]))
-    red=cv2.bitwise_or(red_a,red_b)
-    mask=cv2.bitwise_or(green,red)
-    activity=(mask>0).sum(axis=0)
-    groups=_groups(activity>max(2,int(area.shape[0]*0.0025)),gap=2)
-    bars=[]
-    for x0,x1 in groups:
-        if x1-x0>18:
+    hsv = cv2.cvtColor(area, cv2.COLOR_BGR2HSV)
+    palette_mode = str(meta.get("palette_mode", "auto")).strip().lower()
+    if palette_mode not in PALETTE_PRESETS:
+        raise ValueError(f"Unsupported palette_mode: {palette_mode}")
+    palette = PALETTE_PRESETS[palette_mode]
+    bullish = _hue_mask(hsv, palette["bullish"]) > 0
+    bearish = _hue_mask(hsv, palette["bearish"]) > 0
+    mask = bullish | bearish
+
+    activity = mask.sum(axis=0)
+    minimum_activity = max(1, int(np.ceil(area.shape[0] * 0.0008)))
+    groups = _groups(activity >= minimum_activity, gap=0)
+    bars: list[dict[str, Any]] = []
+    max_bar_width = max(6, min(18, int(round(area.shape[1] * 0.012))))
+
+    for x0, x1 in groups:
+        group_width = x1 - x0 + 1
+        if group_width < 2 or group_width > max_bar_width:
             continue
-        roi_g=green[:,x0:x1+1]>0
-        roi_r=red[:,x0:x1+1]>0
-        roi=roi_g|roi_r
-        ys,_=np.where(roi)
-        if len(ys)<4:
+        bull_roi = bullish[:, x0:x1 + 1]
+        bear_roi = bearish[:, x0:x1 + 1]
+        bull_pixels = int(bull_roi.sum())
+        bear_pixels = int(bear_roi.sum())
+        total_pixels = bull_pixels + bear_pixels
+        if total_pixels < max(8, int(area.shape[0] * 0.008)) or bull_pixels == bear_pixels:
             continue
-        y_high=int(ys.min())
-        y_low=int(ys.max())
-        row_width=roi.sum(axis=1)
-        strongest=int(row_width.max())
-        if strongest<=0:
+        colour_purity = max(bull_pixels, bear_pixels) / total_pixels
+        if colour_purity < 0.68:
             continue
-        body_rows=np.flatnonzero(row_width>=max(1,int(strongest*0.55)))
-        if len(body_rows)==0:
+        colour = "GREEN" if bull_pixels > bear_pixels else "RED"
+        roi = bull_roi | bear_roi
+        ys, _ = np.where(roi)
+        if len(ys) < 5:
             continue
-        body_top=int(body_rows.min())
-        body_bottom=int(body_rows.max())
-        total_h=max(1,y_low-y_high+1)
-        body_h=max(1,body_bottom-body_top+1)
-        green_pixels,red_pixels=int(roi_g.sum()),int(roi_r.sum())
-        if green_pixels==red_pixels:
+        y_high, y_low = int(ys.min()), int(ys.max())
+        row_width = roi.sum(axis=1)
+        strongest = int(row_width.max())
+        if strongest <= 0:
             continue
-        colour="GREEN" if green_pixels>red_pixels else "RED"
-        upper=max(0,body_top-y_high)
-        lower=max(0,y_low-body_bottom)
-        ratio=min(1.0,body_h/total_h)
-        shape="normal"
-        if ratio<=0.12:
-            shape="doji_candidate"
-        elif lower>=2*body_h and upper<=body_h:
-            shape="hammer_candidate"
-        elif upper>=2*body_h and lower<=body_h:
-            shape="shooting_star_candidate"
-        bar={
-            "x_px":int((x0+x1)/2)+left,
-            "high_y_px":y_high+top,"low_y_px":y_low+top,
-            "body_top_y_px":body_top+top,"body_bottom_y_px":body_bottom+top,
-            "colour":colour,"shape":shape,"body_ratio":round(ratio,3),
-        }
-        bars.append(bar)
-    return sorted(bars,key=lambda item:item["x_px"])
+        body_rows = np.flatnonzero(row_width >= max(2, int(np.ceil(strongest * 0.48))))
+        if len(body_rows) == 0:
+            continue
+        body_top, body_bottom = int(body_rows.min()), int(body_rows.max())
+        total_h = max(1, y_low - y_high + 1)
+        body_h = max(1, body_bottom - body_top + 1)
+        upper, lower = max(0, body_top - y_high), max(0, y_low - body_bottom)
+        ratio = min(1.0, body_h / total_h)
+
+        shape = "normal"
+        if ratio <= 0.16:
+            shape = "doji_candidate"
+        elif lower >= 2.2 * body_h and upper <= body_h * 0.8:
+            shape = "hammer_candidate"
+        elif upper >= 2.2 * body_h and lower <= body_h * 0.8:
+            shape = "shooting_star_candidate"
+
+        bars.append({
+            "x_px": int((x0 + x1) / 2) + left,
+            "width_px": group_width,
+            "high_y_px": y_high + top,
+            "low_y_px": y_low + top,
+            "body_top_y_px": body_top + top,
+            "body_bottom_y_px": body_bottom + top,
+            "colour": colour,
+            "shape": shape,
+            "body_ratio": round(ratio, 3),
+            "colour_purity": round(colour_purity, 4),
+            "bullish_colour_pixels": bull_pixels,
+            "bearish_colour_pixels": bear_pixels,
+            "palette_mode": palette_mode,
+        })
+    return sorted(bars, key=lambda item: item["x_px"])
 
 def _patterns(bars:list[dict[str,Any]])->list[dict[str,Any]]:
     patterns=[]
@@ -280,26 +322,24 @@ def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,exp
                       "change":round(momentum_change,8),
                       "change_pct":round(momentum_change/abs(float(closes[-6]))*100,6) if closes[-6] else None}
 
-        recent_patterns=patterns[-8:]
-        bullish_patterns=sum(1 for p in recent_patterns if p.get("pattern")=="bullish_engulfing_candidate")
-        bearish_patterns=sum(1 for p in recent_patterns if p.get("pattern")=="bearish_engulfing_candidate")
-        pattern_score=float(np.clip((bullish_patterns-bearish_patterns)/2.0,-1,1))
-
-        # Renormalize when swing evidence or pattern evidence is absent.
-        components=[(trend_score,0.55)]
+        # Pattern candidates are diagnostic only until contextually validated.
+        # Low-confidence shape candidates never steer the analyst's direction.
+        pattern_score=0.0
+        components=[(trend_score,0.65)]
         if structure_score is not None:
             components.append((structure_score,0.25))
         if momentum.get("score") is not None:
-            components.append((float(momentum["score"]),0.15))
-        if recent_patterns:
-            components.append((pattern_score,0.05))
+            components.append((float(momentum["score"]),0.10))
         weight_sum=sum(weight for _,weight in components)
         analysis_score=float(np.clip(sum(score*weight for score,weight in components)/weight_sum,-1,1))
-        sample_quality=min(1.0,len(recent)/20.0)
-        pivot_quality=min(1.0,(len(swing_highs)+len(swing_lows))/6.0)
+        sample_quality=min(1.0,len(recent)/24.0)
+        pivot_quality=min(1.0,min(len(swing_highs),len(swing_lows))/2.0)
+        colour_quality=float(np.mean([float(bar.get("colour_purity",0.0)) for bar in calibrated[-24:]]))
         analysis_confidence=float(np.clip(
-            0.55*sample_quality+0.25*direction_ratio+0.20*pivot_quality,0,1
+            0.40*sample_quality+0.25*direction_ratio+0.20*pivot_quality+0.15*colour_quality,0,1
         ))
+        if structure_score is None:
+            analysis_confidence=min(analysis_confidence,0.69)
         if analysis_score>=0.20:
             bias="BULLISH"
         elif analysis_score<=-0.20:
@@ -308,11 +348,21 @@ def analyze_chart_image(image_path:str|Path,metadata:dict[str,Any]|None=None,exp
     symbol_matches=bool(expected_symbol and meta.get("symbol")==expected_symbol)
     timeframe=meta.get("timeframe")
     timeframe_valid=timeframe in {"1m","5m","15m","1h","4h","1d"}
-    eligible=bool(scale_valid and symbol_matches and timeframe_valid and len(calibrated)>=20)
+    plot_width=max(1,plot_right-plot_left)
+    last_bar_x_ratio=((float(bars[-1]["x_px"])-plot_left)/plot_width) if bars else None
+    mean_colour_purity=(float(np.mean([bar.get("colour_purity",0.0) for bar in bars[-24:]])) if bars else 0.0)
+    eligible=bool(
+        scale_valid and symbol_matches and timeframe_valid and len(calibrated)>=20
+        and last_bar_x_ratio is not None and last_bar_x_ratio>=0.68
+        and mean_colour_purity>=0.72
+    )
     state="READY" if eligible else ("DETECTED_UNCALIBRATED" if len(bars)>=5 else "LOW_DETECTION")
     return {
         **result,"status":state,"image_width":width,"image_height":height,
         "detected_bar_count":len(bars),"calibrated_bar_count":len(calibrated),
+        "last_bar_x_ratio":round(last_bar_x_ratio,4) if last_bar_x_ratio is not None else None,
+        "mean_colour_purity":round(mean_colour_purity,4),
+        "palette_mode":str(meta.get("palette_mode","auto")),
         "colour_counts":counts,"visual_bias":bias,"visual_trend":visual_trend,
         "market_structure":market_structure,"momentum":momentum,
         "analysis_score":round(analysis_score,4),

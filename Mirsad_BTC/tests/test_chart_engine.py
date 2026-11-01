@@ -116,6 +116,56 @@ class ChartEngineTests(unittest.TestCase):
         self.assertFalse(result["decision_eligible"])
         self.assertFalse(result["calibration"]["price_scale_valid"])
 
+    def test_blue_orange_palette_extracts_directional_candles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "blue_orange.png"
+            image = np.full((self.HEIGHT, self.WIDTH, 3), 255, dtype=np.uint8)
+            bullish_bgr = (220, 90, 20)
+            for index in range(24):
+                close_y = 210 - index * 5
+                open_y = close_y + 8
+                x = 12 + index * 20
+                cv2.line(image, (x, close_y - 5), (x, open_y + 5), bullish_bgr, 1)
+                cv2.rectangle(image, (x - 2, close_y), (x + 2, open_y), bullish_bgr, -1)
+            self.assertTrue(cv2.imwrite(str(path), image))
+            meta = dict(self.META)
+            meta["palette_mode"] = "blue_orange"
+            result = analyze_chart_image(path, meta, expected_symbol="BTCUSDT")
+        self.assertGreaterEqual(result["detected_bar_count"], 20)
+        self.assertEqual(result["visual_bias"], "BULLISH")
+        self.assertTrue(result["decision_eligible"])
+
+    def test_auto_palette_detects_teal_and_magenta_candles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "teal_magenta.png"
+            image = np.full((self.HEIGHT, self.WIDTH, 3), 245, dtype=np.uint8)
+            bullish_bgr = (170, 130, 0)
+            for index in range(24):
+                close_y = 210 - index * 5
+                open_y = close_y + 8
+                x = 12 + index * 20
+                cv2.line(image, (x, close_y - 5), (x, open_y + 5), bullish_bgr, 1)
+                cv2.rectangle(image, (x - 2, close_y), (x + 2, open_y), bullish_bgr, -1)
+            self.assertTrue(cv2.imwrite(str(path), image))
+            result = analyze_chart_image(path, self.META, expected_symbol="BTCUSDT")
+        self.assertGreaterEqual(result["detected_bar_count"], 20)
+        self.assertEqual(result["visual_bias"], "BULLISH")
+
+    def test_last_bar_must_be_near_the_right_side_of_price_plot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "left_only.png"
+            image = np.full((self.HEIGHT, self.WIDTH, 3), 255, dtype=np.uint8)
+            for index in range(12):
+                close_y = 210 - index * 5
+                open_y = close_y + 8
+                x = 12 + index * 18
+                cv2.line(image, (x, close_y - 5), (x, open_y + 5), (0, 200, 0), 1)
+                cv2.rectangle(image, (x - 2, close_y), (x + 2, open_y), (0, 200, 0), -1)
+            self.assertTrue(cv2.imwrite(str(path), image))
+            result = analyze_chart_image(path, self.META, expected_symbol="BTCUSDT")
+        self.assertFalse(result["decision_eligible"])
+        self.assertLess(result["last_bar_x_ratio"], 0.68)
+
     def test_symbol_mismatch_blocks_decision_eligibility(self) -> None:
         result = self._analyze(expected="ETHUSDT")
         self.assertFalse(result["decision_eligible"])
