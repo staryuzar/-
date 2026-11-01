@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mirsad.engines.decision import DecisionEngine, _matching_positions, calculate_volume
+from mirsad.engines.decision import DecisionEngine, _matching_positions, _price_to_tick, calculate_volume
 import mirsad.engines.mt5_bridge as bridge_module
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
 
@@ -100,6 +100,50 @@ class DecisionBoundaryTests(unittest.TestCase):
         self.assertEqual(result["action"], "WAIT")
         self.assertEqual(result["status"], "NOT_READY")
         self.assertIn("two current independent public venues", result["reason"])
+
+    def test_price_rounding_respects_broker_tick(self) -> None:
+        self.assertAlmostEqual(_price_to_tick(100.03, 0.05, 2, "UP"), 100.05)
+        self.assertAlmostEqual(_price_to_tick(100.03, 0.05, 2, "DOWN"), 100.00)
+
+    def test_mt5_price_divergence_is_exposed_and_rejected(self) -> None:
+        now = int(time.time() * 1000)
+        candles = []
+        for i in range(80):
+            close = 70.0 + 0.2 * i
+            candles.append({
+                "open_time_ms": now - (80 - i) * 60_000,
+                "open": close - 0.1, "high": close + 0.2,
+                "low": close - 0.2, "close": close,
+                "volume": 1.0, "closed": True,
+            })
+        frames = {tf: candles for tf in ("1m", "5m", "15m", "1h", "4h", "1d")}
+        market = {
+            "status": "LIVE", "venue_count": 2, "symbol": "BTCUSDT",
+            "price": 100.0, "captured_at_ms": now, "primary_venue": "OKX Spot",
+            "venues": {
+                "OKX Spot": {"status": "LIVE", "candles_by_tf": frames, "orderflow": None},
+                "Bybit Spot": {"status": "LIVE", "orderflow": {
+                    "unit": "BTC", "taker_buy_quantity": 1.0,
+                    "taker_sell_quantity": 1.0, "trade_count": 2}},
+            },
+        }
+        bridge = {
+            "status": "CONNECTED", "symbol": "BTC", "market_symbol": "BTCUSDT",
+            "magic_number": 26110201, "positions": [],
+            "quote": {"bid": 150.0, "ask": 150.1, "time_ms": now, "tick_age_seconds": 1},
+            "quote_age_seconds": 1,
+            "account": {"equity": 1000.0},
+            "symbol_spec": {
+                "tick_size": 0.01, "point": 0.01, "digits": 2,
+                "tick_value_loss": 1.0, "volume_min": 0.01,
+                "volume_step": 0.01, "volume_max": 10.0, "stops_level_points": 0,
+            },
+        }
+        chart = {"status": "READY", "decision_eligible": True,
+                 "visual_bias": "NEUTRAL", "image": "unit.png"}
+        result = DecisionEngine().analyze(market, chart, bridge)
+        self.assertGreater(result["broker_market_price_divergence_pct"], 1.0)
+        self.assertIsNone(result["broker_quote"])
 
     def test_position_manager_only_sees_mirsad_magic(self) -> None:
         bridge = {
