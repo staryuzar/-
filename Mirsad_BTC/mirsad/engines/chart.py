@@ -286,48 +286,70 @@ def _patterns(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
             ):
                 add(i, i - 1, "bearish_engulfing_candidate")
 
-            # Harami: a materially smaller opposite-colour body contained
-            # inside the preceding real body.
-            if (
-                opposite_colours
-                and curr_size <= prev_size * 0.75
-                and curr_top >= prev_top
-                and curr_bottom <= prev_bottom
-            ):
-                add(i, i - 1, "harami_candidate")
+            # TA-Lib Harami: first body is long against its preceding
+            # ten-body mean; second is short against its own prior-ten mean
+            # and fully contained in the first body. TA-Lib's generic class
+            # does not require opposite candle colours.
+            if i >= 11:
+                previous_body_long_mean = float(np.mean(body_sizes[i - 11:i - 1]))
+                current_body_short_mean = float(np.mean(body_sizes[i - 10:i]))
+                if (
+                    prev_size > previous_body_long_mean
+                    and curr_size <= current_body_short_mean
+                    and curr_top >= prev_top
+                    and curr_bottom <= prev_bottom
+                ):
+                    add(i, i - 1, "harami_candidate")
 
-        if i >= 2:
+        if i >= 12:
             first, middle, last = bars[i - 2], bars[i - 1], bar
             first_top, first_bottom = _body_bounds(first)
             middle_top, middle_bottom = _body_bounds(middle)
             last_top, last_bottom = _body_bounds(last)
-            first_size = max(1.0, first_bottom - first_top)
-            middle_size = max(1.0, middle_bottom - middle_top)
-            last_size = max(1.0, last_bottom - last_top)
-            first_mid = (first_top + first_bottom) / 2.0
-            middle_mid = (middle_top + middle_bottom) / 2.0
-            last_mid = (last_top + last_bottom) / 2.0
-            large_first_and_last = (
-                first_size >= middle_size * 1.4
-                and last_size >= middle_size * 1.4
-            )
+            first_size = body_sizes[i - 2]
+            middle_size = body_sizes[i - 1]
+            last_size = body_sizes[i]
+            long_body_mean = float(np.mean(body_sizes[i - 12:i - 2]))
+            middle_short_mean = float(np.mean(body_sizes[i - 11:i - 1]))
+            last_short_mean = float(np.mean(body_sizes[i - 10:i]))
 
-            # Pixel y increases downwards. A morning star falls, pauses low,
-            # then a bullish third body recovers above the first body's midpoint.
+            # TA-Lib Morning Star: long red first body, small second body
+            # gaps below the first, and a third green close penetrates at
+            # least 30% into the first body.
+            morning_gap_down = middle_top > first_bottom
+            first_red = first.get("colour") == "RED"
+            third_green = last.get("colour") == "GREEN"
+            first_close_y = first_bottom  # red candle closes at its lower body edge
+            third_close_y = last_top      # green candle closes at its upper body edge
+            morning_penetration = third_close_y < first_close_y - first_size * 0.30
+
             if (
-                first.get("colour") == "RED"
-                and last.get("colour") == "GREEN"
-                and large_first_and_last
-                and middle_mid >= first_mid
-                and last_mid < first_mid
+                first_red and third_green
+                and first_size > long_body_mean
+                and middle_size <= middle_short_mean
+                and last_size > last_short_mean
+                and morning_gap_down
+                and morning_penetration
             ):
                 add(i, i - 2, "morning_star_candidate")
-            elif (
-                first.get("colour") == "GREEN"
-                and last.get("colour") == "RED"
-                and large_first_and_last
-                and middle_mid <= first_mid
-                and last_mid > first_mid
+
+            # TA-Lib Evening Star is the mirrored case: long green first
+            # body, small second body gaps above it, and a red third close
+            # penetrates at least 30% into the first body.
+            evening_gap_up = middle_bottom < first_top
+            first_green = first.get("colour") == "GREEN"
+            third_red = last.get("colour") == "RED"
+            first_close_y = first_top  # green candle closes at its upper body edge
+            third_close_y = last_bottom  # red candle closes at its lower body edge
+            evening_penetration = third_close_y > first_close_y + first_size * 0.30
+
+            if (
+                first_green and third_red
+                and first_size > long_body_mean
+                and middle_size <= middle_short_mean
+                and last_size > last_short_mean
+                and evening_gap_up
+                and evening_penetration
             ):
                 add(i, i - 2, "evening_star_candidate")
 

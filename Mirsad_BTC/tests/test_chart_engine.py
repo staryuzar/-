@@ -135,40 +135,52 @@ class ChartEngineTests(unittest.TestCase):
             0,
         )
 
-    def test_harami_candidate_detected_from_contained_opposite_body(self) -> None:
+    def test_harami_requires_long_first_body_and_short_contained_second_body(self) -> None:
         bars = [
-            self._pattern_bar("RED", 100, 150),
-            self._pattern_bar("GREEN", 112, 128),
+            self._pattern_bar("RED", 100, 105, high=98, low=110)
+            for _ in range(10)
         ]
+        bars.extend([
+            self._pattern_bar("RED", 100, 120, high=98, low=122),
+            self._pattern_bar("GREEN", 105, 108, high=104, low=109),
+        ])
         patterns = _patterns(bars)
         harami = [x for x in patterns if x["pattern"] == "harami_candidate"]
         self.assertEqual(len(harami), 1)
-        self.assertEqual(harami[0]["start_index"], 0)
-        self.assertEqual(harami[0]["index"], 1)
+        self.assertEqual(harami[0]["start_index"], 10)
+        self.assertEqual(harami[0]["index"], 11)
 
-    def test_morning_star_candidate_detected_from_three_candle_reversal(self) -> None:
+    def test_morning_star_requires_long_first_body_gap_down_and_penetration(self) -> None:
         bars = [
-            self._pattern_bar("RED", 100, 150),
-            self._pattern_bar("RED", 151, 158),
-            self._pattern_bar("GREEN", 95, 120),
+            self._pattern_bar("GREEN", 100, 105, high=98, low=110)
+            for _ in range(10)
         ]
+        bars.extend([
+            self._pattern_bar("RED", 100, 120, high=98, low=122),
+            self._pattern_bar("RED", 123, 126, high=121, low=128),
+            self._pattern_bar("GREEN", 101, 114, high=99, low=116),
+        ])
         patterns = _patterns(bars)
         stars = [x for x in patterns if x["pattern"] == "morning_star_candidate"]
         self.assertEqual(len(stars), 1)
-        self.assertEqual(stars[0]["start_index"], 0)
-        self.assertEqual(stars[0]["index"], 2)
+        self.assertEqual(stars[0]["start_index"], 10)
+        self.assertEqual(stars[0]["index"], 12)
 
-    def test_evening_star_candidate_detected_from_three_candle_reversal(self) -> None:
+    def test_evening_star_requires_long_first_body_gap_up_and_penetration(self) -> None:
         bars = [
-            self._pattern_bar("GREEN", 100, 150),
-            self._pattern_bar("GREEN", 90, 98),
-            self._pattern_bar("RED", 130, 155),
+            self._pattern_bar("GREEN", 100, 105, high=98, low=110)
+            for _ in range(10)
         ]
+        bars.extend([
+            self._pattern_bar("GREEN", 100, 120, high=98, low=122),
+            self._pattern_bar("GREEN", 94, 97, high=92, low=99),
+            self._pattern_bar("RED", 110, 124, high=108, low=126),
+        ])
         patterns = _patterns(bars)
         stars = [x for x in patterns if x["pattern"] == "evening_star_candidate"]
         self.assertEqual(len(stars), 1)
-        self.assertEqual(stars[0]["start_index"], 0)
-        self.assertEqual(stars[0]["index"], 2)
+        self.assertEqual(stars[0]["start_index"], 10)
+        self.assertEqual(stars[0]["index"], 12)
 
     def test_calibrated_chart_detects_bars_and_returns_consistent_ohlc(self) -> None:
         result = self._analyze(direction="up", colour="GREEN")
