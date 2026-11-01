@@ -4,7 +4,7 @@
 //| All signal/risk calculations remain in Mirsad Engine 4.           |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "001.000"
+#property version   "1.00"
 #property description "Mirsad BTC command-driven MT5 execution and telemetry bridge"
 
 input string InpBrokerSymbol       = "";          // Empty = chart symbol
