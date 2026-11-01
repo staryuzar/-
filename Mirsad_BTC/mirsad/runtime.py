@@ -72,12 +72,15 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
   "wiring":{"engine_1_to_engine_4":True,"engine_2_to_engine_4":True,
    "engine_3_to_engine_4":True,
    "engine_4_to_engine_3_command_envelope":"implemented_idempotent_user_authorized",
-   "expert_connection":"pending_next_phase"},
+   "engine_3_to_engine_4_ack_and_positions":"read_from_common_files",
+   "expert_connection":bridge.get("status","NOT_CONFIGURED")},
   "notices":[
    "Engine 1: actual public market feeds. Engine 2: classical chart vision. Engine 3: MT5 bridge. Engine 4: central decision and risk.",
    "Engine 3 never classifies account type and never computes risk.",
    "Engine 4 owns every decision, stop, target and volume calculation.",
    "No market simulation or simulated order is used.",
+   "A directional decision requires at least two live public venues.",
+   "A broker quote must be fresh, close to the spot reference and within the configured spread threshold.",
    "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
   ],
  }

@@ -4,7 +4,7 @@ import hashlib
 import math
 from typing import Any
 
-from ..config import RISK_PER_TRADE, MT5_QUOTE_MAX_AGE_SECONDS
+from ..config import (RISK_PER_TRADE, MT5_QUOTE_MAX_AGE_SECONDS, MT5_MARKET_DIVERGENCE_MAX_PCT, MT5_MAX_SPREAD_PCT)
 
 TIMEFRAME_WEIGHTS = {"1m": 1.0, "5m": 2.0, "15m": 3.0, "1h": 4.0, "4h": 5.0, "1d": 5.0}
 
@@ -116,8 +116,7 @@ def calculate_volume(
     if not math.isfinite(loss_per_lot) or loss_per_lot <= 0:
         return {"status": "UNAVAILABLE", "reason": "Cannot calculate loss per lot."}
     raw = risk_cash / loss_per_lot
-    volume = round(min(math.floor((raw + 1e-12) / volume_step) * volume_step, volume_max), 8)
-    if volume < volume_min:
+    if raw < volume_min - 1e-12:
         return {
             "status": "BLOCKED", "reason": "Risk-calculated volume is below broker minimum.",
             "risk_cash": risk_cash, "unrounded_volume": raw,
@@ -133,6 +132,19 @@ def calculate_volume(
 def _signal_id(*parts: Any) -> str:
     raw = "|".join(str(part) for part in parts)
     return "MIR-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _price_to_tick(price: float, tick_size: float, digits: int, direction: str) -> float:
+    if not math.isfinite(price) or not math.isfinite(tick_size) or tick_size <= 0:
+        raise ValueError("Invalid price or tick size.")
+    units = price / tick_size
+    if direction == "UP":
+        ticks = math.ceil(units - 1e-10)
+    elif direction == "DOWN":
+        ticks = math.floor(units + 1e-10)
+    else:
+        ticks = round(units)
+    return round(ticks * tick_size, max(0, min(10, int(digits))))
 
 
 def _matching_positions(bridge: dict[str, Any], broker_symbol: str) -> list[dict[str, Any]]:
@@ -175,9 +187,9 @@ class DecisionEngine:
             "risk_owner": "Mirsad_BTC_program",
         }
         bridge = bridge or {}
-        if market.get("status") not in {"LIVE", "PARTIAL"} or not market.get("primary_venue"):
+        if market.get("status") != "LIVE" or int(market.get("venue_count", 0) or 0) < 2 or not market.get("primary_venue"):
             return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
-                    "reason": "Engine 1 has no current public market feed."}
+                    "reason": "Engine 1 requires at least two current independent public venues before directional decisions."}
 
         primary = market["venues"][market["primary_venue"]]
         candle_sets = primary.get("candles_by_tf") or {"1m": primary.get("candles", [])}
@@ -257,6 +269,9 @@ class DecisionEngine:
             ask = float(quote.get("ask", 0))
             quote_age = float(bridge.get("quote_age_seconds", float("inf")))
             tick_age = float(quote.get("tick_age_seconds", float("inf")))
+            broker_mid = (bid + ask) / 2.0
+            price_divergence = abs(broker_mid - market_entry) / market_entry if market_entry > 0 else float("inf")
+            spread_pct = (ask - bid) / broker_mid if broker_mid > 0 else float("inf")
             quote_ok = (
                 bridge.get("status") == "CONNECTED"
                 and str(bridge.get("market_symbol", "")).upper() == market_symbol.upper()
@@ -265,16 +280,36 @@ class DecisionEngine:
                 and math.isfinite(quote_age) and math.isfinite(tick_age)
                 and 0 <= quote_age <= MT5_QUOTE_MAX_AGE_SECONDS
                 and 0 <= tick_age <= MT5_QUOTE_MAX_AGE_SECONDS
+                and math.isfinite(price_divergence)
+                and price_divergence <= MT5_MARKET_DIVERGENCE_MAX_PCT
+                and math.isfinite(spread_pct)
+                and spread_pct <= MT5_MAX_SPREAD_PCT
             )
         except (TypeError, ValueError, OverflowError):
             quote_ok = False
             bid = ask = 0.0
+            price_divergence = spread_pct = None
 
         entry = ask if aligned_signal == "BUY" and quote_ok else (
             bid if aligned_signal == "SELL" and quote_ok else float(market["price"])
         )
         stop_loss = take_profit = None
-        if aligned_signal == "BUY":
+        tick_size = float(specs.get("tick_size", 0) or 0)
+        point = float(specs.get("point", tick_size) or tick_size)
+        digits = int(specs.get("digits", 2) or 2)
+        stops_level_points = int(specs.get("stops_level_points", 0) or 0)
+        minimum_stop_gap = max(0, stops_level_points) * point + tick_size if tick_size > 0 else 0.0
+        if aligned_signal in {"BUY", "SELL"} and quote_ok and tick_size > 0:
+            entry = _price_to_tick(entry, tick_size, digits, "NEAREST")
+            stop_gap = max(1.5 * atr5, minimum_stop_gap)
+            target_gap = max(3.0 * atr5, minimum_stop_gap)
+            if aligned_signal == "BUY":
+                stop_loss = _price_to_tick(entry - stop_gap, tick_size, digits, "DOWN")
+                take_profit = _price_to_tick(entry + target_gap, tick_size, digits, "UP")
+            else:
+                stop_loss = _price_to_tick(entry + stop_gap, tick_size, digits, "UP")
+                take_profit = _price_to_tick(entry - target_gap, tick_size, digits, "DOWN")
+        elif aligned_signal == "BUY":
             stop_loss, take_profit = entry - 1.5 * atr5, entry + 3.0 * atr5
         elif aligned_signal == "SELL":
             stop_loss, take_profit = entry + 1.5 * atr5, entry - 3.0 * atr5
@@ -352,6 +387,8 @@ class DecisionEngine:
             "market_symbol": market_symbol, "symbol": broker_symbol if quote_ok else market_symbol,
             "market_price_reference": market.get("price"),
             "broker_quote": quote if quote_ok else None,
+            "broker_market_price_divergence_pct": round(price_divergence * 100, 4) if price_divergence is not None else None,
+            "broker_spread_pct": round(spread_pct * 100, 4) if spread_pct is not None else None,
             "entry_reference": entry if action in {"BUY", "SELL"} else 0.0,
             "stop_loss": stop_loss if action in {"BUY", "SELL"} else 0.0,
             "take_profit": take_profit if action in {"BUY", "SELL"} else 0.0,
@@ -372,6 +409,8 @@ class DecisionEngine:
                 "direction_from_engine_1_market": market.get("status"),
                 "direction_from_engine_2_chart": "READY" if chart_eligible else chart.get("status", "NOT_READY"),
                 "engine_3_bridge_for_quote_account_specs_and_transport": bridge.get("status", "NOT_CONFIGURED"),
+                "broker_market_price_divergence_pct": round(price_divergence * 100, 4) if price_divergence is not None else None,
+                "broker_spread_pct": round(spread_pct * 100, 4) if spread_pct is not None else None,
             },
             "reason": (
                 "BUY/SELL is derived only from Engine 1 market data and Engine 2 calibrated chart analysis. "
