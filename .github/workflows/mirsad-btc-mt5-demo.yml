@@ -1,12 +1,6 @@
-name: Mirsad BTC — MT5 demo compile and login validation
+name: Mirsad BTC — LEGACY read-only bridge check (manual only)
 
 on:
-  push:
-    branches: [mirsad-mt5-demo]
-    paths:
-      - "Mirsad_BTC/mt5/**"
-      - "Mirsad_BTC/scripts/mirsad_mt5_demo_compile.ps1"
-      - ".github/workflows/mirsad-btc-mt5-demo.yml"
   workflow_dispatch:
 
 permissions:
@@ -32,7 +26,7 @@ jobs:
           Write-Output "PowerShell: $($PSVersionTable.PSVersion)"
           if ($env:RUNNER_OS -ne 'Windows') { throw 'A Windows runner is required for MetaTrader 5.' }
 
-      - name: Download MT5, compile the Mirsad EA, and verify demo login (no trading)
+      - name: LEGACY — compile the old read-only EA and verify demo login (no trading)
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
         shell: pwsh
