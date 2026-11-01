@@ -37,7 +37,7 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
    "message":"Upload a real chart screenshot and enter its price-axis scale."}
  bridge=(bridge_engine or MT5BridgeEngine()).inspect()
  decision=DecisionEngine().analyze(market,chart,bridge)
- command_publish={"status":"NOT_READY","message":"No command-ready BUY/SELL decision."}
+ command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
  if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
   command_publish=(bridge_engine or MT5BridgeEngine()).publish_decision(decision,bridge)
  elif decision.get("command_ready"):
@@ -71,21 +71,21 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
   "chart":chart,"bridge":bridge,"decision":decision,"command_publish":command_publish,
   "wiring":{"engine_1_to_engine_4":True,"engine_2_to_engine_4":True,
    "engine_3_to_engine_4":True,
-   "engine_4_to_engine_3_command_envelope":"implemented_idempotent_disabled_by_default",
+   "engine_4_to_engine_3_command_envelope":"implemented_idempotent_user_authorized",
    "expert_connection":"pending_next_phase"},
   "notices":[
    "Engine 1: actual public market feeds. Engine 2: classical chart vision. Engine 3: MT5 bridge. Engine 4: central decision and risk.",
    "Engine 3 never classifies account type and never computes risk.",
    "Engine 4 owns every decision, stop, target and volume calculation.",
    "No market simulation or simulated order is used.",
-   "The expert is not yet built; command publishing is disabled until its protocol and live integration are verified."
+   "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
   ],
  }
  write_json_atomic(STATUS_PATH,report)
  return report
 
 def run_forever(interval:int=COLLECT_INTERVAL_SECONDS)->None:
- print("Mirsad BTC runtime: Engine 1 + Engine 2 + Engine 3 -> Engine 4. No trading orders are sent.")
+ print("Mirsad BTC runtime: Engine 1 + Engine 2 -> Engine 4 -> Engine 3 -> MT5 EA. Commands execute only when Engine 4 marks them ready.")
  while True:
   try:
    report=collect_once()

@@ -318,7 +318,7 @@ class DecisionEngine:
                     "purpose": "close_existing_opposite_position",
                     "reason": "Engine 1 and Engine 2 confirmed a direction opposite to an existing position; close first before considering a reversal.",
                 }
-                signal_id = _signal_id("CLOSE", market_symbol, close_ticket,
+                signal_id = _signal_id("CLOSE", market_symbol, close_ticket, round(close_volume, 8),
                                        one[-1].get("open_time_ms") if one else 0,
                                        chart.get("image", ""))
             elif same:
