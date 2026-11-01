@@ -55,12 +55,14 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
                     VALUES(?,?,?,?,?) ON CONFLICT(venue) DO UPDATE SET checked_at_ms=excluded.checked_at_ms,
                     status=excluded.status,latency_ms=excluded.latency_ms,error=excluded.error""",
                     (venue,captured,item.get("status","unknown"),item.get("latency_ms"),item.get("error")))
-                for candle in item.get("candles",[]):
-                    conn.execute(
-                        "INSERT OR REPLACE INTO candles VALUES(?,?,?,?,?,?,?,?,?,?)",
-                        (venue,snapshot["symbol"],"1m",int(candle["open_time_ms"]),
-                         float(candle["open"]),float(candle["high"]),float(candle["low"]),
-                         float(candle["close"]),float(candle["volume"]),1 if candle.get("closed") else 0))
+                timeframe_data=item.get("candles_by_tf") or {"1m":item.get("candles",[])}
+                for timeframe,candles in timeframe_data.items():
+                    for candle in candles:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO candles VALUES(?,?,?,?,?,?,?,?,?,?)",
+                            (venue,snapshot["symbol"],str(timeframe),int(candle["open_time_ms"]),
+                             float(candle["open"]),float(candle["high"]),float(candle["low"]),
+                             float(candle["close"]),float(candle["volume"]),1 if candle.get("closed") else 0))
                 book=item.get("orderbook")
                 if book:
                     conn.execute(
