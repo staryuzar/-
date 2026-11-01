@@ -31,7 +31,8 @@ STATUS_AR={
  "WAITING_FOR_EXPERT":"بانتظار الخبير التنفيذي","NOT_CONFIGURED":"مسار MT5 غير محدد",
  "PUBLISH_DISABLED":"نشر أوامر الخبير معطل","ERROR":"خطأ",
  "FULLY_OPERATIONAL":"المحركات الأربعة جاهزة","PARTIAL_OR_WAITING":"تشغيل جزئي — توجد وصلات تنتظر",
- "WAITING_FOR_ENGINE_2":"بانتظار معايرة الرسم"}
+ "WAITING_FOR_ENGINE_2":"بانتظار معايرة الرسم","STALE":"بيانات قديمة — يلزم تحديث الصورة",
+ "WAITING_FOR_ENGINE_3_QUOTE":"بانتظار سعر MT5 الحي","BLOCKED":"محجوب حتى تكتمل البيانات"}
 def ar(value):
  return STATUS_AR.get(str(value),str(value or "غير متاح"))
 def age_text(ts):
@@ -93,6 +94,8 @@ def render_engine_dashboard():
   c2.metric("شموع مكتشفة",chart.get("detected_bar_count",0))
   c3.metric("شموع معايرة سعرياً",chart.get("calibrated_bar_count",0))
   c4.metric("الميل المرئي",chart.get("visual_bias","—"))
+  if chart.get("input_age_seconds") is not None:
+   st.caption(f"عمر صورة الشارت: {chart['input_age_seconds']} ثانية")
   if chart.get("pattern_candidates"):
    st.dataframe(pd.DataFrame(chart["pattern_candidates"]),use_container_width=True,hide_index=True)
   if chart.get("limitations"):
@@ -106,6 +109,9 @@ def render_engine_dashboard():
   b3.metric("المراكز المبلغ عنها",len(bridge.get("positions",[])))
   st.caption(bridge.get("message",""))
   st.caption("الجسر لا يصنف نوع الحساب ولا يحسب المخاطر. يمرر البيانات والأوامر وإقرارات التنفيذ بين البرنامج والخبير.")
+  quote=bridge.get("quote",{})
+  if quote:
+   st.caption(f"سعر MT5 الحي: Bid {quote.get('bid','—')} / Ask {quote.get('ask','—')} | الرمز: {bridge.get('symbol','—')} | مربوط بسوق: {bridge.get('market_symbol','—')}")
 
   decision=state.get("decision",{})
   st.subheader("المحرك الرابع — مركز القرار وإدارة المخاطر")
@@ -132,7 +138,10 @@ def render_engine_dashboard():
   if risk.get("volume") is not None:
    st.write(f"الحجم المحسوب: {risk['volume']} | المخاطرة النقدية: {risk.get('risk_cash')} | الخسارة التقديرية عند الوقف: {risk.get('estimated_loss')}")
   st.caption(risk.get("reason") or decision.get("reason",""))
-  st.caption("لن يرسل أمر إلى MT5 إلا بعد جاهزية القرار ووصول نبض الجسر ومع تشغيل نشر الأوامر صراحةً.")
+  publication=state.get("command_publish",{})
+  st.write("**حالة تمرير الأمر عبر الجسر:**",ar(publication.get("status","NOT_READY")))
+  st.caption(publication.get("message","لا يوجد أمر جاهز للإرسال."))
+  st.caption("لن يرسل أمر إلى MT5 إلا بعد جاهزية القرار ووصول نبض الجسر وسعر MT5 المتطابق والحديث، ومع تشغيل نشر الأوامر صراحةً.")
 
  st.divider()
  st.subheader("تهيئة صورة الرسم للمحرك الثاني")
