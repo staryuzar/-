@@ -75,8 +75,25 @@ def build_page_url(split: str, offset: int, length: int, ticker: str | None) -> 
 
 
 def fetch_dataset_rows(split: str, ticker: str | None, max_images: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    first_url = build_page_url(split, 0, 100, ticker)
-    first = request_json(first_url)
+    # The HF /filter endpoint is faster, but may return transient 5xx responses
+    # for some image datasets. Fall back to /rows and filter locally so the test
+    # is not lost because the metadata index is temporarily unavailable.
+    used_fallback = False
+    try:
+        first = request_json(build_page_url(split, 0, 100, ticker))
+        api_ticker_filter = ticker is not None
+    except Exception as filter_error:
+        if ticker is None:
+            raise
+        print(
+            f"HF filter endpoint unavailable ({type(filter_error).__name__}: {filter_error}); "
+            "falling back to paginated /rows and local ticker selection.",
+            flush=True,
+        )
+        first = request_json(build_page_url(split, 0, 100, None))
+        api_ticker_filter = False
+        used_fallback = True
+
     total = int(first.get("num_rows_total", 0))
     partial = bool(first.get("partial", False))
     if total <= 0:
@@ -86,7 +103,10 @@ def fetch_dataset_rows(split: str, ticker: str | None, max_images: int) -> tuple
     rows: list[dict[str, Any]] = []
     offset = 0
     while offset < target:
-        page = first if offset == 0 else request_json(build_page_url(split, offset, 100, ticker))
+        if offset == 0:
+            page = first
+        else:
+            page = request_json(build_page_url(split, offset, 100, ticker if api_ticker_filter else None))
         page_rows = page.get("rows", [])
         if not page_rows:
             break
@@ -95,11 +115,13 @@ def fetch_dataset_rows(split: str, ticker: str | None, max_images: int) -> tuple
             if ticker and row.get("ticker") != ticker:
                 continue
             rows.append(row)
-            if len(rows) >= target:
+            if max_images > 0 and len(rows) >= max_images:
                 break
         offset += len(page_rows)
         if offset % 500 == 0 or offset >= target:
             print(f"Fetched metadata rows: {min(offset, target)}/{target}; selected images: {len(rows)}", flush=True)
+        if max_images > 0 and len(rows) >= max_images:
+            break
     if not rows:
         raise RuntimeError("Dataset rows were returned, but no image rows matched the requested ticker.")
     return rows, {
@@ -108,6 +130,7 @@ def fetch_dataset_rows(split: str, ticker: str | None, max_images: int) -> tuple
         "ticker_filter": ticker,
         "reported_rows_total": total,
         "partial_index": partial,
+        "filter_fallback_to_rows": used_fallback,
         "metadata_rows_selected": len(rows),
     }
 
