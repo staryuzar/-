@@ -80,6 +80,17 @@ class ChartEngineTests(unittest.TestCase):
         self.assertGreaterEqual(first["high"], max(first["open"], first["close"]))
         self.assertLessEqual(first["low"], min(first["open"], first["close"]))
 
+    def test_virtual_positive_scale_is_valid_for_normalized_chart_images(self) -> None:
+        result = self._analyze(
+            direction="up",
+            colour="GREEN",
+            metadata={"price_top": 2.0, "price_bottom": 1.0},
+        )
+        self.assertTrue(result["calibration"]["price_scale_valid"])
+        self.assertTrue(result["decision_eligible"])
+        self.assertEqual(result["calibrated_bar_count"], result["detected_bar_count"])
+        self.assertEqual(result["visual_bias"], "BULLISH")
+
     def test_visual_bias_uses_price_progression_not_green_candle_count(self) -> None:
         result = self._analyze(direction="down", colour="GREEN")
         self.assertEqual(result["status"], "READY")

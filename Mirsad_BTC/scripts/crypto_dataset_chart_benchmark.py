@@ -203,9 +203,9 @@ def decode_and_analyze(
             "symbol": ticker,
             "timeframe": "1d",
             # Dataset charts are percentage-normalized and omit numeric axes.
-            # An arbitrary positive vertical scale preserves price direction only.
-            "price_top": 1.0,
-            "price_bottom": 0.0,
+            # A positive virtual scale from 2 to 1 preserves direction without claiming real price values.
+            "price_top": 2.0,
+            "price_bottom": 1.0,
             "plot_left_px": int(round(left * width)),
             "plot_right_px": int(round(right * width)),
             "plot_top_px": int(round(top * height)),
