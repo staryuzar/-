@@ -91,6 +91,23 @@ class ChartEngineTests(unittest.TestCase):
         self.assertEqual(result["calibrated_bar_count"], result["detected_bar_count"])
         self.assertEqual(result["visual_bias"], "BULLISH")
 
+    def test_horizontal_indicator_line_does_not_merge_all_candles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "chart_with_moving_average.png"
+            self._write_chart(path, direction="up", colour="GREEN", count=24)
+            image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            cv2.line(image, (0, 50), (self.WIDTH - 1, 50), (0, 200, 0), thickness=2)
+            self.assertTrue(cv2.imwrite(str(path), image))
+            result = analyze_chart_image(path, self.META, expected_symbol="BTCUSDT")
+
+        self.assertGreaterEqual(result["detected_bar_count"], 20)
+        self.assertEqual(result["visual_bias"], "BULLISH")
+        self.assertTrue(result["decision_eligible"])
+        diagnostics = result["extraction_diagnostics"]
+        self.assertGreater(diagnostics["raw_active_columns"], diagnostics["active_columns"])
+        self.assertGreater(diagnostics["indicator_pixels_suppressed"], 0)
+        self.assertGreaterEqual(diagnostics["vertical_kernel_height"], 3)
+
     def test_visual_bias_uses_price_progression_not_green_candle_count(self) -> None:
         result = self._analyze(direction="down", colour="GREEN")
         self.assertEqual(result["status"], "READY")

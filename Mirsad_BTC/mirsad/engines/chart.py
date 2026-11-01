@@ -66,7 +66,21 @@ def _extract_bars(
     bearish = _hue_mask(hsv, palette["bearish"]) > 0
     mask = bullish | bearish
 
-    activity = mask.sum(axis=0)
+    # Moving-average curves and other colored indicators can run across nearly
+    # every x-column. Retain vertically persistent candle cores/wicks for the
+    # column projection; use the original color masks below for OHLC geometry.
+    vertical_kernel_height = min(
+        max(3, int(round(area.shape[0] * 0.015))),
+        max(3, area.shape[0]),
+    )
+    vertical_kernel = np.ones((vertical_kernel_height, 1), dtype=np.uint8)
+    candle_core = cv2.morphologyEx(
+        mask.astype(np.uint8) * 255,
+        cv2.MORPH_OPEN,
+        vertical_kernel,
+    ) > 0
+
+    activity = candle_core.sum(axis=0)
     minimum_activity = max(1, int(np.ceil(area.shape[0] * 0.0008)))
     # Allow tiny anti-alias gaps between wick/body pixels, as seen in resized web charts.
     groups = _groups(activity >= minimum_activity, gap=2)
@@ -78,7 +92,10 @@ def _extract_bars(
             "palette_mode": palette_mode,
             "bullish_palette_pixels": int(bullish.sum()),
             "bearish_palette_pixels": int(bearish.sum()),
+            "raw_active_columns": int(np.count_nonzero(mask.sum(axis=0) >= minimum_activity)),
             "active_columns": int(np.count_nonzero(activity >= minimum_activity)),
+            "vertical_kernel_height": vertical_kernel_height,
+            "indicator_pixels_suppressed": int(mask.sum() - candle_core.sum()),
             "projection_groups": len(groups),
             "projection_group_widths": [int(x1 - x0 + 1) for x0, x1 in groups[:500]],
             "minimum_activity_per_column": minimum_activity,
