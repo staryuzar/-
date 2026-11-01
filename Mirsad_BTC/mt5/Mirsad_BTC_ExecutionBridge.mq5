@@ -4,7 +4,7 @@
 //| All signal/risk calculations remain in Mirsad Engine 4.           |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "0.10"
+#property version   "001.000"
 #property description "Mirsad BTC command-driven MT5 execution and telemetry bridge"
 
 input string InpBrokerSymbol       = "";          // Empty = chart symbol
@@ -187,7 +187,13 @@ void PublishTelemetry()
 
    double bid = has_tick ? tick.bid : 0.0;
    double ask = has_tick ? tick.ask : 0.0;
-   long quote_time = has_tick ? (long)tick.time_msc : 0;
+   long broker_time_msc = has_tick ? (long)tick.time_msc : 0;
+   long tick_age_seconds = 2147483647;
+   if(has_tick)
+   {
+      tick_age_seconds = (long)TimeTradeServer() - (long)tick.time;
+      if(tick_age_seconds < 0) tick_age_seconds = 0;
+   }
 
    double tick_size = SymbolInfoDouble(g_broker_symbol, SYMBOL_TRADE_TICK_SIZE);
    double tick_value_loss = SymbolInfoDouble(g_broker_symbol, SYMBOL_TRADE_TICK_VALUE_LOSS);
@@ -211,8 +217,10 @@ void PublishTelemetry()
    );
 
    string quote = StringFormat(
-      "\"quote\":{\"bid\":%s,\"ask\":%s,\"time_ms\":%I64d}",
-      NumberJson(bid, 10), NumberJson(ask, 10), quote_time
+      "\"quote\":{\"bid\":%s,\"ask\":%s,\"time_ms\":%I64d,"
+      "\"broker_time_msc\":%I64d,\"tick_age_seconds\":%I64d}",
+      NumberJson(bid, 10), NumberJson(ask, 10), NowUtcMs(),
+      broker_time_msc, tick_age_seconds
    );
 
    string spec = StringFormat(
