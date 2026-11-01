@@ -16,26 +16,40 @@
       0.96
     ],
     "reference_bias": "BULLISH",
-    "reference_note": "Source describes a broader uptrend, with rejection near 122k-125k and conditional support at 110k-107k. This is analyst context, not ground truth."
+    "reference_note": "Source describes a broader uptrend, with rejection near 122k-125k and conditional support at 110k-107k. This is analyst context, not ground truth.",
+    "expected_last_candle_direction": "BEARISH",
+    "expected_last_candle_ohlc": {
+      "open": 117405,
+      "high": 117543,
+      "low": 115000,
+      "close": 115351
+    }
   },
   {
-    "id": "coinbase_btcusd_daily_2025_07_04",
-    "title": "BTC USD daily chart with moving averages and volume",
-    "image_url": "https://cryptomaniaks.com/wp-content/uploads/2025/07/BTCUSD_2025-07-04_11-16-00-e1751624229124.png",
-    "source_url": "https://cryptomaniaks.com/news/top-bitcoin-predictions-second-half-2025",
-    "symbol": "BTCUSD",
+    "id": "bitget_btcusdt_daily_2025_04_28",
+    "title": "BTCUSDT daily chart on Binance",
+    "image_url": "https://img.bgstatic.com/multiLang/image/social/3e0381d03240493d0e5ffe751ef931ea1745841610746.png",
+    "source_url": "https://www.bitget.com/news/detail/12560604726387",
+    "symbol": "BTCUSDT",
     "timeframe": "1d",
-    "snapshot_date": "2025-07-04T11:16:00Z",
-    "price_top": 115000,
-    "price_bottom": 90000,
+    "snapshot_date": "2025-04-28",
+    "price_top": 100000,
+    "price_bottom": 85000,
     "crop": [
       0,
-      0.05,
-      1,
-      0.69
+      0.25,
+      0.98,
+      0.88
     ],
     "reference_bias": "BULLISH",
-    "reference_note": "The source describes a bullish backdrop above 50-day and 200-day moving averages while the last displayed candle is down. Analyst context only."
+    "reference_note": "Published OHLC reports O 93,749.29 and C 94,401.65 (+0.70%) with a highlighted recent rally.",
+    "expected_last_candle_direction": "BULLISH",
+    "expected_last_candle_ohlc": {
+      "open": 93749.29,
+      "high": 94426.92,
+      "low": 92800.01,
+      "close": 94401.65
+    }
   },
   {
     "id": "bybit_btcusdt_weekly_2026_01_30",
@@ -54,7 +68,14 @@
       0.76
     ],
     "reference_bias": "NEUTRAL",
-    "reference_note": "The source highlights a longer sequence of higher lows but a sharp latest weekly decline. Mixed context."
+    "reference_note": "The source highlights a longer sequence of higher lows but a sharp latest weekly decline. Mixed context.",
+    "expected_last_candle_direction": "BEARISH",
+    "expected_last_candle_ohlc": {
+      "open": 86669.9,
+      "high": 90611,
+      "low": 81000,
+      "close": 82241.3
+    }
   },
   {
     "id": "tradingview_btcusdt_weekly_2025",

@@ -34,6 +34,36 @@ def download_image(url: str, timeout: int = 25, maximum_bytes: int = 12 * 1024 *
         raise ValueError(f"Image payload is empty or exceeds {maximum_bytes} bytes")
     return payload
 
+def palette_profile(image: np.ndarray, crop: list[float]) -> dict[str, Any]:
+    height, width = image.shape[:2]
+    left, top, right, bottom = [float(v) for v in crop]
+    x0, x1 = int(left * width), int(right * width)
+    y0, y1 = int(top * height), int(bottom * height)
+    roi = image[y0:y1, x0:x1]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    hue, saturation, value = cv2.split(hsv)
+    selected = (saturation > 35) & (value > 45)
+    total = int(selected.sum())
+    if total == 0:
+        return {"saturated_pixels": 0, "dominant_hues": [], "hue_families": {}}
+    hist = np.bincount(hue[selected].astype(np.int32), minlength=180)
+    top_hues = np.argsort(hist)[::-1][:8]
+    families = {
+        "red": int(hist[:13].sum() + hist[168:].sum()),
+        "orange": int(hist[13:25].sum()),
+        "yellow": int(hist[25:36].sum()),
+        "green": int(hist[36:86].sum()),
+        "cyan": int(hist[86:106].sum()),
+        "blue": int(hist[106:136].sum()),
+        "purple": int(hist[136:168].sum()),
+    }
+    return {
+        "saturated_pixels": total,
+        "dominant_hues": [{"hue": int(v), "pixels": int(hist[v])} for v in top_hues if hist[v] > 0],
+        "hue_families": families,
+    }
+
+
 def analyze_sample(sample: dict[str, Any]) -> dict[str, Any]:
     from mirsad.engines.chart import analyze_chart_image
 
@@ -68,6 +98,21 @@ def analyze_sample(sample: dict[str, Any]) -> dict[str, Any]:
             expected_symbol=sample["symbol"],
         )
 
+    extracted_bars = result.get("bars", []) or []
+    last_bar = extracted_bars[-1] if extracted_bars else {}
+    last_direction = None
+    if last_bar.get("open") is not None and last_bar.get("close") is not None:
+        last_direction = "BULLISH" if float(last_bar["close"]) > float(last_bar["open"]) else (
+            "BEARISH" if float(last_bar["close"]) < float(last_bar["open"]) else "DOJI"
+        )
+    expected_last = sample.get("expected_last_candle_direction")
+    last_match = (
+        "MATCH" if expected_last and last_direction == expected_last
+        else "MISMATCH" if expected_last and last_direction is not None
+        else "NOT_TESTED"
+    )
+    palette = palette_profile(image, sample["crop"])
+
     reference = str(sample.get("reference_bias", "UNKNOWN")).upper()
     actual = str(result.get("visual_bias", "NEUTRAL")).upper()
     if reference in {"BULLISH", "BEARISH"} and actual in {"BULLISH", "BEARISH"}:
@@ -100,6 +145,12 @@ def analyze_sample(sample: dict[str, Any]) -> dict[str, Any]:
         "momentum": result.get("momentum"),
         "analysis_components": result.get("analysis_components"),
         "patterns": result.get("pattern_candidates", []),
+        "last_detected_candle": last_bar,
+        "last_detected_candle_direction": last_direction,
+        "expected_last_candle_direction": expected_last,
+        "last_candle_direction_match": last_match,
+        "expected_last_candle_ohlc": sample.get("expected_last_candle_ohlc"),
+        "palette_profile": palette,
         "reference_bias": reference,
         "reference_note": sample.get("reference_note"),
         "published_context_comparison": agreement,
@@ -152,16 +203,19 @@ def main() -> int:
         f"- Successful downloads and analyses: {successful}",
         f"- Failed downloads/analyses: {len(rows) - successful}",
         "",
-        "| Image | Engine | Bars | Bias | Score | Confidence | Comparison |",
-        "|---|---:|---:|---|---:|---:|---|",
+        "| Image | Engine | Bars | Bias | Last candle | Hue | Score | Confidence | Comparison |",
+        "|---|---:|---:|---|---|---:|---:|---:|---|",
     ]
     for row in rows:
         lines.append(
-            "| {id} | {status} | {bars} | {bias} | {score} | {confidence} | {comparison} |".format(
+            "| {id} | {status} | {bars} | {bias} | {last} ({match}) | {hue} | {score} | {confidence} | {comparison} |".format(
                 id=row.get("id", "unknown"),
                 status=row.get("engine_status", "ERROR"),
                 bars=row.get("detected_bars", 0),
                 bias=row.get("visual_bias", "—"),
+                last=row.get("last_detected_candle_direction", "—"),
+                match=row.get("last_candle_direction_match", "—"),
+                hue=(row.get("palette_profile", {}).get("dominant_hues") or [{}])[0].get("hue", "—"),
                 score=row.get("analysis_score", "—"),
                 confidence=row.get("analysis_confidence", "—"),
                 comparison=row.get("published_context_comparison", "—"),
