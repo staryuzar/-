@@ -469,7 +469,7 @@ def main() -> int:
         ])
         summary_path = Path("mirsad-candlestick-pattern-benchmark-summary.md")
         summary_tmp = summary_path.with_suffix(".md.tmp")
-        summary_tmp.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+        summary_tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
         summary_tmp.replace(summary_path)
         return metrics
 
