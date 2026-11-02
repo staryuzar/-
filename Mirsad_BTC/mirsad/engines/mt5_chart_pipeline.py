@@ -18,19 +18,6 @@ from .chart import analyze_chart_image
 from .mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candidates
 
 
-def inspect_mt5_chart_observer(now_ms:int|None=None)->dict[str,Any]:
- if not MT5_COMMON_FILES:
-  return {"engine":"mt5_chart_observer_inbox","status":"NOT_CONFIGURED",
-   "decision_eligible":False,
-   "message":"Set MIRSAD_MT5_COMMON_FILES to MT5 Terminal\\Common\\Files to inspect MT5 chart captures."}
- try:
-  inbox=MT5ChartObserverInbox.from_common_files(MT5_COMMON_FILES)
-  return inbox.inspect_latest(now_ms=now_ms)
- except Exception as exc:
-  return {"engine":"mt5_chart_observer_inbox","status":"ERROR",
-   "decision_eligible":False,"reason":f"{type(exc).__name__}: {exc}"}
-
-
 def _blocked_observer_chart(observer:dict[str,Any], reason:str, status:str="OBSERVER_VALIDATION_BLOCKED")->dict[str,Any]:
  return {
   "engine":"engine_2_chart_visual_analysis",
@@ -46,6 +33,7 @@ def _blocked_observer_chart(observer:dict[str,Any], reason:str, status:str="OBSE
 
 def analyze_mt5_observer_chart(
  observer:dict[str,Any], market:dict[str,Any], bridge:dict[str,Any],
+ *, image_analyzer:Callable[...,dict[str,Any]]|None=None,
 )->dict[str,Any]|None:
  """Feed only a fresh, mapped, readable MT5 capture into Engine 2.
 
