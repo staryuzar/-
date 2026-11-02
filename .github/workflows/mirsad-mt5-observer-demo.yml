@@ -5,6 +5,7 @@ name: Mirsad Chart Observer — any MT5 account capture (read-only)
 # Maximize the active MDI chart window, not just the terminal frame.
 # Use asynchronous MDI maximize requests so the hosted terminal cannot block the Observer runner.
 # Retry the exact Observer chart HWND and include safe Engine 2 OCR/reference calibration diagnostics.
+# Retry with both MDI-wide and exact-BTC chart maximize, plus post-capture viewport readback.
 
 on:
   push:
