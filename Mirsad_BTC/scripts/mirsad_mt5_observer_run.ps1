@@ -323,7 +323,7 @@ public static class MirsadNativeWindow {
     [DllImport("user32.dll")] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string className, string windowName);
     [DllImport("user32.dll")] private static extern IntPtr GetParent(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumWindowProc callback, IntPtr lParam);
-    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
@@ -336,7 +336,7 @@ public static class MirsadNativeWindow {
             return true;
         };
         EnumChildWindows(mdi, callback, IntPtr.Zero);
-        foreach (IntPtr child in children) SendMessage(mdi, 0x0225, child, IntPtr.Zero);
+        foreach (IntPtr child in children) PostMessage(mdi, 0x0225, child, IntPtr.Zero);
         return children.Count;
     }
     public static string WindowRectText(IntPtr hwnd) {
