@@ -56,7 +56,9 @@ try {
 
     $login = ''
     $accountPassword = ''
-    $server = 'mt5.demo.trade-hw.online'
+    $server = ''
+$observerSymbol = [string]$env:MIRSAD_MT5_OBSERVER_SYMBOL
+$observerTimeframe = [string]$env:MIRSAD_MT5_OBSERVER_TIMEFRAME
     $obj = $null
     if ($credentialRaw.TrimStart().StartsWith('{')) {
         try { $obj = ConvertFrom-Json -InputObject $credentialRaw -ErrorAction Stop }
@@ -68,6 +70,8 @@ try {
         if ([string]::IsNullOrWhiteSpace($login)) { $login = [string]$obj.account }
         $accountPassword = [string]$obj.password
         if (-not [string]::IsNullOrWhiteSpace([string]$obj.server)) { $server = [string]$obj.server }
+        if ([string]::IsNullOrWhiteSpace($observerSymbol) -and -not [string]::IsNullOrWhiteSpace([string]$obj.symbol)) { $observerSymbol = [string]$obj.symbol }
+        if ([string]::IsNullOrWhiteSpace($observerTimeframe) -and -not [string]::IsNullOrWhiteSpace([string]$obj.timeframe)) { $observerTimeframe = [string]$obj.timeframe }
     }
     else {
         $lines = @($credentialRaw -split "\r?\n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
@@ -82,6 +86,8 @@ try {
             if ([string]::IsNullOrWhiteSpace($login)) { $login = [string]$fields['account'] }
             $accountPassword = [string]$fields['password']
             if (-not [string]::IsNullOrWhiteSpace([string]$fields['server'])) { $server = [string]$fields['server'] }
+            if ([string]::IsNullOrWhiteSpace($observerSymbol) -and -not [string]::IsNullOrWhiteSpace([string]$fields['symbol'])) { $observerSymbol = [string]$fields['symbol'] }
+            if ([string]::IsNullOrWhiteSpace($observerTimeframe) -and -not [string]::IsNullOrWhiteSpace([string]$fields['timeframe'])) { $observerTimeframe = [string]$fields['timeframe'] }
         }
         elseif ($lines.Count -ge 2) {
             $login = [string]$lines[0]
@@ -96,13 +102,28 @@ try {
     if ($login -notmatch '^\d{4,20}$' -or [string]::IsNullOrWhiteSpace($accountPassword)) {
         throw 'MT5 demo credentials are incomplete.'
     }
-    if ($server -notmatch '(?i)(headway-demo|mt5\.demo\.trade-hw\.online)' -or $server -match '(?i)(live|real)') {
-        throw 'Safety stop: only the configured Headway demo server is accepted.'
+    if ([string]::IsNullOrWhiteSpace($server)) {
+        # Backward-compatible default for the original repository secret format.
+        # Any other broker/account is supported by explicitly supplying its MT5 server.
+        $server = 'mt5.demo.trade-hw.online'
+        Add-Report 'Legacy secret format detected; using the original Headway demo server. Add server=... to the mt5 secret for any other broker/account.'
+    }
+    $server = $server.Trim()
+    $observerSymbol = $observerSymbol.Trim()
+    if ([string]::IsNullOrWhiteSpace($observerSymbol)) { $observerSymbol = 'BTC' }
+    $observerTimeframe = $observerTimeframe.Trim().ToUpperInvariant()
+    if ([string]::IsNullOrWhiteSpace($observerTimeframe)) { $observerTimeframe = 'M1' }
+    if ($observerSymbol.Length -gt 32 -or $observerSymbol -match '[\\/:*?"<>|]') {
+        throw 'Observer symbol is invalid; provide the exact symbol name used by the broker.'
+    }
+    if ($observerTimeframe -notin @('M1','M5','M15','M30','H1','H4','D1','W1')) {
+        throw 'Observer timeframe must be one of M1, M5, M15, M30, H1, H4, D1 or W1.'
     }
     Write-Output "::add-mask::$login"
     Write-Output "::add-mask::$accountPassword"
     Write-Output "::add-mask::$server"
-    Add-Report 'Demo server accepted. Login values and password are masked and excluded from evidence.'
+    Add-Report ("MT5 server accepted: {0}. Account type is unrestricted; login values and password are masked and excluded from evidence." -f $server)
+    Add-Report ("Observer target: {0},{1}." -f $observerSymbol, $observerTimeframe)
 
     $download = 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe'
     Invoke-WebRequest -Uri $download -OutFile $installer -TimeoutSec 240
@@ -181,8 +202,8 @@ MaxBars=50000
 
 [StartUp]
 Expert=Mirsad_ChartObserver
-Symbol=BTC
-Period=M1
+Symbol=$observerSymbol
+Period=$observerTimeframe
 "@
     [IO.File]::WriteAllText($loginConfig, $ini, [Text.UTF8Encoding]::new($false))
     $accountPassword = $null
@@ -190,7 +211,7 @@ Period=M1
     $obj = $null
 
     $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable', "/config:$loginConfig", "/login:$login") -WorkingDirectory $installDir -PassThru
-    Add-Report 'MT5 terminal launched with the read-only Observer on BTC,M1. Automated trading permission is disabled.'
+    Add-Report ("MT5 terminal launched with the read-only Observer on {0},{1}. Automated trading permission is disabled." -f $observerSymbol, $observerTimeframe)
     $loginStarted = Get-Date
     $authorized = $false
     $observerDir = $null
@@ -207,7 +228,7 @@ Period=M1
                 $txt = ''
                 try { $txt = Get-Content -LiteralPath $log.FullName -Raw } catch { continue }
                 foreach ($line in ($txt -split "\r?\n")) {
-                    if ($line -match '(?i)(Headway-Demo|mt5\.demo\.trade-hw\.online)' -and
+                    if ($line -match [regex]::Escape($server) -and
                         $line -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
                         $line -notmatch '(?i)(failed|invalid|not authorized|authorization error)') {
                         $authorized = $true
@@ -231,15 +252,15 @@ Period=M1
     }
 
     if (!$authorized) { throw 'MT5 authorization on the Headway demo server was not confirmed.' }
-    Add-Report 'PASS — MT5 authorized on the configured Headway demo server.'
+    Add-Report ("PASS — MT5 authorized on configured server: {0}." -f $server)
     if (!$manifestFile -or !$observerDir) {
         throw 'MT5 started, but no Observer capture manifest appeared within 180 seconds.'
     }
 
     $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
     if ($manifest.schema -ne 'MIR-CHART-OBSERVATION-1') { throw 'Observer manifest schema is not MIR-CHART-OBSERVATION-1.' }
-    if ([string]$manifest.chart.symbol -ne 'BTC' -or [string]$manifest.chart.timeframe -ne 'M1') {
-        throw 'Observer captured a different symbol or timeframe than the requested BTC,M1 chart.'
+    if ([string]$manifest.chart.symbol -ne $observerSymbol -or [string]$manifest.chart.timeframe -ne $observerTimeframe) {
+        throw ("Observer captured {0},{1}, expected {2},{3}." -f $manifest.chart.symbol,$manifest.chart.timeframe,$observerSymbol,$observerTimeframe)
     }
     if (@($manifest.bars).Count -lt 30 -or [int]$manifest.bars_copied -ne @($manifest.bars).Count) {
         throw 'Observer OHLC bar count is incomplete or inconsistent.'
@@ -272,6 +293,7 @@ Period=M1
         capture_at_utc_ms = $manifest.capture_at_utc_ms
         rates_snapshot_at_utc_ms = $manifest.rates_snapshot_at_utc_ms
         capture_data_skew_ms = $skew
+        server = $server
         symbol = $manifest.chart.symbol
         timeframe = $manifest.chart.timeframe
         image_width_px = $manifest.image_width_px
@@ -284,11 +306,11 @@ Period=M1
         trading_permission_enabled = $false
     }
     $safe | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'observer-live-capture-summary.json') -Encoding utf8
-    Add-Report ("PASS — Observer capture received from live MT5 Demo: {0} {1}." -f $manifest.chart.symbol, $manifest.chart.timeframe)
+    Add-Report ("PASS — Observer capture received from MT5 account/server: {0} / {1} / {2}." -f $server,$manifest.chart.symbol, $manifest.chart.timeframe)
     Add-Report ("PASS — PNG signature and byte size verified: {0} bytes." -f $imageBytes.Length)
     Add-Report ("PASS — OHLC bars verified: {0}; newest bar is forming." -f @($manifest.bars).Count)
     Add-Report ("PASS — Image/OHLC request skew: {0} ms." -f $skew)
-    Add-Report 'Safety — Observer only; no execution EA attached; automated trading permission disabled; no MIR1 command created.'
+    Add-Report 'Safety — Observer only; no execution EA attached; automated trading permission disabled; no MIR1 command created. The Observer source contains no trade API.'
     Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
     Get-Content -LiteralPath $report
 }
