@@ -6,7 +6,8 @@ import math
 from pathlib import Path
 from typing import Any
 from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES
-from .engines.market import MarketEngine
+from .engines.market import MarketEngine  # Research/benchmark adapter; not used for live runtime.
+from .engines.mt5_market import MT5MarketDataEngine
 from .engines.chart import analyze_chart_image
 from .engines.chart_multi_timeframe import analyze_stored_multi_timeframe_structure
 from .engines.indicators import IndicatorsEngine
@@ -177,13 +178,16 @@ def _analyze_mt5_observer_chart(
  return analysis
 
 
-def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEngine|None=None)->dict[str,Any]:
+def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)->dict[str,Any]:
  started=int(time.time()*1000)
- market=(market_engine or MarketEngine()).collect()
- save_market_snapshot(market)
- write_json_atomic(SNAPSHOT_PATH,market)
  bridge_adapter=bridge_engine or MT5BridgeEngine()
  bridge=bridge_adapter.inspect()
+ # Live Engine 1 reads only the locally published MT5 market snapshot. The
+ # public-venue MarketEngine remains available for research, never runtime decisions.
+ market=(market_engine.collect() if market_engine is not None
+         else MT5MarketDataEngine().collect(bridge=bridge))
+ save_market_snapshot(market)
+ write_json_atomic(SNAPSHOT_PATH,market)
  chart_observer=_inspect_mt5_chart_observer(now_ms=int(time.time()*1000))
  observer_chart=_analyze_mt5_observer_chart(chart_observer,market,bridge)
  if observer_chart is not None:
@@ -280,13 +284,13 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
    "engine_5_to_engine_4_ack_and_positions":"read_from_common_files",
    "expert_connection":bridge.get("status","NOT_CONFIGURED")},
   "notices":[
-   "Engine 1: actual public market feeds. Engine 2: classical chart vision. Engine 3: technical indicator calculations. Engine 4: central decision and trade monitoring. Engine 5: MT5 communication bridge.",
+   "Engine 1: the configured MT5 broker market feed only. Engine 2: classical chart vision. Engine 3: technical indicator calculations. Engine 4: central decision and trade monitoring. Engine 5: MT5 communication bridge.",
    "Engine 3 calculates from Engine 1 completed candles and does not create an independent directional vote.",
    "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
    "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
    "No market simulation or simulated order is used.",
    "The MT5 Chart Observer is a read-only capture source; its raw capture is not decision-eligible until Engine 2 validates the visual and temporal alignment.",
-   "A directional decision requires at least two live public venues.",
+   "Engine 1 accepts one fresh MT5 terminal feed after broker-symbol, account-server, quote-age and multi-timeframe OHLC validation; runtime does not query external spot venues.",
    "A broker quote must be fresh, close to the spot reference and within the configured spread threshold.",
    "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions through Engine 5; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
   ],
