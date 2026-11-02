@@ -149,12 +149,14 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
         }
         book = {"imbalance": 0.6 if direction == "up" else -0.6}
         return {
-            "status": "LIVE", "venue_count": 2, "symbol": "BTCUSDT",
+            "status": "LIVE", "source": "MT5_TERMINAL", "venue_count": 1, "symbol": "BTCUSDT",
             "price": candles[-1]["close"], "captured_at_ms": now,
-            "primary_venue": "Venue A",
+            "primary_venue": "MT5 Broker",
+            "feed_health": {
+                "terminal_connected": True, "quote_fresh": True, "timeframes_ready": True,
+            },
             "venues": {
-                "Venue A": {"status": "LIVE", "candles_by_tf": frames, "orderflow": flow, "orderbook": book},
-                "Venue B": {"status": "LIVE", "orderflow": flow, "orderbook": book},
+                "MT5 Broker": {"status": "LIVE", "candles_by_tf": frames, "orderflow": flow, "orderbook": book},
             },
         }
 
@@ -193,15 +195,32 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
 
 
 class DecisionBoundaryTests(unittest.TestCase):
-    def test_single_venue_cannot_generate_directional_decision(self) -> None:
+    def test_one_verified_mt5_source_passes_market_quorum_but_still_needs_engine3_history(self) -> None:
         result = DecisionEngine().analyze(
-            {"status": "PARTIAL", "venue_count": 1, "primary_venue": "OKX Spot"},
+            {
+                "status": "LIVE", "source": "MT5_TERMINAL", "venue_count": 1,
+                "primary_venue": "MT5 Broker",
+                "feed_health": {
+                    "terminal_connected": True, "quote_fresh": True, "timeframes_ready": True,
+                },
+                "venues": {"MT5 Broker": {"status": "LIVE", "candles_by_tf": {}}},
+            },
             {},
             {},
         )
         self.assertEqual(result["action"], "WAIT")
         self.assertEqual(result["status"], "NOT_READY")
-        self.assertIn("two current independent public venues", result["reason"])
+        self.assertIn("Engine 3 indicators", result["reason"])
+
+    def test_one_public_venue_without_mt5_identity_is_still_blocked(self) -> None:
+        result = DecisionEngine().analyze(
+            {"status": "LIVE", "venue_count": 1, "primary_venue": "Public Venue"},
+            {},
+            {},
+        )
+        self.assertEqual(result["action"], "WAIT")
+        self.assertEqual(result["status"], "NOT_READY")
+        self.assertIn("at least two independent public venues", result["reason"])
 
     def test_price_rounding_respects_broker_tick(self) -> None:
         self.assertAlmostEqual(_price_to_tick(100.03, 0.05, 2, "UP"), 100.05)
