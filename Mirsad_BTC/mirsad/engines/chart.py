@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import math
 import time
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -23,22 +24,25 @@ from .visual_knowledge import (
 )
 
 _VISUAL_KNOWLEDGE_DB_STATUS: dict[str, Any] | None = None
+_VISUAL_KNOWLEDGE_DB_LOCK = threading.Lock()
 
 
 def _ensure_visual_knowledge_database() -> dict[str, Any]:
     global _VISUAL_KNOWLEDGE_DB_STATUS
-    if _VISUAL_KNOWLEDGE_DB_STATUS is None:
+    with _VISUAL_KNOWLEDGE_DB_LOCK:
         try:
-            seeded = seed_visual_knowledge()
+            if _VISUAL_KNOWLEDGE_DB_STATUS is None:
+                _VISUAL_KNOWLEDGE_DB_STATUS = seed_visual_knowledge()
+            # Refresh counts because observations are archived during analysis.
             summary = visual_knowledge_summary()
-            _VISUAL_KNOWLEDGE_DB_STATUS = {**seeded, **summary}
+            return {**_VISUAL_KNOWLEDGE_DB_STATUS, **summary}
         except Exception as exc:
-            _VISUAL_KNOWLEDGE_DB_STATUS = {
+            return {
+                **(_VISUAL_KNOWLEDGE_DB_STATUS or {}),
                 "status": "ERROR",
                 "error": f"{type(exc).__name__}: {exc}",
                 "empirical_status": "UNAVAILABLE",
             }
-    return dict(_VISUAL_KNOWLEDGE_DB_STATUS)
 
 SUPPORTED_TIMEFRAMES = frozenset({"1m", "5m", "15m", "1h", "4h", "1d", "1w"})
 MIN_CALIBRATED_BARS = 20
@@ -83,6 +87,20 @@ def _persist_visual_observations(
             "CHOCH_BULLISH": "choch_bullish",
             "CHOCH_BEARISH": "choch_bearish",
         }
+        for block in structure_knowledge.get("order_block_candidates", []):
+            structure_id = block.get("structure_id")
+            if structure_id not in {"bullish_order_block", "bearish_order_block"}:
+                continue
+            source_index = int(block.get("source_candle_index", block.get("break_index", 0)))
+            break_index = int(block.get("break_index", source_index))
+            structural_events.append({
+                "structure_id": structure_id,
+                "start_index": source_index, "end_index": break_index,
+                "confirmed": True, "zone_low": block.get("zone_low"),
+                "zone_high": block.get("zone_high"),
+                "scope": "swing", "evidence": block,
+            })
+
         for event in structure_knowledge.get("bos_choch_events", []):
             structure_id = mapping.get(event.get("event"))
             if structure_id:
