@@ -193,7 +193,8 @@ class DecisionEngine:
     ) -> dict[str, Any]:
         base = {
             "engine": "engine_4_decision_trade_monitor", "method": "rules_only",
-            "direction_inputs": ["engine_1_market", "engine_2_chart", "engine_3_indicators"],
+            "direction_inputs": ["engine_1_market", "engine_2_chart"],
+            "calculation_inputs": ["engine_3_indicators"],
             "bridge_role": "engine_5 transports commands and supplies live quote/account/specifications only",
             "risk_owner": "Mirsad_BTC_program",
         }

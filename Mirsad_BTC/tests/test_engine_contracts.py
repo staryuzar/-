@@ -166,6 +166,7 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
             {},
         )
         self.assertEqual(result["direction_inputs"], ["engine_1_market", "engine_2_chart"])
+        self.assertEqual(result["calculation_inputs"], ["engine_3_indicators"])
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertAlmostEqual(result["decision_weights"]["engine_2_chart"], 0.80)
         self.assertLess(result["decision_scores"]["market_score"], 0)
