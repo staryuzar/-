@@ -440,6 +440,17 @@ def evaluate_structure_events(
         direction: {str(horizon): [] for horizon in requested_horizons}
         for direction in ("BULLISH", "BEARISH")
     }
+    baseline_blocked_starts: dict[str, set[int]] = {}
+    for horizon in requested_horizons:
+        blocked: set[int] = set()
+        maximum_start = len(normalised_bars) - horizon - 1
+        for event_index in confirmed_event_indices:
+            lower_start = max(first_split_index, event_index - horizon)
+            upper_start = min(maximum_start, event_index + horizon)
+            if lower_start <= upper_start:
+                blocked.update(range(lower_start, upper_start + 1))
+        baseline_blocked_starts[str(horizon)] = blocked
+
     for candidate_index in range(first_split_index, len(normalised_bars)):
         candidate_time_ms = int(normalised_bars[candidate_index]["open_time_ms"])
         if not split_start_ms <= candidate_time_ms < split_end_ms:
@@ -455,14 +466,7 @@ def evaluate_structure_events(
             exit_close_time_ms = int(normalised_bars[exit_index]["open_time_ms"]) + interval_ms
             if exit_close_time_ms > split_end_ms:
                 continue
-            candidate_window_start = candidate_index
-            candidate_window_end = exit_index
-            overlaps_confirmed_event = any(
-                candidate_window_start <= event_index + horizon
-                and candidate_window_end >= event_index
-                for event_index in confirmed_event_indices
-            )
-            if overlaps_confirmed_event:
+            if candidate_index in baseline_blocked_starts[str(horizon)]:
                 continue
             future = normalised_bars[candidate_index + 1:exit_index + 1]
             entry_price = float(future[0]["open"])
