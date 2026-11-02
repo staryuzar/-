@@ -7,7 +7,9 @@
 #property version   "1.001"
 #property description "Mirsad read-only MT5 chart screenshot and OHLC observer"
 
-input int  InpCaptureIntervalSeconds = 60;   // Snapshot cadence (5..3600 seconds)
+input int  InpCaptureIntervalSeconds = 60;   // Screenshot cadence (5..3600 seconds)
+input int  InpMarketSnapshotIntervalSeconds = 2; // MT5 market-feed cadence (1..30 seconds)
+input string InpMarketSymbol = "BTCUSDT"; // Stable Mirsad symbol mapped to this broker symbol
 input int  InpHistoryBars             = 120;  // Requested bars including the forming bar; set as needed
 input int  InpScreenshotWidth         = 1600; // PNG output width
 input int  InpScreenshotHeight        = 900;  // PNG output height
@@ -18,6 +20,7 @@ string g_observer_root = "MirsadBTC\\observer";
 string g_image_root    = "MirsadBTC\\observer\\images";
 long   g_chart_id      = 0;
 ulong  g_next_capture_at_ms = 0;
+ulong  g_next_market_snapshot_at_ms = 0;
 uint   g_sequence = 0;
 bool   g_pending = false;
 ulong  g_pending_started_tick = 0;
@@ -166,6 +169,116 @@ string BuildRatesJson(const MqlRates &rates[],
    }
    output += "]";
    return output;
+}
+
+string BuildMarketRatesJson(const MqlRates &rates[],
+                            const int copied,
+                            const int digits,
+                            const int server_utc_offset_seconds)
+{
+   string output = "[";
+   for(int i = 0; i < copied; i++)
+   {
+      if(i > 0)
+         output += ",";
+      bool is_closed = (i < copied - 1);
+      long utc_open_time_ms = ((long)rates[i].time - server_utc_offset_seconds) * 1000;
+      double volume = (double)rates[i].tick_volume;
+      output += StringFormat(
+         "{\"open_time_ms\":%I64d,\"open\":%s,\"high\":%s,\"low\":%s,\"close\":%s,\"volume\":%s,\"closed\":%s}",
+         utc_open_time_ms,
+         DoubleToString(rates[i].open, digits),
+         DoubleToString(rates[i].high, digits),
+         DoubleToString(rates[i].low, digits),
+         DoubleToString(rates[i].close, digits),
+         DoubleToString(volume, 2),
+         JsonBool(is_closed)
+      );
+   }
+   output += "]";
+   return output;
+}
+
+string BuildMarketFrameJson(const string symbol,
+                            const string timeframe_key,
+                            const ENUM_TIMEFRAMES timeframe,
+                            const int digits,
+                            const int server_utc_offset_seconds)
+{
+   MqlRates frame_rates[];
+   ArraySetAsSeries(frame_rates, false);
+   ResetLastError();
+   int copied = CopyRates(symbol, timeframe, 0, InpHistoryBars, frame_rates);
+   int error_code = 0;
+   if(copied < 0)
+   {
+      error_code = GetLastError();
+      ArrayResize(frame_rates, 0);
+      copied = 0;
+   }
+   return StringFormat(
+      "\"%s\":{\"copied\":%d,\"error_code\":%d,\"bars\":%s}",
+      timeframe_key, copied, error_code,
+      BuildMarketRatesJson(frame_rates, copied, digits, server_utc_offset_seconds)
+   );
+}
+
+string BuildMarketSnapshotPayload(const string broker_symbol)
+{
+   long server_time_seconds = (long)TimeTradeServer();
+   int server_utc_offset_seconds = (int)(server_time_seconds - (long)TimeGMT());
+   long captured_at_utc_ms = UtcNowMs();
+   int digits = (int)SymbolInfoInteger(broker_symbol, SYMBOL_DIGITS);
+
+   MqlTick tick;
+   bool has_tick = SymbolInfoTick(broker_symbol, tick);
+   double bid = has_tick ? tick.bid : 0.0;
+   double ask = has_tick ? tick.ask : 0.0;
+   long tick_time_server_ms = has_tick ? (long)tick.time_msc : 0;
+   double tick_age_seconds = has_tick
+      ? MathMax(0.0, (double)server_time_seconds - (double)tick.time)
+      : 2147483647.0;
+
+   string payload = "{";
+   payload += "\"schema\":\"MIR-MT5-MARKET-1\",";
+   payload += "\"captured_at_utc_ms\":" + (string)captured_at_utc_ms + ",";
+   payload += "\"server_time_seconds\":" + (string)server_time_seconds + ",";
+   payload += "\"server_utc_offset_seconds_at_capture\":" + (string)server_utc_offset_seconds + ",";
+   payload += "\"terminal_connected\":" + JsonBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED)) + ",";
+   payload += "\"broker_symbol\":\"" + JsonEscape(broker_symbol) + "\",";
+   payload += "\"market_symbol\":\"" + JsonEscape(InpMarketSymbol) + "\",";
+   payload += "\"account\":{\"server\":\"" + JsonEscape(AccountInfoString(ACCOUNT_SERVER)) + "\"},";
+   payload += "\"quote\":{";
+   payload += "\"bid\":" + DoubleToString(bid, digits) + ",";
+   payload += "\"ask\":" + DoubleToString(ask, digits) + ",";
+   payload += "\"time_ms\":" + (string)captured_at_utc_ms + ",";
+   payload += "\"tick_time_server_ms\":" + (string)tick_time_server_ms + ",";
+   payload += "\"tick_age_seconds\":" + DoubleToString(tick_age_seconds, 3);
+   payload += "},";
+   payload += "\"time_basis\":\"UTC_NORMALIZED_FROM_MT5_SERVER_TIME\",";
+   payload += "\"timeframes\":{";
+   payload += BuildMarketFrameJson(broker_symbol, "1m", PERIOD_M1, digits, server_utc_offset_seconds) + ",";
+   payload += BuildMarketFrameJson(broker_symbol, "5m", PERIOD_M5, digits, server_utc_offset_seconds) + ",";
+   payload += BuildMarketFrameJson(broker_symbol, "15m", PERIOD_M15, digits, server_utc_offset_seconds) + ",";
+   payload += BuildMarketFrameJson(broker_symbol, "1h", PERIOD_H1, digits, server_utc_offset_seconds) + ",";
+   payload += BuildMarketFrameJson(broker_symbol, "4h", PERIOD_H4, digits, server_utc_offset_seconds) + ",";
+   payload += BuildMarketFrameJson(broker_symbol, "1d", PERIOD_D1, digits, server_utc_offset_seconds);
+   payload += "}}";
+   return payload;
+}
+
+bool PublishMarketSnapshot()
+{
+   string symbol = ChartSymbol(g_chart_id);
+   if(symbol == "" || InpMarketSymbol == "")
+      return false;
+   string payload = BuildMarketSnapshotPayload(symbol);
+   if(!WriteCommonManifest("MirsadBTC\\market.json", payload))
+   {
+      PrintFormat("Mirsad Observer: could not publish MT5 market snapshot. Error=%d", GetLastError());
+      return false;
+   }
+   return true;
 }
 
 string BuildCapturePayload(const string capture_id,
@@ -427,7 +540,7 @@ bool TryFinalizePendingCapture()
 
 int OnInit()
 {
-   if(InpCaptureIntervalSeconds < 1 || InpHistoryBars < 1 ||
+   if(InpCaptureIntervalSeconds < 1 || InpMarketSnapshotIntervalSeconds < 1 || InpMarketSnapshotIntervalSeconds > 30 || InpMarketSymbol == "" || InpHistoryBars < 1 ||
       InpScreenshotWidth < 320 || InpScreenshotHeight < 180 ||
       InpInitialCaptureDelaySeconds < 0 || InpInitialCaptureDelaySeconds > 60)
       return INIT_PARAMETERS_INCORRECT;
@@ -454,6 +567,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
+   g_next_market_snapshot_at_ms = GetTickCount64();
    g_next_capture_at_ms = InpCaptureImmediately
       ? GetTickCount64() + (ulong)InpInitialCaptureDelaySeconds * 1000
       : GetTickCount64() + (ulong)InpCaptureIntervalSeconds * 1000;
@@ -476,13 +590,19 @@ void OnDeinit(const int reason)
 
 void OnTimer()
 {
+   ulong now_tick = GetTickCount64();
+   if(now_tick >= g_next_market_snapshot_at_ms)
+   {
+      PublishMarketSnapshot();
+      g_next_market_snapshot_at_ms = now_tick + (ulong)InpMarketSnapshotIntervalSeconds * 1000;
+   }
+
    if(g_pending)
    {
       TryFinalizePendingCapture();
       return;
    }
 
-   ulong now_tick = GetTickCount64();
    if(now_tick < g_next_capture_at_ms)
       return;
 
