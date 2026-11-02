@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
 from mirsad.config import CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH
 from mirsad.storage import read_json,write_json_atomic
+from mirsad.engines.visual_knowledge import visual_knowledge_summary
 
 st.set_page_config(page_title="مرصاد البيتكوين",page_icon="₿",layout="wide")
 st.markdown("""
@@ -233,6 +234,13 @@ def render_engine_dashboard():
    )
   st.markdown("**قاعدة معرفة المحرك البصري — الشموع وبنية السوق**")
   knowledge_db=chart.get("visual_knowledge_database") or {}
+  # Research runs may be launched outside the live collector process. Read the
+  # SQLite summary on each dashboard refresh so their new records appear here.
+  try:
+   knowledge_db={**knowledge_db,**visual_knowledge_summary()}
+  except Exception as exc:
+   knowledge_db={**knowledge_db,"live_summary_status":"ERROR",
+    "live_summary_error":f"{type(exc).__name__}: {exc}"}
   k1,k2,k3,k4=st.columns(4)
   k1.metric("تعريفات الشموع",knowledge_db.get("candle_pattern_definitions",0))
   k2.metric("تعريفات بنية السوق",knowledge_db.get("market_structure_definitions",0))
@@ -265,6 +273,48 @@ def render_engine_dashboard():
    st.dataframe(pd.DataFrame(evaluation_rows),use_container_width=True,hide_index=True)
   else:
    st.caption("لم تُسجل بعد نتائج تقييم إحصائي لأنماط الشموع.")
+
+  st.markdown("**دراسة نتائج التراكيب السعرية التاريخية — سجل المحرك الثاني**")
+  s1,s2,s3=st.columns(3)
+  s1.metric("سجلات تقييم التراكيب",knowledge_db.get("structure_evaluation_records",0))
+  s2.metric("نوافذ Train / Validation / Test",knowledge_db.get("evaluation_split_windows",0))
+  s3.metric("سجلات متحققة",knowledge_db.get("validated_structure_evaluations",0))
+  st.caption(
+   f"الحالة التجريبية للتراكيب: {knowledge_db.get('structure_empirical_status','UNVALIDATED')} | "
+   "الدراسة وصفية، ولا تعد اختبار محفظة أو إشارة تداول."
+  )
+  recent_structure=knowledge_db.get("recent_structure_evaluations") or []
+  if recent_structure:
+   structure_rows=[{
+    "التركيب":item.get("structure_id"),
+    "الرمز":item.get("symbol"),
+    "المنصة":item.get("venue"),
+    "الإطار":item.get("timeframe"),
+    "التقسيم":item.get("data_split"),
+    "العينات":item.get("sample_count"),
+    "أفق القياس":item.get("primary_horizon_bars"),
+    "متوسط العائد %":item.get("mean_return_pct"),
+    "متوسط العائد الصافي %":item.get("fee_adjusted_expectancy_pct"),
+    "الحالة":item.get("validation_status"),
+   } for item in recent_structure]
+   st.dataframe(pd.DataFrame(structure_rows),use_container_width=True,hide_index=True)
+  else:
+   st.caption("لا توجد حتى الآن سجلات تقييم محفوظة للتراكيب السعرية؛ شغّل scripts/run_structure_study.py بعد اكتمال أرشيف الشموع.")
+
+  split_windows=knowledge_db.get("recent_evaluation_split_windows") or []
+  if split_windows:
+   st.markdown("**سجل نوافذ تقسيم البيانات وبصماتها**")
+   split_rows=[{
+    "مجموعة البيانات":item.get("dataset_id"),
+    "الرمز":item.get("symbol"),
+    "المنصة":item.get("venue"),
+    "الإطار":item.get("timeframe"),
+    "التقسيم":item.get("data_split"),
+    "بداية النافذة ms":item.get("split_start_ms"),
+    "نهاية النافذة ms":item.get("split_end_ms"),
+    "شموع الحظر":item.get("embargo_bars"),
+   } for item in split_windows]
+   st.dataframe(pd.DataFrame(split_rows),use_container_width=True,hide_index=True)
 
   candle_knowledge=chart.get("candle_knowledge") or {}
   st.caption(
