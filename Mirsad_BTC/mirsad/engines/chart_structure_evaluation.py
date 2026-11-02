@@ -7,7 +7,7 @@ import time
 from statistics import mean, median
 from typing import Any
 
-from ..storage import CANDLE_INTERVAL_MS, connect
+from ..storage import CANDLE_INTERVAL_MS, connect, load_candles_by_timeframe
 from .visual_knowledge import MARKET_STRUCTURE_CATALOG, seed_visual_knowledge
 
 DEFAULT_HORIZONS = (1, 3, 5, 10, 20)
@@ -420,6 +420,66 @@ def evaluate_structure_events(
     }
 
 
+
+def evaluate_stored_structure_events(
+    events: list[dict[str, Any]],
+    *,
+    symbol: str,
+    venue: str,
+    timeframe: str,
+    as_of_ms: int,
+    data_split: str,
+    dataset_id: str,
+    market_regime: str = "UNSPECIFIED",
+    limit: int = 2000,
+    horizons: tuple[int, ...] | list[int] = DEFAULT_HORIZONS,
+    fee_bps_per_side: float | None = None,
+    slippage_bps_per_side: float | None = None,
+    db_path: str | None = None,
+) -> dict[str, Any]:
+    """Evaluate events on one venue's closed candles already stored by Engine 1.
+
+    No venue merging is permitted. The caller must provide events produced from
+    a matching time-bounded analysis of the same OHLC sequence.
+    """
+    clean_venue = str(venue).strip()
+    if not clean_venue:
+        raise ValueError("venue is required; stored candle feeds must not be mixed")
+    candle_map = load_candles_by_timeframe(
+        symbol=symbol,
+        venue=clean_venue,
+        timeframes=(timeframe,),
+        as_of_ms=as_of_ms,
+        limit=limit,
+        db_path=db_path if db_path is not None else __import__(
+            "mirsad.config", fromlist=["DB_PATH"]
+        ).DB_PATH,
+    )
+    bars = candle_map.get(timeframe, [])
+    if len(bars) < 2:
+        raise ValueError(
+            f"Insufficient stored closed candles for {symbol} on {clean_venue} {timeframe}"
+        )
+
+    result = evaluate_structure_events(
+        bars,
+        events,
+        symbol=symbol,
+        venue=clean_venue,
+        timeframe=timeframe,
+        data_split=data_split,
+        dataset_id=dataset_id,
+        market_regime=market_regime,
+        horizons=horizons,
+        fee_bps_per_side=fee_bps_per_side,
+        slippage_bps_per_side=slippage_bps_per_side,
+    )
+    result["storage_source"] = "engine_1_stored_closed_candles"
+    result["as_of_ms"] = int(as_of_ms)
+    result["stored_bar_count"] = len(bars)
+    return result
+
+
 def persist_structure_evaluations(
     evaluation: dict[str, Any],
     *,
@@ -518,5 +578,6 @@ __all__ = [
     "DEFAULT_HORIZONS",
     "STRUCTURE_PATTERN_IDS",
     "evaluate_structure_events",
+    "evaluate_stored_structure_events",
     "persist_structure_evaluations",
 ]
