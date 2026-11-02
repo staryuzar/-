@@ -781,6 +781,17 @@ def persist_structure_evaluations(
         or embargo_bars < 0
     ):
         raise ValueError("evaluation needs a valid dataset_id, split window and embargo_bars")
+    interval_ms = CANDLE_INTERVAL_MS.get(timeframe)
+    if interval_ms is None:
+        raise ValueError("evaluation has an unsupported timeframe")
+    interval_anchor_ms = 4 * CANDLE_INTERVAL_MS["1d"] if timeframe == "1w" else 0
+    if (
+        (split_start_ms - interval_anchor_ms) % interval_ms
+        or (split_end_ms - interval_anchor_ms) % interval_ms
+    ):
+        raise ValueError("persisted split bounds must align to the selected candle interval")
+    if evaluation.get("validation_status") != "IN_PROGRESS":
+        raise ValueError("detector event studies must be persisted as IN_PROGRESS")
     if evaluation.get("human_reviewed") is not False:
         raise ValueError("detector event studies cannot be marked human-reviewed")
     if evaluation.get("empirical_status") != "UNVALIDATED":
