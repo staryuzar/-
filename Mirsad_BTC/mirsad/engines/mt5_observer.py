@@ -27,6 +27,56 @@ def observer_root_from_common_files(common_files: str | Path) -> Path:
     return Path(common_files).expanduser() / "MirsadBTC" / "observer"
 
 
+def recent_reference_candle_candidates(
+    raw_bars: Any,
+    *,
+    max_candidates: int = 8,
+    max_lookback: int = 16,
+) -> list[dict[str, Any]]:
+    """Return newest real MT5 candles with positive OHLC ranges for image anchoring.
+
+    A flat forming candle cannot calibrate a vertical price axis. In that case,
+    use the next most recent native candle that has a non-zero range, and record
+    its exact offset so Engine 2 can match it to the corresponding image slot.
+    """
+    if not isinstance(raw_bars, list) or not raw_bars:
+        return []
+    candidate_limit = max(1, min(16, int(max_candidates)))
+    lookback_limit = max(1, min(64, int(max_lookback)))
+    candidates: list[dict[str, Any]] = []
+    for offset, raw in enumerate(reversed(raw_bars[:])):
+        if offset >= lookback_limit:
+            break
+        if not isinstance(raw, dict):
+            continue
+        try:
+            ohlc = {
+                key: float(raw[key])
+                for key in ("open", "high", "low", "close")
+            }
+            timestamp = int(raw.get("time_server_ms", raw.get("open_time_ms", 0)))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        values = tuple(ohlc.values())
+        if not all(math.isfinite(value) and value > 0 for value in values):
+            continue
+        if (
+            ohlc["high"] < max(ohlc["open"], ohlc["close"], ohlc["low"])
+            or ohlc["low"] > min(ohlc["open"], ohlc["close"], ohlc["high"])
+            or ohlc["high"] <= ohlc["low"]
+        ):
+            continue
+        candidates.append({
+            "offset_from_right": offset,
+            "time_server_ms": timestamp,
+            "closed": raw.get("is_closed", raw.get("closed")),
+            "ohlc": ohlc,
+        })
+        if len(candidates) >= candidate_limit:
+            break
+    return candidates
+
+
 def _invalid(status: str, reason: str, **extra: Any) -> dict[str, Any]:
     return {
         "engine": "mt5_chart_observer_inbox",
