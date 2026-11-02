@@ -66,6 +66,38 @@ class ChartPatternKnowledgeTests(unittest.TestCase):
         self.assertTrue(hammer)
         self.assertEqual(hammer[-1]["context_match"], True)
 
+    def test_piercing_line_requires_open_below_and_close_above_midpoint(self) -> None:
+        bars = [
+            candle(106, 107, 104, 105),
+            candle(105, 106, 103, 104),
+            candle(104, 105, 102, 103),
+            candle(103, 104, 101, 102),
+            candle(103, 104, 94, 95),
+            candle(94, 102, 93, 101),
+        ]
+        result = analyze_candle_patterns(bars)
+        self.assertIn("piercing_line", ids(result))
+
+        false_positive = bars[:-1] + [candle(100, 102, 99, 101)]
+        rejected = analyze_candle_patterns(false_positive)
+        self.assertNotIn("piercing_line", ids(rejected))
+
+    def test_dark_cloud_cover_requires_open_above_and_close_below_midpoint(self) -> None:
+        bars = [
+            candle(100, 102, 99, 101),
+            candle(101, 103, 100, 102),
+            candle(102, 104, 101, 103),
+            candle(103, 105, 102, 104),
+            candle(95, 106, 94, 104),
+            candle(105, 106, 97, 98),
+        ]
+        result = analyze_candle_patterns(bars)
+        self.assertIn("dark_cloud_cover", ids(result))
+
+        false_positive = bars[:-1] + [candle(98, 100, 97, 99)]
+        rejected = analyze_candle_patterns(false_positive)
+        self.assertNotIn("dark_cloud_cover", ids(rejected))
+
     def test_current_open_candle_is_marked_forming(self) -> None:
         result = analyze_candle_patterns(
             [candle(100, 101, 99, 100.01)], last_candle_closed=False
