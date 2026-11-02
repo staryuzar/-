@@ -57,8 +57,8 @@ try {
     $login = ''
     $accountPassword = ''
     $server = ''
-$observerSymbol = [string]$env:MIRSAD_MT5_OBSERVER_SYMBOL
-$observerTimeframe = [string]$env:MIRSAD_MT5_OBSERVER_TIMEFRAME
+    $observerSymbol = [string]$env:MIRSAD_MT5_OBSERVER_SYMBOL
+    $observerTimeframe = [string]$env:MIRSAD_MT5_OBSERVER_TIMEFRAME
     $obj = $null
     if ($credentialRaw.TrimStart().StartsWith('{')) {
         try { $obj = ConvertFrom-Json -InputObject $credentialRaw -ErrorAction Stop }
@@ -77,7 +77,7 @@ $observerTimeframe = [string]$env:MIRSAD_MT5_OBSERVER_TIMEFRAME
         $lines = @($credentialRaw -split "\r?\n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
         $fields = @{}
         foreach ($line in $lines) {
-            if ($line -match '(?i)^(login|account|password|server)\s*[:=]\s*(.*)$') {
+            if ($line -match '(?i)^(login|account|password|server|symbol|timeframe)\s*[:=]\s*(.*)$') {
                 $fields[$matches[1].ToLowerInvariant()] = $matches[2]
             }
         }
@@ -100,7 +100,7 @@ $observerTimeframe = [string]$env:MIRSAD_MT5_OBSERVER_TIMEFRAME
     }
 
     if ($login -notmatch '^\d{4,20}$' -or [string]::IsNullOrWhiteSpace($accountPassword)) {
-        throw 'MT5 demo credentials are incomplete.'
+        throw 'MT5 account credentials are incomplete.'
     }
     if ([string]::IsNullOrWhiteSpace($server)) {
         # Backward-compatible default for the original repository secret format.
@@ -251,7 +251,7 @@ Period=$observerTimeframe
         Start-Sleep -Seconds 3
     }
 
-    if (!$authorized) { throw 'MT5 authorization on the Headway demo server was not confirmed.' }
+    if (!$authorized) { throw ("MT5 authorization on configured server '{0}' was not confirmed." -f $server) }
     Add-Report ("PASS — MT5 authorized on configured server: {0}." -f $server)
     if (!$manifestFile -or !$observerDir) {
         throw 'MT5 started, but no Observer capture manifest appeared within 180 seconds.'
@@ -285,8 +285,10 @@ Period=$observerTimeframe
     $skew = [int64]$manifest.capture_at_utc_ms - [int64]$manifest.rates_snapshot_at_utc_ms
     if ($skew -lt 0 -or $skew -gt 2000) { throw 'Image and OHLC snapshot are not sufficiently time-aligned.' }
 
-    Copy-Item -LiteralPath $manifestFile.FullName -Destination (Join-Path $evidence 'observer-capture.json') -Force
-    Copy-Item -LiteralPath $imagePath -Destination (Join-Path $evidence 'observer-capture.png') -Force
+    # The chart image and raw OHLC manifest stay on the ephemeral runner only.
+    # The repository is public, so artifacts contain a sanitized summary, never
+    # the user's screenshot or full price history.
+    $imageHash = (Get-FileHash -LiteralPath $imagePath -Algorithm SHA256).Hash.ToLowerInvariant()
     $safe = [ordered]@{
         schema = $manifest.schema
         capture_id = $manifest.capture_id
@@ -299,6 +301,7 @@ Period=$observerTimeframe
         image_width_px = $manifest.image_width_px
         image_height_px = $manifest.image_height_px
         image_size_bytes = $imageBytes.Length
+        image_sha256 = $imageHash
         bars_copied = @($manifest.bars).Count
         newest_bar_is_forming = (-not [bool]$manifest.bars[-1].is_closed)
         broker_server_time_basis = $manifest.bars_time_basis
