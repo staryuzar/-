@@ -62,6 +62,13 @@ class MT5MarketDataEngine:
         if not isinstance(payload, dict):
             return None, f"MT5 snapshot is missing the {name} timeframe object."
         raw_bars = payload.get("bars")
+        try:
+            copied = int(payload.get("copied", -1))
+            error_code = int(payload.get("error_code", -1))
+        except (TypeError, ValueError, OverflowError):
+            return None, f"MT5 {name} timeframe count/error metadata is invalid."
+        if error_code != 0 or copied != len(raw_bars) if isinstance(raw_bars, list) else True:
+            return None, f"MT5 {name} timeframe CopyRates count or error code is inconsistent."
         if not isinstance(raw_bars, list) or len(raw_bars) < 2:
             return None, f"MT5 {name} timeframe has fewer than two bars."
         bars: list[dict[str, Any]] = []
@@ -124,6 +131,9 @@ class MT5MarketDataEngine:
                 captured_at_ms=captured_at_ms,
                 feed_health={"snapshot_age_seconds": round(age_seconds, 3)},
             )
+
+        if payload.get("time_basis") != "UTC_NORMALIZED_FROM_MT5_SERVER_TIME":
+            return self._blocked("INVALID", "MT5 market snapshot time basis is missing or unsupported.", captured_at_ms=captured_at_ms)
 
         account = payload.get("account") if isinstance(payload.get("account"), dict) else {}
         server = str(account.get("server", "")).strip()
