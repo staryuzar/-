@@ -9,6 +9,9 @@ on:
       - 'Mirsad_BTC/scripts/analyze_mt5_observer_capture.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_observer.py'
+      - 'Mirsad_BTC/mirsad/engines/chart.py'
+      - 'Mirsad_BTC/mirsad/runtime.py'
       - '.github/workflows/mirsad-chart-observer-compile.yml'
   workflow_dispatch:
 
