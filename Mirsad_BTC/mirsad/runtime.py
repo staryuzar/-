@@ -4,18 +4,32 @@ import time
 import hashlib
 from pathlib import Path
 from typing import Any
-from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH
+from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES
 from .engines.market import MarketEngine
 from .engines.chart import analyze_chart_image
 from .engines.chart_multi_timeframe import analyze_stored_multi_timeframe_structure
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
+from .engines.mt5_observer import MT5ChartObserverInbox
 from .storage import save_market_snapshot,write_json_atomic,read_json
 
 def _chart_file()->Path|None:
  if not CHART_DIR.exists(): return None
  files=[p for p in CHART_DIR.iterdir() if p.is_file() and p.suffix.lower() in {".png",".jpg",".jpeg",".webp"}]
  return max(files,key=lambda p:p.stat().st_mtime) if files else None
+
+def _inspect_mt5_chart_observer(now_ms:int|None=None)->dict[str,Any]:
+ if not MT5_COMMON_FILES:
+  return {"engine":"mt5_chart_observer_inbox","status":"NOT_CONFIGURED",
+   "decision_eligible":False,
+   "message":"Set MIRSAD_MT5_COMMON_FILES to MT5 Terminal\\Common\\Files to inspect MT5 chart captures."}
+ try:
+  inbox=MT5ChartObserverInbox.from_common_files(MT5_COMMON_FILES)
+  return inbox.inspect_latest(now_ms=now_ms)
+ except Exception as exc:
+  return {"engine":"mt5_chart_observer_inbox","status":"ERROR",
+   "decision_eligible":False,"reason":f"{type(exc).__name__}: {exc}"}
+
 
 def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEngine|None=None)->dict[str,Any]:
  started=int(time.time()*1000)
@@ -67,6 +81,9 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
    "alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
    "does_not_affect_decision_engine":True,
   }
+ # The read-only chart observer is surfaced independently. Its capture has
+ # no effect on chart eligibility, Engine 4 scoring, or MIR1 order publication.
+ chart_observer=_inspect_mt5_chart_observer(now_ms=int(time.time()*1000))
  bridge=(bridge_engine or MT5BridgeEngine()).inspect()
  decision=DecisionEngine().analyze(market,chart,bridge)
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
@@ -100,7 +117,8 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
    "venues":{n:{"status":v.get("status"),"latency_ms":v.get("latency_ms"),
     "error":v.get("error"),"timeframe_count":len(v.get("candles_by_tf",{})),
     "orderflow":v.get("orderflow")} for n,v in market.get("venues",{}).items()}},
-  "chart":chart,"bridge":bridge,"decision":decision,"command_publish":command_publish,
+  "chart":chart,"chart_observer":chart_observer,
+  "bridge":bridge,"decision":decision,"command_publish":command_publish,
   "wiring":{"engine_1_to_engine_4":True,"engine_2_to_engine_4":True,
    "engine_3_to_engine_4":True,
    "engine_4_to_engine_3_command_envelope":"implemented_idempotent_user_authorized",
@@ -111,6 +129,7 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
    "Engine 3 never classifies account type and never computes risk.",
    "Engine 4 owns every decision, stop, target and volume calculation.",
    "No market simulation or simulated order is used.",
+   "The MT5 Chart Observer is a read-only capture source; its raw capture is not decision-eligible until Engine 2 validates the visual and temporal alignment.",
    "A directional decision requires at least two live public venues.",
    "A broker quote must be fresh, close to the spot reference and within the configured spread threshold.",
    "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
