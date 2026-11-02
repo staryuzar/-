@@ -172,7 +172,24 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
             orderbook_cutoff=captured-24*60*60*1000
             conn.execute("DELETE FROM orderbook_snapshots WHERE captured_at_ms < ?",(orderbook_cutoff,))
             conn.execute("DELETE FROM public_trades WHERE trade_time_ms < ?",(captured-30*24*60*60*1000,))
-            conn.execute("DELETE FROM candles WHERE open_time_ms < ?",(captured-30*24*60*60*1000,))
+            # Preserve intraday candles for 30 days, daily candles for 400 days,
+            # and weekly candles for 5 years so Engine 2 can form larger structures.
+            intraday_cutoff = captured - 30 * 24 * 60 * 60 * 1000
+            daily_cutoff = captured - 400 * 24 * 60 * 60 * 1000
+            weekly_cutoff = captured - 5 * 365 * 24 * 60 * 60 * 1000
+            conn.execute(
+                """DELETE FROM candles
+                   WHERE interval NOT IN ('1d','1w') AND open_time_ms < ?""",
+                (intraday_cutoff,),
+            )
+            conn.execute(
+                "DELETE FROM candles WHERE interval='1d' AND open_time_ms < ?",
+                (daily_cutoff,),
+            )
+            conn.execute(
+                "DELETE FROM candles WHERE interval='1w' AND open_time_ms < ?",
+                (weekly_cutoff,),
+            )
     finally:
         conn.close()
 
