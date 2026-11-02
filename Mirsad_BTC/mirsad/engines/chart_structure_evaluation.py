@@ -623,11 +623,28 @@ def persist_structure_evaluations(
     market_regime = str(evaluation.get("market_regime", "UNSPECIFIED")).strip() or "UNSPECIFIED"
     dataset_fingerprint = str(evaluation.get("dataset_fingerprint", "")).strip()
     data_split = str(evaluation.get("data_split", "")).strip()
+    dataset_id = str(evaluation.get("dataset_id", "")).strip()
+    split_start_ms = evaluation.get("split_start_ms")
+    split_end_ms = evaluation.get("split_end_ms")
+    embargo_bars = evaluation.get("embargo_bars")
     results = evaluation.get("results_by_pattern")
     if not symbol or not venue or not timeframe or not dataset_fingerprint:
         raise ValueError("evaluation needs symbol, venue, timeframe and dataset_fingerprint")
     if data_split not in VALID_DATA_SPLITS or not isinstance(results, dict):
         raise ValueError("evaluation has an invalid split or results_by_pattern")
+    if (
+        not dataset_id
+        or not isinstance(split_start_ms, int)
+        or isinstance(split_start_ms, bool)
+        or not isinstance(split_end_ms, int)
+        or isinstance(split_end_ms, bool)
+        or split_start_ms <= 0
+        or split_end_ms <= split_start_ms
+        or not isinstance(embargo_bars, int)
+        or isinstance(embargo_bars, bool)
+        or embargo_bars < 0
+    ):
+        raise ValueError("evaluation needs a valid dataset_id, split window and embargo_bars")
     if evaluation.get("human_reviewed") is not False:
         raise ValueError("detector event studies cannot be marked human-reviewed")
     if evaluation.get("empirical_status") != "UNVALIDATED":
@@ -645,6 +662,42 @@ def persist_structure_evaluations(
     conn = connect(db_path) if db_path is not None else connect()
     try:
         with conn:
+            overlap = conn.execute(
+                """SELECT data_split,split_start_ms,split_end_ms
+                   FROM visual_structure_evaluations
+                   WHERE dataset_id=? AND symbol=? AND venue=? AND timeframe=?
+                     AND data_split<>? AND split_start_ms < ? AND split_end_ms > ?
+                   LIMIT 1""",
+                (
+                    dataset_id, symbol, venue, timeframe, data_split,
+                    split_end_ms, split_start_ms,
+                ),
+            ).fetchone()
+            if overlap:
+                raise ValueError(
+                    "Split window overlaps previously stored "
+                    f"{overlap['data_split']} window "
+                    f"[{overlap['split_start_ms']},{overlap['split_end_ms']})"
+                )
+
+            existing_split = conn.execute(
+                """SELECT MIN(split_start_ms) AS split_start_ms,
+                          MAX(split_end_ms) AS split_end_ms
+                   FROM visual_structure_evaluations
+                   WHERE dataset_id=? AND symbol=? AND venue=? AND timeframe=?
+                     AND data_split=?""",
+                (dataset_id, symbol, venue, timeframe, data_split),
+            ).fetchone()
+            if (
+                existing_split
+                and existing_split["split_start_ms"] is not None
+                and (
+                    int(existing_split["split_start_ms"]) != split_start_ms
+                    or int(existing_split["split_end_ms"]) != split_end_ms
+                )
+            ):
+                raise ValueError("A stored data_split cannot be reused with different time bounds")
+
             for pattern_id, pattern_result in results.items():
                 if pattern_id not in STRUCTURE_PATTERN_IDS or pattern_id not in known:
                     raise ValueError(f"Unsupported structure pattern id: {pattern_id}")
@@ -661,8 +714,8 @@ def persist_structure_evaluations(
                      fee_adjusted_expectancy_pct,dataset_fingerprint,validation_status,
                      calculated_at_ms,horizon_metrics_json,primary_horizon_bars,data_split,
                      event_source,human_reviewed,fee_bps_per_side,slippage_bps_per_side,
-                     round_trip_cost_pct)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     round_trip_cost_pct,dataset_id,split_start_ms,split_end_ms,embargo_bars)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(structure_id,symbol,venue,timeframe,market_regime,
                                 dataset_fingerprint,data_split)
                     DO UPDATE SET sample_count=excluded.sample_count,
@@ -677,7 +730,11 @@ def persist_structure_evaluations(
                       event_source=excluded.event_source,human_reviewed=0,
                       fee_bps_per_side=excluded.fee_bps_per_side,
                       slippage_bps_per_side=excluded.slippage_bps_per_side,
-                      round_trip_cost_pct=excluded.round_trip_cost_pct""",
+                      round_trip_cost_pct=excluded.round_trip_cost_pct,
+                      dataset_id=excluded.dataset_id,
+                      split_start_ms=excluded.split_start_ms,
+                      split_end_ms=excluded.split_end_ms,
+                      embargo_bars=excluded.embargo_bars""",
                     (
                         pattern_id, symbol, venue, timeframe, market_regime, sample_count,
                         horizon_metrics.get("mean_return_pct"),
@@ -690,6 +747,7 @@ def persist_structure_evaluations(
                         int(primary_horizon_bars), data_split,
                         str(evaluation.get("event_source", "engine_2_confirmed_structure_events")),
                         0, fee, slippage, round_trip_cost,
+                        dataset_id, split_start_ms, split_end_ms, embargo_bars,
                     ),
                 )
                 persisted += 1
