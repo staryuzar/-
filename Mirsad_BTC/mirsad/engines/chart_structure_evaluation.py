@@ -823,6 +823,28 @@ def persist_structure_evaluations(
                      AND data_split=?""",
                 (dataset_id, symbol, venue, timeframe, data_split),
             ).fetchone()
+
+            split_order = {"train": 0, "validation": 1, "test": 2}
+            prior_splits = conn.execute(
+                """SELECT data_split,split_start_ms,split_end_ms
+                   FROM visual_structure_evaluations
+                   WHERE dataset_id=? AND symbol=? AND venue=? AND timeframe=?
+                     AND data_split<>?""",
+                (dataset_id, symbol, venue, timeframe, data_split),
+            ).fetchall()
+            for prior in prior_splits:
+                prior_rank = split_order[str(prior["data_split"])]
+                current_rank = split_order[data_split]
+                prior_start = int(prior["split_start_ms"])
+                prior_end = int(prior["split_end_ms"])
+                if prior_rank < current_rank and prior_end > split_start_ms:
+                    raise ValueError(
+                        f"{prior['data_split']} must end before {data_split} begins"
+                    )
+                if prior_rank > current_rank and prior_start < split_end_ms:
+                    raise ValueError(
+                        f"{data_split} must end before {prior['data_split']} begins"
+                    )
             if (
                 existing_split
                 and existing_split["split_start_ms"] is not None
