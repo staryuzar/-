@@ -176,12 +176,13 @@ class DecisionEngine:
     ) -> dict[str, Any]:
         base = {
             "engine": "engine_4_decision_trade_monitor", "method": "rules_only",
-            "direction_inputs": ["engine_1_market", "engine_2_chart"],
+            "direction_inputs": ["engine_1_market", "engine_2_chart", "engine_3_indicators"],
             "calculation_inputs": ["engine_3_indicators"],
             "bridge_role": "engine_5 transports commands and supplies live quote/account/specifications only",
             "risk_owner": "Mirsad_BTC_program",
         }
         bridge = bridge or {}
+        chart = chart if isinstance(chart, dict) else {}
         source = str(market.get("source", "")).upper()
         mt5_native_source = source == "MT5_TERMINAL"
         minimum_venues = 1 if mt5_native_source else 2
@@ -191,7 +192,6 @@ class DecisionEngine:
             or (
                 feed_health.get("terminal_connected") is True
                 and feed_health.get("quote_fresh") is True
-                and feed_health.get("timeframes_ready") is True
             )
         )
         if (
@@ -201,14 +201,14 @@ class DecisionEngine:
             or not mt5_health_ok
         ):
             reason = (
-                "Engine 1 MT5-only feed is missing, stale, or failed its terminal/quote/history checks."
+                "Engine 1 MT5 quote feed is missing, stale, or failed its terminal/quote checks."
                 if mt5_native_source
                 else "Engine 1 requires a live MT5 feed, or at least two independent public venues for non-MT5 sources."
             )
             return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
                     "reason": reason}
 
-        indicator_data = indicators if isinstance(indicators, dict) else IndicatorsEngine().analyze(market)
+        indicator_data = indicators if isinstance(indicators, dict) else IndicatorsEngine().analyze(chart.get("candle_history") or {})
         timeframe_data = indicator_data.get("timeframes") or {}
         indicator_values = indicator_data.get("values") or {}
         if indicator_data.get("status") != "READY":
@@ -217,17 +217,16 @@ class DecisionEngine:
                     "engine_3_indicator_status": indicator_data.get("status", "NOT_READY"),
                     "reason": indicator_data.get("reason") or "Engine 3 indicators are not ready."}
 
-        primary = market["venues"][market["primary_venue"]]
-        candle_sets = primary.get("candles_by_tf") or {"1m": primary.get("candles", [])}
-        one = [c for c in candle_sets.get("1m", []) if c.get("closed")]
+        last_closed_candle_time_ms = indicator_data.get("last_closed_candle_time_ms")
         fast = indicator_values["ema20_1m"]
         slow = indicator_values["ema50_1m"]
         rsi = indicator_values["rsi14_1m"]
         atr1 = indicator_values["atr14_1m"]
         atr5 = indicator_values["atr14_5m"]
         trend_score = float(indicator_data["trend_score"])
-        orderflow = _aggregate_orderflow(market.get("venues", {}))
-        chart = chart or {}
+        market_context = market.get("market_context") if isinstance(market.get("market_context"), dict) else {}
+        microstructure = market_context.get("microstructure") if isinstance(market_context.get("microstructure"), dict) else {}
+        orderflow = {"status": "NOT_PROVIDED", "reason": "Engine 1 quote updates are not treated as executed trade flow or taker volume."}
         chart_eligible = bool(chart.get("decision_eligible")) and chart.get("status") == "READY"
         visual_bias = chart.get("visual_bias", "NEUTRAL")
         try:
@@ -239,9 +238,7 @@ class DecisionEngine:
             chart_score = chart_confidence = 0.0
         chart_score = max(-1.0, min(1.0, chart_score))
         chart_confidence = max(0.0, min(1.0, chart_confidence))
-        market_score, market_score_parts = _market_confirmation_score(
-            trend_score, orderflow, market.get("venues", {})
-        )
+        market_score, market_score_parts = _market_confirmation_score(trend_score, market)
         combined_score = _weighted_direction_score(chart_score, market_score)
 
         candidate = "WAIT"
@@ -410,7 +407,8 @@ class DecisionEngine:
             "trend_score": round(trend_score, 4), "timeframes": timeframe_data,
             "decision_weights": {
                 "engine_2_chart": CHART_DECISION_WEIGHT,
-                "engine_1_market": MARKET_CONFIRMATION_WEIGHT,
+                "engine_3_indicators": round(MARKET_CONFIRMATION_WEIGHT * 0.80, 4),
+                "engine_1_market_quote_pulse": round(MARKET_CONFIRMATION_WEIGHT * 0.20, 4),
             },
             "decision_scores": {
                 "chart_score": round(chart_score, 4),
@@ -423,6 +421,8 @@ class DecisionEngine:
             "indicators": indicator_values,
             "engine_3_indicator_status": indicator_data.get("status"),
             "orderflow": orderflow,
+            "market_microstructure": microstructure,
+            "economic_calendar": market_context.get("economic_calendar", {"status": "NOT_AVAILABLE", "events": []}),
             "risk_plan": size,
             "position_management": {
                 "matching_positions": len(positions),
@@ -431,14 +431,15 @@ class DecisionEngine:
                 "close_ticket": close_ticket,
             },
             "engine_inputs": {
-                "direction_from_engine_1_market": market.get("status"),
-                "direction_from_engine_2_chart": "READY" if chart_eligible else chart.get("status", "NOT_READY"),
+                "market_context_from_engine_1": market.get("status"),
+                "chart_and_candles_from_engine_2": "READY" if chart_eligible else chart.get("status", "NOT_READY"),
+                "indicators_from_engine_3": indicator_data.get("status"),
                 "engine_5_bridge_for_quote_account_specs_and_transport": bridge.get("status", "NOT_CONFIGURED"),
                 "broker_market_price_divergence_pct": round(price_divergence * 100, 4) if price_divergence is not None else None,
                 "broker_spread_pct": round(spread_pct * 100, 4) if spread_pct is not None else None,
             },
             "reason": (
-                "BUY/SELL is derived only from Engine 1 market data and Engine 2 calibrated chart analysis. "
-                "Engine 3 calculates technical measures from Engine 1 candles without adding a separate directional vote. Engine 5 supplies execution and account facts only."
+                "BUY/SELL combines Engine 2 calibrated chart analysis, Engine 3 indicators calculated from Engine 2 candle history, and Engine 1 quote-update context. "
+                "Engine 1 does not read or analyze candles; quote updates are not represented as executed trade flow. Engine 5 supplies execution and account facts only."
             ),
         }
