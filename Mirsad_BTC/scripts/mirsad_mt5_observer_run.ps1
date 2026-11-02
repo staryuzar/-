@@ -46,7 +46,7 @@ function Get-CommonObserverDirectory {
 }
 
 try {
-    'Mirsad Chart Observer — isolated MT5 demo connection test' | Set-Content -LiteralPath $report -Encoding utf8
+    'Mirsad Chart Observer — isolated MT5 read-only account connection test' | Set-Content -LiteralPath $report -Encoding utf8
     Add-Report ("UTC start: {0}" -f [DateTime]::UtcNow.ToString('o'))
     Add-Report 'Mode: read-only Observer EA only. No execution EA, no trading commands, no MIR1 writes.'
 
@@ -56,7 +56,7 @@ try {
 
     $login = ''
     $accountPassword = ''
-    $server = ''
+    $server = [string]$env:MIRSAD_MT5_SERVER
     $observerSymbol = [string]$env:MIRSAD_MT5_OBSERVER_SYMBOL
     $observerTimeframe = [string]$env:MIRSAD_MT5_OBSERVER_TIMEFRAME
     $obj = $null
@@ -100,13 +100,13 @@ try {
     }
 
     if ($login -notmatch '^\d{4,20}$' -or [string]::IsNullOrWhiteSpace($accountPassword)) {
-        throw 'MT5 account credentials are incomplete.'
+        throw 'MT5 account login/password are incomplete.'
     }
     if ([string]::IsNullOrWhiteSpace($server)) {
         # Backward-compatible default for the original repository secret format.
         # Any other broker/account is supported by explicitly supplying its MT5 server.
         $server = 'mt5.demo.trade-hw.online'
-        Add-Report 'Legacy secret format detected; using the original Headway demo server. Add server=... to the mt5 secret for any other broker/account.'
+        Add-Report 'Legacy credentials did not include a server; using the original Headway demo server as a backward-compatible fallback. Set MIRSAD_MT5_SERVER or add server=... to the mt5 secret for another broker/account.'
     }
     $server = $server.Trim()
     $observerSymbol = $observerSymbol.Trim()
@@ -245,7 +245,7 @@ Period=$observerTimeframe
 
         if ($authorized -and $manifestFile) { break }
         if ($terminalProcess.HasExited) {
-            Add-Report 'Terminal exited before demo authorization and Observer capture were both confirmed.'
+            Add-Report 'Terminal exited before account authorization and Observer capture were both confirmed.'
             break
         }
         Start-Sleep -Seconds 3
