@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS feed_health (
  venue TEXT PRIMARY KEY,checked_at_ms INTEGER NOT NULL,status TEXT NOT NULL,
  latency_ms REAL,error TEXT
 );
+CREATE TABLE IF NOT EXISTS storage_migrations (
+ migration_id TEXT PRIMARY KEY,
+ applied_at_ms INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS visual_knowledge_meta (
  namespace TEXT PRIMARY KEY,version TEXT NOT NULL,updated_at_ms INTEGER NOT NULL
 );
@@ -91,6 +95,23 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
     conn=sqlite3.connect(str(db_path),timeout=15)
     conn.row_factory=sqlite3.Row
     conn.executescript(SCHEMA)
+    # Separate legacy OKX UTC+8 daily bars before new UTC (1Dutc) bars are
+    # written into the canonical '1d' interval. Preserve the old data under a
+    # distinct interval key instead of mixing incompatible day boundaries.
+    migration_id = "okx_daily_utc8_separation_v1"
+    migration_done = conn.execute(
+        "SELECT 1 FROM storage_migrations WHERE migration_id=?",
+        (migration_id,),
+    ).fetchone()
+    if migration_done is None:
+        conn.execute(
+            """UPDATE candles SET interval='1d_utc8'
+               WHERE venue='OKX Spot' AND interval='1d'"""
+        )
+        conn.execute(
+            "INSERT INTO storage_migrations(migration_id,applied_at_ms) VALUES(?,?)",
+            (migration_id, int(__import__("time").time() * 1000)),
+        )
     # Forward-compatible columns for the visual pattern evaluation archive.
     evaluation_columns = {
         row["name"] for row in conn.execute(
@@ -180,11 +201,11 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
             weekly_cutoff = captured - 5 * 365 * 24 * 60 * 60 * 1000
             conn.execute(
                 """DELETE FROM candles
-                   WHERE interval NOT IN ('1d','1w') AND open_time_ms < ?""",
+                   WHERE interval NOT IN ('1d','1d_utc8','1w') AND open_time_ms < ?""",
                 (intraday_cutoff,),
             )
             conn.execute(
-                "DELETE FROM candles WHERE interval='1d' AND open_time_ms < ?",
+                "DELETE FROM candles WHERE interval IN ('1d','1d_utc8') AND open_time_ms < ?",
                 (daily_cutoff,),
             )
             conn.execute(
