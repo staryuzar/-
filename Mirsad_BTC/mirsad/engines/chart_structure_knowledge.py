@@ -185,6 +185,65 @@ def analyze_chart_structure_knowledge(
                 })
                 break
 
+    # Order-block candidates are anchored only to an already confirmed BOS/CHOCH.
+    # They are price zones derived from the last opposing candle, not proof of institutional orders.
+    order_blocks: list[dict[str, Any]] = []
+    for event in sorted(events, key=lambda x: x["confirmation_index"]):
+        event_index = int(event["confirmation_index"])
+        pivot_index = int(event["pivot_index"])
+        event_name = str(event["event"])
+        bullish_break = event_name in {"BOS_BULLISH", "CHOCH_BULLISH"}
+        bearish_break = event_name in {"BOS_BEARISH", "CHOCH_BEARISH"}
+        if not (bullish_break or bearish_break):
+            continue
+        lower_bound = max(pivot_index + 1, event_index - 8)
+        candidate_index = None
+        for index in range(event_index - 1, lower_bound - 1, -1):
+            candle = confirmed[index]
+            if (bearish_break and candle["close"] > candle["open"]) or (
+                bullish_break and candle["close"] < candle["open"]
+            ):
+                candidate_index = index
+                break
+        if candidate_index is None:
+            order_blocks.append({
+                "event": event_name, "status": "NO_OPPOSING_CANDLE",
+                "break_index": event_index, "pivot_index": pivot_index,
+                "direction": "BULLISH" if bullish_break else "BEARISH",
+            })
+            continue
+
+        source = confirmed[candidate_index]
+        zone_low, zone_high = source["low"], source["high"]
+        state = "UNMITIGATED_AT_SAMPLE_END"
+        mitigation_index = None
+        invalidation_index = None
+        for index in range(event_index + 1, len(confirmed)):
+            candle = confirmed[index]
+            if bullish_break and candle["close"] < zone_low:
+                state = "INVALIDATED"
+                invalidation_index = index
+                break
+            if bearish_break and candle["close"] > zone_high:
+                state = "INVALIDATED"
+                invalidation_index = index
+                break
+            if candle["low"] <= zone_high and candle["high"] >= zone_low:
+                state = "MITIGATED"
+                mitigation_index = index
+                break
+        order_blocks.append({
+            "structure_id": "bullish_order_block" if bullish_break else "bearish_order_block",
+            "direction": "BULLISH" if bullish_break else "BEARISH",
+            "status": state, "source_candle_index": candidate_index,
+            "break_index": event_index, "pivot_index": pivot_index,
+            "zone_low": zone_low, "zone_high": zone_high,
+            "mitigation_index": mitigation_index,
+            "invalidation_index": invalidation_index,
+            "confirmation": "last_opposing_candle_before_confirmed_structure_break",
+            "interpretation": "ORDER_BLOCK_CANDIDATE_NOT_INSTITUTIONAL_ORDER_EVIDENCE",
+        })
+
     equal_highs = _equal_levels(swing_highs, tolerance)
     equal_lows = _equal_levels(swing_lows, tolerance)
 
@@ -240,13 +299,14 @@ def analyze_chart_structure_knowledge(
         "structure_direction": overall_sequence["direction"],
         "bos_choch_events": sorted(events, key=lambda x: x["confirmation_index"])[-20:],
         "liquidity_sweeps": sorted(sweeps, key=lambda x: x["confirmation_index"])[-20:],
+        "order_block_candidates": order_blocks[-20:],
         "equal_highs": equal_highs,
         "equal_lows": equal_lows,
         "fair_value_gaps": gaps[-30:],
         "premium_discount": premium_discount,
         "limitations": [
             "Internal, swing and external are pivot scales inside this one supplied timeframe, not true multi-timeframe analysis.",
-            "Order blocks, breaker blocks and mitigation blocks are knowledge definitions only in this version; no automatic detector is claimed for them.",
+            "Order-block detections are candidates linked to a confirmed structural break; they do not prove institutional orders. Breaker and mitigation block detectors are not implemented.",
             "A wick sweep describes price behaviour around a confirmed level; it does not prove actual resting orders or institutional activity.",
             "Fair value gaps are three-candle price-range imbalances and may be caused by ordinary volatility.",
             "All event timestamps are candle indices because screenshot-derived OHLC may not include reliable timestamps.",
