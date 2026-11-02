@@ -12,7 +12,7 @@ from .chart_extraction import PALETTE_PRESETS, _extract_bars
 from .chart_image import load_chart_image
 from .chart_metrics import analyze_calibrated_bars
 from .chart_patterns import _body_bounds, _patterns
-from .chart_ocr import detect_price_axis_ticks, fit_price_axis
+from .chart_ocr import detect_price_axis_ticks, fit_price_axis, detect_chart_header_metadata
 from .chart_pattern_reference import analyze_talib_pattern_reference
 from .chart_pattern_knowledge import analyze_candle_patterns
 from .chart_structure_knowledge import analyze_chart_structure_knowledge
@@ -211,6 +211,12 @@ def analyze_chart_image(
         }
 
     image_height, image_width = image.shape[:2]
+    header_ocr: dict[str, Any] = {"status": "DISABLED"}
+    if bool(meta.get("auto_header_ocr", False)):
+        header_ocr = detect_chart_header_metadata(
+            image,
+            expected_symbol=expected_symbol,
+        )
     try:
         calibration = resolve_chart_calibration(meta, image_width=image_width, image_height=image_height)
         axis_ocr: dict[str, Any] = {"status": "SKIPPED_MANUAL" if calibration["price_scale_valid"] else "DISABLED"}
@@ -466,7 +472,11 @@ def analyze_chart_image(
         "decision_eligible": eligible,
         "quality_gates": quality_gates,
         "axis_ocr": axis_ocr,
-        "ocr_model_used": axis_ocr.get("ocr_backend") == "RapidOCR",
+        "header_ocr": header_ocr,
+        "ocr_model_used": (
+            axis_ocr.get("ocr_backend") == "RapidOCR"
+            or header_ocr.get("ocr_backend") == "RapidOCR"
+        ),
         "ai_used": axis_ocr.get("ocr_backend") == "RapidOCR",
         "calibration": {
             "source": calibration_source,
