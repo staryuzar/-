@@ -75,28 +75,37 @@ def render_engine_dashboard():
   st.divider()
 
  if market:
-  st.subheader("المحرك الأول — السوق والمعلومات")
+  st.subheader("المحرك الأول — استخبارات السوق")
   cols=st.columns(4)
   cols[0].metric("السعر المرجعي BTC/USDT",f"{market['price']:,.2f}" if market.get("price") else "غير متاح")
-  cols[1].metric("مصادر حية",f"{market.get('venue_count',0)} / 3")
-  cols[2].metric("المصدر الأساسي",market.get("primary_venue") or "غير متاح")
-  cols[3].metric("حالة التجميع",ar(market.get("status")))
+  cols[1].metric("مصدر التشغيل",f"{market.get('venue_count',0)} / 1 — MT5")
+  cols[2].metric("الطرفية",market.get("primary_venue") or "غير متاح")
+  cols[3].metric("حالة السوق",ar(market.get("status")))
   rows=[]
   for name,row in market.get("venues",{}).items():
-   rows.append({"المنصة":name,"الاتصال":ar(row.get("status")),
-    "الأطر المجمعة":row.get("timeframe_count"),
-    "زمن الاستجابة ms":row.get("latency_ms"),"الخطأ":row.get("error") or "—"})
+   pulse=row.get("microstructure") or {}
+   rows.append({"المصدر":name,"الاتصال":ar(row.get("status")),"معدل التحديث/دقيقة":pulse.get("tick_rate_per_minute"),"توازن عروض الأسعار":pulse.get("quote_direction_balance"),"السبريد %":pulse.get("current_spread_pct"),"التقويم":ar((row.get("economic_calendar") or {}).get("status","NOT_AVAILABLE")),"الخطأ":row.get("error") or "—"})
   if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
   for name,row in market.get("venues",{}).items():
    if row.get("status")=="LIVE":
-    with st.expander(f"تفاصيل تدفق الصفقات — {name}"):
-     flow=row.get("orderflow") or {}
-     f1,f2,f3,f4=st.columns(4)
-     f1.metric("عدد الصفقات الملتقطة",flow.get("trade_count",0))
-     f2.metric("شراء Taker (BTC)",f"{flow.get('taker_buy_quantity',0):.5f}")
-     f3.metric("بيع Taker (BTC)",f"{flow.get('taker_sell_quantity',0):.5f}")
-     f4.metric("نسبة شراء Taker",f"{flow.get('taker_buy_ratio',0)*100:.1f}%" if flow.get("taker_buy_ratio") is not None else "—")
-     st.caption(flow.get("scope",""))
+    with st.expander(f"تفاصيل نبض السوق والأحداث الاقتصادية — {name}"):
+     pulse=row.get("microstructure") or {}
+     p1,p2,p3,p4,p5=st.columns(5)
+     p1.metric("تحديثات السعر",pulse.get("tick_count","—"))
+     p2.metric("تحديثات صاعدة",pulse.get("upticks","—"))
+     p3.metric("تحديثات هابطة",pulse.get("downticks","—"))
+     p4.metric("اتزان التحديثات",pulse.get("quote_direction_balance","—"))
+     p5.metric("تغير منتصف السعر %",pulse.get("midpoint_change_pct","—"))
+     st.caption(pulse.get("scope","تحديثات عروض الأسعار وليست صفقات منفذة."))
+     calendar=row.get("economic_calendar") or {}
+     st.markdown("**تقويم MT5 الاقتصادي**")
+     st.caption("المصدر: تقويم الوسيط عبر MT5؛ ليس موجز عناوين أخبار BTC.")
+     events=calendar.get("events") or []
+     if events:
+      event_rows=[{"الحدث":event.get("name"),"العملة":event.get("currency"),"الأهمية":event.get("importance"),"وقت UTC":time.strftime("%Y-%m-%d %H:%M:%S",time.gmtime(event.get("event_time_utc_ms",0)/1000))} for event in events]
+      st.dataframe(pd.DataFrame(event_rows),use_container_width=True,hide_index=True)
+     else:
+      st.info("تقويم الأحداث غير متاح من وسيط MT5 حالياً.")
  else:
   st.info("لم تصل بيانات سوق حقيقية بعد.")
 
@@ -492,8 +501,16 @@ def render_engine_dashboard():
     "EMA 50":item.get("ema50"),"الشموع المغلقة":item.get("closed_candles")
    } for tf,item in indicators["timeframes"].items()]
    st.dataframe(pd.DataFrame(indicator_rows),use_container_width=True,hide_index=True)
-  st.caption(indicators.get("reason") or "المؤشرات تحسب من الشموع المكتملة التي يجمعها محرك السوق؛ ولا تصدر أوامر أو تصويتاً مستقلاً.")
+  st.caption(indicators.get("reason") or "المؤشرات تحسب من سجل الشموع المكتملة الذي يملكه المحرك الثاني؛ ولا تصدر أوامر أو تصويتاً مستقلاً.")
  
+  candle_state=state.get("engine_2_candles",{})
+  st.subheader("تغذية الشموع الأصلية — ملكية المحرك الثاني")
+  st.metric("حالة سجل الشموع",ar(candle_state.get("status","NOT_REPORTED")))
+  if candle_state.get("timeframes"):
+   st.dataframe(pd.DataFrame([{"الإطار":tf,"عدد الشموع":count,"الشموع المغلقة":(candle_state.get("closed_candles") or {}).get(tf,"—")} for tf,count in candle_state["timeframes"].items()]),use_container_width=True,hide_index=True)
+  if candle_state.get("reason"):
+   st.caption(candle_state["reason"])
+
   observer=state.get("chart_observer",{})
   st.subheader("وحدة مراقبة والتقاط مخططات MT5")
   o1,o2,o3,o4=st.columns(4)
@@ -664,7 +681,7 @@ def render_engine_dashboard():
     st.success("تم حفظ الصورة والتحقق من سلامتها ومعايرة مقياسها. ستدخل نتيجة التحليل في الدورة التالية.")
 
  with st.expander("قواعد وضوابط النظام"):
-  st.write("المحرك 1 يجمع معلومات السوق. المحرك 2 يحلل المخططات والشموع وبنية السعر. المحرك 3 مستقل للمؤشرات. المحرك 4 يتخذ القرار ويتابع الصفقات ويدير المخاطر. المحرك 5 يربط البرنامج بخبير MT5 للتنفيذ وإعادة بيانات الحالة.")
+  st.write("المحرك 1 يقرأ نبض السوق والسبريد وتقويم MT5 الاقتصادي ولا يقرأ أي شموع. المحرك 2 يملك المخططات والصور وسجل OHLC متعدد الأطر. المحرك 3 يحسب المؤشرات من شموع المحرك 2 فقط. المحرك 4 يتخذ القرار ويتابع الصفقات ويدير المخاطر. المحرك 5 يربط البرنامج بخبير MT5 للتنفيذ وإعادة بيانات الحالة.")
   st.write("لا يوجد نموذج توليدي أو نموذج ذكاء اصطناعي لاتخاذ قرار التداول. RapidOCR المحلي يقرأ تدريجات محور السعر عند تفعيله، ويمكنه اقتراح بيانات عنوان الصورة اختيارياً؛ لا يعتمد المحرك السعر أو القرار على هذه الاقتراحات. الاتجاه والأنماط تُحلّل بقواعد هندسية واضحة.")
 
  st.divider()
