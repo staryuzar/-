@@ -20,7 +20,7 @@ MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 ALLOWED_IMAGE_HOSTS = {"itbfx.com", "img.bgstatic.com", "s3.tradingview.com"}
 
 
-def _crop_box(width: int, height: int, crop: list[float] | tuple[float, ...] | None) -> tuple[int, int, int, int]:
+def _crop_box(\n    width: int,\n    height: int,\n    crop: list[float] | tuple[float, ...] | None,\n    *,\n    preserve_right_axis: bool = False,\n) -> tuple[int, int, int, int]:
     if crop is None:
         return 0, 0, width, height
     if len(crop) != 4:
@@ -86,7 +86,7 @@ def _bar_direction(bar: dict[str, Any] | None) -> str | None:
     return None
 
 
-def _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
+def _ohlc_comparison(actual: dict[str, Any] | None, expected: dict[str, Any] | None) -> dict[str, Any] | None:\n    if not isinstance(actual, dict) or not isinstance(expected, dict):\n        return None\n    errors: dict[str, float] = {}\n    for field in (\"open\", \"high\", \"low\", \"close\"):\n        try:\n            observed = float(actual[field])\n            reference = float(expected[field])\n        except (KeyError, TypeError, ValueError, OverflowError):\n            continue\n        if not math.isfinite(observed) or not math.isfinite(reference) or reference <= 0:\n            continue\n        errors[field] = round(abs(observed - reference) / reference * 100.0, 4)\n    if not errors:\n        return None\n    maximum = max(errors.values())\n    return {\n        \"absolute_error_pct_by_field\": errors,\n        \"maximum_absolute_error_pct\": maximum,\n        \"within_3pct_tolerance\": maximum <= 3.0,\n    }\n\n\ndef _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
     chart_id = str(entry.get("id", "unknown"))
     image_url = str(entry.get("image_url", "")).strip()
     if not image_url:
