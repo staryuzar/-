@@ -14,13 +14,17 @@ from ..config import (
     SYMBOL,
 )
 
-TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
-REQUIRED_TIMEFRAMES = ("1m", "5m", "15m")
 VENUE_NAME = "MT5 Broker"
+MARKET_SCHEMA = "MIR-MT5-MARKET-2"
+MAX_TICK_ROWS = 512
 
 
 class MT5MarketDataEngine:
-    """Engine 1 live adapter: read-only market data published by the user's MT5 terminal."""
+    """Engine 1: MT5 quote pulse, market conditions and economic-event context.
+
+    This adapter deliberately does not read, parse, store or expose OHLC candles.
+    Chart images and all candle history belong to Engine 2.
+    """
 
     def __init__(
         self,
@@ -44,67 +48,165 @@ class MT5MarketDataEngine:
             return None
         return result if math.isfinite(result) else None
 
-    def _blocked(self, status: str, reason: str, *, captured_at_ms: int | None = None,
-                 feed_health: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _blocked(
+        self,
+        status: str,
+        reason: str,
+        *,
+        captured_at_ms: int | None = None,
+        feed_health: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         return {
-            "engine": "engine_1_market", "source": "MT5_TERMINAL", "status": status,
-            "symbol": self.symbol, "price": None, "captured_at_ms": captured_at_ms,
-            "primary_venue": None, "venue_count": 0,
-            "venues": {VENUE_NAME: {
-                "status": status, "error": reason, "candles": [], "candles_by_tf": {},
-                "trades": [], "orderbook": None, "orderflow": None, "latency_ms": None,
-            }},
-            "feed_health": feed_health or {}, "reason": reason, "timeframes": list(TIMEFRAMES),
+            "engine": "engine_1_market",
+            "source": "MT5_TERMINAL",
+            "status": status,
+            "symbol": self.symbol,
+            "price": None,
+            "captured_at_ms": captured_at_ms,
+            "primary_venue": None,
+            "venue_count": 0,
+            "venues": {
+                VENUE_NAME: {
+                    "status": status,
+                    "error": reason,
+                    "price": None,
+                    "bid": None,
+                    "ask": None,
+                    "microstructure": {},
+                    "economic_calendar": {"status": "NOT_AVAILABLE", "events": []},
+                }
+            },
+            "market_context": {
+                "microstructure": {"status": "NOT_AVAILABLE"},
+                "economic_calendar": {"status": "NOT_AVAILABLE", "events": []},
+            },
+            "feed_health": feed_health or {},
+            "reason": reason,
         }
 
-    @staticmethod
-    def _parse_timeframe(name: str, payload: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
-        if not isinstance(payload, dict):
-            return None, f"MT5 snapshot is missing the {name} timeframe object."
-        raw_bars = payload.get("bars")
-        try:
-            copied = int(payload.get("copied", -1))
-            error_code = int(payload.get("error_code", -1))
-        except (TypeError, ValueError, OverflowError):
-            return None, f"MT5 {name} timeframe count/error metadata is invalid."
-        if not isinstance(raw_bars, list):
-            return None, f"MT5 {name} timeframe bars payload is not a list."
-        if error_code != 0 or copied != len(raw_bars):
-            return None, f"MT5 {name} timeframe CopyRates count or error code is inconsistent."
-        if len(raw_bars) < 2:
-            return None, f"MT5 {name} timeframe has fewer than two bars."
-        bars: list[dict[str, Any]] = []
+    def _parse_ticks(
+        self, raw_ticks: Any, *, captured_at_ms: int
+    ) -> tuple[list[dict[str, float]], str]:
+        if not isinstance(raw_ticks, list):
+            return [], "UNAVAILABLE"
+        if len(raw_ticks) > MAX_TICK_ROWS:
+            return [], "INVALID"
+        ticks: list[dict[str, float]] = []
         previous_time = 0
-        for index, raw in enumerate(raw_bars):
+        for index, raw in enumerate(raw_ticks):
             if not isinstance(raw, dict):
-                return None, f"MT5 {name} bar {index} is not an object."
+                return [], "INVALID"
+            stamp = self._finite(raw.get("time_utc_ms"))
+            bid = self._finite(raw.get("bid"))
+            ask = self._finite(raw.get("ask"))
+            if (
+                stamp is None or bid is None or ask is None
+                or stamp <= 0 or bid <= 0 or ask < bid
+            ):
+                return [], "INVALID"
+            time_ms = int(stamp)
+            if (
+                time_ms < previous_time
+                or time_ms > captured_at_ms + 2_000
+                or time_ms < captured_at_ms - 120_000
+            ):
+                return [], "INVALID"
+            ticks.append({"time_utc_ms": float(time_ms), "bid": bid, "ask": ask})
+            previous_time = time_ms
+        return ticks, "READY" if len(ticks) >= 2 else "INSUFFICIENT"
+
+    def _microstructure(
+        self,
+        ticks: list[dict[str, float]],
+        bid: float,
+        ask: float,
+        tick_window_seconds: float,
+        tick_status: str,
+    ) -> dict[str, Any]:
+        midpoint = (bid + ask) / 2.0
+        spread = ask - bid
+        spread_pct = spread / midpoint if midpoint > 0 else None
+        mids = [(row["bid"] + row["ask"]) / 2.0 for row in ticks]
+        spreads = [
+            (row["ask"] - row["bid"]) / ((row["ask"] + row["bid"]) / 2.0)
+            for row in ticks if row["bid"] > 0
+        ]
+        changes = [right - left for left, right in zip(mids[:-1], mids[1:])]
+        upticks = sum(1 for value in changes if value > 0)
+        downticks = sum(1 for value in changes if value < 0)
+        unchanged = sum(1 for value in changes if value == 0)
+        directional_count = upticks + downticks
+        direction_balance = (
+            (upticks - downticks) / directional_count if directional_count else None
+        )
+        drift_pct = (
+            (mids[-1] - mids[0]) / mids[0] * 100.0
+            if len(mids) >= 2 and mids[0] > 0 else None
+        )
+        window = max(1.0, min(120.0, tick_window_seconds))
+        return {
+            "status": tick_status,
+            "scope": "MT5 quote updates; not executed trades or order-book depth",
+            "window_seconds": window,
+            "tick_count": len(ticks),
+            "tick_rate_per_minute": round(len(ticks) * 60.0 / window, 3),
+            "upticks": upticks,
+            "downticks": downticks,
+            "unchanged_mid_updates": unchanged,
+            "quote_direction_balance": round(direction_balance, 4) if direction_balance is not None else None,
+            "midpoint_change_pct": round(drift_pct, 6) if drift_pct is not None else None,
+            "current_spread": round(spread, 10),
+            "current_spread_pct": round(spread_pct * 100.0, 6) if spread_pct is not None else None,
+            "mean_observed_spread_pct": round(sum(spreads) / len(spreads) * 100.0, 6) if spreads else None,
+            "max_observed_spread_pct": round(max(spreads) * 100.0, 6) if spreads else None,
+        }
+
+    def _economic_calendar(self, raw: Any) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            return {"status": "NOT_AVAILABLE", "source": "MT5_ECONOMIC_CALENDAR", "events": []}
+        status = str(raw.get("status", "NOT_AVAILABLE")).upper()
+        if status != "AVAILABLE":
+            return {
+                "status": "NOT_AVAILABLE",
+                "source": "MT5_ECONOMIC_CALENDAR",
+                "currency": str(raw.get("currency", "USD")),
+                "error_code": raw.get("error_code"),
+                "events": [],
+                "reason": "The connected broker terminal did not provide its economic calendar.",
+            }
+        raw_events = raw.get("events")
+        if not isinstance(raw_events, list):
+            return {"status": "INVALID", "source": "MT5_ECONOMIC_CALENDAR", "events": []}
+        events: list[dict[str, Any]] = []
+        for item in raw_events[:128]:
+            if not isinstance(item, dict):
+                continue
             try:
-                stamp = int(raw["open_time_ms"])
-                open_price, high = float(raw["open"]), float(raw["high"])
-                low, close = float(raw["low"]), float(raw["close"])
-                volume = float(raw.get("volume", 0.0))
+                event_time = int(item["event_time_utc_ms"])
+                event_id = int(item["event_id"])
+                name = str(item["name"]).strip()
+                importance = str(item["importance"]).upper()
             except (KeyError, TypeError, ValueError, OverflowError):
-                return None, f"MT5 {name} bar {index} is missing numeric OHLC/time data."
-            numbers = (open_price, high, low, close, volume)
-            if stamp <= previous_time or not all(math.isfinite(value) for value in numbers):
-                return None, f"MT5 {name} candles contain non-finite values or non-monotonic timestamps."
-            if min(open_price, high, low, close) <= 0 or volume < 0:
-                return None, f"MT5 {name} candle contains non-positive prices or negative volume."
-            if high < max(open_price, close, low) or low > min(open_price, close, high):
-                return None, f"MT5 {name} candle has inconsistent OHLC geometry."
-            closed = raw.get("closed")
-            if not isinstance(closed, bool):
-                return None, f"MT5 {name} candle is missing its closed/forming flag."
-            if index < len(raw_bars) - 1 and not closed:
-                return None, f"MT5 {name} history contains a forming candle before the final bar."
-            if index == len(raw_bars) - 1 and closed:
-                return None, f"MT5 {name} history does not end with the current forming candle."
-            bars.append({
-                "open_time_ms": stamp, "open": open_price, "high": high,
-                "low": low, "close": close, "volume": volume, "closed": closed,
+                continue
+            if event_time <= 0 or event_id <= 0 or not name:
+                continue
+            if importance not in {"NONE", "LOW", "MODERATE", "HIGH"}:
+                continue
+            events.append({
+                "event_id": event_id,
+                "event_time_utc_ms": event_time,
+                "name": name[:240],
+                "currency": str(item.get("currency", "USD")).upper()[:8],
+                "country_code": str(item.get("country_code", "US")).upper()[:4],
+                "importance": importance,
             })
-            previous_time = stamp
-        return bars, None
+        events.sort(key=lambda item: item["event_time_utc_ms"])
+        return {
+            "status": "AVAILABLE",
+            "source": "MT5_ECONOMIC_CALENDAR",
+            "currency": str(raw.get("currency", "USD")).upper(),
+            "events": events,
+        }
 
     def collect(self, bridge: dict[str, Any] | None = None) -> dict[str, Any]:
         if self.root is None:
@@ -120,7 +222,7 @@ class MT5MarketDataEngine:
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             return self._blocked("INVALID", f"MT5 market.json could not be read: {type(exc).__name__}.")
 
-        if not isinstance(payload, dict) or payload.get("schema") != "MIR-MT5-MARKET-1":
+        if not isinstance(payload, dict) or payload.get("schema") != MARKET_SCHEMA:
             return self._blocked("INVALID", "MT5 market snapshot schema is missing or unsupported.")
         try:
             captured_at_ms = int(payload["captured_at_utc_ms"])
@@ -133,7 +235,6 @@ class MT5MarketDataEngine:
                 captured_at_ms=captured_at_ms,
                 feed_health={"snapshot_age_seconds": round(age_seconds, 3)},
             )
-
         if payload.get("time_basis") != "UTC_NORMALIZED_FROM_MT5_SERVER_TIME":
             return self._blocked("INVALID", "MT5 market snapshot time basis is missing or unsupported.", captured_at_ms=captured_at_ms)
 
@@ -155,7 +256,11 @@ class MT5MarketDataEngine:
         quote = payload.get("quote") if isinstance(payload.get("quote"), dict) else {}
         bid, ask = self._finite(quote.get("bid")), self._finite(quote.get("ask"))
         tick_age = self._finite(quote.get("tick_age_seconds"))
-        if bid is None or ask is None or tick_age is None or bid <= 0 or ask < bid or tick_age < 0 or tick_age > self.quote_max_age_seconds:
+        if (
+            bid is None or ask is None or tick_age is None
+            or bid <= 0 or ask < bid or tick_age < 0
+            or tick_age > self.quote_max_age_seconds
+        ):
             return self._blocked(
                 "STALE_QUOTE", "MT5 bid/ask quote is invalid, crossed or older than the configured tick limit.",
                 captured_at_ms=captured_at_ms,
@@ -179,7 +284,11 @@ class MT5MarketDataEngine:
                     "MT5 market feed and execution bridge do not identify the same broker symbol, market mapping and account server.",
                     captured_at_ms=captured_at_ms,
                 )
-            if bridge_bid is None or bridge_ask is None or bridge_age is None or bridge_bid <= 0 or bridge_ask < bridge_bid or bridge_age < 0 or bridge_age > self.quote_max_age_seconds:
+            if (
+                bridge_bid is None or bridge_ask is None or bridge_age is None
+                or bridge_bid <= 0 or bridge_ask < bridge_bid or bridge_age < 0
+                or bridge_age > self.quote_max_age_seconds
+            ):
                 return self._blocked(
                     "BRIDGE_QUOTE_STALE", "Execution bridge quote is invalid or stale; MT5 feed cannot be cross-checked.",
                     captured_at_ms=captured_at_ms,
@@ -197,45 +306,48 @@ class MT5MarketDataEngine:
                     captured_at_ms=captured_at_ms, feed_health=bridge_check,
                 )
 
-        frames_payload = payload.get("timeframes")
-        if not isinstance(frames_payload, dict):
-            return self._blocked("INVALID", "MT5 multi-timeframe history object is missing.", captured_at_ms=captured_at_ms)
-        candles_by_tf: dict[str, list[dict[str, Any]]] = {}
-        for timeframe in TIMEFRAMES:
-            bars, error = self._parse_timeframe(timeframe, frames_payload.get(timeframe))
-            if error:
-                return self._blocked("INVALID_HISTORY", error, captured_at_ms=captured_at_ms)
-            assert bars is not None
-            candles_by_tf[timeframe] = bars
-        missing = [
-            timeframe for timeframe in REQUIRED_TIMEFRAMES
-            if sum(1 for bar in candles_by_tf[timeframe] if bar["closed"]) < 50
-        ]
-        if missing:
-            return self._blocked(
-                "INSUFFICIENT_HISTORY", "MT5 completed history is insufficient for Engine 3 in: " + ", ".join(missing),
-                captured_at_ms=captured_at_ms,
-                feed_health={"missing_required_timeframes": missing},
-            )
-
+        ticks, tick_status = self._parse_ticks(payload.get("ticks"), captured_at_ms=captured_at_ms)
+        tick_window = self._finite(payload.get("tick_window_seconds")) or 30.0
+        microstructure = self._microstructure(ticks, bid, ask, tick_window, tick_status)
+        calendar = self._economic_calendar(payload.get("economic_calendar"))
         price = (bid + ask) / 2.0
         venue = {
-            "status": "LIVE", "price": price, "bid": bid, "ask": ask,
+            "status": "LIVE",
+            "price": price,
+            "bid": bid,
+            "ask": ask,
             "latency_ms": round(age_seconds * 1000, 2),
-            "candles": candles_by_tf["1m"], "candles_by_tf": candles_by_tf,
-            "orderbook": None, "orderflow": None, "trades": [],
-            "broker_symbol": broker_symbol, "account_server": server,
-            "tick_age_seconds": tick_age, "error": None,
+            "broker_symbol": broker_symbol,
+            "account_server": server,
+            "tick_age_seconds": tick_age,
+            "microstructure": microstructure,
+            "economic_calendar": calendar,
+            "error": None,
         }
         return {
-            "engine": "engine_1_market", "source": "MT5_TERMINAL", "status": "LIVE",
-            "symbol": self.symbol, "price": price, "captured_at_ms": captured_at_ms,
-            "primary_venue": VENUE_NAME, "venue_count": 1, "venues": {VENUE_NAME: venue},
-            "feed_health": {
-                "terminal_connected": True, "quote_fresh": True, "timeframes_ready": True,
-                "snapshot_age_seconds": round(age_seconds, 3), "tick_age_seconds": tick_age,
-                "account_server": server, "broker_symbol": broker_symbol,
-                "bridge_quote_check": bridge_check,
+            "engine": "engine_1_market",
+            "source": "MT5_TERMINAL",
+            "status": "LIVE",
+            "symbol": self.symbol,
+            "price": price,
+            "captured_at_ms": captured_at_ms,
+            "primary_venue": VENUE_NAME,
+            "venue_count": 1,
+            "venues": {VENUE_NAME: venue},
+            "market_context": {
+                "microstructure": microstructure,
+                "economic_calendar": calendar,
             },
-            "reason": None, "timeframes": list(TIMEFRAMES),
+            "feed_health": {
+                "terminal_connected": True,
+                "quote_fresh": True,
+                "snapshot_age_seconds": round(age_seconds, 3),
+                "tick_age_seconds": tick_age,
+                "tick_history_status": tick_status,
+                "account_server": server,
+                "broker_symbol": broker_symbol,
+                "bridge_quote_check": bridge_check,
+                "candle_data_owner": "engine_2_chart",
+            },
+            "reason": None,
         }
