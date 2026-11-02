@@ -253,7 +253,13 @@ def evaluate_structure_events(
         or split_end_ms <= split_start_ms
     ):
         raise ValueError("split_start_ms and split_end_ms must define a positive increasing time window")
-    if split_start_ms % interval_ms or split_end_ms % interval_ms:
+    # Weekly UTC candles are anchored to Monday 00:00 UTC, while Unix
+    # epoch zero was a Thursday. All other stored intervals use epoch alignment.
+    interval_anchor_ms = 4 * CANDLE_INTERVAL_MS["1d"] if clean_timeframe == "1w" else 0
+    if (
+        (split_start_ms - interval_anchor_ms) % interval_ms
+        or (split_end_ms - interval_anchor_ms) % interval_ms
+    ):
         raise ValueError("split window boundaries must align to the selected candle interval")
     if not isinstance(embargo_bars, int) or isinstance(embargo_bars, bool) or embargo_bars < 0:
         raise ValueError("embargo_bars must be a non-negative integer")
