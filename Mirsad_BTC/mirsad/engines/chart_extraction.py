@@ -39,6 +39,147 @@ def _hue_mask(hsv: np.ndarray, ranges: list[tuple[int, int]]) -> np.ndarray:
         mask = cv2.bitwise_or(mask, part)
     return mask
 
+def _extract_slot_guided_bars(
+    bullish: np.ndarray,
+    bearish: np.ndarray,
+    raw_candle_core: np.ndarray,
+    vertical_kernel: np.ndarray,
+    *,
+    expected_candle_count: int,
+    plot_left: int,
+    plot_top: int,
+    minimum_activity: int,
+    min_component_height: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Recover candles one expected slot at a time when overlays join global components.
+
+    The expected count is only a spatial hint: empty slots remain empty and no
+    candle is synthesized. The caller keeps the legacy projection result unless
+    this path yields materially more high-purity candle candidates.
+    """
+    height, width = raw_candle_core.shape
+    slot_width = width / expected_candle_count
+    output: list[dict[str, Any]] = []
+    diagnostics: dict[str, Any] = {
+        "mode": "expected_slot_hint",
+        "slots_considered": expected_candle_count,
+        "occupied_slots": 0,
+        "rejected_low_activity": 0,
+        "rejected_component_quality": 0,
+        "rejected_low_pixels": 0,
+        "rejected_mixed_palette": 0,
+    }
+
+    for slot_index in range(expected_candle_count):
+        slot_left = max(0, int(round(slot_index * slot_width)))
+        slot_right = min(width, int(round((slot_index + 1) * slot_width)))
+        if slot_right <= slot_left:
+            diagnostics["rejected_low_activity"] += 1
+            continue
+        center = int(round((slot_index + 0.5) * slot_width))
+        half_window = max(2, int(round(slot_width * 0.23)))
+        candidate_left = max(slot_left, center - half_window)
+        candidate_right = min(slot_right, center + half_window + 1)
+        if candidate_right <= candidate_left:
+            diagnostics["rejected_low_activity"] += 1
+            continue
+
+        local_core = raw_candle_core[:, candidate_left:candidate_right]
+        if local_core.size == 0 or int(local_core.sum()) == 0:
+            diagnostics["rejected_low_activity"] += 1
+            continue
+
+        component_count, component_labels, component_stats, _ = cv2.connectedComponentsWithStats(
+            local_core.astype(np.uint8),
+            connectivity=8,
+        )
+        retained = np.zeros(local_core.shape, dtype=bool)
+        max_local_component_width = max(3, int(round(slot_width * 0.48)))
+        for component_id in range(1, int(component_count)):
+            _, _, comp_width, comp_height, comp_area = (
+                int(value) for value in component_stats[component_id]
+            )
+            if comp_width > max_local_component_width:
+                continue
+            if comp_height < min_component_height or comp_area < max(5, min_component_height):
+                continue
+            if comp_height < comp_width * 0.80:
+                continue
+            retained[component_labels == component_id] = True
+
+        if int(retained.sum()) < max(5, minimum_activity * 2):
+            diagnostics["rejected_component_quality"] += 1
+            continue
+
+        support = cv2.dilate(
+            retained.astype(np.uint8) * 255,
+            vertical_kernel,
+        ) > 0
+        bull_roi = bullish[:, candidate_left:candidate_right] & support
+        bear_roi = bearish[:, candidate_left:candidate_right] & support
+        bull_pixels = int(bull_roi.sum())
+        bear_pixels = int(bear_roi.sum())
+        total_pixels = bull_pixels + bear_pixels
+        if total_pixels < max(8, int(height * 0.006)) or bull_pixels == bear_pixels:
+            diagnostics["rejected_low_pixels"] += 1
+            continue
+
+        purity = max(bull_pixels, bear_pixels) / total_pixels
+        if purity < 0.68:
+            diagnostics["rejected_mixed_palette"] += 1
+            continue
+
+        roi = bull_roi | bear_roi
+        ys, xs = np.where(roi)
+        if len(ys) < 5 or len(xs) == 0:
+            diagnostics["rejected_low_pixels"] += 1
+            continue
+
+        column_activity = retained.sum(axis=0)
+        maximum_activity = int(column_activity.max()) if len(column_activity) else 0
+        if maximum_activity < minimum_activity:
+            diagnostics["rejected_low_activity"] += 1
+            continue
+        strongest_columns = np.flatnonzero(column_activity == maximum_activity)
+        candle_center = int(round(float(np.mean(strongest_columns))))
+        x_px_local = candidate_left + candle_center
+
+        y_high, y_low = int(ys.min()), int(ys.max())
+        row_width = roi.sum(axis=1)
+        strongest_row = int(row_width.max())
+        body_rows = np.flatnonzero(
+            row_width >= max(1, int(np.ceil(strongest_row * 0.48)))
+        )
+        if len(body_rows) == 0:
+            diagnostics["rejected_component_quality"] += 1
+            continue
+        body_top, body_bottom = int(body_rows.min()), int(body_rows.max())
+        total_height = max(1, y_low - y_high + 1)
+        body_height = max(1, body_bottom - body_top + 1)
+        colour = "GREEN" if bull_pixels > bear_pixels else "RED"
+        active_x = np.flatnonzero(roi.any(axis=0))
+        bar_width = int(active_x.max() - active_x.min() + 1) if len(active_x) else 1
+        output.append({
+            "x_px": x_px_local + plot_left,
+            "width_px": bar_width,
+            "high_y_px": y_high + plot_top,
+            "low_y_px": y_low + plot_top,
+            "body_top_y_px": body_top + plot_top,
+            "body_bottom_y_px": body_bottom + plot_top,
+            "colour": colour,
+            "shape": "normal",
+            "body_ratio": round(min(1.0, body_height / total_height), 3),
+            "colour_purity": round(purity, 4),
+            "bullish_colour_pixels": bull_pixels,
+            "bearish_colour_pixels": bear_pixels,
+            "palette_mode": "slot_guided",
+            "slot_index": slot_index,
+        })
+
+    diagnostics["occupied_slots"] = len(output)
+    return sorted(output, key=lambda item: item["x_px"]), diagnostics
+
+
 
 def _extract_bars(
     image: np.ndarray, meta: dict[str, Any], diagnostics: dict[str, Any] | None = None
@@ -215,7 +356,40 @@ def _extract_bars(
             "bearish_colour_pixels": bear_pixels,
             "palette_mode": palette_mode,
         })
+    slot_diagnostics: dict[str, Any] = {"mode": "disabled", "occupied_slots": 0}
+    selected_mode = "projection_groups"
+    if expected_candle_count > 0:
+        slot_bars, slot_diagnostics = _extract_slot_guided_bars(
+            bullish, bearish, raw_candle_core, vertical_kernel,
+            expected_candle_count=expected_candle_count,
+            plot_left=left, plot_top=top,
+            minimum_activity=minimum_activity,
+            min_component_height=min_component_height,
+        )
+        slot_mean_purity = (
+            float(np.mean([bar["colour_purity"] for bar in slot_bars]))
+            if slot_bars else 0.0
+        )
+        minimum_slot_recovery = max(
+            8,
+            int(np.ceil(expected_candle_count * 0.70)),
+            len(bars) + 1,
+        )
+        # Only replace the legacy parser when slot evidence recovers more bars
+        # and average palette purity remains high; otherwise retain old output.
+        if (
+            len(slot_bars) >= minimum_slot_recovery
+            and slot_mean_purity >= 0.75
+        ):
+            bars = slot_bars
+            selected_mode = "expected_slot_hint"
+        slot_diagnostics["mean_colour_purity"] = round(slot_mean_purity, 4)
+        slot_diagnostics["minimum_recovery_threshold"] = minimum_slot_recovery
+        slot_diagnostics["adopted"] = selected_mode == "expected_slot_hint"
+
     if diagnostics is not None:
         diagnostics["accepted_bars"] = len(bars)
         diagnostics["rejected_groups"] = rejection_counts
+        diagnostics["slot_guided_extraction"] = slot_diagnostics
+        diagnostics["segmentation_mode"] = selected_mode
     return sorted(bars, key=lambda item: item["x_px"])
