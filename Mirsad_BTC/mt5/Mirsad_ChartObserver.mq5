@@ -7,7 +7,7 @@
 #property version   "0.10"
 #property description "Mirsad read-only MT5 chart screenshot and OHLC observer"
 
-input int  InpCaptureIntervalSeconds = 15;   // Snapshot cadence (5..3600 seconds)
+input int  InpCaptureIntervalSeconds = 60;   // Snapshot cadence (5..3600 seconds)
 input int  InpHistoryBars             = 120;  // Requested bars including the forming bar (30..500)
 input int  InpMinimumHistoryBars      = 30;   // Minimum complete response before capture
 input int  InpScreenshotWidth         = 1600; // PNG output width
@@ -341,7 +341,7 @@ bool TryFinalizePendingCapture()
       return false;
 
    ResetLastError();
-   if(!FileCopy(g_pending_local_image, 0, g_pending_common_image, FILE_COMMON))
+   if(!FileCopy(g_pending_local_image, 0, g_pending_common_image, FILE_COMMON | FILE_REWRITE))
    {
       PublishObserverStatus(
          "IMAGE_COPY_FAILED", g_pending_id,
