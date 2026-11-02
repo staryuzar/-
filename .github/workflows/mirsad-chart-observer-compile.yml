@@ -98,8 +98,8 @@ jobs:
         with:
           name: mirsad-chart-observer-mt5-build
           path: |
-            \${{ runner.temp }}/mirsad-chart-observer-build/evidence/Mirsad_ChartObserver.ex5
-            \${{ runner.temp }}/mirsad-chart-observer-build/evidence/Mirsad_ChartObserver_compile.log
-            \${{ runner.temp }}/mirsad-chart-observer-build/evidence/observer-build-report.txt
+            ${{ runner.temp }}/mirsad-chart-observer-build/evidence/Mirsad_ChartObserver.ex5
+            ${{ runner.temp }}/mirsad-chart-observer-build/evidence/Mirsad_ChartObserver_compile.log
+            ${{ runner.temp }}/mirsad-chart-observer-build/evidence/observer-build-report.txt
           if-no-files-found: warn
           retention-days: 14
