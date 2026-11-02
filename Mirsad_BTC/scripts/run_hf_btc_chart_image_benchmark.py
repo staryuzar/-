@@ -197,6 +197,7 @@ def run_benchmark(
     calibration_source_counts: Counter[str] = Counter()
     reference_calibration_status_counts: Counter[str] = Counter()
     reference_anchored_images = 0
+    reference_ohlc_override_images = 0
     images_with_20plus_bars = 0
     sample_errors: list[dict[str, Any]] = []
     sample_results: list[dict[str, Any]] = []
@@ -315,6 +316,7 @@ def run_benchmark(
                 reference_calibration_status = str(reference_calibration.get("status", "NOT_REPORTED"))
                 reference_calibration_status_counts[reference_calibration_status] += 1
                 reference_anchored_images += int(calibration_source == "reference_last_candle_ohlc")
+                reference_ohlc_override_images += int(bool(result.get("reference_ohlc_override_applied")))
                 if detected >= 20:
                     images_with_20plus_bars += 1
 
@@ -362,6 +364,7 @@ def run_benchmark(
                         "reference_calibration_reason": reference_calibration.get("reason"),
                         "reference_calibration_max_residual_fraction": reference_calibration.get("maximum_residual_fraction"),
                         "reference_calibration_pixel_rows": reference_calibration.get("reference_pixel_rows"),
+                        "reference_ohlc_override_applied": bool(result.get("reference_ohlc_override_applied")),
                         "segmentation_mode": (result.get("extraction_diagnostics") or {}).get("segmentation_mode"),
                         "last_bar_x_ratio": result.get("last_bar_x_ratio"),
                         "last_extracted_candle_direction": latest_direction,
@@ -436,6 +439,7 @@ def run_benchmark(
             "ocr_attempted_images": ocr_attempted,
             "axis_calibrated_images": axis_calibrated_images,
             "reference_anchored_images": reference_anchored_images,
+            "reference_ohlc_override_images": reference_ohlc_override_images,
             "calibration_source_counts": dict(calibration_source_counts),
             "reference_calibration_status_counts": dict(reference_calibration_status_counts),
             "decision_eligible_images": eligible_images,
