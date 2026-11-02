@@ -313,7 +313,8 @@ def parse_chart_header_text(
         number = re.match(r"\d+", token)
         unit = token[len(number.group(0)):] if number else ""
         if number and unit:
-            timeframe_suggestion = f"{number.group(0)}{unit}"
+            normalised_unit = "M" if unit == "M" else unit.lower()
+            timeframe_suggestion = f"{number.group(0)}{normalised_unit}"
 
     symbol_suggestion = None
     pair_match = _HEADER_PAIR_RE.search(combined)
