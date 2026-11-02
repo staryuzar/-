@@ -199,9 +199,31 @@ class DecisionEngine:
             "risk_owner": "Mirsad_BTC_program",
         }
         bridge = bridge or {}
-        if market.get("status") != "LIVE" or int(market.get("venue_count", 0) or 0) < 2 or not market.get("primary_venue"):
+        source = str(market.get("source", "")).upper()
+        mt5_native_source = source == "MT5_TERMINAL"
+        minimum_venues = 1 if mt5_native_source else 2
+        feed_health = market.get("feed_health") if isinstance(market.get("feed_health"), dict) else {}
+        mt5_health_ok = (
+            not mt5_native_source
+            or (
+                feed_health.get("terminal_connected") is True
+                and feed_health.get("quote_fresh") is True
+                and feed_health.get("timeframes_ready") is True
+            )
+        )
+        if (
+            market.get("status") != "LIVE"
+            or int(market.get("venue_count", 0) or 0) < minimum_venues
+            or not market.get("primary_venue")
+            or not mt5_health_ok
+        ):
+            reason = (
+                "Engine 1 MT5-only feed is missing, stale, or failed its terminal/quote/history checks."
+                if mt5_native_source
+                else "Engine 1 requires a live MT5 feed, or at least two independent public venues for non-MT5 sources."
+            )
             return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
-                    "reason": "Engine 1 requires at least two current independent public venues before directional decisions."}
+                    "reason": reason}
 
         indicator_data = indicators if isinstance(indicators, dict) else IndicatorsEngine().analyze(market)
         timeframe_data = indicator_data.get("timeframes") or {}
