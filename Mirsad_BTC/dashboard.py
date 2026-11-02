@@ -476,6 +476,22 @@ def render_engine_dashboard():
   if chart.get("limitations"):
    st.caption("حدود التحليل: "+" | ".join(chart["limitations"]))
 
+  observer=state.get("chart_observer",{})
+  st.subheader("وحدة مراقبة والتقاط مخططات MT5")
+  o1,o2,o3,o4=st.columns(4)
+  o1.metric("حالة الالتقاط",ar(observer.get("status","NOT_CONFIGURED")))
+  o2.metric("عمر اللقطة (ثانية)",observer.get("age_seconds","—"))
+  o3.metric("الرمز / الإطار",f"{observer.get('chart',{}).get('symbol','—')} / {observer.get('chart',{}).get('timeframe','—')}")
+  o4.metric("عدد الشموع المرفقة",observer.get("bar_count","—"))
+  if observer.get("status")=="READY_FOR_ENGINE_2_VALIDATION":
+   st.caption(f"Capture ID: {observer.get('capture_id','—')} | SHA-256: {observer.get('image_sha256','—')}")
+   st.caption("هذه حزمة سليمة للنقل الأولي فقط؛ لم تجتز بعد معايرة الصورة، ولذلك لا تمنح أهلية للقرار.")
+   image_path=observer.get("image_path")
+   if image_path and Path(image_path).is_file():
+    st.image(image_path,width=480,caption="آخر لقطة موثقة من مخطط MT5")
+  else:
+   st.caption(observer.get("message") or observer.get("reason") or "لم تصل لقطة صالحة من مراقب MT5 بعد.")
+ 
   bridge=state.get("bridge",{})
   st.subheader("المحرك الخامس — جسر التواصل بين البرنامج والخبير")
   b1,b2,b3=st.columns(3)
