@@ -45,6 +45,60 @@ function Get-CommonObserverDirectory {
     return $null
 }
 
+function Add-ObserverDiagnostics {
+    Add-Report ("Terminal process alive: {0}" -f [bool]($terminalProcess -and !$terminalProcess.HasExited))
+
+    $statusCandidates = @()
+    if ($observerDir) {
+        $statusCandidates += (Join-Path $observerDir 'observer_status.json')
+    }
+    $statusCandidates += @(
+        (Join-Path $installDir 'Common\Files\MirsadBTC\observer\observer_status.json'),
+        (Join-Path $installDir 'Terminal\Common\Files\MirsadBTC\observer\observer_status.json'),
+        (Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files\MirsadBTC\observer\observer_status.json'),
+        (Join-Path $env:LOCALAPPDATA 'MetaQuotes\Terminal\Common\Files\MirsadBTC\observer\observer_status.json')
+    )
+    foreach ($statusPath in ($statusCandidates | Select-Object -Unique)) {
+        if (!(Test-Path -LiteralPath $statusPath)) { continue }
+        try {
+            $status = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            Add-Report ("Observer EA status: state={0}; symbol={1}; timeframe={2}; message={3}" -f $status.state,$status.symbol,$status.timeframe,$status.message)
+        }
+        catch {
+            Add-Report ("Observer EA status file exists but could not be parsed: {0}" -f $_.Exception.Message)
+        }
+        break
+    }
+
+    $logRoots = @(
+        (Join-Path $installDir 'Logs'),
+        (Join-Path $installDir 'MQL5\Logs'),
+        (Join-Path $installDir 'Terminal\Logs'),
+        (Join-Path $installDir 'Terminal\MQL5\Logs')
+    ) | Where-Object { Test-Path -LiteralPath $_ }
+
+    foreach ($logRoot in $logRoots) {
+        $latestLogs = Get-ChildItem -LiteralPath $logRoot -Filter '*.log' -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 2
+        foreach ($logFile in $latestLogs) {
+            $matches = Get-Content -LiteralPath $logFile.FullName -ErrorAction SilentlyContinue |
+                Select-String -Pattern '(?i)(Mirsad|expert|authorization|authorized|connection|failed|cannot|error|invalid|BTC|screenshot|chart)'
+            foreach ($match in ($matches | Select-Object -Last 30)) {
+                $line = [string]$match.Line
+                if (-not [string]::IsNullOrWhiteSpace($login)) {
+                    $line = $line.Replace($login, '[masked-login]')
+                }
+                if (-not [string]::IsNullOrWhiteSpace($server)) {
+                    $line = $line.Replace($server, '[broker-server]')
+                }
+                $line = [regex]::Replace($line, '(?<!\d)\d{5,}(?!\d)', '[numeric-id]')
+                if ($line -match '(?i)password\s*[:=]') { continue }
+                Add-Report ("MT5 log [{0}]: {1}" -f $logFile.Name,$line)
+            }
+        }
+    }
+}
+
 try {
     'Mirsad Chart Observer — isolated MT5 read-only account connection test' | Set-Content -LiteralPath $report -Encoding utf8
     Add-Report ("UTC start: {0}" -f [DateTime]::UtcNow.ToString('o'))
@@ -239,7 +293,8 @@ Period=$observerTimeframe
     }
 
     if (!$manifestFile -or !$observerDir -or !$manifest) {
-        throw 'No MT5-connected Observer capture appeared within 180 seconds. Check the account login, password and broker server.'
+        Add-ObserverDiagnostics
+        throw 'No MT5-connected Observer capture appeared within 180 seconds. Review Observer EA status and sanitized MT5 log diagnostics above.'
     }
     if (!$manifest.account -or -not [bool]$manifest.account.terminal_connected) {
         throw 'MT5 terminal did not report a connected account.'
