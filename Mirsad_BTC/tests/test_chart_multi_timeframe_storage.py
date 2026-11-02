@@ -177,6 +177,45 @@ class StoredMultiTimeframeTests(unittest.TestCase):
         self.assertEqual(report["available_timeframes"], [])
         self.assertEqual(report["errors"]["venue"], "NO_PRIMARY_VENUE_AVAILABLE")
 
+
+    def test_daily_history_is_retained_longer_than_intraday_history(self) -> None:
+        from mirsad.storage import connect
+
+        captured = 2_000_000_000_000
+        old_open = captured - 100 * 24 * 60 * 60 * 1000
+        conn = connect(self.db_path)
+        try:
+            with conn:
+                for interval in ("1m", "1d", "1w"):
+                    conn.execute(
+                        """INSERT INTO candles
+                           (venue,symbol,interval,open_time_ms,open,high,low,close,volume,is_closed)
+                           VALUES(?,?,?,?,?,?,?,?,?,1)""",
+                        (
+                            "Binance Spot", "BTCUSDT", interval, old_open,
+                            100, 101, 99, 100, 1,
+                        ),
+                    )
+        finally:
+            conn.close()
+
+        save_market_snapshot({
+            "captured_at_ms": captured,
+            "symbol": "BTCUSDT",
+            "venues": {},
+        }, self.db_path)
+
+        conn = connect(self.db_path)
+        try:
+            retained = {
+                row["interval"] for row in conn.execute(
+                    "SELECT interval FROM candles WHERE venue='Binance Spot' AND symbol='BTCUSDT'"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+        self.assertEqual(retained, {"1d", "1w"})
+
     def test_unsupported_timeframe_and_bad_limit_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported timeframe"):
             load_candles_by_timeframe(
