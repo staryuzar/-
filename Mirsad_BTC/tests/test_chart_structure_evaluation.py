@@ -278,6 +278,38 @@ class StructureEventEvaluationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "after all formation pivots"):
             self.evaluate(make_bars(10), [event], horizons=(1,))
 
+    def test_weekly_split_boundaries_use_monday_utc_anchor(self) -> None:
+        interval = CANDLE_INTERVAL_MS["1w"]
+        monday_anchor = 4 * CANDLE_INTERVAL_MS["1d"]
+        start = monday_anchor + (
+            (1_700_000_000_000 - monday_anchor) // interval
+        ) * interval
+        bars = [
+            {
+                "open_time_ms": start + index * interval,
+                "open": 100.0 + index,
+                "high": 101.0 + index,
+                "low": 99.0 + index,
+                "close": 100.5 + index,
+                "closed": True,
+            }
+            for index in range(10)
+        ]
+        result = evaluate_structure_events(
+            bars,
+            [],
+            symbol="BTCUSDT",
+            venue="Binance Spot",
+            timeframe="1w",
+            data_split="test",
+            dataset_id="weekly-monday-fixture",
+            split_start_ms=start,
+            split_end_ms=start + 10 * interval,
+            horizons=(1,),
+        )
+        self.assertEqual(result["bar_interval_ms"], interval)
+        self.assertEqual(result["results_by_pattern"], {})
+
     def test_event_outside_split_is_skipped(self) -> None:
         bars = make_bars(20)
         split_start = int(bars[0]["open_time_ms"])
