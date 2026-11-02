@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mirsad-btc-image-20-pilot
+  group: mirsad-visual-evaluation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
