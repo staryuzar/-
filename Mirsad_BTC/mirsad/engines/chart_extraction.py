@@ -95,13 +95,17 @@ def _extract_slot_guided_bars(
         )
         retained = np.zeros(local_core.shape, dtype=bool)
         max_local_component_width = max(3, int(round(slot_width * 0.48)))
+        min_vertical_bar_height = max(
+            min_component_height * 2,
+            int(round(slot_width * 0.50)),
+        )
         for component_id in range(1, int(component_count)):
             _, _, comp_width, comp_height, comp_area = (
                 int(value) for value in component_stats[component_id]
             )
             if comp_width > max_local_component_width:
                 continue
-            if comp_height < min_component_height or comp_area < max(5, min_component_height):
+            if comp_height < min_vertical_bar_height or comp_area < max(5, min_component_height):
                 continue
             if comp_height < comp_width * 0.80:
                 continue
@@ -372,7 +376,7 @@ def _extract_bars(
         )
         minimum_slot_recovery = max(
             8,
-            int(np.ceil(expected_candle_count * 0.70)),
+            int(np.ceil(expected_candle_count * 0.40)),
             len(bars) + 1,
         )
         # Only replace the legacy parser when slot evidence recovers more bars
