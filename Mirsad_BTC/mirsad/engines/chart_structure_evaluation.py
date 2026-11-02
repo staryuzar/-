@@ -922,6 +922,24 @@ def persist_structure_evaluations(
     conn = connect(db_path) if db_path is not None else connect()
     try:
         with conn:
+            # Every split under one dataset_id must reference the exact same
+            # immutable OHLC sequence. Different windows are selected by bounds,
+            # never by silently changing as_of/limit or accepting revised candles.
+            registered_fingerprints = conn.execute(
+                """SELECT DISTINCT dataset_fingerprint
+                   FROM visual_structure_evaluation_splits
+                   WHERE dataset_id=? AND symbol=? AND venue=? AND timeframe=?""",
+                (dataset_id, symbol, venue, timeframe),
+            ).fetchall()
+            if any(
+                str(row["dataset_fingerprint"]) != dataset_fingerprint
+                for row in registered_fingerprints
+            ):
+                raise ValueError(
+                    "All train/validation/test splits for one dataset_id must use "
+                    "the same immutable OHLC fingerprint"
+                )
+
             overlap = conn.execute(
                 """SELECT data_split,split_start_ms,split_end_ms
                    FROM visual_structure_evaluation_splits
