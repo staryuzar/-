@@ -313,10 +313,37 @@ Period=$observerTimeframe
     if (-not ("MirsadNativeWindow" -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class MirsadNativeWindow {
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate bool EnumWindowProc(IntPtr hwnd, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string className, string windowName);
+    [DllImport("user32.dll")] private static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumWindowProc callback, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+    public static int MaximizeMdiChildren(IntPtr topWindow) {
+        IntPtr mdi = FindWindowEx(topWindow, IntPtr.Zero, "MDIClient", null);
+        if (mdi == IntPtr.Zero) return -1;
+        var children = new List<IntPtr>();
+        EnumWindowProc callback = (hwnd, lParam) => {
+            if (GetParent(hwnd) == mdi) children.Add(hwnd);
+            return true;
+        };
+        EnumChildWindows(mdi, callback, IntPtr.Zero);
+        foreach (IntPtr child in children) SendMessage(mdi, 0x0225, child, IntPtr.Zero);
+        return children.Count;
+    }
+    public static string WindowRectText(IntPtr hwnd) {
+        RECT r;
+        if (!GetWindowRect(hwnd, out r)) return "unavailable";
+        return (r.Right-r.Left).ToString() + "x" + (r.Bottom-r.Top).ToString();
+    }
 }
 "@
     }
@@ -333,8 +360,11 @@ public static class MirsadNativeWindow {
     if ($terminalWindow) {
         [MirsadNativeWindow]::ShowWindowAsync($terminalWindow.MainWindowHandle, 3) | Out-Null
         [MirsadNativeWindow]::SetForegroundWindow($terminalWindow.MainWindowHandle) | Out-Null
+        $mdiChildren = [MirsadNativeWindow]::MaximizeMdiChildren($terminalWindow.MainWindowHandle)
         Start-Sleep -Seconds 2
-        Add-Report ("PASS — MT5 terminal window maximized before Observer capture; HWND={0}." -f $terminalWindow.MainWindowHandle)
+        $windowRect = [MirsadNativeWindow]::WindowRectText($terminalWindow.MainWindowHandle)
+        Add-Report ("PASS — MT5 terminal maximized; MDI chart windows maximized={0}; main window={1}; HWND={2}." -f $mdiChildren,$windowRect,$terminalWindow.MainWindowHandle)
+        if ($mdiChildren -lt 0) { Add-Report 'WARN — MT5 MDI client was not found; source viewport will be checked by the Observer.' }
     }
     else {
         Add-Report 'WARN — MT5 main window handle was not found for maximize; Observer will still apply its viewport safety gate.'
