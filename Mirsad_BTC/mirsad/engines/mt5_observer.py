@@ -84,7 +84,7 @@ def _validate_bars(raw_bars: Any) -> tuple[list[dict[str, Any]] | None, str | No
             "is_closed": is_closed,
         })
 
-    if bars[-1]["is_closed"]:
+    if bars and bars[-1]["is_closed"]:
         return None, "The newest CopyRates bar must be marked as forming, not closed."
     if any(not bar["is_closed"] for bar in bars[:-1]):
         return None, "Only the newest bar may be marked as forming."
