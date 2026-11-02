@@ -85,6 +85,8 @@ class ChartMultiTimeframeTests(unittest.TestCase):
         self.assertTrue(frame["candle_gaps"])
         self.assertEqual(frame["status"], "PARTIAL")
         self.assertNotIn("1m", result["directional_structure_by_timeframe"])
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertNotIn("1m", result["eligible_timeframes"])
 
     def test_non_chronological_bars_are_rejected(self) -> None:
         bars = bars_for(60_000, count=10)
