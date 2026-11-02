@@ -455,6 +455,15 @@ def evaluate_structure_events(
             exit_close_time_ms = int(normalised_bars[exit_index]["open_time_ms"]) + interval_ms
             if exit_close_time_ms > split_end_ms:
                 continue
+            candidate_window_start = candidate_index
+            candidate_window_end = exit_index
+            overlaps_confirmed_event = any(
+                candidate_window_start <= event_index + horizon
+                and candidate_window_end >= event_index
+                for event_index in confirmed_event_indices
+            )
+            if overlaps_confirmed_event:
+                continue
             future = normalised_bars[candidate_index + 1:exit_index + 1]
             entry_price = float(future[0]["open"])
             exit_price = float(future[-1]["close"])
@@ -568,6 +577,7 @@ def evaluate_structure_events(
         "results_by_pattern": results_by_pattern,
         "overlapping_events_possible": True,
         "baseline_policy": "same_split_direction_adjusted_non_event_bars",
+        "baseline_event_overlap_policy": "purge_windows_overlapping_confirmed_event_windows_per_horizon",
         "baseline_overlapping_windows_possible": True,
         "baseline_is_statistical_test": False,
         "portfolio_backtest": False,
