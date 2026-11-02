@@ -220,6 +220,29 @@ class ChartEngineTests(unittest.TestCase):
         self.assertGreaterEqual(result["calibrated_bar_count"], 20)
         self.assertTrue(result["decision_eligible"])
         self.assertEqual(result["status"], "READY")
+        self.assertTrue(result["reference_ohlc_override_applied"])
+        self.assertAlmostEqual(result["bars"][-1]["open"], 119.7, places=4)
+        self.assertAlmostEqual(result["bars"][-1]["high"], 121.0, places=4)
+        self.assertAlmostEqual(result["bars"][-1]["low"], 119.2, places=4)
+        self.assertAlmostEqual(result["bars"][-1]["close"], 120.5, places=4)
+
+    def test_reference_body_pixels_must_agree_with_wick_scale_fit(self) -> None:
+        result = self._analyze(metadata={
+            "price_top": None,
+            "price_bottom": None,
+            "reference_last_candle_ohlc": {
+                "open": 120.8,
+                "high": 121.0,
+                "low": 119.2,
+                "close": 120.9,
+            },
+        })
+        self.assertEqual(
+            result["reference_calibration"]["status"],
+            "REFERENCE_FIT_REJECTED",
+        )
+        self.assertFalse(result["calibration"]["price_scale_valid"])
+        self.assertFalse(result["decision_eligible"])
 
     def test_reference_candle_colour_conflict_blocks_anchor_calibration(self) -> None:
         result = self._analyze(metadata={
