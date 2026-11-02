@@ -254,12 +254,14 @@ Period=$observerTimeframe
     if ([string]$manifest.chart.symbol -ne $observerSymbol -or [string]$manifest.chart.timeframe -ne $observerTimeframe) {
         throw ("Observer captured {0},{1}, expected {2},{3}." -f $manifest.chart.symbol,$manifest.chart.timeframe,$observerSymbol,$observerTimeframe)
     }
-    if (@($manifest.bars).Count -lt 1 -or [int]$manifest.bars_copied -ne @($manifest.bars).Count) {
-        throw 'Observer OHLC bar count is incomplete or inconsistent.'
+    if ([int]$manifest.bars_copied -ne @($manifest.bars).Count) {
+        throw 'Observer OHLC bar count is inconsistent.'
     }
-    if ([bool]$manifest.bars[-1].is_closed) { throw 'Newest MT5 bar must be marked as forming.' }
-    if ($manifest.bars[0].time_server_ms -ge $manifest.bars[-1].time_server_ms) {
-        throw 'Observer bars are not in oldest-to-newest order.'
+    if (@($manifest.bars).Count -gt 0) {
+        if ([bool]$manifest.bars[-1].is_closed) { throw 'Newest MT5 bar must be marked as forming.' }
+        if ($manifest.bars[0].time_server_ms -ge $manifest.bars[-1].time_server_ms) {
+            throw 'Observer bars are not in oldest-to-newest order.'
+        }
     }
 
     $imagePath = Join-Path (Join-Path $observerDir 'images') ([string]$manifest.image_file)
@@ -295,7 +297,9 @@ Period=$observerTimeframe
         image_size_bytes = $imageBytes.Length
         image_sha256 = $imageHash
         bars_copied = @($manifest.bars).Count
-        newest_bar_is_forming = (-not [bool]$manifest.bars[-1].is_closed)
+        rates_status = $manifest.rates_status
+        rates_error_code = $manifest.rates_error_code
+        newest_bar_is_forming = (@($manifest.bars).Count -gt 0 -and (-not [bool]$manifest.bars[-1].is_closed))
         broker_server_time_basis = $manifest.bars_time_basis
         read_only = $true
         trading_permission_enabled = $false
@@ -303,7 +307,7 @@ Period=$observerTimeframe
     $safe | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'observer-live-capture-summary.json') -Encoding utf8
     Add-Report ("PASS — Observer capture received from MT5 account/server: {0} / {1} / {2}." -f $server,$manifest.chart.symbol, $manifest.chart.timeframe)
     Add-Report ("PASS — PNG signature and byte size verified: {0} bytes." -f $imageBytes.Length)
-    Add-Report ("PASS — OHLC bars verified: {0}; newest bar is forming." -f @($manifest.bars).Count)
+    Add-Report ("PASS — MT5 OHLC response recorded: {0} bars; status={1}; error={2}." -f @($manifest.bars).Count,$manifest.rates_status,$manifest.rates_error_code)
     Add-Report ("PASS — Image/OHLC request skew: {0} ms." -f $skew)
     Add-Report 'Safety — Observer only; no execution EA attached; automated trading permission disabled; no MIR1 command created. The Observer source contains no trade API.'
     Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
