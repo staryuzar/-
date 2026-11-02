@@ -274,6 +274,10 @@ class MT5ChartObserverInbox:
                 "source_timeframe": source_timeframe,
                 "timeframe": timeframe,
             },
+            "visual_calibration_eligible": bool(chart.get("source_dimensions_usable", False)),
+            "visual_calibration_status": str(
+                chart.get("source_dimensions_status", "SOURCE_DIMENSIONS_NOT_REPORTED")
+            ),
             "account": payload.get("account") if isinstance(payload.get("account"), dict) else {},
             "bars_time_basis": payload.get("bars_time_basis"),
             "bars": bars,
