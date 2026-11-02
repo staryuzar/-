@@ -25,6 +25,9 @@ class ChartHeaderOCRTests(unittest.TestCase):
         self.assertEqual(result["exchange_suggestion"], "BINANCE")
         self.assertTrue(result["expected_symbol_match"])
         self.assertIn("METADATA_SUGGESTIONS_ONLY", result["interpretation"])
+        self.assertFalse(result["overrides_input_metadata"])
+        self.assertFalse(result["used_for_price_calibration"])
+        self.assertFalse(result["used_for_decision"])
 
     def test_monthly_and_minute_timeframes_are_not_conflated(self) -> None:
         monthly = parse_chart_header_text(
@@ -112,6 +115,9 @@ class ChartHeaderOCRTests(unittest.TestCase):
         self.assertEqual(result["timeframe_suggestion"], "1h")
         self.assertEqual(result["exchange_suggestion"], "BINANCE")
         self.assertTrue(result["expected_symbol_match"])
+        self.assertFalse(result["overrides_input_metadata"])
+        self.assertFalse(result["used_for_price_calibration"])
+        self.assertFalse(result["used_for_decision"])
 
     def test_invalid_header_crop_fraction_is_rejected_without_ocr(self) -> None:
         image = np.zeros((200, 400, 3), dtype=np.uint8)
