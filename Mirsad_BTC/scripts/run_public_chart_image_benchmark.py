@@ -125,6 +125,12 @@ def _ohlc_comparison(
     }
 
 
+def _failed_quality_gates(gates: dict[str, Any] | None) -> list[str]:
+    if not isinstance(gates, dict):
+        return ["quality_gates_unavailable"]
+    return sorted(name for name, passed in gates.items() if not bool(passed))
+
+
 def _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
     chart_id = str(entry.get("id", "unknown"))
     image_url = str(entry.get("image_url", "")).strip()
@@ -183,6 +189,12 @@ def _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
         else None
     )
     axis_ocr = result.get("axis_ocr") or {}
+    quality_gates = result.get("quality_gates") or {}
+    decision_eligible = bool(result.get("decision_eligible", False))
+    ohlc_check = _ohlc_comparison(
+        latest_ohlc,
+        entry.get("expected_last_candle_ohlc"),
+    )
 
     return {
         "id": chart_id,
@@ -192,8 +204,10 @@ def _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
         "source_image_size": [source_width, source_height],
         "analysed_crop_size": [width, height],
         "status": result.get("status"),
-        "decision_eligible": result.get("decision_eligible", False),
-        "quality_gates": result.get("quality_gates", {}),
+        "decision_eligible": decision_eligible,
+        "quality_gates": quality_gates,
+        "failed_quality_gates": _failed_quality_gates(quality_gates),
+        "last_bar_x_ratio": result.get("last_bar_x_ratio"),
         "detected_bar_count": result.get("detected_bar_count", 0),
         "calibrated_bar_count": result.get("calibrated_bar_count", 0),
         "confirmed_bar_count": result.get("confirmed_bar_count", 0),
@@ -217,10 +231,10 @@ def _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
         "colour_counts": result.get("colour_counts", {}),
         "extraction_diagnostics": result.get("extraction_diagnostics", {}),
         "latest_bar_ohlc": latest_ohlc,
-        "latest_bar_ohlc_reference_check": _ohlc_comparison(
-            latest_ohlc,
-            entry.get("expected_last_candle_ohlc"),
-        ),
+        # Only quality-eligible images can contribute to the OHLC reference
+        # metric. A detected but misplaced/insufficient candle is diagnostic only.
+        "latest_bar_ohlc_reference_check": ohlc_check if decision_eligible else None,
+        "latest_bar_ohlc_diagnostic_check": ohlc_check,
         "error": result.get("error"),
         "note": (
             "Engine 2 visual evidence only; reference_bias is analyst context, "
@@ -257,6 +271,11 @@ def run_benchmark(manifest_path: Path) -> dict[str, Any]:
         for item in reports
         if item.get("latest_bar_ohlc_reference_check") is not None
     ]
+    ohlc_diagnostics = [
+        item["latest_bar_ohlc_diagnostic_check"]
+        for item in reports
+        if item.get("latest_bar_ohlc_diagnostic_check") is not None
+    ]
     return {
         "benchmark": "mirsad_public_chart_image_smoke_test",
         "schema_version": 1,
@@ -269,10 +288,15 @@ def run_benchmark(manifest_path: Path) -> dict[str, Any]:
         "last_candle_direction_accuracy_pct": (
             round(100.0 * direction_matches / len(expected), 2) if expected else None
         ),
-        "ohlc_reference_cases": len(ohlc_checks),
-        "ohlc_cases_within_3pct_tolerance": sum(
+        "eligible_ohlc_reference_cases": len(ohlc_checks),
+        "eligible_ohlc_cases_within_3pct_tolerance": sum(
             bool(item["within_3pct_tolerance"]) for item in ohlc_checks
         ),
+        "diagnostic_ohlc_reference_cases": len(ohlc_diagnostics),
+        "diagnostic_ohlc_cases_within_3pct_tolerance": sum(
+            bool(item["within_3pct_tolerance"]) for item in ohlc_diagnostics
+        ),
+        "images_blocked_by_quality_gates": attempted - eligible,
         "results": reports,
         "interpretation": (
             "This is an image-extraction and visual-evidence smoke test. It does not "
