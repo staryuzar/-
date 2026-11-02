@@ -35,7 +35,7 @@ jobs:
           PYTHONPATH: Mirsad_BTC
         run: python -m unittest discover -s Mirsad_BTC/tests -v
 
-      - name: Verify actual public BTC market feeds
+      - name: Verify MT5-only market feed readiness (no external venues)
         env:
           PYTHONPATH: Mirsad_BTC
         run: python Mirsad_BTC/scripts/live_smoke.py
