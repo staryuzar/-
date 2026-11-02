@@ -476,6 +476,131 @@ def evaluate_structure_events(
 
 
 
+
+def scan_historical_structure_events(
+    bars: list[dict[str, Any]],
+    *,
+    timeframe: str,
+    pivot_left: int = 2,
+    pivot_right: int = 2,
+    minimum_bars: int = 16,
+    maximum_bars: int = 5000,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Replay Engine 2's confirmed pattern detectors one closed candle at a time.
+
+    Each prefix ends at the candle being tested. Only patterns whose closed
+    breakout/confirmation occurs on that final prefix candle are emitted. This
+    reconstructs a historical event stream without letting later candles alter
+    an earlier event. The scan is limited to a configurable number of bars.
+    """
+    from .chart_classical_patterns import detect_classical_reversal_patterns
+    from .chart_continuation_patterns import detect_classical_continuation_patterns
+    from .chart_structure_knowledge import _pivots, _true_ranges
+
+    if not isinstance(pivot_left, int) or pivot_left < 1:
+        raise ValueError("pivot_left must be a positive integer")
+    if not isinstance(pivot_right, int) or pivot_right < 1:
+        raise ValueError("pivot_right must be a positive integer")
+    if not isinstance(minimum_bars, int) or minimum_bars < 10:
+        raise ValueError("minimum_bars must be at least 10")
+    if not isinstance(maximum_bars, int) or maximum_bars < minimum_bars:
+        raise ValueError("maximum_bars must be greater than or equal to minimum_bars")
+
+    normalised_bars = _normalise_bars(bars, timeframe)
+    if len(normalised_bars) > maximum_bars:
+        raise ValueError(
+            f"Historical structure scan is limited to {maximum_bars} bars; "
+            f"received {len(normalised_bars)}"
+        )
+    if len(normalised_bars) < minimum_bars:
+        return [], {
+            "status": "INSUFFICIENT",
+            "bars_scanned": 0,
+            "confirmed_events": 0,
+            "pivot_left": pivot_left,
+            "pivot_right": pivot_right,
+            "lookahead_policy": "closed_prefix_replay",
+        }
+
+    true_ranges = _true_ranges(normalised_bars)
+    interval_ms = CANDLE_INTERVAL_MS[timeframe]
+    events_by_identity: dict[tuple[str, str, int], dict[str, Any]] = {}
+    prefixes_scanned = 0
+
+    for end_index in range(minimum_bars - 1, len(normalised_bars)):
+        # Never pass bars after end_index to either detector.
+        prefix = normalised_bars[:end_index + 1]
+        prefixes_scanned += 1
+        swing_highs = _pivots(prefix, pivot_left, pivot_right, "high")
+        swing_lows = _pivots(prefix, pivot_left, pivot_right, "low")
+        atr = median(true_ranges[max(0, end_index - 13):end_index + 1])
+
+        reversal = detect_classical_reversal_patterns(
+            prefix, swing_highs, swing_lows, atr=atr
+        )
+        continuation = detect_classical_continuation_patterns(
+            prefix, swing_highs, swing_lows, atr=atr
+        )
+        for pattern in reversal:
+            if (
+                pattern.get("status") != "CONFIRMED"
+                or pattern.get("confirmation_index") != end_index
+            ):
+                continue
+            direction = str(pattern.get("direction", "")).upper()
+            identity = (str(pattern["pattern_id"]), direction, end_index)
+            events_by_identity[identity] = {
+                **pattern,
+                "event_index": end_index,
+                "event_open_time_ms": int(normalised_bars[end_index]["open_time_ms"]),
+                "event_close_time_ms": (
+                    int(normalised_bars[end_index]["open_time_ms"]) + interval_ms
+                ),
+                "detector_prefix_end_index": end_index,
+                "scan_method": "closed_prefix_replay",
+            }
+
+        for pattern in continuation:
+            breakout_direction = pattern.get("breakout_direction")
+            if (
+                pattern.get("status") not in {"BREAKOUT_UP", "BREAKOUT_DOWN"}
+                or pattern.get("breakout_index") != end_index
+            ):
+                continue
+            direction = (
+                "BULLISH" if breakout_direction == "UP" else "BEARISH"
+            )
+            identity = (str(pattern["pattern_id"]), direction, end_index)
+            events_by_identity[identity] = {
+                **pattern,
+                "event_index": end_index,
+                "event_open_time_ms": int(normalised_bars[end_index]["open_time_ms"]),
+                "event_close_time_ms": (
+                    int(normalised_bars[end_index]["open_time_ms"]) + interval_ms
+                ),
+                "detector_prefix_end_index": end_index,
+                "scan_method": "closed_prefix_replay",
+            }
+
+    events = sorted(
+        events_by_identity.values(),
+        key=lambda event: (
+            int(event["event_index"]),
+            str(event["pattern_id"]),
+            str(event.get("direction", "")),
+        ),
+    )
+    return events, {
+        "status": "READY",
+        "bars_scanned": prefixes_scanned,
+        "confirmed_events": len(events),
+        "pivot_left": pivot_left,
+        "pivot_right": pivot_right,
+        "lookahead_policy": "closed_prefix_replay",
+        "future_bars_used_for_event_detection": 0,
+    }
+
+
 def evaluate_stored_structure_events(
     events: list[dict[str, Any]],
     *,
@@ -582,7 +707,10 @@ def analyze_and_evaluate_stored_market_structures(
         bars,
         last_candle_closed=True,
     )
-    events = structure_analysis.get("classical_patterns", [])
+    events, historical_scan = scan_historical_structure_events(
+        bars,
+        timeframe=timeframe,
+    )
     evaluation = evaluate_structure_events(
         bars,
         events,
@@ -605,6 +733,7 @@ def analyze_and_evaluate_stored_market_structures(
     return {
         "structure_analysis_status": structure_analysis.get("status"),
         "structure_analysis_limitations": structure_analysis.get("limitations", []),
+        "historical_scan": historical_scan,
         "detected_structure_events": events,
         "evaluation": evaluation,
     }
@@ -766,6 +895,7 @@ __all__ = [
     "DEFAULT_HORIZONS",
     "STRUCTURE_PATTERN_IDS",
     "evaluate_structure_events",
+    "scan_historical_structure_events",
     "evaluate_stored_structure_events",
     "analyze_and_evaluate_stored_market_structures",
     "persist_structure_evaluations",
