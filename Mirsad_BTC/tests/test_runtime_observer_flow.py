@@ -63,11 +63,12 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                 "price": 90_100.0,
                 "captured_at_ms": now_ms,
                 "status": "LIVE",
-                "venue_count": 2,
-                "primary_venue": "OKX Spot",
+                "source": "MT5_TERMINAL",
+                "venue_count": 1,
+                "primary_venue": "MT5 Broker",
+                "feed_health": {"terminal_connected": True, "quote_fresh": True, "timeframes_ready": True},
                 "venues": {
-                    "OKX Spot": {"status": "LIVE", "candles_by_tf": {"1m": bars}},
-                    "Second Spot": {"status": "LIVE", "candles_by_tf": {"1m": bars}},
+                    "MT5 Broker": {"status": "LIVE", "candles_by_tf": {"1m": bars}},
                 },
             }
             bridge_snapshot = {
@@ -109,7 +110,7 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             }
 
             with (
-                patch.object(runtime, "MarketEngine", return_value=market_engine),
+                patch.object(runtime, "MT5MarketDataEngine", return_value=market_engine),
                 patch.object(runtime, "MT5BridgeEngine", return_value=bridge_engine),
                 patch.object(runtime, "IndicatorsEngine", return_value=indicators_engine),
                 patch.object(runtime, "DecisionEngine", return_value=decision_engine),
