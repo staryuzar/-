@@ -10,7 +10,7 @@ from typing import Any
 from PIL import Image
 
 OBSERVER_SCHEMA = "MIR-CHART-OBSERVATION-1"
-SUPPORTED_TIMEFRAMES = {
+ENGINE2_TIMEFRAME_ALIASES = {
     "M1": "1m",
     "M5": "5m",
     "M15": "15m",
@@ -234,7 +234,7 @@ class MT5ChartObserverInbox:
         source_timeframe = str(chart.get("timeframe", "")).strip().upper()
         # Preserve every MT5 period. Known Engine 2 periods get a canonical
         # alias; unfamiliar MT5 periods pass through without being blocked.
-        timeframe = SUPPORTED_TIMEFRAMES.get(source_timeframe, source_timeframe.lower())
+        timeframe = ENGINE2_TIMEFRAME_ALIASES.get(source_timeframe, source_timeframe.lower())
         if not symbol or not source_timeframe:
             return _invalid(
                 "INVALID_CHART_METADATA",
