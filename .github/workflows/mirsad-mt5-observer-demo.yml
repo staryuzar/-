@@ -1,6 +1,10 @@
 name: Mirsad Chart Observer — any MT5 account capture (read-only)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mirsad-mt5-observer-demo.yml'
   workflow_dispatch:
     inputs:
       server:
