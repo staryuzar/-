@@ -82,35 +82,45 @@ def _timeframe_trend(candles: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 class IndicatorsEngine:
-    """Engine 3: calculates technical indicators from Engine 1's real, completed OHLC candles."""
+    """Engine 3: indicators are calculated exclusively from Engine 2 candle history."""
 
-    def analyze(self, market: dict[str, Any]) -> dict[str, Any]:
+    def analyze(self, chart_candles: dict[str, Any]) -> dict[str, Any]:
         base = {
             "engine": "engine_3_indicators",
-            "source": "engine_1_market",
+            "source": "engine_2_chart_candles",
             "method": "deterministic_ohlc",
             "required_timeframes": list(REQUIRED_TIMEFRAMES),
         }
-        venues = market.get("venues") or {}
-        primary_name = market.get("primary_venue")
-        primary = venues.get(primary_name) if primary_name else None
-        if not isinstance(primary, dict) or primary.get("status") != "LIVE":
-            primary = next((row for row in venues.values()
-                            if isinstance(row, dict) and row.get("status") == "LIVE"), None)
-        if not primary:
+        if not isinstance(chart_candles, dict) or chart_candles.get("status") != "READY":
             return {
-                **base, "status": "NOT_READY", "reason": "Engine 1 has no live venue with OHLC candles.",
-                "timeframes": {}, "values": {}, "trend_score": None,
+                **base,
+                "status": "NOT_READY",
+                "reason": "Engine 2 has not supplied a fresh, validated multi-timeframe candle history.",
+                "timeframes": {},
+                "values": {},
+                "trend_score": None,
+                "last_closed_candle_time_ms": None,
             }
 
-        candle_sets = primary.get("candles_by_tf") or {"1m": primary.get("candles", [])}
+        candle_sets = chart_candles.get("candles_by_tf")
+        if not isinstance(candle_sets, dict):
+            return {
+                **base,
+                "status": "NOT_READY",
+                "reason": "Engine 2 candle-history payload is missing its timeframe map.",
+                "timeframes": {},
+                "values": {},
+                "trend_score": None,
+                "last_closed_candle_time_ms": None,
+            }
+
         timeframes = {
             timeframe: _timeframe_trend(candle_sets.get(timeframe, []))
             for timeframe in TIMEFRAME_WEIGHTS
         }
         one = [c for c in candle_sets.get("1m", []) if c.get("closed")]
         five = [c for c in candle_sets.get("5m", []) if c.get("closed")]
-        closes = []
+        closes: list[float] = []
         try:
             closes = [float(c["close"]) for c in one]
         except (KeyError, TypeError, ValueError, OverflowError):
@@ -126,8 +136,10 @@ class IndicatorsEngine:
             timeframe for timeframe in REQUIRED_TIMEFRAMES
             if timeframes[timeframe]["status"] != "READY"
         ]
-        missing_values = [name for name, value in values.items()
-                          if value is None or not math.isfinite(float(value))]
+        missing_values = [
+            name for name, value in values.items()
+            if value is None or not math.isfinite(float(value))
+        ]
         weighted = 0.0
         weight_total = 0.0
         for timeframe, weight in TIMEFRAME_WEIGHTS.items():
@@ -142,15 +154,25 @@ class IndicatorsEngine:
             )
         trend_score = weighted / weight_total if weight_total else None
         ready = not missing_timeframes and not missing_values and trend_score is not None
+        last_time = None
+        if one:
+            try:
+                last_time = int(one[-1]["open_time_ms"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                last_time = None
         return {
             **base,
-            "status": "READY" if ready else "NOT_READY",
-            "primary_venue": primary_name,
+            "status": "READY" if ready and last_time is not None else "NOT_READY",
+            "source_capture_at_ms": chart_candles.get("captured_at_ms"),
+            "primary_venue": "MT5 Broker",
             "timeframes": timeframes,
             "values": values,
             "trend_score": trend_score,
             "missing_timeframes": missing_timeframes,
             "missing_values": missing_values,
             "closed_candles": {"1m": len(one), "5m": len(five)},
-            "reason": None if ready else "Completed OHLC history is insufficient for the required indicators and timeframes.",
+            "last_closed_candle_time_ms": last_time,
+            "reason": None if ready and last_time is not None else (
+                "Engine 2 completed OHLC history is insufficient for required indicators/timeframes."
+            ),
         }
