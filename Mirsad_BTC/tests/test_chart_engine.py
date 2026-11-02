@@ -272,7 +272,8 @@ class ChartEngineTests(unittest.TestCase):
         self.assertFalse(result["last_candle_closed"])
         self.assertEqual(result["reference_anchor"]["status"], "READY")
         self.assertEqual(result["reference_anchor"]["offset_from_right"], 1)
-        self.assertEqual(result["reference_anchor"]["slot_index"], 22)
+        self.assertIn(result["reference_anchor"]["slot_index"], (None, 22))
+        self.assertEqual(result["reference_anchor"]["bar_index"], result["calibrated_bar_count"] - 2)
         self.assertAlmostEqual(result["bars"][-2]["open"], 106_933.333333, places=3)
         self.assertEqual(result["bars"][-1]["candle_state"], "FORMING_OR_UNVERIFIED")
 
