@@ -1,4 +1,4 @@
-name: Mirsad Chart Observer — live MT5 demo capture
+name: Mirsad Chart Observer — live MT5 account capture (read-only)
 
 on:
   push:
@@ -9,6 +9,11 @@ on:
       - '.github/workflows/mirsad-mt5-observer-demo.yml'
   workflow_dispatch:
     inputs:
+      server:
+        description: 'Exact MT5 broker server name (leave blank to use the server in the mt5 secret)'
+        required: false
+        default: ''
+        type: string
       symbol:
         description: 'Exact MT5 broker symbol (for example BTCUSD, BTCUSDm or BTCUSDT)'
         required: false
@@ -29,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  capture-btc-demo-chart:
+  capture-mt5-chart:
     runs-on: windows-2022
     timeout-minutes: 15
     steps:
@@ -43,15 +48,16 @@ jobs:
           if ($env:RUNNER_OS -ne 'Windows') { throw 'MetaTrader 5 requires a Windows runner.' }
           Write-Output "Windows runner: $([System.Environment]::OSVersion.VersionString)"
 
-      - name: Install, compile, log into demo MT5 and capture BTC chart using read-only Observer
+      - name: Install, compile, log into configured MT5 account and capture chart using read-only Observer
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
+          MIRSAD_MT5_SERVER: ${{ inputs.server || '' }}
           MIRSAD_MT5_OBSERVER_SYMBOL: ${{ inputs.symbol || 'BTC' }}
           MIRSAD_MT5_OBSERVER_TIMEFRAME: ${{ inputs.timeframe || 'M1' }}
         shell: pwsh
         run: ./Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1
 
-      - name: Upload real MT5 chart capture and sanitized evidence
+      - name: Upload sanitized MT5 Observer evidence only
         if: always()
         uses: actions/upload-artifact@v4
         with:
