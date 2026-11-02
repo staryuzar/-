@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,7 +26,7 @@ def fixture_capture(root: Path) -> tuple[dict, dict, dict]:
         "status": "READY_FOR_ENGINE_2_VALIDATION",
         "capture_id": "capture-1",
         "image_path": str(image_path),
-        "image_sha256": "0" * 64,
+        "image_sha256": hashlib.sha256(image_path.read_bytes()).hexdigest(),
         "age_seconds": 1.0,
         "capture_data_skew_ms": 50,
         "newest_bar_after_server_clock": False,

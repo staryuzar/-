@@ -128,6 +128,8 @@ def _analyze_mt5_observer_chart(
   image_hash=hashlib.sha256(image_path.read_bytes()).hexdigest()
  except OSError:
   return _blocked_observer_chart(observer,"Engine 2 could not read the validated Observer PNG.","OBSERVER_IMAGE_UNREADABLE")
+ if not observer.get("image_sha256") or image_hash.lower()!=str(observer.get("image_sha256")).strip().lower():
+  return _blocked_observer_chart(observer,"Observer PNG changed after inbox validation; its verified SHA-256 no longer matches.","OBSERVER_IMAGE_CHANGED")
  metadata={
   "symbol":market_symbol,
   "timeframe":timeframe,
