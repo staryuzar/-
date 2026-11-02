@@ -279,6 +279,22 @@ def visual_knowledge_summary(db_path: str | None = None) -> dict[str, Any]:
                    ORDER BY calculated_at_ms DESC LIMIT 20"""
             ).fetchall()
         ]
+        structure_evaluations = conn.execute(
+            "SELECT COUNT(*) FROM visual_structure_evaluations"
+        ).fetchone()[0]
+        validated_structure_evaluations = conn.execute(
+            "SELECT COUNT(*) FROM visual_structure_evaluations WHERE validation_status='VALIDATED'"
+        ).fetchone()[0]
+        recent_structure_evaluations = [
+            dict(row) for row in conn.execute(
+                """SELECT structure_id,symbol,venue,timeframe,market_regime,sample_count,
+                   mean_return_pct,median_return_pct,mae_pct,mfe_pct,
+                   fee_adjusted_expectancy_pct,primary_horizon_bars,data_split,
+                   validation_status,calculated_at_ms
+                   FROM visual_structure_evaluations
+                   ORDER BY calculated_at_ms DESC LIMIT 20"""
+            ).fetchall()
+        ]
         return {
             "version": meta[0] if meta else None,
             "candle_pattern_definitions": int(patterns),
@@ -288,6 +304,12 @@ def visual_knowledge_summary(db_path: str | None = None) -> dict[str, Any]:
             "pattern_evaluation_records": int(evaluation_total),
             "validated_evaluation_records": int(evaluations),
             "recent_pattern_evaluations": recent_evaluations,
+            "structure_evaluation_records": int(structure_evaluations),
+            "validated_structure_evaluations": int(validated_structure_evaluations),
+            "recent_structure_evaluations": recent_structure_evaluations,
+            "structure_empirical_status": (
+                "UNVALIDATED" if not validated_structure_evaluations else "HAS_VALIDATED_RECORDS"
+            ),
             "empirical_status": "UNVALIDATED" if not evaluations else "HAS_VALIDATED_RECORDS",
         }
     finally:
