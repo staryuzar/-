@@ -1,30 +1,23 @@
-name: Mirsad Chart Observer — live MT5 account capture (read-only)
+name: Mirsad Chart Observer — any MT5 account capture (read-only)
 
 on:
-  push:
-    branches: [mirsad-mt5-demo]
-    paths:
-      - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
-      - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
-      - '.github/workflows/mirsad-mt5-observer-demo.yml'
   workflow_dispatch:
     inputs:
       server:
-        description: 'Exact MT5 broker server name (leave blank to use the server in the mt5 secret)'
+        description: 'MT5 broker server (optional if already stored in the mt5 secret)'
         required: false
         default: ''
         type: string
       symbol:
-        description: 'Exact MT5 broker symbol (for example BTCUSD, BTCUSDm or BTCUSDT)'
+        description: 'Exact symbol name as shown by this broker'
         required: false
         default: 'BTC'
         type: string
       timeframe:
-        description: 'Chart timeframe to capture'
+        description: 'Any MT5 timeframe label, e.g. M1, M2, M3, M5, H1, H2, D1, MN1'
         required: false
         default: 'M1'
-        type: choice
-        options: [M1, M5, M15, M30, H1, H4, D1, W1]
+        type: string
 
 permissions:
   contents: read
@@ -48,7 +41,7 @@ jobs:
           if ($env:RUNNER_OS -ne 'Windows') { throw 'MetaTrader 5 requires a Windows runner.' }
           Write-Output "Windows runner: $([System.Environment]::OSVersion.VersionString)"
 
-      - name: Install, compile, log into configured MT5 account and capture chart using read-only Observer
+      - name: Connect to the configured MT5 account (demo or real), compile and capture using the read-only Observer
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
           MIRSAD_MT5_SERVER: ${{ inputs.server || '' }}
@@ -57,7 +50,7 @@ jobs:
         shell: pwsh
         run: ./Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1
 
-      - name: Upload sanitized MT5 Observer evidence only
+      - name: Upload sanitized MT5 Observer evidence only (no account credentials, raw chart image or OHLC history)
         if: always()
         uses: actions/upload-artifact@v4
         with:
