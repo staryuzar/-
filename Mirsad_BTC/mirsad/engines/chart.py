@@ -164,6 +164,29 @@ def _persist_visual_observations(
                 "scope": "single_timeframe", "evidence": gap,
             })
 
+        for pattern in structure_knowledge.get("classical_patterns", []):
+            pattern_id = str(pattern.get("pattern_id", ""))
+            pivot_indices = [int(value) for value in pattern.get("pivot_indices", [])]
+            start_index = min(pivot_indices or [int(pattern.get("formation_start_index", 0))])
+            end_index = int(
+                pattern.get("breakout_index")
+                or pattern.get("confirmation_index")
+                or pattern.get("end_index")
+                or start_index
+            )
+            pattern_status = str(pattern.get("status", "CANDIDATE"))
+            structural_events.append({
+                "structure_id": pattern_id,
+                "start_index": start_index,
+                "end_index": end_index,
+                "confirmed": pattern_status in {"CONFIRMED", "BREAKOUT_UP", "BREAKOUT_DOWN"},
+                "level_price": pattern.get("breakout_level", pattern.get("neckline_break_level")),
+                "zone_low": pattern.get("lower_line_end"),
+                "zone_high": pattern.get("upper_line_end"),
+                "scope": "single_timeframe",
+                "evidence": pattern,
+            })
+
         structure_count = record_structure_observations(
             fingerprint, symbol, timeframe, structural_events
         )

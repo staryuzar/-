@@ -78,6 +78,38 @@ class VisualKnowledgeTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_classical_price_shapes_are_supported_by_structure_archive(self) -> None:
+        seed_visual_knowledge(str(self.db_path))
+        saved = record_structure_observations(
+            "shape-chart-fingerprint", "BTCUSDT", "1h",
+            [
+                {
+                    "structure_id": "ascending_triangle",
+                    "start_index": 10, "end_index": 35,
+                    "confirmed": False, "scope": "single_timeframe",
+                    "evidence": {"status": "CANDIDATE", "empirical_status": "UNVALIDATED"},
+                },
+                {
+                    "structure_id": "bull_flag",
+                    "start_index": 20, "end_index": 45,
+                    "confirmed": True, "scope": "single_timeframe",
+                    "level_price": 71000.0,
+                    "evidence": {"status": "BREAKOUT_UP", "empirical_status": "UNVALIDATED"},
+                },
+            ],
+            db_path=str(self.db_path),
+        )
+        self.assertEqual(saved, 2)
+        conn = connect(self.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT structure_id,confirmed FROM visual_structure_observations ORDER BY structure_id"
+            ).fetchall()
+            self.assertEqual([(row["structure_id"], row["confirmed"]) for row in rows],
+                             [("ascending_triangle", 0), ("bull_flag", 1)])
+        finally:
+            conn.close()
+
     def test_structure_observations_are_persisted_and_validated(self) -> None:
         seed_visual_knowledge(str(self.db_path))
         saved = record_structure_observations(
