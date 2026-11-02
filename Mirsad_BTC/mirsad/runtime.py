@@ -7,6 +7,7 @@ from typing import Any
 from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH
 from .engines.market import MarketEngine
 from .engines.chart import analyze_chart_image
+from .engines.chart_multi_timeframe import analyze_stored_multi_timeframe_structure
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
 from .storage import save_market_snapshot,write_json_atomic,read_json
@@ -51,6 +52,21 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
   chart={"engine":"engine_2_chart_visual_analysis","status":"WAITING_FOR_IMAGE",
    "decision_eligible":False,"ai_used":False,
    "message":"Upload a real chart screenshot and enter its price-axis scale."}
+ # Engine 2 reads Engine 1's stored OHLCV through a read-only, venue-specific adapter.
+ # This descriptive confluence report is not fed into Engine 4 sizing or scoring.
+ try:
+  chart["stored_multi_timeframe_structure"]=analyze_stored_multi_timeframe_structure(
+   symbol=str(market.get("symbol","BTCUSDT")),
+   venue=market.get("primary_venue"),
+   as_of_ms=int(market.get("captured_at_ms",started)),
+  )
+ except Exception as exc:
+  chart["stored_multi_timeframe_structure"]={
+   "status":"ERROR","source":"market_candles_sqlite",
+   "errors":{"runtime":f"{type(exc).__name__}: {exc}"},
+   "alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
+   "does_not_affect_decision_engine":True,
+  }
  bridge=(bridge_engine or MT5BridgeEngine()).inspect()
  decision=DecisionEngine().analyze(market,chart,bridge)
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
