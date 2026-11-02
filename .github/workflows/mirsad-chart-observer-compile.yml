@@ -1,4 +1,4 @@
-name: Mirsad Chart Observer — MT5 read-only EA compile
+name: Mirsad Chart Observer — actual MT5 read-only feed verification
 
 on:
   push:
@@ -6,8 +6,10 @@ on:
     paths:
       - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
       - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
+      - 'Mirsad_BTC/scripts/analyze_mt5_observer_capture.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
       - '.github/workflows/mirsad-chart-observer-compile.yml'
-      - '.github/workflows/mirsad-mt5-observer-demo.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,107 +20,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  compile-read-only-observer:
+  actual-mt5-read-only-verification:
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout Mirsad project
         uses: actions/checkout@v4
+        with:
+          ref: mirsad-mt5-demo
 
-      - name: Compile the standalone read-only observer with MetaEditor
+      - name: Set up Python for the real MT5 Engine 1/2 validators
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: Mirsad_BTC/requirements.txt
+
+      - name: Install Mirsad chart-analysis dependencies
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $ProgressPreference = 'SilentlyContinue'
-          $root = Join-Path $env:RUNNER_TEMP 'mirsad-chart-observer-build'
-          $installDir = Join-Path $root 'terminal'
-          $evidenceDir = Join-Path $root 'evidence'
-          New-Item -ItemType Directory -Path $installDir, $evidenceDir -Force | Out-Null
+          python -m pip install --upgrade pip
+          python -m pip install -r Mirsad_BTC/requirements.txt
 
-          $installer = Join-Path $root 'mt5setup.exe'
-          $downloadUrl = 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe'
-          Invoke-WebRequest -Uri $downloadUrl -OutFile $installer -TimeoutSec 240
-          if (!(Test-Path -LiteralPath $installer) -or (Get-Item -LiteralPath $installer).Length -lt 100000) {
-            throw 'Official MetaTrader 5 installer is missing or unexpectedly small.'
-          }
+      - name: Compile Observer, connect to actual MT5 demo and validate Engine 1 plus Engine 2
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+          MIRSAD_MT5_SERVER: 'mt5.demo.trade-hw.online'
+          MIRSAD_MT5_OBSERVER_SYMBOL: 'BTC'
+          MIRSAD_MT5_OBSERVER_TIMEFRAME: 'M1'
+          MIRSAD_MT5_MARKET_SYMBOL: 'BTCUSDT'
+        shell: pwsh
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1
 
-          $installArg = '/path:"' + $installDir + '"'
-          $install = Start-Process -FilePath $installer -ArgumentList @('/auto', $installArg) -PassThru -Wait
-          Write-Output "MT5 installer exit code: $($install.ExitCode)"
-          # The upstream installer may return a non-zero process code even when
-          # it has completed an installation. Verify the actual binaries instead.
-          $metaEditor = Get-ChildItem -LiteralPath $installDir -Filter 'metaeditor64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($null -eq $metaEditor) { throw 'MetaEditor was not found after MT5 installation.' }
-
-          $source = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\mt5\Mirsad_ChartObserver.mq5'
-          if (!(Test-Path -LiteralPath $source)) { throw 'Observer EA source is missing.' }
-          $observerRunScript = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\mirsad_mt5_observer_run.ps1'
-          if (!(Test-Path -LiteralPath $observerRunScript)) { throw 'Observer account-test PowerShell script is missing.' }
-          $parseTokens = $null
-          $parseErrors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile($observerRunScript, [ref]$parseTokens, [ref]$parseErrors) | Out-Null
-          if ($parseErrors.Count -gt 0) {
-            $parseErrors | ForEach-Object {
-              Write-Error ("Line {0}, column {1}: {2}" -f $_.Extent.StartLineNumber, $_.Extent.StartColumnNumber, $_.Message)
-            }
-            throw 'Observer PowerShell script contains syntax errors.'
-          }
-          Write-Output 'PASS — Observer PowerShell account runner parsed without syntax errors.'
-
-          $sourceText = Get-Content -LiteralPath $source -Raw
-          if ($sourceText -match '(?i)\b(OrderSend|OrderSendAsync|CTrade|PositionOpen|PositionClose)\s*\(') {
-            throw 'Safety stop: the read-only observer contains a trade execution API.'
-          }
-          if ($sourceText -match '(?im)^\s*#import\b') {
-            throw 'Safety stop: the observer must not import external DLL functions.'
-          }
-
-          $expertsDir = Join-Path $installDir 'MQL5\Experts'
-          New-Item -ItemType Directory -Path $expertsDir -Force | Out-Null
-          $eaSource = Join-Path $expertsDir 'Mirsad_ChartObserver.mq5'
-          $eaBinary = Join-Path $expertsDir 'Mirsad_ChartObserver.ex5'
-          $compileLog = Join-Path $expertsDir 'Mirsad_ChartObserver.log'
-          Copy-Item -LiteralPath $source -Destination $eaSource -Force
-
-          $compileArgs = '/compile:"' + $eaSource + '" /log'
-          $compiler = Start-Process -FilePath $metaEditor.FullName -ArgumentList $compileArgs -WorkingDirectory $installDir -PassThru
-          if (!$compiler.WaitForExit(90000)) {
-            Stop-Process -Id $compiler.Id -Force -ErrorAction SilentlyContinue
-            throw 'MetaEditor compilation timed out after 90 seconds.'
-          }
-          Start-Sleep -Seconds 2
-          if (!(Test-Path -LiteralPath $compileLog)) { throw 'MetaEditor compile log was not created.' }
-          $compileText = Get-Content -LiteralPath $compileLog -Raw
-          $compileText | Set-Content -LiteralPath (Join-Path $evidenceDir 'Mirsad_ChartObserver_compile.log') -Encoding utf8
-          if (!(Test-Path -LiteralPath $eaBinary) -or (Get-Item -LiteralPath $eaBinary).Length -le 0) {
-            throw 'MetaEditor did not produce the observer EX5 binary.'
-          }
-          if ($compileText -notmatch '(?i)0 errors' -or $compileText -match '(?i)[1-9][0-9]* errors') {
-            throw 'MetaEditor did not report zero compile errors.'
-          }
-          if ($compileText -notmatch '(?i)0 warnings' -or $compileText -match '(?i)[1-9][0-9]* warnings') {
-            throw 'MetaEditor did not report zero compile warnings.'
-          }
-          Write-Output $compileText
-
-          Copy-Item -LiteralPath $eaBinary -Destination (Join-Path $evidenceDir 'Mirsad_ChartObserver.ex5') -Force
-          @(
-            'Mirsad Chart Observer compile: PASS'
-            "UTC: $([DateTime]::UtcNow.ToString('o'))"
-            'Target: MetaTrader 5 / MQL5 Expert Advisor'
-            'Safety: read-only observer; no account credentials; no terminal login; no EA attachment; no trading API.'
-            "EX5 bytes: $((Get-Item -LiteralPath $eaBinary).Length)"
-          ) | Set-Content -LiteralPath (Join-Path $evidenceDir 'observer-build-report.txt') -Encoding utf8
-          Get-Content -LiteralPath (Join-Path $evidenceDir 'observer-build-report.txt')
-
-      - name: Upload compiled observer and compile evidence
+      - name: Upload sanitized actual MT5 evidence only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mirsad-chart-observer-mt5-build
+          name: mirsad-actual-mt5-engine1-engine2-readonly
           path: |
-            ${{ runner.temp }}/mirsad-chart-observer-build/evidence/Mirsad_ChartObserver.ex5
-            ${{ runner.temp }}/mirsad-chart-observer-build/evidence/Mirsad_ChartObserver_compile.log
-            ${{ runner.temp }}/mirsad-chart-observer-build/evidence/observer-build-report.txt
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-live-capture-summary.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-engine2-analysis.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
           if-no-files-found: warn
           retention-days: 14
