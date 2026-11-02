@@ -1,0 +1,66 @@
+name: Mirsad Visual Engine Evaluation
+
+on:
+  push:
+    branches:
+      - mirsad-mt5-demo
+    paths:
+      - "Mirsad_BTC/mirsad/engines/chart_structure_evaluation.py"
+      - "Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py"
+      - "Mirsad_BTC/mirsad/engines/chart_classical_patterns.py"
+      - "Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py"
+      - "Mirsad_BTC/mirsad/engines/visual_knowledge.py"
+      - "Mirsad_BTC/mirsad/storage.py"
+      - "Mirsad_BTC/tests/test_chart_structure_evaluation.py"
+      - "Mirsad_BTC/tests/test_chart_classical_patterns.py"
+      - "Mirsad_BTC/tests/test_chart_continuation_patterns.py"
+      - "Mirsad_BTC/tests/test_chart_structure_knowledge.py"
+      - "Mirsad_BTC/tests/test_visual_knowledge.py"
+      - ".github/workflows/mirsad-visual-evaluation.yml"
+  pull_request:
+    branches:
+      - mirsad-mt5-demo
+    paths:
+      - "Mirsad_BTC/mirsad/engines/chart_structure_evaluation.py"
+      - "Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py"
+      - "Mirsad_BTC/mirsad/engines/chart_classical_patterns.py"
+      - "Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py"
+      - "Mirsad_BTC/mirsad/engines/visual_knowledge.py"
+      - "Mirsad_BTC/mirsad/storage.py"
+      - "Mirsad_BTC/tests/test_chart_structure_evaluation.py"
+      - "Mirsad_BTC/tests/test_chart_classical_patterns.py"
+      - "Mirsad_BTC/tests/test_chart_continuation_patterns.py"
+      - "Mirsad_BTC/tests/test_chart_structure_knowledge.py"
+      - "Mirsad_BTC/tests/test_visual_knowledge.py"
+      - ".github/workflows/mirsad-visual-evaluation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  visual-structure-regression:
+    name: Visual structure and event-study regression
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Mirsad_BTC
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test structure geometry detectors
+        run: |
+          python -m unittest discover -s tests -p "test_chart_classical_patterns.py" -v
+          python -m unittest discover -s tests -p "test_chart_continuation_patterns.py" -v
+          python -m unittest discover -s tests -p "test_chart_structure_knowledge.py" -v
+
+      - name: Test visual knowledge archive
+        run: python -m unittest discover -s tests -p "test_visual_knowledge.py" -v
+
+      - name: Test historical structure event study
+        run: python -m unittest discover -s tests -p "test_chart_structure_evaluation.py" -v
