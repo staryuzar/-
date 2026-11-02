@@ -236,6 +236,66 @@ class ChartEngineTests(unittest.TestCase):
         self.assertAlmostEqual(result["bars"][-1]["low"], 119.2, places=4)
         self.assertAlmostEqual(result["bars"][-1]["close"], 120.5, places=4)
 
+    def test_flat_forming_candle_falls_back_to_exact_previous_visible_slot(self) -> None:
+        # The last native MT5 bar is forming but flat. The previous completed
+        # candle is used only as the axis anchor and must map to image slot 22.
+        result = self._analyze(metadata={
+            "price_top": None,
+            "price_bottom": None,
+            "expected_candle_count": 24,
+            "last_candle_closed": False,
+            "reference_candle_candidates": [
+                {
+                    "offset_from_right": 0,
+                    "ohlc": {
+                        "open": 108_000.0, "high": 108_000.0,
+                        "low": 108_000.0, "close": 108_000.0,
+                    },
+                },
+                {
+                    "offset_from_right": 1,
+                    "time_server_ms": 1_700_000_000_000,
+                    "closed": True,
+                    "ohlc": {
+                        "open": 106_933.333333,
+                        "high": 108_666.666667,
+                        "low": 106_266.666667,
+                        "close": 108_000.0,
+                    },
+                },
+            ],
+        })
+        self.assertEqual(result["reference_calibration"]["status"], "READY")
+        self.assertTrue(result["reference_ohlc_override_applied"])
+        self.assertTrue(result["quality_gates"]["native_reference_candle_verified"])
+        self.assertTrue(result["decision_eligible"])
+        self.assertFalse(result["last_candle_closed"])
+        self.assertEqual(result["reference_anchor"]["status"], "READY")
+        self.assertEqual(result["reference_anchor"]["offset_from_right"], 1)
+        self.assertEqual(result["reference_anchor"]["slot_index"], 22)
+        self.assertAlmostEqual(result["bars"][-2]["open"], 106_933.333333, places=3)
+        self.assertEqual(result["bars"][-1]["candle_state"], "FORMING_OR_UNVERIFIED")
+
+    def test_reference_candidate_is_rejected_when_its_exact_visual_slot_is_missing(self) -> None:
+        result = self._analyze(metadata={
+            "price_top": None,
+            "price_bottom": None,
+            "expected_candle_count": 24,
+            "reference_candle_candidates": [{
+                "offset_from_right": 0,
+                "ohlc": {
+                    "open": 119.7, "high": 121.0,
+                    "low": 119.2, "close": 120.5,
+                },
+            }],
+        })
+        # The slot-guided detector may omit an occupied slot; it must never
+        # silently attach another candle's OHLC to a different pixel candle.
+        self.assertFalse(result["reference_ohlc_override_applied"])
+        self.assertNotEqual(result["reference_anchor"]["status"], "READY")
+        self.assertFalse(result["quality_gates"]["native_reference_candle_verified"])
+        self.assertFalse(result["decision_eligible"])
+
     def test_native_reference_candle_is_checked_against_an_already_valid_manual_axis(self) -> None:
         result = self._analyze(metadata={
             "reference_last_candle_ohlc": {
