@@ -184,7 +184,7 @@ def _market_confirmation_score(
 
 class DecisionEngine:
     """Engine 4. Direction comes only from Engines 1 and 2.
-    Engine 3 supplies execution/account facts and transports MIR1 commands.
+    Engine 5 supplies execution/account facts and transports MIR1 commands.
     """
 
     def analyze(

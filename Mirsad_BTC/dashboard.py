@@ -551,13 +551,6 @@ def render_engine_dashboard():
   q2.metric("سبريد MT5",f"{spread:.3f}%" if spread is not None else "—")
   q3.metric("عمر سعر الوسيط",f"{quote.get('tick_age_seconds')} ثانية" if quote.get("tick_age_seconds") is not None else "—")
   q4.metric("رمز الوسيط",state.get("bridge",{}).get("symbol") or "—")
-  if decision.get("timeframes"):
-   tf_rows=[{"الإطار":tf,"الاتجاه":item.get("trend"),"حالة البيانات":item.get("status"),
-    "عدد الشموع المغلقة":item.get("closed_candles")} for tf,item in decision["timeframes"].items()]
-   st.dataframe(pd.DataFrame(tf_rows),use_container_width=True,hide_index=True)
-  if decision.get("indicators"):
-   st.write("المؤشرات المحسوبة من الشموع المغلقة")
-   st.dataframe(pd.DataFrame([decision["indicators"]]),use_container_width=True,hide_index=True)
   risk=decision.get("risk_plan",{})
   st.write("حساب المخاطر وحجم المركز داخل البرنامج:",ar(risk.get("status","WAITING_FOR_ENGINE_5_BRIDGE")))
   if risk.get("volume") is not None:
