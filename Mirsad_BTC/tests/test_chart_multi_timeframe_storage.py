@@ -206,6 +206,37 @@ class StoredMultiTimeframeTests(unittest.TestCase):
             sum(item["volume"] for item in daily[:7]),
         )
 
+    def test_stored_multi_timeframe_adapter_exposes_derived_weekly_provenance(self) -> None:
+        day_ms = 24 * 60 * 60 * 1000
+        monday = int(datetime(2026, 11, 2, tzinfo=timezone.utc).timestamp() * 1000)
+        as_of = monday + 35 * day_ms
+        daily = make_bars(day_ms, monday, count=35)
+        save_market_snapshot({
+            "captured_at_ms": as_of,
+            "symbol": "BTCUSDT",
+            "primary_venue": "Binance Spot",
+            "venues": {
+                "Binance Spot": {
+                    "status": "LIVE",
+                    "candles_by_tf": {"1d": daily},
+                },
+            },
+        }, self.db_path)
+        report = analyze_stored_multi_timeframe_structure(
+            symbol="BTCUSDT",
+            venue="Binance Spot",
+            as_of_ms=as_of,
+            timeframes=("1d", "1w"),
+            db_path=str(self.db_path),
+        )
+        self.assertEqual(report["loaded_candle_counts"]["1w"], 5)
+        self.assertEqual(
+            report["candle_source_intervals"]["1w"],
+            ["1d_aggregated_to_1w_utc_monday"],
+        )
+        self.assertIn("Seven consecutive closed UTC daily candles", report["weekly_derivation"])
+        self.assertTrue(report["does_not_affect_decision_engine"])
+
     def test_incomplete_week_is_not_synthesised(self) -> None:
         day_ms = 24 * 60 * 60 * 1000
         monday = int(datetime(2026, 11, 2, tzinfo=timezone.utc).timestamp() * 1000)
