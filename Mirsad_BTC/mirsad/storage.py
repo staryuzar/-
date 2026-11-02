@@ -100,19 +100,19 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
     # written into the canonical '1d' interval. Preserve the old data under a
     # distinct interval key instead of mixing incompatible day boundaries.
     migration_id = "okx_daily_utc8_separation_v1"
-    migration_done = conn.execute(
-        "SELECT 1 FROM storage_migrations WHERE migration_id=?",
-        (migration_id,),
-    ).fetchone()
-    if migration_done is None:
-        conn.execute(
-            """UPDATE candles SET interval='1d_utc8'
-               WHERE venue='OKX Spot' AND interval='1d'"""
-        )
-        conn.execute(
-            "INSERT INTO storage_migrations(migration_id,applied_at_ms) VALUES(?,?)",
+    with conn:
+        # The marker insert takes the SQLite write lock; only the connection
+        # that inserts it performs the one-time data separation.
+        migration_cursor = conn.execute(
+            """INSERT OR IGNORE INTO storage_migrations(migration_id,applied_at_ms)
+               VALUES(?,?)""",
             (migration_id, int(time.time() * 1000)),
         )
+        if migration_cursor.rowcount:
+            conn.execute(
+                """UPDATE candles SET interval='1d_utc8'
+                   WHERE venue='OKX Spot' AND interval='1d'"""
+            )
     # Forward-compatible columns for the visual pattern evaluation archive.
     evaluation_columns = {
         row["name"] for row in conn.execute(
