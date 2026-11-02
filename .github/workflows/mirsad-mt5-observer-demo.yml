@@ -1,15 +1,6 @@
 name: Mirsad Chart Observer — any MT5 account capture (read-only)
 
 on:
-  push:
-    branches: [mirsad-mt5-demo]
-    paths:
-      - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
-      - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
-      - 'Mirsad_BTC/scripts/analyze_mt5_observer_capture.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
-      - '.github/workflows/mirsad-mt5-observer-demo.yml'
   workflow_dispatch:
     inputs:
       server:
@@ -51,6 +42,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if ($env:RUNNER_OS -ne 'Windows') { throw 'MetaTrader 5 requires a Windows runner.' }
           Write-Output "Windows runner: $([System.Environment]::OSVersion.VersionString)"
+
+      - name: Set up Python for chart and MT5 feed validation
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: Mirsad_BTC/requirements.txt
+
+      - name: Install Mirsad validation dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --upgrade pip
+          python -m pip install -r Mirsad_BTC/requirements.txt
 
       - name: Connect to the configured MT5 account (demo or real), compile and capture using the read-only Observer
         env:
