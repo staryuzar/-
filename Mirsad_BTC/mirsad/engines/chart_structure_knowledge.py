@@ -4,6 +4,7 @@ from statistics import median
 from typing import Any
 
 from .chart_classical_patterns import detect_classical_reversal_patterns
+from .chart_continuation_patterns import detect_classical_continuation_patterns
 
 def _validate_bars(bars: list[dict[str, Any]]) -> list[dict[str, float]]:
     normalized: list[dict[str, float]] = []
@@ -97,7 +98,7 @@ def analyze_chart_structure_knowledge(
             "internal": {}, "swing": {}, "external": {},
             "bos_choch_events": [], "liquidity_sweeps": [],
             "equal_highs": [], "equal_lows": [], "fair_value_gaps": [],
-            "classical_patterns": [],
+            "classical_patterns": [], "continuation_patterns": [],
             "premium_discount": None,
             "limitations": ["At least eight confirmed candles are required for this structure pass."],
         }
@@ -280,9 +281,13 @@ def analyze_chart_structure_knowledge(
                 "confirmation": "three_closed_candle_price_imbalance",
             })
 
-    classical_patterns = detect_classical_reversal_patterns(
+    reversal_patterns = detect_classical_reversal_patterns(
         confirmed, swing_highs, swing_lows, atr=atr,
     )
+    continuation_patterns = detect_classical_continuation_patterns(
+        confirmed, swing_highs, swing_lows, atr=atr,
+    )
+    classical_patterns = reversal_patterns + continuation_patterns
 
     premium_discount = None
     external_highs, external_lows = pivot_sets["external"]
@@ -315,6 +320,7 @@ def analyze_chart_structure_knowledge(
         "equal_lows": equal_lows,
         "fair_value_gaps": gaps[-30:],
         "classical_patterns": classical_patterns,
+        "continuation_patterns": continuation_patterns,
         "premium_discount": premium_discount,
         "limitations": [
             "Internal, swing and external are pivot scales inside this one supplied timeframe, not true multi-timeframe analysis.",

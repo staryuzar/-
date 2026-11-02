@@ -275,6 +275,8 @@ def render_engine_dashboard():
    pattern_rows=[{
     "النمط":item.get("pattern_id"),
     "الاتجاه الوصفي":item.get("direction"),
+   "العائلة":item.get("family"),
+   "بنية الحدود":item.get("geometry"),
     "اتجاه سابق":item.get("prior_trend"),
     "مطابقة السياق":item.get("context_match"),
     "حالة الشمعة":item.get("confirmation_state"),
@@ -297,6 +299,18 @@ def render_engine_dashboard():
     "double_bottom":"قاع مزدوج",
     "head_and_shoulders":"الرأس والكتفين",
     "inverse_head_and_shoulders":"الرأس والكتفين المعكوس",
+    "ascending_triangle":"مثلث صاعد",
+    "descending_triangle":"مثلث هابط",
+    "symmetrical_triangle":"مثلث متماثل",
+    "rising_wedge":"وتد صاعد",
+    "falling_wedge":"وتد هابط",
+    "rising_channel":"قناة صاعدة",
+    "falling_channel":"قناة هابطة",
+    "horizontal_channel":"قناة أفقية",
+    "bull_flag":"علم صاعد",
+    "bear_flag":"علم هابط",
+    "bull_pennant":"راية صاعدة",
+    "bear_pennant":"راية هابطة",
    }.get(item.get("pattern_id"),item.get("pattern_id")),
    "الحالة":ar(item.get("status","—")),
    "الاتجاه الوصفي":item.get("direction"),
@@ -305,10 +319,12 @@ def render_engine_dashboard():
    "شمعة كسر خط العنق":item.get("confirmation_index"),
    "خط العنق":f"{item.get('neckline_left','—')} → {item.get('neckline_right','—')}",
    "مستوى الإبطال":item.get("invalidation_level"),
+   "جهة الاختراق":item.get("breakout_direction"),
+   "شمعة الاختراق":item.get("breakout_index"),
   } for item in advanced.get("classical_patterns",[])]
   if classical_rows:
    st.dataframe(pd.DataFrame(classical_rows),use_container_width=True,hide_index=True)
-   st.caption("هذه أنماط هندسية وصفية؛ لا تدخل في قرار التداول ولم تثبت فائدتها الإحصائية على BTC بعد.")
+   st.caption("هذه الأنماط هندسية وصفية فقط؛ اتجاه المثلث أو الوتد لا يتنبأ بجهة الاختراق. لا تدخل النتائج في قرار التداول ولم تثبت فائدتها الإحصائية على BTC بعد.")
   else:
    st.caption("لم يتأكد تكوين قمة/قاع مزدوج أو رأس وكتفين في بيانات الشموع المؤكدة الحالية.")
   st.caption(

@@ -6,11 +6,12 @@ from mirsad.engines.chart_multi_timeframe import analyze_multi_timeframe_structu
 
 
 def bars_for(timeframe_ms: int, start_ms: int = 1_000_000, count: int = 40) -> list[dict[str, float]]:
+    # Swing-rich test data provides confirmed pivots at the 2/2 scale.
     closes = [
-        100, 104, 101, 108, 103, 112, 107, 116, 110, 120,
-        114, 124, 118, 128, 121, 132, 125, 136, 129, 140,
-        133, 144, 137, 148, 141, 152, 145, 156, 149, 160,
-        153, 164, 157, 168, 161, 172, 165, 176, 169, 180,
+    100, 106, 112, 108, 104, 102, 110, 118, 114, 108,
+    106, 114, 122, 118, 112, 110, 118, 126, 122, 116,
+    114, 122, 130, 126, 120, 118, 126, 134, 130, 124,
+    122, 130, 138, 134, 128, 126, 134, 142, 138, 132,
     ][:count]
     return [
         {
