@@ -8,6 +8,7 @@ from mirsad.engines.chart_structure_evaluation import (
     analyze_and_evaluate_stored_market_structures,
     evaluate_stored_structure_events,
     evaluate_structure_events,
+    scan_historical_structure_events,
     persist_structure_evaluations,
 )
 from mirsad.storage import CANDLE_INTERVAL_MS, connect
@@ -67,6 +68,51 @@ class StructureEventEvaluationTests(unittest.TestCase):
             embargo_bars=embargo_bars,
             **kwargs,
         )
+
+    def test_historical_scan_emits_double_bottom_on_its_confirmation_bar_only(self) -> None:
+        closes = [
+            96.0, 94.0, 92.0, 93.0, 95.0, 91.0, 94.0, 97.0,
+            100.0, 103.0, 104.0, 102.0, 99.0, 96.0, 94.0, 91.2,
+            94.0, 97.0, 112.0, 110.0, 108.0, 106.0,
+        ]
+        interval = CANDLE_INTERVAL_MS["1h"]
+        start = (1_700_000_000_000 // interval) * interval
+        bars = [
+            {
+                "open_time_ms": start + index * interval,
+                "open": close,
+                "high": close + 0.25,
+                "low": close - 0.25,
+                "close": close,
+                "closed": True,
+            }
+            for index, close in enumerate(closes)
+        ]
+
+        full_events, summary = scan_historical_structure_events(
+            bars,
+            timeframe="1h",
+        )
+        prefix_events, _ = scan_historical_structure_events(
+            bars[:19],
+            timeframe="1h",
+        )
+        full_double_bottoms = [
+            event for event in full_events if event["pattern_id"] == "double_bottom"
+        ]
+        prefix_double_bottoms = [
+            event for event in prefix_events if event["pattern_id"] == "double_bottom"
+        ]
+        self.assertTrue(full_double_bottoms)
+        self.assertEqual(full_double_bottoms[0]["status"], "CONFIRMED")
+        self.assertEqual(full_double_bottoms[0]["confirmation_index"], 18)
+        self.assertEqual(full_double_bottoms[0]["event_index"], 18)
+        self.assertEqual(
+            full_double_bottoms[0]["event_open_time_ms"],
+            prefix_double_bottoms[0]["event_open_time_ms"],
+        )
+        self.assertEqual(summary["lookahead_policy"], "closed_prefix_replay")
+        self.assertEqual(summary["future_bars_used_for_event_detection"], 0)
 
     def test_stored_evaluation_uses_only_selected_venue_and_as_of_time(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
