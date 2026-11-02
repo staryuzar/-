@@ -177,13 +177,24 @@ def render_engine_dashboard():
    st.dataframe(pd.DataFrame(chart["pattern_candidates"]),use_container_width=True,hide_index=True)
   header_ocr=chart.get("header_ocr") or {}
   if header_ocr.get("status") not in {None,"DISABLED"}:
+   header_status_ar={
+    "SUGGESTIONS_FOUND":"تم استخراج اقتراحات",
+    "NO_METADATA":"لم تُقرأ بيانات تعريف واضحة",
+    "OCR_UNAVAILABLE":"خدمة OCR غير متاحة",
+    "INVALID_IMAGE":"صورة غير صالحة",
+    "INVALID_HEADER_REGION":"منطقة عنوان غير صالحة",
+   }.get(header_ocr.get("status"),header_ocr.get("status"))
+   st.caption(
+    f"حالة قراءة عنوان الصورة: {header_status_ar} | "
+    f"ثقة OCR النصية المتوسطة: {header_ocr.get('mean_ocr_score','—')}"
+   )
    st.caption(
     f"اقتراحات بيانات عنوان الصورة: الرمز {header_ocr.get('symbol_suggestion') or 'غير واضح'} | "
     f"الإطار {header_ocr.get('timeframe_suggestion') or 'غير واضح'} | "
     f"البورصة {header_ocr.get('exchange_suggestion') or 'غير واضحة'} | "
     f"مطابقة رمز السوق: {header_ocr.get('expected_symbol_match','—')}"
    )
-   st.caption("هذه اقتراحات OCR للمراجعة ولا تستبدل البيانات المدخلة ولا تؤثر في معايرة السعر أو القرار.")
+   st.caption("هذه اقتراحات OCR للمراجعة فقط؛ لا تستبدل البيانات المدخلة، ولا تستخدم لمعايرة السعر أو أهلية القرار.")
   reference_patterns=chart.get("reference_patterns") or {}
   st.markdown("**مرجع الأنماط الحسابي المستقل — TA-Lib على OHLC المعاير**")
   st.caption(
