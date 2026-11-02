@@ -38,7 +38,7 @@ STATUS_AR={
  "PUBLISH_DISABLED":"نشر أوامر الخبير معطل","PUBLISHED":"أُرسل أمر للجسر",
  "ALREADY_ACKNOWLEDGED":"الأمر له إقرار سابق","ALREADY_PUBLISHED":"الأمر منشور مسبقاً",
  "PENDING_COMMAND_BLOCKED":"أمر سابق ينتظر التسوية","REJECTED":"الأمر مرفوض","ERROR":"خطأ",
- "FULLY_OPERATIONAL":"المحركات الخمسة جاهزة","PARTIAL_OR_WAITING":"تشغيل جزئي — توجد وصلات تنتظر",
+ "FULLY_OPERATIONAL":"المحركات الأربعة جاهزة","PARTIAL_OR_WAITING":"تشغيل جزئي — توجد وصلات تنتظر",
  "WAITING_FOR_ENGINE_2":"بانتظار معايرة الرسم","STALE":"بيانات قديمة — يلزم تحديث الصورة",
  "WAITING_FOR_ENGINE_3_QUOTE":"بانتظار سعر MT5 الحي","BLOCKED":"محجوب حتى تكتمل البيانات"}
 def ar(value):
@@ -51,7 +51,7 @@ def render_engine_dashboard():
  state=read_json(STATUS_PATH,{})
  market=read_json(SNAPSHOT_PATH,{})
  st.title("₿ مرصاد البيتكوين")
- st.caption("مرصاد منظومة بخمسة محركات مترابطة: السوق، التحليل البصري، المؤشرات، القرار ومتابعة الصفقات، وربط التواصل مع خبير MT5. لا يستخدم الخبير لاتخاذ القرار؛ دوره تنفيذ التوجيهات المعتمدة وإعادة حالة التنفيذ.")
+ st.caption("نظام بأربعة محركات مترابطة يعتمد بيانات السوق الفعلية. لا يستخدم نموذجاً توليدياً أو نموذجاً لاتخاذ قرار التداول؛ يمكن تشغيل OCR محلي لقراءة تدريجات المحور فقط. لا توجد أسعار مصطنعة أو صفقات محاكاة.")
  if state:
   st.metric("الحالة العامة",ar(state.get("overall_status","PARTIAL_OR_WAITING")))
   st.caption(age_text(state.get("heartbeat_at_ms")))
@@ -60,17 +60,12 @@ def render_engine_dashboard():
  if state:
   labels=[
    ("1 — السوق والمعلومات","engine_1_market"),
-   ("2 — التحليل البصري","engine_2_chart"),
-   ("3 — المؤشرات","engine_3_indicators"),
-   ("4 — القرار ومتابعة الصفقات","engine_4_decision"),
-   ("5 — ربط البرنامج بالخبير","engine_5_communication_bridge")]
-  engine_states=state.get("engines",{})
-  cols=st.columns(5)
+   ("2 — تحليل الرسوم والصور","engine_2_chart"),
+   ("3 — جسر MT5 والخبير","engine_3_mt5_bridge"),
+   ("4 — القرار وإدارة المخاطر","engine_4_decision")]
+  cols=st.columns(4)
   for col,(label,key) in zip(cols,labels):
-   status=engine_states.get(key)
-   if key=="engine_5_communication_bridge" and status is None:
-    status=engine_states.get("engine_3_mt5_bridge","NOT_STARTED")
-   with col: col.metric(label,ar(status or "NOT_STARTED"))
+   with col: col.metric(label,ar(state.get("engines",{}).get(key,"NOT_STARTED")))
   st.divider()
 
  if market:
@@ -102,14 +97,11 @@ def render_engine_dashboard():
  if state:
   chart=state.get("chart",{})
   st.subheader("المحرك الثاني — تحليل الرسوم والصور")
-  c1,c2,c3,c4,c5=st.columns(5)
+  c1,c2,c3,c4=st.columns(4)
   c1.metric("حالة التحليل",ar(chart.get("status")))
   c2.metric("شموع مكتشفة",chart.get("detected_bar_count",0))
   c3.metric("شموع معايرة سعرياً",chart.get("calibrated_bar_count",0))
-  c4.metric("شموع مؤكدة",chart.get("confirmed_bar_count",chart.get("calibrated_bar_count",0)))
-  c5.metric("الميل المرئي",chart.get("visual_bias","—"))
-  latest_state="مغلقة" if chart.get("last_candle_closed") else "قيد التكوين / غير مؤكدة"
-  st.caption(f"حالة آخر شمعة: {latest_state} | الشمعة غير المؤكدة تبقى معروضة، لكنها لا تدخل في قياس الاتجاه والبنية المؤكدين.")
+  c4.metric("الميل المرئي",chart.get("visual_bias","—"))
   a1,a2,a3=st.columns(3)
   a1.metric("درجة المحلل",f"{chart.get('analysis_score',0)*100:.1f} / 100")
   a2.metric("مؤشر جودة الأدلة",f"{chart.get('analysis_confidence',0)*100:.1f}%")
@@ -214,7 +206,7 @@ def render_engine_dashboard():
    st.caption("حدود التحليل: "+" | ".join(chart["limitations"]))
 
   bridge=state.get("bridge",{})
-  st.subheader("المحرك الخامس — جسر التواصل بين البرنامج والخبير")
+  st.subheader("المحرك الثالث — جسر البرنامج والخبير")
   b1,b2,b3=st.columns(3)
   b1.metric("حالة الجسر",ar(bridge.get("status")))
   b2.metric("عمر النبض (ثانية)",bridge.get("heartbeat_age_seconds","—"))
@@ -226,7 +218,7 @@ def render_engine_dashboard():
    st.caption(f"سعر MT5 الحي: Bid {quote.get('bid','—')} / Ask {quote.get('ask','—')} | الرمز: {bridge.get('symbol','—')} | مربوط بسوق: {bridge.get('market_symbol','—')}")
 
   decision=state.get("decision",{})
-  st.subheader("المحرك الرابع — اتخاذ القرار ومتابعة الصفقات وإدارة المخاطر")
+  st.subheader("المحرك الرابع — مركز القرار وإدارة المخاطر")
   d1,d2,d3,d4=st.columns(4)
   action=decision.get("action","WAIT")
   d1.metric("القرار",{"BUY":"شراء","SELL":"بيع","CLOSE":"إغلاق مركز معاكس","HOLD":"الاحتفاظ بالمركز","WAIT":"انتظار"}.get(action,action))

@@ -103,6 +103,27 @@ class ChartPatternReferenceTests(unittest.TestCase):
         self.assertEqual(engulfing[0]["x_px"], 2.0)
         self.assertEqual(engulfing[0]["formation_center_x_px"], 1.5)
 
+    def test_unclosed_latest_candle_cannot_invalidate_an_earlier_closed_pattern(self) -> None:
+        bars = [
+            {"x_px": 0, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5},
+            {"x_px": 1, "open": 12.0, "high": 12.5, "low": 9.5, "close": 10.0},
+            {"x_px": 2, "open": 9.0, "high": 13.5, "low": 8.5, "close": 13.0},
+            # This developing bar falls below the prior bullish formation low.
+            # Until it closes, that intrabar move must not invalidate the pattern.
+            {"x_px": 3, "open": 8.5, "high": 9.0, "low": 7.5, "close": 8.0},
+        ]
+        result = analyze_talib_pattern_reference(bars, last_candle_closed=False)
+        engulfing = [
+            event for event in result["events"]
+            if event["pattern"] == "CDLENGULFING" and event["bar_index"] == 2
+        ]
+        self.assertEqual(len(engulfing), 1)
+        self.assertEqual(engulfing[0]["state"], "COMPLETED")
+        self.assertEqual(
+            engulfing[0]["invalidation_reason"],
+            "Invalidated only by a later close below the formation low.",
+        )
+
     def test_scan_is_point_in_time_and_does_not_use_future_bars(self) -> None:
         bars = deterministic_ohlc(count=90, seed=23)
         full, error = _pattern_signal_arrays(bars)

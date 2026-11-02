@@ -144,6 +144,11 @@ def _candidate_state(
     formation_high = float(np.max(high[start:index + 1]))
     formation_low = float(np.min(low[start:index + 1]))
     later_closes = close[index + 1:]
+    # The latest screenshot candle may still be forming. It can be displayed
+    # as a live candidate, but it cannot invalidate an earlier closed pattern
+    # until its own close has been confirmed.
+    if not last_candle_closed and index < len(close) - 1:
+        later_closes = later_closes[:-1]
 
     invalidation_reason = None
     invalidation_level = None
