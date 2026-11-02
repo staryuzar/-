@@ -1,4 +1,5 @@
 name: Mirsad Chart Observer — any MT5 account capture (read-only)
+# Diagnostics iteration: retry ChartScreenShot even when the hosted chart viewport is compact.
 
 on:
   push:
