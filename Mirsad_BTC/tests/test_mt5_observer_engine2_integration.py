@@ -90,6 +90,7 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
             self.assertFalse(args[1]["auto_axis_ocr"])
             self.assertEqual(args[1]["reference_last_candle_ohlc"]["close"], observer["bars"][-1]["close"])
             self.assertEqual(kwargs["expected_symbol"], "BTCUSDT")
+            self.assertEqual(args[1]["expected_candle_count"], 30)
 
     def test_changed_image_after_inbox_validation_is_rejected_by_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

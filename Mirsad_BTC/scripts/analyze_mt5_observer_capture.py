@@ -72,6 +72,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
     metadata = {
         "symbol": market_symbol, "timeframe": timeframe,
         "price_scale_type": str(chart.get("price_scale_type", "linear")).lower(),
+        "expected_candle_count": int(chart.get("visible_bars", 0) or 0),
         "last_candle_closed": False, "auto_axis_ocr": True,
         "reference_last_candle_ohlc": {k: float(bars[-1][k]) for k in ("open", "high", "low", "close")}
     }
@@ -127,6 +128,20 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "detected_bar_count": int(result.get("detected_bar_count", 0)),
             "confirmed_bar_count": int(result.get("confirmed_bar_count", 0)),
             "last_bar_x_ratio": result.get("last_bar_x_ratio"),
+            "extraction": {
+                "expected_candle_count": int(chart.get("visible_bars", 0) or 0),
+                "segmentation_mode": (result.get("extraction_diagnostics") or {}).get("segmentation_mode"),
+                "selected_palette_mode": (result.get("extraction_diagnostics") or {}).get("selected_palette_mode"),
+                "accepted_bars": (result.get("extraction_diagnostics") or {}).get("accepted_bars"),
+                "slot_guided": {
+                    key: value for key, value in (
+                        (result.get("extraction_diagnostics") or {}).get("slot_guided_extraction") or {}
+                    ).items()
+                    if key in {"mode", "slots_considered", "occupied_slots", "rejected_low_activity",
+                               "rejected_component_quality", "rejected_low_pixels", "rejected_mixed_palette",
+                               "count_fit_improves", "geometry_quality_improves"}
+                },
+            },
             "quality_gates": result.get("quality_gates", {}),
             "reason": None if eligible else (
                 reference_reason
