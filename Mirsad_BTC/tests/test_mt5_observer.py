@@ -22,7 +22,7 @@ class MT5ReferenceCandleCandidateTests(unittest.TestCase):
                 "high": 102.0 + index,
                 "low": 99.0 + index,
                 "close": 101.0 + index,
-                "is_closed": index < 2,
+                "is_closed": index < 3,
             }
             for index in range(3)
         ]
