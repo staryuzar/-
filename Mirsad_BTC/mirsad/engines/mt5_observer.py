@@ -169,6 +169,12 @@ class MT5ChartObserverInbox:
             )
         if published_at < captured_at or published_at > clock_now + self.max_future_skew_seconds * 1000:
             return _invalid("INVALID_PUBLISH_TIME", "Manifest publish time is inconsistent with the capture time.")
+        try:
+            server_time_ms = int(payload["server_time_seconds"]) * 1000
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return _invalid("INVALID_SERVER_TIME", "MT5 server time is missing or invalid.")
+        if server_time_ms <= 0 or server_time_ms > clock_now + self.max_future_skew_seconds * 1000:
+            return _invalid("INVALID_SERVER_TIME", "MT5 server time is invalid or too far in the future.")
         if not (320 <= image_width <= 3840 and 180 <= image_height <= 2160):
             return _invalid("INVALID_IMAGE_DIMENSIONS", "Observer image dimensions are outside the accepted bounds.")
         if expected_size < 128:
@@ -177,6 +183,9 @@ class MT5ChartObserverInbox:
         image_name = payload.get("image_file")
         if (
             not isinstance(image_name, str)
+            or not image_name
+            or "/" in image_name
+            or "\\" in image_name
             or Path(image_name).name != image_name
             or Path(image_name).suffix.lower() != ".png"
         ):
@@ -228,6 +237,8 @@ class MT5ChartObserverInbox:
             return _invalid("INVALID_OHLC_SNAPSHOT", bar_error, capture_id=capture_id)
         if int(payload.get("bars_copied", -1)) != len(bars or []):
             return _invalid("BAR_COUNT_MISMATCH", "bars_copied does not match the actual bars array.")
+        if bars and bars[-1]["time_server_ms"] > server_time_ms + 60_000:
+            return _invalid("BAR_TIME_IN_FUTURE", "Newest MT5 bar opens more than one minute after the reported server time.")
         if not bool(payload.get("forming_bar_included")):
             return _invalid("FORMING_BAR_FLAG_MISMATCH", "Protocol says a forming bar is included but flag is false.")
 
