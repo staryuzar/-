@@ -4,7 +4,7 @@
 //| No trade functions. Does not publish MIR1 commands.               |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "001.001"
+#property version   "1.001"
 #property description "Mirsad read-only MT5 chart screenshot and OHLC observer"
 
 input int  InpCaptureIntervalSeconds = 60;   // Snapshot cadence (5..3600 seconds)
