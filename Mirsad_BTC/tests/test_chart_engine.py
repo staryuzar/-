@@ -317,7 +317,7 @@ class ChartEngineTests(unittest.TestCase):
         self.assertIn("pattern_candidates", result)
         self.assertIn("events", reference)
         self.assertIn("not probabilities", reference["interpretation"])
-        self.assertIn("not an independent directional vote", reference["interpretation"])
+        self.assertIn("never add both outputs", reference["interpretation"])
 
     def test_insufficient_calibrated_history_returns_neutral_without_crashing(self) -> None:
         bars = [

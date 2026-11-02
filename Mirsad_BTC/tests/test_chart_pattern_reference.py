@@ -79,9 +79,10 @@ class ChartPatternReferenceTests(unittest.TestCase):
 
     def test_bullish_engulfing_is_invalidated_by_a_later_close_below_formation_low(self) -> None:
         bars = [
-            {"x_px": 0, "open": 12.0, "high": 12.5, "low": 9.5, "close": 10.0},
-            {"x_px": 1, "open": 9.0, "high": 13.5, "low": 8.5, "close": 13.0},
-            {"x_px": 2, "open": 8.5, "high": 9.0, "low": 7.5, "close": 8.0},
+            {"x_px": 0, "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5},
+            {"x_px": 1, "open": 12.0, "high": 12.5, "low": 9.5, "close": 10.0},
+            {"x_px": 2, "open": 9.0, "high": 13.5, "low": 8.5, "close": 13.0},
+            {"x_px": 3, "open": 8.5, "high": 9.0, "low": 7.5, "close": 8.0},
         ]
         events = talib.CDLENGULFING(
             np.asarray([bar["open"] for bar in bars], dtype=float),
@@ -89,11 +90,11 @@ class ChartPatternReferenceTests(unittest.TestCase):
             np.asarray([bar["low"] for bar in bars], dtype=float),
             np.asarray([bar["close"] for bar in bars], dtype=float),
         )
-        self.assertGreater(int(events[1]), 0)
+        self.assertGreater(int(events[2]), 0)
         result = analyze_talib_pattern_reference(bars, last_candle_closed=True)
         engulfing = [
             event for event in result["events"]
-            if event["pattern"] == "CDLENGULFING" and event["bar_index"] == 1
+            if event["pattern"] == "CDLENGULFING" and event["bar_index"] == 2
         ]
         self.assertEqual(len(engulfing), 1)
         self.assertEqual(engulfing[0]["side"], "BULLISH")
