@@ -205,51 +205,46 @@ Period=$observerTimeframe
 
     $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable', "/config:$loginConfig", "/login:$login") -WorkingDirectory $installDir -PassThru
     Add-Report ("MT5 terminal launched with the read-only Observer on {0},{1}. Automated trading permission is disabled." -f $observerSymbol, $observerTimeframe)
-    $loginStarted = Get-Date
-    $authorized = $false
     $observerDir = $null
     $manifestFile = $null
+    $manifest = $null
     $deadline = (Get-Date).AddSeconds(180)
 
     while ((Get-Date) -lt $deadline) {
-        $logDir = Join-Path $installDir 'Logs'
-        if (Test-Path -LiteralPath $logDir) {
-            $logs = Get-ChildItem -LiteralPath $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 12
-            foreach ($log in $logs) {
-                if ($log.LastWriteTime -lt $loginStarted.AddSeconds(-3)) { continue }
-                $txt = ''
-                try { $txt = Get-Content -LiteralPath $log.FullName -Raw } catch { continue }
-                foreach ($line in ($txt -split "\r?\n")) {
-                    if ($line -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
-                        $line -notmatch '(?i)(failed|invalid|not authorized|authorization error)') {
-                        $authorized = $true
-                    }
+        $observerDir = Get-CommonObserverDirectory
+        if ($observerDir) {
+            $candidates = Get-ChildItem -LiteralPath $observerDir -Filter 'capture_*.json' -File -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTimeUtc -Descending
+            foreach ($candidate in $candidates) {
+                try {
+                    $candidateManifest = Get-Content -LiteralPath $candidate.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
+                }
+                catch {
+                    continue
+                }
+                if ($candidateManifest.account -and [bool]$candidateManifest.account.terminal_connected) {
+                    $manifestFile = $candidate
+                    $manifest = $candidateManifest
+                    break
                 }
             }
         }
 
-        $observerDir = Get-CommonObserverDirectory
-        if ($observerDir) {
-            $manifestFile = Get-ChildItem -LiteralPath $observerDir -Filter 'capture_*.json' -File -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-        }
-
-        if ($authorized -and $manifestFile) { break }
+        if ($manifestFile) { break }
         if ($terminalProcess.HasExited) {
-            Add-Report 'Terminal exited before account authorization and Observer capture were both confirmed.'
+            Add-Report 'Terminal exited before MT5 itself reported a connected account and Observer capture.'
             break
         }
         Start-Sleep -Seconds 3
     }
 
-    if (!$authorized) { throw 'MT5 account authorization was not confirmed. Check the broker server, login and account password in the secret.' }
-    Add-Report ("PASS — MT5 authorized on configured server: {0}." -f $server)
-    if (!$manifestFile -or !$observerDir) {
-        throw 'MT5 started, but no Observer capture manifest appeared within 180 seconds.'
+    if (!$manifestFile -or !$observerDir -or !$manifest) {
+        throw 'No MT5-connected Observer capture appeared within 180 seconds. Check the account login, password and broker server.'
     }
-
-    $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
+    if (!$manifest.account -or -not [bool]$manifest.account.terminal_connected) {
+        throw 'MT5 terminal did not report a connected account.'
+    }
+    Add-Report ("PASS — MT5 reports a connected account. Server={0}; account type={1}." -f $manifest.account.server,$manifest.account.trade_mode_label)
     if ($manifest.schema -ne 'MIR-CHART-OBSERVATION-1') { throw 'Observer manifest schema is not MIR-CHART-OBSERVATION-1.' }
     if ([string]$manifest.chart.symbol -ne $observerSymbol -or [string]$manifest.chart.timeframe -ne $observerTimeframe) {
         throw ("Observer captured {0},{1}, expected {2},{3}." -f $manifest.chart.symbol,$manifest.chart.timeframe,$observerSymbol,$observerTimeframe)
@@ -289,7 +284,9 @@ Period=$observerTimeframe
         capture_at_utc_ms = $manifest.capture_at_utc_ms
         rates_snapshot_at_utc_ms = $manifest.rates_snapshot_at_utc_ms
         capture_data_skew_ms = $skew
-        server = $server
+        server = $manifest.account.server
+        account_type = $manifest.account.trade_mode_label
+        terminal_connected = [bool]$manifest.account.terminal_connected
         symbol = $manifest.chart.symbol
         timeframe = $manifest.chart.timeframe
         image_width_px = $manifest.image_width_px
@@ -305,7 +302,7 @@ Period=$observerTimeframe
         trading_permission_enabled = $false
     }
     $safe | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'observer-live-capture-summary.json') -Encoding utf8
-    Add-Report ("PASS — Observer capture received from MT5 account/server: {0} / {1} / {2}." -f $server,$manifest.chart.symbol, $manifest.chart.timeframe)
+    Add-Report ("PASS — Observer capture received from MT5 account/server: {0} / {1} / {2}; account type={3}." -f $manifest.account.server,$manifest.chart.symbol, $manifest.chart.timeframe,$manifest.account.trade_mode_label)
     Add-Report ("PASS — PNG signature and byte size verified: {0} bytes." -f $imageBytes.Length)
     Add-Report ("PASS — MT5 OHLC response recorded: {0} bars; status={1}; error={2}." -f @($manifest.bars).Count,$manifest.rates_status,$manifest.rates_error_code)
     Add-Report ("PASS — Image/OHLC request skew: {0} ms." -f $skew)
