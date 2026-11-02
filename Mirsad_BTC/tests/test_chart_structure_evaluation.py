@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from mirsad.engines.chart_structure_evaluation import (
+    analyze_and_evaluate_stored_market_structures,
     evaluate_stored_structure_events,
     evaluate_structure_events,
     persist_structure_evaluations,
@@ -98,6 +99,43 @@ class StructureEventEvaluationTests(unittest.TestCase):
             self.assertEqual(result["venue"], "Binance Spot")
             self.assertEqual(result["stored_bar_count"], 10)
             self.assertEqual(result["bar_count"], 10)
+
+    def test_end_to_end_stored_market_scan_uses_engine_two_and_keeps_empty_results_honest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            db_path = str(Path(temporary) / "engine-two-study.sqlite3")
+            bars = make_bars(20)
+            conn = connect(db_path)
+            try:
+                conn.executemany(
+                    """INSERT INTO candles
+                       (venue,symbol,interval,open_time_ms,open,high,low,close,volume,is_closed)
+                       VALUES(?,?,?,?,?,?,?,?,?,1)""",
+                    [
+                        (
+                            "Binance Spot", "BTCUSDT", "1h", int(bar["open_time_ms"]),
+                            float(bar["open"]), float(bar["high"]), float(bar["low"]),
+                            float(bar["close"]), 1.0,
+                        )
+                        for bar in bars
+                    ],
+                )
+            finally:
+                conn.close()
+
+            result = analyze_and_evaluate_stored_market_structures(
+                symbol="BTCUSDT",
+                venue="Binance Spot",
+                timeframe="1h",
+                as_of_ms=int(bars[-1]["open_time_ms"]) + CANDLE_INTERVAL_MS["1h"],
+                data_split="test",
+                dataset_id="engine-two-fixture-v1",
+                horizons=(1, 3),
+                db_path=db_path,
+            )
+            self.assertIn(result["structure_analysis_status"], {"READY", "PARTIAL"})
+            self.assertEqual(len(result["detected_structure_events"]), 0)
+            self.assertEqual(result["evaluation"]["bar_count"], 20)
+            self.assertEqual(result["evaluation"]["empirical_status"], "UNVALIDATED")
 
     def test_stored_evaluation_rejects_insufficient_history(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
