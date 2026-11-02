@@ -234,8 +234,9 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
    "alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
    "does_not_affect_decision_engine":True,
   }
- # The read-only chart observer is surfaced independently. Its capture has
- # no effect on chart eligibility, Engine 4 scoring, or MIR1 order publication.
+ # A fresh Observer capture is consumed by Engine 2 above as an image/market-data
+ # evidence input. It never authorizes an order by itself: Engine 4 still owns
+ # scoring, market-source quorum, position management and all risk gates.
  indicators=IndicatorsEngine().analyze(market)
  decision=DecisionEngine().analyze(market,chart,bridge,indicators)
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
