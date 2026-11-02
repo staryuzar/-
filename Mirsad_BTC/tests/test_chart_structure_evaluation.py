@@ -15,7 +15,7 @@ from mirsad.storage import CANDLE_INTERVAL_MS, connect
 
 def make_bars(length: int) -> list[dict[str, float | int | bool]]:
     interval = CANDLE_INTERVAL_MS["1h"]
-    start = 1_700_000_000_000
+    start = (1_700_000_000_000 // interval) * interval
     bars: list[dict[str, float | int | bool]] = []
     for index in range(length):
         base = 100.0 + index
