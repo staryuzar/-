@@ -327,8 +327,20 @@ public static class MirsadNativeWindow {
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
-    public static bool MaximizeMdiChartWindow(IntPtr chartWindow) {
-        IntPtr mdi = GetParent(chartWindow);
+    public static int MaximizeMdiChildren(IntPtr topWindow) {
+        IntPtr mdi = FindWindowEx(topWindow, IntPtr.Zero, "MDIClient", null);
+        if (mdi == IntPtr.Zero) return -1;
+        var children = new List<IntPtr>();
+        EnumWindowProc callback = (hwnd, lParam) => {
+            if (GetParent(hwnd) == mdi) children.Add(hwnd);
+            return true;
+        };
+        EnumChildWindows(mdi, callback, IntPtr.Zero);
+        foreach (IntPtr child in children) PostMessage(mdi, 0x0225, child, IntPtr.Zero);
+        return children.Count;
+    }
+    public static bool MaximizeMdiChartWindow(IntPtr topWindow, IntPtr chartWindow) {
+        IntPtr mdi = FindWindowEx(topWindow, IntPtr.Zero, "MDIClient", null);
         if (mdi == IntPtr.Zero) return ShowWindowAsync(chartWindow, 3);
         return PostMessage(mdi, 0x0225, chartWindow, IntPtr.Zero);
     }
@@ -365,12 +377,17 @@ public static class MirsadNativeWindow {
             if ($observerChartStatus -and [long]$observerChartStatus.chart_window_handle -gt 0) { break }
             Start-Sleep -Seconds 1
         } while ([DateTime]::UtcNow -lt $chartHandleDeadline)
+        $allMdiChildren = [MirsadNativeWindow]::MaximizeMdiChildren($terminalWindow.MainWindowHandle)
         if ($observerChartStatus -and [long]$observerChartStatus.chart_window_handle -gt 0) {
             $observerChartHwnd = [IntPtr]([long]$observerChartStatus.chart_window_handle)
-            $targetedMaximize = [MirsadNativeWindow]::MaximizeMdiChartWindow($observerChartHwnd)
+            $targetedMaximize = [MirsadNativeWindow]::MaximizeMdiChartWindow($terminalWindow.MainWindowHandle,$observerChartHwnd)
             [MirsadNativeWindow]::SetForegroundWindow($observerChartHwnd) | Out-Null
             Start-Sleep -Seconds 2
-            Add-Report ("PASS — targeted Observer chart MDI maximize requested={0}; chart HWND={1}; symbol={2}; timeframe={3}." -f $targetedMaximize,$observerChartHwnd,$observerChartStatus.symbol,$observerChartStatus.timeframe)
+            $chartWindowRect = [MirsadNativeWindow]::WindowRectText($observerChartHwnd)
+            Add-Report ("PASS — MDI windows maximized={0}; targeted Observer chart maximize requested={1}; target HWND={2}; target window={3}; symbol={4}; timeframe={5}." -f $allMdiChildren,$targetedMaximize,$observerChartHwnd,$chartWindowRect,$observerChartStatus.symbol,$observerChartStatus.timeframe)
+        }
+        else {
+            Add-Report ("WARN — Observer chart HWND was not published; MDI windows maximized={0}; source viewport quality gate remains in force." -f $allMdiChildren)
         }
         else {
             Add-Report 'WARN — Observer chart HWND was not published; the original viewport quality gate remains in force.'
@@ -495,6 +512,8 @@ public static class MirsadNativeWindow {
         image_sha256 = $imageHash
         source_width_px = [int]$manifest.chart.source_width_px
         source_main_window_height_px = [int]$manifest.chart.source_main_window_height_px
+        chart_window_handle_reported = [bool]([long]$manifest.chart.chart_window_handle -gt 0)
+        chart_is_maximized = [bool]$manifest.chart.chart_is_maximized
         visible_bars = [int]$manifest.chart.visible_bars
         windows_total = [int]$manifest.chart.windows_total
         chart_autoscroll = [bool]$manifest.chart.chart_autoscroll
