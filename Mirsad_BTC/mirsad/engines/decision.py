@@ -141,49 +141,32 @@ def _weighted_direction_score(chart_score: float, market_score: float) -> float:
     ))
 
 
-def _market_confirmation_score(
-    trend_score: float, orderflow: dict[str, Any], venues: dict[str, Any]
-) -> tuple[float, dict[str, Any]]:
-    """Compress Engine 1 evidence to a normalized confirmation score in [-1, 1]."""
-    flow_ratio = orderflow.get("taker_buy_ratio")
-    flow_score = None
-    if flow_ratio is not None:
+def _market_confirmation_score(indicator_trend_score: float, market: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+    """Blend Engine 3 candle indicators with Engine 1 quote-update microstructure."""
+    trend = float(indicator_trend_score)
+    if not math.isfinite(trend) or not -1.0 <= trend <= 1.0:
+        raise ValueError("Indicator trend score must be finite and normalized.")
+    context = market.get("market_context") if isinstance(market.get("market_context"), dict) else {}
+    pulse = context.get("microstructure") if isinstance(context.get("microstructure"), dict) else {}
+    quote_balance = None
+    if pulse.get("status") == "READY":
         try:
-            ratio = float(flow_ratio)
-        except (TypeError,ValueError,OverflowError):
-            ratio = float("nan")
-        if math.isfinite(ratio) and 0.0 <= ratio <= 1.0:
-            flow_score = max(-1.0, min(1.0, (ratio - 0.5) / 0.25))
-    book_values = []
-    for row in venues.values():
-        if row.get("status") != "LIVE":
-            continue
-        imbalance = (row.get("orderbook") or {}).get("imbalance")
-        try:
-            value = float(imbalance)
+            value = float(pulse.get("quote_direction_balance"))
         except (TypeError, ValueError, OverflowError):
-            continue
+            value = float("nan")
         if math.isfinite(value) and -1.0 <= value <= 1.0:
-            book_values.append(value)
-    book_score = sum(book_values) / len(book_values) if book_values else None
-
-    components = [(max(-1.0, min(1.0, float(trend_score))), 0.60)]
-    if flow_score is not None:
-        components.append((flow_score, 0.25))
-    if book_score is not None:
-        components.append((book_score, 0.15))
-    total_weight = sum(weight for _, weight in components)
-    score = sum(value * weight for value, weight in components) / total_weight
+            quote_balance = value
+    score = trend if quote_balance is None else 0.80 * trend + 0.20 * quote_balance
     return max(-1.0, min(1.0, score)), {
-        "trend": round(float(trend_score), 4),
-        "orderflow": round(flow_score, 4) if flow_score is not None else None,
-        "orderbook": round(book_score, 4) if book_score is not None else None,
-        "contributors": len(book_values),
+        "engine_3_indicator_trend": round(trend, 4),
+        "engine_1_quote_update_balance": round(quote_balance, 4) if quote_balance is not None else None,
+        "quote_pulse_status": pulse.get("status", "NOT_AVAILABLE"),
+        "quote_pulse_scope": "bid/ask quote updates, not executed trades",
     }
 
 
 class DecisionEngine:
-    """Engine 4. Direction comes only from Engines 1 and 2.
+    """Engine 4. Combines Engine 1 market context, Engine 2 chart/candles and Engine 3 indicators.
     Engine 5 supplies execution/account facts and transports MIR1 commands.
     """
 
@@ -348,7 +331,7 @@ class DecisionEngine:
 
         signal_id = _signal_id(
             market_symbol, aligned_signal,
-            one[-1].get("open_time_ms") if one else 0,
+            last_closed_candle_time_ms or 0,
             chart.get("image", ""),
         ) if aligned_signal in {"BUY", "SELL"} else None
 
@@ -393,7 +376,7 @@ class DecisionEngine:
                     "reason": "Engine 1 and Engine 2 confirmed a direction opposite to an existing position; close first before considering a reversal.",
                 }
                 signal_id = _signal_id("CLOSE", market_symbol, close_ticket, round(close_volume, 8),
-                                       one[-1].get("open_time_ms") if one else 0,
+                                       last_closed_candle_time_ms or 0,
                                        chart.get("image", ""))
             elif same:
                 action = "HOLD"
