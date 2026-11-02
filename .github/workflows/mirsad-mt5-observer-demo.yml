@@ -31,8 +31,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 15
     steps:
-      - name: Checkout Mirsad project
+      - name: Checkout Mirsad project source branch
         uses: actions/checkout@v4
+        with:
+          ref: mirsad-mt5-demo
 
       - name: Verify Windows runner
         shell: pwsh
