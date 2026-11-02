@@ -215,7 +215,8 @@ def record_structure_observations(
                     raise ValueError(f"Unknown market structure id: {structure_id}")
                 start = int(event.get("start_index", event.get("index", 0)))
                 end = int(event.get("end_index", event.get("index", start)))
-                identity = "|".join((sample_fingerprint, symbol.upper(), timeframe, structure_id, str(start), str(end), KNOWLEDGE_VERSION))
+                scope = str(event.get("scope", ""))
+                identity = "|".join((sample_fingerprint, symbol.upper(), timeframe, structure_id, str(start), str(end), scope, KNOWLEDGE_VERSION))
                 observation_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
                 conn.execute(
                     """INSERT INTO visual_structure_observations
