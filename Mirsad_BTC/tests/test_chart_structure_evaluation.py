@@ -52,14 +52,16 @@ class StructureEventEvaluationTests(unittest.TestCase):
             "split_end_ms", int(bars[-1]["open_time_ms"]) + interval
         )
         embargo_bars = kwargs.pop("embargo_bars", 0)
+        data_split = kwargs.pop("data_split", "test")
+        dataset_id = kwargs.pop("dataset_id", "fixture-v1")
         return evaluate_structure_events(
             bars,
             events,
             symbol="BTCUSDT",
             venue="Binance Spot",
             timeframe="1h",
-            data_split="test",
-            dataset_id="fixture-v1",
+            data_split=data_split,
+            dataset_id=dataset_id,
             split_start_ms=split_start_ms,
             split_end_ms=split_end_ms,
             embargo_bars=embargo_bars,
@@ -341,6 +343,19 @@ class StructureEventEvaluationTests(unittest.TestCase):
                 self.assertIsNotNone(rows[0]["fee_adjusted_expectancy_pct"])
             finally:
                 conn.close()
+
+            overlapping_train = self.evaluate(
+                make_bars(20),
+                [reversal_event()],
+                data_split="train",
+            )
+            with self.assertRaisesRegex(ValueError, "overlaps previously stored test window"):
+                persist_structure_evaluations(
+                    overlapping_train,
+                    primary_horizon_bars=1,
+                    db_path=db_path,
+                    calculated_at_ms=1236,
+                )
 
 
 if __name__ == "__main__":
