@@ -237,7 +237,7 @@ def analyze_chart_structure_knowledge(
         "confirmed_bars": len(confirmed),
         "atr_proxy": round(atr, 8),
         "scales": reports,
-        "structure_direction": prior_direction,
+        "structure_direction": overall_sequence["direction"],
         "bos_choch_events": sorted(events, key=lambda x: x["confirmation_index"])[-20:],
         "liquidity_sweeps": sorted(sweeps, key=lambda x: x["confirmation_index"])[-20:],
         "equal_highs": equal_highs,
