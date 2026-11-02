@@ -142,10 +142,15 @@ def analyze_multi_timeframe_structure(
     else:
         alignment = "BEARISH_TIMEFRAME_CONFLUENCE"
 
+    eligible_timeframes = [
+        timeframe for timeframe, report in reports.items()
+        if report.get("status") == "READY"
+    ]
     return {
-        "status": "READY" if len(reports) >= 2 else "PARTIAL",
+        "status": "READY" if len(eligible_timeframes) >= 2 else "PARTIAL",
         "as_of_ms": as_of_ms,
         "available_timeframes": list(reports),
+        "eligible_timeframes": eligible_timeframes,
         "errors": errors,
         "timeframe_reports": reports,
         "directional_structure_by_timeframe": directional,
