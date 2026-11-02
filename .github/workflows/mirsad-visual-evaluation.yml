@@ -12,6 +12,8 @@ on:
       - "Mirsad_BTC/mirsad/engines/visual_knowledge.py"
       - "Mirsad_BTC/mirsad/storage.py"
       - "Mirsad_BTC/tests/test_chart_structure_evaluation.py"
+      - "Mirsad_BTC/scripts/run_structure_study.py"
+      - "Mirsad_BTC/tests/test_run_structure_study.py"
       - "Mirsad_BTC/tests/test_chart_classical_patterns.py"
       - "Mirsad_BTC/tests/test_chart_continuation_patterns.py"
       - "Mirsad_BTC/tests/test_chart_structure_knowledge.py"
@@ -28,6 +30,8 @@ on:
       - "Mirsad_BTC/mirsad/engines/visual_knowledge.py"
       - "Mirsad_BTC/mirsad/storage.py"
       - "Mirsad_BTC/tests/test_chart_structure_evaluation.py"
+      - "Mirsad_BTC/scripts/run_structure_study.py"
+      - "Mirsad_BTC/tests/test_run_structure_study.py"
       - "Mirsad_BTC/tests/test_chart_classical_patterns.py"
       - "Mirsad_BTC/tests/test_chart_continuation_patterns.py"
       - "Mirsad_BTC/tests/test_chart_structure_knowledge.py"
@@ -64,3 +68,6 @@ jobs:
 
       - name: Test historical structure event study
         run: python -m unittest discover -s tests -p "test_chart_structure_evaluation.py" -v
+
+      - name: Test reproducible study command
+        run: python -m unittest discover -s tests -p "test_run_structure_study.py" -v
