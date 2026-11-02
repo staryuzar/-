@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from mirsad.engines.chart_multi_timeframe import analyze_stored_multi_timeframe_structure
@@ -165,6 +166,71 @@ class StoredMultiTimeframeTests(unittest.TestCase):
             report["timeframe_reports"]["1m"]["last_close_time_ms"],
             self.as_of_ms + 1,
         )
+
+    def test_weekly_bars_are_derived_only_from_seven_complete_daily_bars(self) -> None:
+        day_ms = 24 * 60 * 60 * 1000
+        monday = int(datetime(2026, 11, 2, tzinfo=timezone.utc).timestamp() * 1000)
+        as_of = monday + 35 * day_ms
+        daily = make_bars(day_ms, monday, count=35)
+        snapshot = {
+            "captured_at_ms": as_of,
+            "symbol": "BTCUSDT",
+            "venues": {
+                "Binance Spot": {
+                    "status": "LIVE",
+                    "candles_by_tf": {"1d": daily},
+                },
+            },
+        }
+        save_market_snapshot(snapshot, self.db_path)
+        weekly = load_candles_by_timeframe(
+            symbol="BTCUSDT",
+            venue="Binance Spot",
+            timeframes=("1w",),
+            as_of_ms=as_of,
+            db_path=self.db_path,
+        )["1w"]
+        self.assertEqual(len(weekly), 5)
+        self.assertTrue(all(item["closed"] for item in weekly))
+        self.assertEqual(
+            weekly[0]["source_interval"],
+            "1d_aggregated_to_1w_utc_monday",
+        )
+        self.assertEqual(weekly[0]["open_time_ms"], monday)
+        self.assertEqual(weekly[0]["open"], daily[0]["open"])
+        self.assertEqual(weekly[0]["close"], daily[6]["close"])
+        self.assertEqual(weekly[0]["high"], max(item["high"] for item in daily[:7]))
+        self.assertEqual(weekly[0]["low"], min(item["low"] for item in daily[:7]))
+        self.assertAlmostEqual(
+            weekly[0]["volume"],
+            sum(item["volume"] for item in daily[:7]),
+        )
+
+    def test_incomplete_week_is_not_synthesised(self) -> None:
+        day_ms = 24 * 60 * 60 * 1000
+        monday = int(datetime(2026, 11, 2, tzinfo=timezone.utc).timestamp() * 1000)
+        as_of = monday + 35 * day_ms
+        daily = make_bars(day_ms, monday, count=35)
+        del daily[10]
+        save_market_snapshot({
+            "captured_at_ms": as_of,
+            "symbol": "BTCUSDT",
+            "venues": {
+                "Binance Spot": {
+                    "status": "LIVE",
+                    "candles_by_tf": {"1d": daily},
+                },
+            },
+        }, self.db_path)
+        weekly = load_candles_by_timeframe(
+            symbol="BTCUSDT",
+            venue="Binance Spot",
+            timeframes=("1w",),
+            as_of_ms=as_of,
+            db_path=self.db_path,
+        )["1w"]
+        self.assertEqual(len(weekly), 4)
+        self.assertNotIn(monday + 7 * day_ms, [bar["open_time_ms"] for bar in weekly])
 
     def test_missing_primary_venue_returns_partial_not_fake_alignment(self) -> None:
         report = analyze_stored_multi_timeframe_structure(
