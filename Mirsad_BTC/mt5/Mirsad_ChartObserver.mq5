@@ -208,7 +208,7 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"trade_mode\":" + (string)AccountInfoInteger(ACCOUNT_TRADE_MODE) + ",";
    payload += "\"trade_mode_label\":\"" + AccountTradeModeLabel() + "\"";
    payload += "},";
-   payload += "\"image_file\":\"" + JsonEscape(image_name) + "\",
+   payload += "\"image_file\":\"" + JsonEscape(image_name) + "\",";
    payload += "\"image_width_px\":" + (string)image_width + ",";
    payload += "\"image_height_px\":" + (string)image_height + ",";
    payload += "\"chart\":{";
