@@ -232,6 +232,30 @@ class StructureEventEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(horizon["sample_count"], 1)
 
+    def test_directional_comparison_uses_non_event_bars_as_unconditional_baseline(self) -> None:
+        result = self.evaluate(
+            make_bars(20),
+            [reversal_event()],
+            horizons=(1,),
+            fee_bps_per_side=10.0,
+            slippage_bps_per_side=5.0,
+        )
+        comparison = result["results_by_pattern"]["double_bottom"][
+            "directional_comparisons"
+        ]["BULLISH"]["horizons"]["1"]
+        self.assertEqual(comparison["event"]["sample_count"], 1)
+        self.assertGreater(
+            comparison["unconditional_non_event_baseline"]["sample_count"], 0
+        )
+        self.assertIsNotNone(comparison["excess_mean_return_pct"])
+        self.assertIsNotNone(comparison["excess_mean_net_return_pct"])
+        self.assertEqual(
+            result["baseline_policy"],
+            "same_split_direction_adjusted_non_event_bars",
+        )
+        self.assertTrue(result["baseline_overlapping_windows_possible"])
+        self.assertFalse(result["baseline_is_statistical_test"])
+
     def test_bearish_return_and_excursions_are_direction_adjusted(self) -> None:
         result = self.evaluate(
             make_bars(20),
