@@ -223,6 +223,29 @@ def render_engine_dashboard():
    f"الحالة التجريبية: {knowledge_db.get('empirical_status','UNVALIDATED')} | "
    "التعريفات الموثقة لا تعني أن فعاليتها على BTC قد ثبتت."
   )
+  st.caption(
+   f"سجلات تقييم الأنماط: {knowledge_db.get('pattern_evaluation_records',0)} | "
+   "لا تتحول التعريفات إلى نتائج متحققة إلا بعلامات بشرية واختبار مستقل."
+  )
+  recent_evaluations=knowledge_db.get("recent_pattern_evaluations") or []
+  if recent_evaluations:
+   evaluation_rows=[{
+    "النمط":item.get("pattern_id"),
+    "الرمز":item.get("symbol"),
+    "الإطار":item.get("timeframe"),
+    "النظام السوقي":item.get("market_regime"),
+    "العينات":item.get("sample_count"),
+    "Precision":item.get("precision"),
+    "Recall":item.get("recall"),
+    "F1":item.get("f1"),
+    "العائد بعد التكاليف %":item.get("fee_adjusted_expectancy_pct"),
+    "أفق القياس (شموع)":item.get("primary_horizon_bars"),
+    "الحالة":item.get("validation_status"),
+   } for item in recent_evaluations]
+   st.dataframe(pd.DataFrame(evaluation_rows),use_container_width=True,hide_index=True)
+  else:
+   st.caption("لم تُسجل بعد نتائج تقييم إحصائي لأنماط الشموع.")
+
   candle_knowledge=chart.get("candle_knowledge") or {}
   st.caption(
    f"محلل OHLC المعرفي: {ar(candle_knowledge.get('status','NOT_AVAILABLE'))} | "
