@@ -417,9 +417,9 @@ def render_engine_dashboard():
   if advanced.get("limitations"):
    st.caption("حدود التحليل البنيوي: "+" | ".join(advanced["limitations"]))
 
-  stored_mtf=chart.get("stored_multi_timeframe_structure") or {}
-  st.markdown("**توافق بنية السوق بين الأطر الزمنية — من بيانات السوق المخزنة**")
-  mtf_alignment=stored_mtf.get("alignment","INSUFFICIENT_TIMEFRAME_CONFLUENCE")
+  engine2_mtf=state.get("engine_2_multi_timeframe_structure") or chart.get("engine_2_multi_timeframe_structure") or {}
+  st.markdown("**بنية السعر متعددة الأطر — من سجل شموع المحرك الثاني الأصلي في MT5**")
+  mtf_alignment=engine2_mtf.get("alignment","INSUFFICIENT_TIMEFRAME_CONFLUENCE")
   mtf_alignment_ar={
    "BULLISH_TIMEFRAME_CONFLUENCE":"توافق بنيوي صاعد",
    "BEARISH_TIMEFRAME_CONFLUENCE":"توافق بنيوي هابط",
@@ -427,48 +427,29 @@ def render_engine_dashboard():
    "INSUFFICIENT_TIMEFRAME_CONFLUENCE":"بيانات غير كافية للتوافق",
   }.get(mtf_alignment,mtf_alignment)
   st.caption(
-   f"الحالة: {ar(stored_mtf.get('status','NOT_AVAILABLE'))} | "
-   f"مصدر البيانات: {stored_mtf.get('source','—')} | "
-   f"المنصة: {stored_mtf.get('venue','—')} | "
-   f"الرمز: {stored_mtf.get('symbol','—')} | "
-   f"النتيجة البنيوية: {mtf_alignment_ar}"
+   f"الحالة: {ar(engine2_mtf.get('status','NOT_AVAILABLE'))} | "
+   f"المصدر: {engine2_mtf.get('source','—')} | "
+   f"الأطر المؤهلة: {', '.join(engine2_mtf.get('eligible_timeframes',[])) or '—'} | "
+   f"النتيجة: {mtf_alignment_ar}"
   )
-  mtf_counts=stored_mtf.get("loaded_candle_counts") or {}
-  st.caption(
-   "الشموع المغلقة المحملة: "
-   + " | ".join(f"{tf}: {count}" for tf,count in mtf_counts.items())
-   + " | هذا التقرير وصفي ولا يدخل في حساب القرار أو المخاطر."
-  )
-  mtf_sources=stored_mtf.get("candle_source_intervals") or {}
-  if mtf_sources:
-   st.caption("مصدر شموع كل إطار: "+" | ".join(
-    f"{tf}: {', '.join(sources)}" for tf,sources in mtf_sources.items()
-   ))
-  if stored_mtf.get("weekly_derivation"):
-   st.caption("منهج الأسبوعي: "+stored_mtf["weekly_derivation"])
   mtf_rows=[]
-  for tf,frame in (stored_mtf.get("timeframe_reports") or {}).items():
-   scales=frame.get("scales") or {}
-   swing=scales.get("swing") or {}
+  for tf,frame in (engine2_mtf.get("timeframe_reports") or {}).items():
    mtf_rows.append({
     "الإطار":tf,
-    "الشموع المغلقة":frame.get("confirmed_bars",0),
     "الحالة":frame.get("status"),
-    "الاتجاه البنيوي":swing.get("direction",frame.get("structure_direction","—")),
+    "الشموع المؤكدة":frame.get("confirmed_bars",0),
+    "الاتجاه البنيوي":frame.get("structure_direction","—"),
     "انتظام الشموع":"متصل" if frame.get("data_continuity")=="CONTIGUOUS" else "فجوات",
     "عدد الفجوات":len(frame.get("candle_gaps",[])),
-    "قمم أعلى HH":swing.get("higher_highs",False),
-    "قيعان أعلى HL":swing.get("higher_lows",False),
-    "قمم أدنى LH":swing.get("lower_highs",False),
-    "قيعان أدنى LL":swing.get("lower_lows",False),
     "عمر آخر إغلاق (ث)":round(frame.get("staleness_ms",0)/1000,1),
    })
   if mtf_rows:
    st.dataframe(pd.DataFrame(mtf_rows),use_container_width=True,hide_index=True)
-  mtf_errors=stored_mtf.get("errors") or {}
+  mtf_errors=engine2_mtf.get("errors") or {}
   if mtf_errors:
-   st.caption("أطر لم تدخل المقارنة: "+" | ".join(f"{tf}: {reason}" for tf,reason in mtf_errors.items()))
-
+   st.caption("أطر مستبعدة من التوافق: "+" | ".join(f"{tf}: {reason}" for tf,reason in mtf_errors.items()))
+  st.caption("هذا توافق بنيوي وصفي من شموع MT5 الأصلية، وليس إشارة تداول مستقلة.")
+ 
   axis_ocr=chart.get("axis_ocr") or {}
   calibration_info=chart.get("calibration") or {}
   st.caption(f"معايرة محور السعر: {calibration_info.get('source','غير متاح')} | نوع المحور: {calibration_info.get('price_scale_type','—')}")
@@ -512,20 +493,32 @@ def render_engine_dashboard():
    st.caption(candle_state["reason"])
 
   observer=state.get("chart_observer",{})
-  st.subheader("وحدة مراقبة والتقاط مخططات MT5")
+  observer_pipeline=observer.get("pipeline_component","engine2_mt5_chart_image_pipeline")
+  visual_result=chart
+  st.subheader("استقبال صور MT5 داخل المحرك الثاني")
+  st.caption(f"المكوّن المسؤول: {observer_pipeline} | مصدر الصور: مجلد خبير MT5 الحالي")
   o1,o2,o3,o4=st.columns(4)
-  o1.metric("حالة الالتقاط",ar(observer.get("status","NOT_CONFIGURED")))
-  o2.metric("عمر اللقطة (ثانية)",observer.get("age_seconds","—"))
+  o1.metric("حالة حزمة الصورة",ar(observer.get("status","NOT_CONFIGURED")))
+  o2.metric("عمر آخر لقطة (ثانية)",observer.get("age_seconds","—"))
   o3.metric("الرمز / الإطار",f"{observer.get('chart',{}).get('symbol','—')} / {observer.get('chart',{}).get('timeframe','—')}")
-  o4.metric("عدد الشموع المرفقة",observer.get("bar_count","—"))
+  o4.metric("شموع OHLC المرفقة",observer.get("bar_count","—"))
+  st.caption(
+   f"نتيجة تحليل الصورة داخل المحرك الثاني: {ar(visual_result.get('status','NOT_REPORTED'))} | "
+   f"أهلية الصورة للقرار: {'نعم' if visual_result.get('decision_eligible') else 'لا'}"
+  )
+  if observer.get("capture_id"):
+   st.caption(f"Capture ID: {observer.get('capture_id')} | SHA-256: {observer.get('image_sha256','—')}")
   if observer.get("status")=="READY_FOR_ENGINE_2_VALIDATION":
-   st.caption(f"Capture ID: {observer.get('capture_id','—')} | SHA-256: {observer.get('image_sha256','—')}")
-   st.caption("هذه حزمة سليمة للنقل الأولي فقط؛ لم تجتز بعد معايرة الصورة، ولذلك لا تمنح أهلية للقرار.")
-   image_path=observer.get("image_path")
-   if image_path and Path(image_path).is_file():
-    st.image(image_path,width=480,caption="آخر لقطة موثقة من مخطط MT5")
+   st.caption("اجتازت الصورة فحص النقل وفك الترميز؛ وتُعرض أهلية التحليل بصورة مستقلة أعلاه بعد المعايرة ومطابقة مرساة OHLC.")
+  elif observer.get("status") not in {"WAITING_FOR_CAPTURE","NOT_CONFIGURED"}:
+   st.warning(observer.get("message") or observer.get("reason") or "أحدث حزمة صور لم تجتز التحقق؛ لم يُسمح بالرجوع إلى لقطة أقدم.")
   else:
-   st.caption(observer.get("message") or observer.get("reason") or "لم تصل لقطة صالحة من مراقب MT5 بعد.")
+   st.caption(observer.get("message") or observer.get("reason") or "بانتظار وصول أول صورة من خبير MT5.")
+  image_path=observer.get("image_path")
+  if image_path and Path(image_path).is_file():
+   st.image(image_path,width=520,caption="الصورة الأخيرة المستلمة من مجلد خبير MT5")
+  if observer.get("image_directory"):
+   st.caption(f"مجلد الصور الذي يقرأه المحرك الثاني: {observer.get('image_directory')}")
  
   bridge=state.get("bridge",{})
   st.subheader("المحرك الخامس — جسر التواصل بين البرنامج والخبير")
