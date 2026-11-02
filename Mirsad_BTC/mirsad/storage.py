@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from .config import DB_PATH
@@ -250,7 +251,7 @@ def load_candles_by_timeframe(
                 (clean_venue, clean_symbol, timeframe, cutoff_open_ms, limit),
             ).fetchall()
             selected = list(reversed(rows))
-            result[timeframe] = [
+            candles = [
                 {
                     "open_time_ms": int(row["open_time_ms"]),
                     "open": float(row["open"]),
@@ -259,9 +260,67 @@ def load_candles_by_timeframe(
                     "close": float(row["close"]),
                     "volume": float(row["volume"]),
                     "closed": bool(row["is_closed"]),
+                    "source_interval": timeframe,
                 }
                 for row in selected
             ]
+
+            # Market Engine 1 currently stores daily but not weekly candles.
+            # Engine 2 may derive a weekly bar only from seven consecutive,
+            # individually closed UTC daily bars in the same venue.
+            if timeframe == "1w" and not candles:
+                daily_cutoff = as_of_ms - CANDLE_INTERVAL_MS["1d"]
+                daily_rows = conn.execute(
+                    """SELECT open_time_ms,open,high,low,close,volume,is_closed
+                       FROM candles
+                       WHERE venue=? AND symbol=? AND interval='1d'
+                         AND is_closed=1 AND open_time_ms<=?
+                       ORDER BY open_time_ms DESC
+                       LIMIT ?""",
+                    (
+                        clean_venue, clean_symbol, daily_cutoff,
+                        min(3000, limit * 7 + 14),
+                    ),
+                ).fetchall()
+                daily = list(reversed(daily_rows))
+                weekly_groups: dict[int, list[sqlite3.Row]] = {}
+                for row in daily:
+                    stamp_ms = int(row["open_time_ms"])
+                    stamp = datetime.fromtimestamp(
+                        stamp_ms / 1000, tz=timezone.utc
+                    )
+                    monday = (
+                        stamp - timedelta(days=stamp.weekday())
+                    ).replace(hour=0, minute=0, second=0, microsecond=0)
+                    week_open_ms = int(monday.timestamp() * 1000)
+                    weekly_groups.setdefault(week_open_ms, []).append(row)
+
+                derived: list[dict[str, Any]] = []
+                day_ms = CANDLE_INTERVAL_MS["1d"]
+                week_ms = CANDLE_INTERVAL_MS["1w"]
+                for week_open_ms, group in sorted(weekly_groups.items()):
+                    group = sorted(group, key=lambda row: int(row["open_time_ms"]))
+                    expected_times = [
+                        week_open_ms + index * day_ms for index in range(7)
+                    ]
+                    actual_times = [int(row["open_time_ms"]) for row in group]
+                    if actual_times != expected_times:
+                        continue
+                    if week_open_ms + week_ms > as_of_ms:
+                        continue
+                    derived.append({
+                        "open_time_ms": week_open_ms,
+                        "open": float(group[0]["open"]),
+                        "high": max(float(row["high"]) for row in group),
+                        "low": min(float(row["low"]) for row in group),
+                        "close": float(group[-1]["close"]),
+                        "volume": sum(float(row["volume"]) for row in group),
+                        "closed": True,
+                        "source_interval": "1d_aggregated_to_1w_utc_monday",
+                    })
+                candles = derived[-limit:]
+
+            result[timeframe] = candles
         return result
     finally:
         conn.close()
