@@ -39,6 +39,116 @@ def _hue_mask(hsv: np.ndarray, ranges: list[tuple[int, int]]) -> np.ndarray:
         mask = cv2.bitwise_or(mask, part)
     return mask
 
+_AUTO_PALETTE_CANDIDATES = ("green_red", "blue_orange", "teal_magenta")
+
+
+def _infer_palette_mode(
+    area: np.ndarray, *, expected_candle_count: int = 0
+) -> tuple[str, dict[str, Any]]:
+    """Choose a candle palette by vertical candle-like components, not raw hue frequency.
+
+    Indicator lines and coloured backgrounds can dominate hue histograms.  The
+    selector therefore scores only narrow, vertically persistent components
+    that resemble candle bodies/wicks.  It never changes price calibration.
+    """
+    height, width = area.shape[:2]
+    hsv = cv2.cvtColor(area, cv2.COLOR_BGR2HSV)
+    kernel_height = max(7, int(round(height * 0.018)))
+    if kernel_height % 2 == 0:
+        kernel_height += 1
+    largest_odd_height = height if height % 2 else max(1, height - 1)
+    kernel_height = max(1, min(kernel_height, largest_odd_height))
+    kernel = np.ones((kernel_height, 1), dtype=np.uint8)
+
+    max_component_width = max(6, min(32, int(round(width * 0.02))))
+    if expected_candle_count > 0:
+        slot_width = width / expected_candle_count
+        max_component_width = max(
+            max_component_width, min(48, int(round(slot_width * 1.05)))
+        )
+    min_component_height = max(
+        kernel_height, int(np.ceil(height * 0.018))
+    )
+    min_component_area = max(5, min_component_height)
+
+    scores: dict[str, dict[str, Any]] = {}
+    for mode in _AUTO_PALETTE_CANDIDATES:
+        palette = PALETTE_PRESETS[mode]
+        bullish = _hue_mask(hsv, palette["bullish"]) > 0
+        bearish = _hue_mask(hsv, palette["bearish"]) > 0
+        combined = bullish | bearish
+        core = cv2.morphologyEx(
+            combined.astype(np.uint8) * 255,
+            cv2.MORPH_OPEN,
+            kernel,
+        ) > 0
+        component_count, _, component_stats, _ = cv2.connectedComponentsWithStats(
+            core.astype(np.uint8), connectivity=8
+        )
+        accepted = 0
+        retained_pixels = 0
+        centres: list[float] = []
+        for component_id in range(1, int(component_count)):
+            x, y, component_width, component_height, component_area = (
+                int(value) for value in component_stats[component_id]
+            )
+            if component_width > max_component_width:
+                continue
+            if (
+                component_height < min_component_height
+                or component_area < min_component_area
+                or component_height < component_width * 0.80
+            ):
+                continue
+            accepted += 1
+            retained_pixels += component_area
+            centres.append(x + component_width / 2.0)
+
+        if len(centres) >= 2:
+            x_coverage = (max(centres) - min(centres)) / max(1, width)
+        else:
+            x_coverage = 0.0
+        # Candle count is the dominant term. Pixel support breaks close ties
+        # without allowing a large indicator line to outscore many candles.
+        support_score = min(5.0, retained_pixels / max(1.0, height * 0.01))
+        score = accepted * 10.0 + support_score + x_coverage
+        scores[mode] = {
+            "candle_like_components": accepted,
+            "retained_component_pixels": retained_pixels,
+            "horizontal_coverage": round(float(x_coverage), 4),
+            "score": round(float(score), 4),
+            "bullish_hue_pixels": int(bullish.sum()),
+            "bearish_hue_pixels": int(bearish.sum()),
+        }
+
+    selected = max(
+        _AUTO_PALETTE_CANDIDATES,
+        key=lambda mode: (scores[mode]["score"], -_AUTO_PALETTE_CANDIDATES.index(mode)),
+    )
+    detected_count = int(scores[selected]["candle_like_components"])
+    minimum_components = (
+        max(3, int(np.ceil(expected_candle_count * 0.15)))
+        if expected_candle_count > 0 else 3
+    )
+    if detected_count < minimum_components:
+        return "green_red", {
+            "status": "FALLBACK_NO_RELIABLE_PALETTE",
+            "requested_mode": "auto",
+            "selected_mode": "green_red",
+            "minimum_components": minimum_components,
+            "candidate_scores": scores,
+            "reason": "No candidate palette produced enough candle-like components.",
+        }
+    return selected, {
+        "status": "INFERRED",
+        "requested_mode": "auto",
+        "selected_mode": selected,
+        "minimum_components": minimum_components,
+        "candidate_scores": scores,
+        "reason": "Selected by vertically persistent narrow candle-like components.",
+    }
+
+
 def _extract_slot_guided_bars(
     bullish: np.ndarray,
     bearish: np.ndarray,
@@ -299,9 +409,19 @@ def _extract_bars(
     if area.size == 0:
         return []
     hsv = cv2.cvtColor(area, cv2.COLOR_BGR2HSV)
-    palette_mode = str(meta.get("palette_mode", "auto")).strip().lower()
-    if palette_mode not in PALETTE_PRESETS:
-        raise ValueError(f"Unsupported palette_mode: {palette_mode}")
+    requested_palette_mode = str(meta.get("palette_mode", "auto")).strip().lower()
+    if requested_palette_mode not in PALETTE_PRESETS:
+        raise ValueError(f"Unsupported palette_mode: {requested_palette_mode}")
+    palette_inference: dict[str, Any] = {"status": "MANUAL"}
+    palette_mode = requested_palette_mode
+    if requested_palette_mode == "auto":
+        try:
+            expected_for_palette = int(meta.get("expected_candle_count", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            expected_for_palette = 0
+        palette_mode, palette_inference = _infer_palette_mode(
+            area, expected_candle_count=expected_for_palette
+        )
     palette = PALETTE_PRESETS[palette_mode]
     bullish = _hue_mask(hsv, palette["bullish"]) > 0
     bearish = _hue_mask(hsv, palette["bearish"]) > 0
@@ -384,6 +504,9 @@ def _extract_bars(
     if diagnostics is not None:
         diagnostics.update({
             "palette_mode": palette_mode,
+            "requested_palette_mode": requested_palette_mode,
+            "selected_palette_mode": palette_mode,
+            "palette_inference": palette_inference,
             "bullish_palette_pixels": int(bullish.sum()),
             "bearish_palette_pixels": int(bearish.sum()),
             "raw_active_columns": int(np.count_nonzero(mask.sum(axis=0) >= minimum_activity)),
