@@ -251,13 +251,27 @@ def visual_knowledge_summary(db_path: str | None = None) -> dict[str, Any]:
         evaluations = conn.execute(
             "SELECT COUNT(*) FROM visual_pattern_evaluations WHERE validation_status='VALIDATED'"
         ).fetchone()[0]
+        evaluation_total = conn.execute(
+            "SELECT COUNT(*) FROM visual_pattern_evaluations"
+        ).fetchone()[0]
+        recent_evaluations = [
+            dict(row) for row in conn.execute(
+                """SELECT pattern_id,symbol,timeframe,market_regime,sample_count,
+                   precision,recall,f1,fee_adjusted_expectancy_pct,
+                   primary_horizon_bars,validation_status,calculated_at_ms
+                   FROM visual_pattern_evaluations
+                   ORDER BY calculated_at_ms DESC LIMIT 20"""
+            ).fetchall()
+        ]
         return {
             "version": meta[0] if meta else None,
             "candle_pattern_definitions": int(patterns),
             "market_structure_definitions": int(structures),
             "pattern_observations": int(pattern_events),
             "structure_observations": int(structure_events),
+            "pattern_evaluation_records": int(evaluation_total),
             "validated_evaluation_records": int(evaluations),
+            "recent_pattern_evaluations": recent_evaluations,
             "empirical_status": "UNVALIDATED" if not evaluations else "HAS_VALIDATED_RECORDS",
         }
     finally:
