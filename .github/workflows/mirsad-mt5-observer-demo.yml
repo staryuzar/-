@@ -3,6 +3,7 @@ name: Mirsad Chart Observer — any MT5 account capture (read-only)
 # Retry the Engine 2 smoke after restoring the PowerShell observer script syntax.
 # Maximize the hosted MT5 chart before measuring its original viewport for Engine 2.
 # Maximize the active MDI chart window, not just the terminal frame.
+# Use asynchronous MDI maximize requests so the hosted terminal cannot block the Observer runner.
 
 on:
   push:
