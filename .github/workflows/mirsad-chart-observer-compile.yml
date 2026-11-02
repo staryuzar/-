@@ -52,13 +52,15 @@ jobs:
 
           $source = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\mt5\Mirsad_ChartObserver.mq5'
           if (!(Test-Path -LiteralPath $source)) { throw 'Observer EA source is missing.' }
-          $observerRunScript = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\\scripts\\mirsad_mt5_observer_run.ps1'
+          $observerRunScript = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\mirsad_mt5_observer_run.ps1'
           if (!(Test-Path -LiteralPath $observerRunScript)) { throw 'Observer account-test PowerShell script is missing.' }
           $parseTokens = $null
           $parseErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile($observerRunScript, [ref]$parseTokens, [ref]$parseErrors) | Out-Null
           if ($parseErrors.Count -gt 0) {
-            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            $parseErrors | ForEach-Object {
+              Write-Error ("Line {0}, column {1}: {2}" -f $_.Extent.StartLineNumber, $_.Extent.StartColumnNumber, $_.Message)
+            }
             throw 'Observer PowerShell script contains syntax errors.'
           }
           Write-Output 'PASS — Observer PowerShell account runner parsed without syntax errors.'
