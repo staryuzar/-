@@ -8,7 +8,7 @@ from statistics import mean, median
 from typing import Any
 
 from ..storage import CANDLE_INTERVAL_MS, connect
-from .visual_knowledge import MARKET_STRUCTURE_CATALOG
+from .visual_knowledge import MARKET_STRUCTURE_CATALOG, seed_visual_knowledge
 
 DEFAULT_HORIZONS = (1, 3, 5, 10, 20)
 VALID_DATA_SPLITS = frozenset({"train", "validation", "test"})
@@ -449,6 +449,7 @@ def persist_structure_evaluations(
     if evaluation.get("empirical_status") != "UNVALIDATED":
         raise ValueError("detector event studies must remain UNVALIDATED")
 
+    seed_visual_knowledge(db_path)
     known = {item["structure_id"] for item in MARKET_STRUCTURE_CATALOG}
     now = int(calculated_at_ms or time.time() * 1000)
     fee = evaluation.get("fee_bps_per_side")
