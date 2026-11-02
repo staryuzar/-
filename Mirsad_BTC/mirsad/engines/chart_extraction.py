@@ -68,6 +68,9 @@ def _extract_slot_guided_bars(
         "rejected_component_quality": 0,
         "rejected_low_pixels": 0,
         "rejected_mixed_palette": 0,
+        "slot_kernel_height": None,
+        "minimum_component_height": None,
+        "minimum_component_area": None,
     }
 
     for slot_index in range(expected_candle_count):
@@ -84,8 +87,35 @@ def _extract_slot_guided_bars(
             diagnostics["rejected_low_activity"] += 1
             continue
 
-        local_core = raw_candle_core[:, candidate_left:candidate_right]
-        if local_core.size == 0 or int(local_core.sum()) == 0:
+        local_mask = (
+            bullish[:, candidate_left:candidate_right]
+            | bearish[:, candidate_left:candidate_right]
+        )
+        if local_mask.size == 0 or int(local_mask.sum()) == 0:
+            diagnostics["rejected_low_activity"] += 1
+            continue
+        # Re-run morphology inside each slot with a smaller vertical kernel.
+        # The global pass intentionally suppresses short components; on dense
+        # 30-candle charts this can erase genuine narrow candles before the
+        # spatial hint has a chance to separate them from overlays.
+        slot_kernel_height = max(
+            3,
+            int(round(slot_width * 0.30)),
+        )
+        if slot_kernel_height % 2 == 0:
+            slot_kernel_height += 1
+        slot_kernel_height = min(
+            slot_kernel_height,
+            int(vertical_kernel.shape[0]),
+        )
+        slot_kernel_height = max(1, slot_kernel_height)
+        slot_vertical_kernel = np.ones((slot_kernel_height, 1), dtype=np.uint8)
+        local_core = cv2.morphologyEx(
+            local_mask.astype(np.uint8) * 255,
+            cv2.MORPH_OPEN,
+            slot_vertical_kernel,
+        ) > 0
+        if int(local_core.sum()) == 0:
             diagnostics["rejected_low_activity"] += 1
             continue
 
@@ -96,16 +126,17 @@ def _extract_slot_guided_bars(
         retained = np.zeros(local_core.shape, dtype=bool)
         max_local_component_width = max(3, int(np.ceil(slot_width * 0.60)))
         min_vertical_bar_height = max(
-            min_component_height * 2,
-            int(round(slot_width * 0.50)),
+            slot_kernel_height * 2,
+            int(round(slot_width * 0.35)),
         )
+        min_component_area = max(5, slot_kernel_height * 2)
         for component_id in range(1, int(component_count)):
             _, _, comp_width, comp_height, comp_area = (
                 int(value) for value in component_stats[component_id]
             )
             if comp_width > max_local_component_width:
                 continue
-            if comp_height < min_vertical_bar_height or comp_area < max(5, min_component_height):
+            if comp_height < min_vertical_bar_height or comp_area < min_component_area:
                 continue
             if comp_height < comp_width * 0.80:
                 continue
@@ -117,7 +148,7 @@ def _extract_slot_guided_bars(
 
         support = cv2.dilate(
             retained.astype(np.uint8) * 255,
-            vertical_kernel,
+            slot_vertical_kernel,
         ) > 0
         bull_roi = bullish[:, candidate_left:candidate_right] & support
         bear_roi = bearish[:, candidate_left:candidate_right] & support
@@ -184,6 +215,11 @@ def _extract_slot_guided_bars(
         })
 
     diagnostics["occupied_slots"] = len(output)
+    diagnostics["slot_kernel_height"] = slot_kernel_height if "slot_kernel_height" in locals() else None
+    diagnostics["minimum_component_height"] = (
+        min_vertical_bar_height if "min_vertical_bar_height" in locals() else None
+    )
+    diagnostics["minimum_component_area"] = min_component_area if "min_component_area" in locals() else None
     return sorted(output, key=lambda item: item["x_px"]), diagnostics
 
 
