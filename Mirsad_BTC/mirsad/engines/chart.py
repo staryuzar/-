@@ -13,6 +13,25 @@ from .chart_metrics import analyze_calibrated_bars
 from .chart_patterns import _body_bounds, _patterns
 from .chart_ocr import detect_price_axis_ticks, fit_price_axis
 from .chart_pattern_reference import analyze_talib_pattern_reference
+from .chart_pattern_knowledge import analyze_candle_patterns
+from .chart_structure_knowledge import analyze_chart_structure_knowledge
+from .visual_knowledge import seed_visual_knowledge
+
+_VISUAL_KNOWLEDGE_DB_STATUS: dict[str, Any] | None = None
+
+
+def _ensure_visual_knowledge_database() -> dict[str, Any]:
+    global _VISUAL_KNOWLEDGE_DB_STATUS
+    if _VISUAL_KNOWLEDGE_DB_STATUS is None:
+        try:
+            _VISUAL_KNOWLEDGE_DB_STATUS = seed_visual_knowledge()
+        except Exception as exc:
+            _VISUAL_KNOWLEDGE_DB_STATUS = {
+                "status": "ERROR",
+                "error": f"{type(exc).__name__}: {exc}",
+                "empirical_status": "UNAVAILABLE",
+            }
+    return dict(_VISUAL_KNOWLEDGE_DB_STATUS)
 
 SUPPORTED_TIMEFRAMES = frozenset({"1m", "5m", "15m", "1h", "4h", "1d", "1w"})
 MIN_CALIBRATED_BARS = 20
@@ -112,8 +131,37 @@ def analyze_chart_image(
     pattern_candidates = _patterns(bars, last_candle_closed=last_candle_closed)
     calibrated = calibrate_bars(bars, calibration)
     # The live/current candle remains visible in the result, but only closed
-    # candles may contribute to the confirmed trend and market-structure read.
+    # candles may contribute to confirmed visual evidence.
     confirmed_calibrated = calibrated if last_candle_closed else calibrated[:-1]
+
+    knowledge_database = _ensure_visual_knowledge_database()
+    if calibration["price_scale_valid"]:
+        try:
+            candle_knowledge = analyze_candle_patterns(
+                calibrated, last_candle_closed=last_candle_closed
+            )
+            advanced_structure = analyze_chart_structure_knowledge(
+                calibrated, last_candle_closed=last_candle_closed
+            )
+        except (TypeError, ValueError, OverflowError) as exc:
+            candle_knowledge = {
+                "status": "ERROR", "count": 0, "detected": [],
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            advanced_structure = {
+                "status": "ERROR", "error": f"{type(exc).__name__}: {exc}",
+                "bos_choch_events": [], "liquidity_sweeps": [],
+            }
+    else:
+        candle_knowledge = {
+            "status": "SKIPPED_UNCALIBRATED", "count": 0, "detected": [],
+            "reason": "Validated price calibration is required for OHLC candle knowledge.",
+        }
+        advanced_structure = {
+            "status": "SKIPPED_UNCALIBRATED",
+            "reason": "Validated price calibration is required for price-structure analysis.",
+            "bos_choch_events": [], "liquidity_sweeps": [],
+        }
     if calibration["price_scale_valid"]:
         try:
             reference_patterns = analyze_talib_pattern_reference(
@@ -255,6 +303,9 @@ def analyze_chart_image(
         },
         "pattern_candidates": pattern_candidates,
         "reference_patterns": reference_patterns,
+        "candle_knowledge": candle_knowledge,
+        "advanced_structure_knowledge": advanced_structure,
+        "visual_knowledge_database": knowledge_database,
         "bars": output_bars,
         "decision_eligible": eligible,
         "quality_gates": quality_gates,
@@ -282,6 +333,9 @@ def analyze_chart_image(
             "The visual confidence index is heuristic evidence quality, not a statistical probability.",
             "The latest candle is treated as forming/unverified unless last_candle_closed is explicitly true; it is visible but excluded from confirmed trend and structure metrics.",
             "Engine 2 uses deterministic computer vision; it does not use a trained AI vision model.",
+            "The candle and structure knowledge modules are independent evidence reports; they do not change the existing decision score.",
+            "Pattern definitions are documented rules with UNVALIDATED empirical status until BTC-specific labelled evaluation exists.",
+            "Internal/swing/external pivot scales in the advanced structure report are scales within the supplied timeframe, not true multi-timeframe confluence.",
         ],
     }
 
