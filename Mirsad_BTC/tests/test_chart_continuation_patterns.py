@@ -59,14 +59,15 @@ class ContinuationPatternTests(unittest.TestCase):
         self.assertIn("falling_wedge", [item["pattern_id"] for item in found])
 
     def test_rising_channel_candidate(self) -> None:
-        found = detect([120, 125, 130], [100, 105, 110])
+        data = base_bars(46, close=125.0)
+        found = detect([120, 125, 130], [100, 105, 110], data=data)
         channel = [item for item in found if item["pattern_id"] == "rising_channel"]
         self.assertEqual(len(channel), 1)
         self.assertEqual(channel[0]["status"], "CANDIDATE")
 
     def test_breakout_is_only_confirmed_after_all_boundary_pivots(self) -> None:
         data = base_bars(46)
-        data[40]["close"] = 130.0
+        data[40].update({"open": 125.0, "high": 132.0, "low": 119.0, "close": 130.0})
         found = detect([120, 120, 120], [90, 95, 100], data=data)
         triangle = next(item for item in found if item["pattern_id"] == "ascending_triangle")
         self.assertEqual(triangle["status"], "BREAKOUT_UP")
@@ -75,7 +76,7 @@ class ContinuationPatternTests(unittest.TestCase):
 
     def test_breakout_before_last_pivot_confirmation_is_ignored(self) -> None:
         data = base_bars(46)
-        data[36]["close"] = 130.0
+        data[36].update({"open": 125.0, "high": 132.0, "low": 119.0, "close": 130.0})
         found = detect([120, 120, 120], [90, 95, 100], data=data)
         triangle = next(item for item in found if item["pattern_id"] == "ascending_triangle")
         self.assertEqual(triangle["status"], "CANDIDATE")
@@ -86,18 +87,18 @@ class ContinuationPatternTests(unittest.TestCase):
         data[4]["low"] = 100.0
         data[18]["high"] = 140.0
         hi, lo = [24, 32, 40], [28, 36, 44]
-        highs, lows = [138, 135, 132], [132, 129, 126]
+        highs, lows = [138, 135, 132], [125, 122, 119]
         for i, p in zip(hi, highs): data[i]["high"] = float(p)
         for i, p in zip(lo, lows): data[i]["low"] = float(p)
         found = detect(highs, lows, high_indices=hi, low_indices=lo, length=50, data=data)
         self.assertIn("bull_flag", [item["pattern_id"] for item in found])
 
     def test_bear_flag_requires_a_large_prior_bearish_pole_and_shallow_rally(self) -> None:
-        data = base_bars(50, close=110.0)
-        data[4]["high"] = 140.0
+        data = base_bars(50, close=118.0)
+        data[4]["high"] = 150.0
         data[18]["low"] = 100.0
         hi, lo = [24, 32, 40], [28, 36, 44]
-        highs, lows = [117, 114, 111], [111, 108, 105]
+        highs, lows = [119, 122, 125], [110, 113, 116]
         for i, p in zip(hi, highs): data[i]["high"] = float(p)
         for i, p in zip(lo, lows): data[i]["low"] = float(p)
         found = detect(highs, lows, high_indices=hi, low_indices=lo, length=50, data=data)
@@ -108,7 +109,7 @@ class ContinuationPatternTests(unittest.TestCase):
         data[4]["low"] = 100.0
         data[18]["high"] = 140.0
         hi, lo = [24, 32, 40], [28, 36, 44]
-        highs, lows = [138, 135, 132], [126, 129, 132]
+        highs, lows = [138, 137, 136], [126, 127, 128]
         for i, p in zip(hi, highs): data[i]["high"] = float(p)
         for i, p in zip(lo, lows): data[i]["low"] = float(p)
         found = detect(highs, lows, high_indices=hi, low_indices=lo, length=50, data=data)

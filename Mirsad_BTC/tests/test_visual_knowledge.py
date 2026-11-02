@@ -27,7 +27,7 @@ class VisualKnowledgeTests(unittest.TestCase):
     def test_catalogs_are_versioned_and_do_not_claim_empirical_validation(self) -> None:
         self.assertGreaterEqual(len(CANDLE_PATTERN_CATALOG), 20)
         self.assertGreaterEqual(len(MARKET_STRUCTURE_CATALOG), 20)
-        self.assertEqual(KNOWLEDGE_VERSION, "1.0.0")
+        self.assertEqual(KNOWLEDGE_VERSION, "1.1.0")
         self.assertTrue(all(x["empirical_status"] == "UNVALIDATED" for x in CANDLE_PATTERN_CATALOG))
         self.assertTrue(all(x["empirical_status"] == "UNVALIDATED" for x in MARKET_STRUCTURE_CATALOG))
 
