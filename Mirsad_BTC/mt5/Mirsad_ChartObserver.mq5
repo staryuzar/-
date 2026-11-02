@@ -11,7 +11,8 @@ input int  InpCaptureIntervalSeconds = 60;   // Snapshot cadence (5..3600 second
 input int  InpHistoryBars             = 120;  // Requested bars including the forming bar; set as needed
 input int  InpScreenshotWidth         = 1600; // PNG output width
 input int  InpScreenshotHeight        = 900;  // PNG output height
-input bool InpCaptureImmediately      = true; // Capture shortly after initialization
+input bool InpCaptureImmediately      = true; // Capture after the initial terminal window has stabilized
+input int  InpInitialCaptureDelaySeconds = 10; // Allow Windows to maximize the chart before its first snapshot
 
 string g_observer_root = "MirsadBTC\\observer";
 string g_image_root    = "MirsadBTC\\observer\\images";
@@ -422,7 +423,8 @@ bool TryFinalizePendingCapture()
 int OnInit()
 {
    if(InpCaptureIntervalSeconds < 1 || InpHistoryBars < 1 ||
-      InpScreenshotWidth < 320 || InpScreenshotHeight < 180)
+      InpScreenshotWidth < 320 || InpScreenshotHeight < 180 ||
+      InpInitialCaptureDelaySeconds < 0 || InpInitialCaptureDelaySeconds > 60)
       return INIT_PARAMETERS_INCORRECT;
 
    g_chart_id = ChartID();
@@ -442,7 +444,7 @@ int OnInit()
    }
 
    g_next_capture_at_ms = InpCaptureImmediately
-      ? GetTickCount64()
+      ? GetTickCount64() + (ulong)InpInitialCaptureDelaySeconds * 1000
       : GetTickCount64() + (ulong)InpCaptureIntervalSeconds * 1000;
 
    PublishObserverStatus("STARTED", "",
