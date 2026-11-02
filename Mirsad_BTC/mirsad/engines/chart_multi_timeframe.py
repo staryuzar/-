@@ -83,6 +83,26 @@ def analyze_multi_timeframe_structure(
         except (TypeError, ValueError, OverflowError) as exc:
             errors[timeframe] = f"{type(exc).__name__}: {exc}"
             continue
+        candle_gaps = []
+        for gap_index, (left_open, right_open) in enumerate(zip(
+            timestamps[:len(selected) - 1],
+            timestamps[1:len(selected)],
+        )):
+            delta_ms = right_open - left_open
+            if delta_ms > duration * 1.5:
+                candle_gaps.append({
+                    "after_candle_index": gap_index,
+                    "gap_duration_ms": delta_ms,
+                    "estimated_missing_intervals": max(
+                        1, int(round(delta_ms / duration)) - 1
+                    ),
+                })
+        if candle_gaps:
+            report = {
+                **report,
+                "structure_status_before_gap_check": report.get("status"),
+                "status": "PARTIAL",
+            }
         latest_close_ms = timestamps[len(selected) - 1] + duration
         staleness_ms = as_of_ms - latest_close_ms
         if staleness_ms < 0:
@@ -99,6 +119,8 @@ def analyze_multi_timeframe_structure(
             "last_close_time_ms": latest_close_ms,
             "staleness_ms": staleness_ms,
             "max_allowed_staleness_ms": max_allowed_staleness_ms,
+            "data_continuity": "GAPS_DETECTED" if candle_gaps else "CONTIGUOUS",
+            "candle_gaps": candle_gaps,
             "as_of_ms": as_of_ms,
         }
         reports[timeframe] = report
