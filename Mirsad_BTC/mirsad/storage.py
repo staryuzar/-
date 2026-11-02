@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -110,7 +111,7 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
         )
         conn.execute(
             "INSERT INTO storage_migrations(migration_id,applied_at_ms) VALUES(?,?)",
-            (migration_id, int(__import__("time").time() * 1000)),
+            (migration_id, int(time.time() * 1000)),
         )
     # Forward-compatible columns for the visual pattern evaluation archive.
     evaluation_columns = {
