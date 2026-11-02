@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from statistics import median
 from typing import Any
 
@@ -15,7 +16,7 @@ SUPPORTED_PATTERN_IDS = (
 
 def _features(bar: dict[str, Any]) -> dict[str, float | bool]:
     o, h, low, c = (float(bar[k]) for k in ("open", "high", "low", "close"))
-    if not all(map(lambda x: x == x and abs(x) != float("inf"), (o, h, low, c))):
+    if not all(math.isfinite(x) for x in (o, h, low, c)):
         raise ValueError("OHLC candle contains a non-finite price")
     if low <= 0 or h < low or h < max(o, c) or low > min(o, c):
         raise ValueError("OHLC candle has inconsistent high/low bounds")
@@ -129,38 +130,38 @@ def analyze_candle_patterns(
             prev = features[i - 1]
             prev_top, prev_bottom = float(prev["body_top"]), float(prev["body_bottom"])
             curr_top, curr_bottom = float(cur["body_top"]), float(cur["body_bottom"])
-            opposite = bool(prev["bullish"]) != bull
-            if opposite and bool(prev["bearish"]) and bull and curr_top >= prev_top and curr_bottom <= prev_bottom:
-                pass
-            if bool(prev["bearish"]) and bull and curr_top >= prev_top and curr_bottom <= prev_bottom:
-                # Harami is contained; engulfing is the inverse containment.
+            previous_bull = bool(prev["bullish"])
+            previous_bear = bool(prev["bearish"])
+
+            # Harami: the second real body is contained by the first.
+            contained = curr_top <= prev_top and curr_bottom >= prev_bottom
+            if previous_bear and bull and contained:
                 add("bullish_harami", i - 1, i, "BULLISH", "DOWN")
-            if bool(prev["bullish"]) and bear and curr_top >= prev_top and curr_bottom <= prev_bottom:
+            if previous_bull and bear and contained:
                 add("bearish_harami", i - 1, i, "BEARISH", "UP")
-            if br <= 0.10 and float(prev["body_ratio"]) >= 0.45 and curr_top <= prev_top and curr_bottom >= prev_bottom:
+            if br <= 0.10 and float(prev["body_ratio"]) >= 0.45 and contained:
                 add("harami_cross", i - 1, i, "CONTEXTUAL")
-            if bool(prev["bearish"]) and bull and curr_top >= prev_top and curr_bottom <= prev_bottom:
-                pass
-            if bool(prev["bearish"]) and bull and curr_top >= prev_top and curr_bottom <= prev_bottom:
-                pass
-            # Correct real-body engulfing: the new body spans the old body.
-            if bool(prev["bearish"]) and bull and curr_top >= prev_top and curr_bottom <= prev_bottom:
-                pass
-            if bool(prev["bearish"]) and bull and curr_top >= prev_bottom and curr_bottom <= prev_top:
+
+            # Engulfing: the second real body spans the first real body.
+            engulfed = curr_top >= prev_top and curr_bottom <= prev_bottom
+            if previous_bear and bull and engulfed:
                 add("bullish_engulfing", i - 1, i, "BULLISH", "DOWN")
-            if bool(prev["bullish"]) and bear and curr_top >= prev_bottom and curr_bottom <= prev_top:
+            if previous_bull and bear and engulfed:
                 add("bearish_engulfing", i - 1, i, "BEARISH", "UP")
 
             if float(cur["high"]) < float(prev["high"]) and float(cur["low"]) > float(prev["low"]):
                 add("inside_bar", i - 1, i, "NEUTRAL")
             if float(cur["high"]) > float(prev["high"]) and float(cur["low"]) < float(prev["low"]):
                 add("outside_bar", i - 1, i, "CONTEXTUAL")
-            if bool(prev["bearish"]) and bull and float(cur["close"]) > (prev_top + prev_bottom) / 2 and float(cur["close"]) < float(prev_top):
+            if previous_bear and bull and float(cur["close"]) > (prev_top + prev_bottom) / 2 and float(cur["close"]) < prev_top:
                 add("piercing_line", i - 1, i, "BULLISH", "DOWN")
-            if bool(prev["bullish"]) and bear and float(cur["close"]) < (prev_top + prev_bottom) / 2 and float(cur["close"]) > float(prev_bottom):
+            if previous_bull and bear and float(cur["close"]) < (prev_top + prev_bottom) / 2 and float(cur["close"]) > prev_bottom:
                 add("dark_cloud_cover", i - 1, i, "BEARISH", "UP")
 
-            tolerance = max(median([float(x["range"]) for x in features[max(0, i - 14):i]]) * 0.15, abs(float(cur["close"])) * 0.0001)
+            tolerance = max(
+                median([float(x["range"]) for x in features[max(0, i - 14):i]]) * 0.15,
+                abs(float(cur["close"])) * 0.0001,
+            )
             if abs(float(cur["low"]) - float(prev["low"])) <= tolerance:
                 add("tweezer_bottom", i - 1, i, "BULLISH", "DOWN")
             if abs(float(cur["high"]) - float(prev["high"])) <= tolerance:
