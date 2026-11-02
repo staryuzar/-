@@ -273,4 +273,146 @@ def detect_price_axis_ticks(
     }
 
 
-__all__ = ["parse_price_label", "fit_price_axis", "detect_price_axis_ticks"]
+
+_HEADER_TIMEFRAME_RE = re.compile(
+    r"(?<![A-Za-z0-9])(\d{1,3}\s*[smhdwSMHDW])(?![A-Za-z0-9])"
+)
+_HEADER_PAIR_RE = re.compile(
+    r"(?<![A-Za-z0-9])([A-Z0-9]{2,12})\s*[/\-]\s*(USDT|USDC|USD|BTC|ETH)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_HEADER_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])([A-Z0-9]{5,16})(?![A-Za-z0-9])")
+_HEADER_EXCHANGES = (
+    "BINANCE", "BYBIT", "OKX", "COINBASE", "KRAKEN",
+    "BITGET", "GATEIO", "KUCOIN", "MEXC",
+)
+_HEADER_SYMBOL_SUFFIXES = ("USDT", "USDC", "BUSD", "USD", "BTC", "ETH")
+
+
+def parse_chart_header_text(
+    texts: list[str],
+    scores: list[float] | None = None,
+    *,
+    expected_symbol: str | None = None,
+) -> dict[str, Any]:
+    """Turn OCR header fragments into suggestions without overriding user metadata."""
+    clean_texts = [str(item).strip() for item in texts if str(item).strip()]
+    combined = " ".join(clean_texts)
+    upper = combined.upper()
+    normalised = re.sub(r"[^A-Z0-9]", "", upper)
+
+    expected = re.sub(r"[^A-Z0-9]", "", str(expected_symbol or "").upper())
+    expected_match: bool | None = None
+    if expected:
+        expected_match = expected in normalised
+
+    timeframe_suggestion = None
+    timeframe_match = _HEADER_TIMEFRAME_RE.search(combined)
+    if timeframe_match:
+        token = re.sub(r"\s+", "", timeframe_match.group(1))
+        number = re.match(r"\d+", token)
+        unit = token[len(number.group(0)):] if number else ""
+        if number and unit:
+            timeframe_suggestion = f"{number.group(0)}{unit}"
+
+    symbol_suggestion = None
+    pair_match = _HEADER_PAIR_RE.search(combined)
+    if pair_match:
+        symbol_suggestion = (
+            pair_match.group(1).upper() + pair_match.group(2).upper()
+        )
+    else:
+        for token in _HEADER_TOKEN_RE.findall(upper):
+            if token.endswith(_HEADER_SYMBOL_SUFFIXES):
+                symbol_suggestion = token
+                break
+
+    exchange_suggestion = next(
+        (exchange for exchange in _HEADER_EXCHANGES if exchange in upper),
+        None,
+    )
+    numeric_scores: list[float] = []
+    for value in scores or []:
+        try:
+            score = float(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if math.isfinite(score) and 0 <= score <= 1:
+            numeric_scores.append(score)
+
+    suggestions_found = any((
+        symbol_suggestion,
+        timeframe_suggestion,
+        exchange_suggestion,
+    ))
+    return {
+        "status": "SUGGESTIONS_FOUND" if suggestions_found else "NO_METADATA",
+        "symbol_suggestion": symbol_suggestion,
+        "timeframe_suggestion": timeframe_suggestion,
+        "exchange_suggestion": exchange_suggestion,
+        "expected_symbol": expected_symbol,
+        "expected_symbol_match": expected_match,
+        "ocr_fragment_count": len(clean_texts),
+        "mean_ocr_score": (
+            round(sum(numeric_scores) / len(numeric_scores), 4)
+            if numeric_scores else None
+        ),
+        "raw_text": clean_texts,
+        "interpretation": "METADATA_SUGGESTIONS_ONLY_NOT_USED_FOR_PRICE_CALIBRATION_OR_DECISION",
+    }
+
+
+def detect_chart_header_metadata(
+    image_bgr: np.ndarray,
+    *,
+    expected_symbol: str | None = None,
+    header_height_fraction: float = 0.22,
+) -> dict[str, Any]:
+    """Optionally OCR the chart header strip to suggest symbol/timeframe/exchange."""
+    if (
+        image_bgr is None
+        or image_bgr.ndim != 3
+        or image_bgr.shape[2] != 3
+    ):
+        return {
+            "status": "INVALID_IMAGE",
+            "interpretation": "METADATA_SUGGESTIONS_ONLY",
+        }
+    if not math.isfinite(float(header_height_fraction)) or not (
+        0.05 <= float(header_height_fraction) <= 0.40
+    ):
+        return {
+            "status": "INVALID_HEADER_REGION",
+            "interpretation": "METADATA_SUGGESTIONS_ONLY",
+        }
+    height, width = image_bgr.shape[:2]
+    crop_height = max(32, min(height, int(round(height * header_height_fraction))))
+    crop = image_bgr[:crop_height, :width]
+    try:
+        engine = _get_ocr_engine()
+        output = engine(crop)
+        raw_texts = getattr(output, "txts", None)
+        raw_scores = getattr(output, "scores", None)
+        texts = [] if raw_texts is None else list(raw_texts)
+        scores = [] if raw_scores is None else list(raw_scores)
+    except Exception as exc:
+        return {
+            "status": "OCR_UNAVAILABLE",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "crop_height_px": crop_height,
+            "interpretation": "METADATA_SUGGESTIONS_ONLY",
+        }
+    parsed = parse_chart_header_text(
+        texts,
+        scores,
+        expected_symbol=expected_symbol,
+    )
+    return {
+        **parsed,
+        "crop_height_px": crop_height,
+        "ocr_backend": "RapidOCR",
+        "interpretation": "METADATA_SUGGESTIONS_ONLY_NOT_USED_FOR_PRICE_CALIBRATION_OR_DECISION",
+    }
+
+
+__all__ = ["parse_price_label", "fit_price_axis", "detect_price_axis_ticks", "parse_chart_header_text", "detect_chart_header_metadata"]
