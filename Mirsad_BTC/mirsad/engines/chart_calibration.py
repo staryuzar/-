@@ -174,45 +174,20 @@ def calibrate_from_reference_candle(
         midpoint = (pixel["body_top"] + pixel["body_bottom"]) / 2.0
         pixel_open = pixel_close = midpoint
 
-    pairs = [
-        (pixel["high"], values["high"]),
-        (pixel["low"], values["low"]),
-        (pixel_open, values["open"]),
-        (pixel_close, values["close"]),
-    ]
-    # Use all four OHLC anchors. Repeated pixel rows are valid only when their
-    # reference prices are also effectively equal; otherwise the fit is ambiguous.
-    grouped: dict[float, list[float]] = {}
-    for y_px, price in pairs:
-        grouped.setdefault(y_px, []).append(price)
-    fit_pairs: list[tuple[float, float]] = []
-    for y_px, prices in grouped.items():
-        if max(prices) - min(prices) > candle_range * maximum_residual_fraction:
-            return {
-                "status": "REFERENCE_GEOMETRY_AMBIGUOUS",
-                "reason": "different OHLC values collapse onto the same detected pixel row",
-            }
-        fit_pairs.append((y_px, sum(prices) / len(prices)))
-    if len(fit_pairs) < 2:
-        return {"status": "REFERENCE_GEOMETRY_AMBIGUOUS", "reason": "at least two distinct reference pixel rows are required"}
+    # Calibrate the pixel-to-price mapping from the two extreme wick anchors.
+    # Open/close pixels are validation evidence, not extra fit points: on small
+    # raster charts a body edge can share a row with a wick and must not distort
+    # the scale fit.
+    if math.isclose(pixel["high"], pixel["low"], rel_tol=0.0, abs_tol=1e-9):
+        return {"status": "REFERENCE_GEOMETRY_AMBIGUOUS", "reason": "high and low collapse onto one pixel row"}
 
     scale = str(scale_type).strip().lower()
     if scale not in {"linear", "logarithmic"}:
         return {"status": "INVALID_SCALE", "reason": "scale_type must be linear or logarithmic"}
-    transformed = [
-        (y_px, math.log(price) if scale == "logarithmic" else price)
-        for y_px, price in fit_pairs
-    ]
-    mean_y = sum(item[0] for item in transformed) / len(transformed)
-    mean_value = sum(item[1] for item in transformed) / len(transformed)
-    variance_y = sum((item[0] - mean_y) ** 2 for item in transformed)
-    if variance_y <= 1e-12:
-        return {"status": "REFERENCE_GEOMETRY_AMBIGUOUS", "reason": "reference pixel rows have no vertical separation"}
-    slope = sum(
-        (y_px - mean_y) * (value - mean_value)
-        for y_px, value in transformed
-    ) / variance_y
-    intercept = mean_value - slope * mean_y
+    high_value = math.log(values["high"]) if scale == "logarithmic" else values["high"]
+    low_value = math.log(values["low"]) if scale == "logarithmic" else values["low"]
+    slope = (low_value - high_value) / (pixel["low"] - pixel["high"])
+    intercept = high_value - slope * pixel["high"]
     if not math.isfinite(slope) or slope >= 0:
         return {"status": "INVALID_REFERENCE_FIT", "reason": "price must decrease as image y increases"}
 
@@ -220,21 +195,26 @@ def calibrate_from_reference_candle(
         raw = intercept + slope * y_px
         return math.exp(raw) if scale == "logarithmic" else raw
 
-    residuals = []
-    for y_px, expected_price in pairs:
-        predicted = predict(y_px)
-        if not math.isfinite(predicted) or predicted <= 0:
-            return {"status": "INVALID_REFERENCE_FIT", "reason": "reference fit produced non-positive prices"}
-        residuals.append(abs(predicted - expected_price) / candle_range)
-    max_residual = max(residuals)
-    rms_residual = math.sqrt(sum(value * value for value in residuals) / len(residuals))
-    if max_residual > maximum_residual_fraction:
+    body_residuals = {
+        "open": abs(predict(pixel_open) - values["open"]) / candle_range,
+        "close": abs(predict(pixel_close) - values["close"]) / candle_range,
+    }
+    maximum_residual = max(body_residuals.values())
+    rms_residual = math.sqrt(sum(value * value for value in body_residuals.values()) / 2.0)
+    if (
+        not all(math.isfinite(value) for value in body_residuals.values())
+        or maximum_residual > maximum_residual_fraction
+    ):
         return {
             "status": "REFERENCE_FIT_REJECTED",
-            "reason": "OHLC-to-pixel fit residual exceeds the configured reference range tolerance",
-            "maximum_residual_fraction": round(max_residual, 6),
+            "reason": "body open/close pixel positions do not agree with the high-low calibration",
+            "maximum_residual_fraction": round(maximum_residual, 6),
             "rms_residual_fraction": round(rms_residual, 6),
+            "body_residual_fraction_by_field": {
+                key: round(value, 6) for key, value in body_residuals.items()
+            },
             "tolerance": maximum_residual_fraction,
+            "reference_pixel_rows": {key: round(value, 3) for key, value in pixel.items()},
         }
 
     right = image_width if plot_right_px is None else int(plot_right_px)
@@ -274,8 +254,11 @@ def calibrate_from_reference_candle(
         "calibration": calibration,
         "method": "reference_last_candle_ohlc_pixel_anchor",
         "reference_colour": expected_colour,
-        "maximum_residual_fraction": round(max_residual, 6),
+        "maximum_residual_fraction": round(maximum_residual, 6),
         "rms_residual_fraction": round(rms_residual, 6),
+        "body_residual_fraction_by_field": {
+            key: round(value, 6) for key, value in body_residuals.items()
+        },
         "reference_pixel_rows": {key: round(value, 3) for key, value in pixel.items()},
     }
 
