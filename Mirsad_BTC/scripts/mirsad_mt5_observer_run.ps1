@@ -431,36 +431,13 @@ Period=$observerTimeframe
         trading_permission_enabled = $false
     }
     $safe | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'observer-live-capture-summary.json') -Encoding utf8
-
-    # Analyze the actual MT5 PNG with Engine 2 before deleting the ephemeral capture.
-    # Only a sanitized result is uploaded; the chart image and raw OHLC remain private.
+ 
+    # Run Engine 2 on the just-captured MT5 image before cleaning the temporary terminal.
+    # The chart image and raw OHLC remain on this runner; only a sanitized result is uploaded.
     $marketSymbol = [string]$env:MIRSAD_MT5_MARKET_SYMBOL
     if ([string]::IsNullOrWhiteSpace($marketSymbol)) { $marketSymbol = 'BTCUSDT' }
     $marketSymbol = $marketSymbol.Trim()
-    if ($marketSymbol -notmatch '^[A-Za-z0-9._-]{1,32}    Add-Report ("PASS — PNG signature and byte size verified: {0} bytes." -f $imageBytes.Length)
-    Add-Report ("PASS — MT5 OHLC response recorded: {0} bars; status={1}; error={2}." -f @($manifest.bars).Count,$manifest.rates_status,$manifest.rates_error_code)
-    Add-Report ("PASS — Image/OHLC request skew: {0} ms." -f $skew)
-    Add-Report 'Safety — Observer only; no execution EA attached; automated trading permission disabled; no MIR1 command created. The Observer source contains no trade API.'
-    Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
-    Get-Content -LiteralPath $report
-}
-catch {
-    Add-Report ("FAIL — {0}" -f $_.Exception.Message)
-    Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
-    Get-Content -LiteralPath $report
-    throw
-}
-finally {
-    if ($terminalProcess -and !$terminalProcess.HasExited) {
-        Stop-Process -Id $terminalProcess.Id -Force -ErrorAction SilentlyContinue
-    }
-    if ($loginConfig -and (Test-Path -LiteralPath $loginConfig)) {
-        Remove-Item -LiteralPath $loginConfig -Force -ErrorAction SilentlyContinue
-    }
-    $accountPassword = $null
-    $credentialRaw = $null
-}
-) { throw 'Invalid configured Mirsad market symbol.' }
+    if ($marketSymbol.Length -gt 32) { throw 'Configured Mirsad market symbol is too long.' }
     $analysisScript = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\analyze_mt5_observer_capture.py'
     $analysisOutput = Join-Path $evidence 'observer-engine2-analysis.json'
     if (!(Test-Path -LiteralPath $analysisScript)) { throw 'Engine 2 Observer analysis script is missing.' }
@@ -470,12 +447,12 @@ finally {
     $analysisExitCode = $LASTEXITCODE
     foreach ($line in $analysisLines) { Add-Report ("Engine 2 smoke: {0}" -f [string]$line) }
     if ($analysisExitCode -ne 0) {
-        Add-Report ("WARN — Engine 2 image smoke exited with code {0}; the Observer capture remains separately verified." -f $analysisExitCode)
+        Add-Report ("WARN — Engine 2 image smoke exited with code {0}; Observer capture remains separately verified." -f $analysisExitCode)
     }
     elseif (Test-Path -LiteralPath $analysisOutput) {
         $engine2Summary = Get-Content -LiteralPath $analysisOutput -Raw | ConvertFrom-Json
         Add-Report ("Engine 2 MT5 image result: status={0}; visual eligible={1}; reference calibration={2}; detected bars={3}." -f $engine2Summary.engine2.status,$engine2Summary.engine2.visual_eligible,$engine2Summary.engine2.reference_calibration_status,$engine2Summary.engine2.detected_bars)
-        Add-Report 'Safety — this Engine 2 smoke test is diagnostic only and never authorizes a trade.'
+        Add-Report 'Safety — Engine 2 smoke is diagnostic only and never authorizes a trade.'
     }
     else {
         Add-Report 'WARN — Engine 2 image smoke did not create its sanitized summary.'
