@@ -341,15 +341,21 @@ def analyze_chart_image(
         def find_reference_pixel_bar(offset_from_right: int) -> dict[str, Any] | None:
             if offset_from_right < 0:
                 return None
-            if expected_count > 0 and has_slot_indices:
-                target_slot = expected_count - 1 - offset_from_right
-                if target_slot < 0:
+            if expected_count > 0:
+                if has_slot_indices:
+                    target_slot = expected_count - 1 - offset_from_right
+                    if target_slot < 0:
+                        return None
+                    matches = [
+                        item for item in bars
+                        if isinstance(item, dict) and item.get("slot_index") == target_slot
+                    ]
+                    return matches[0] if len(matches) == 1 else None
+                # Without explicit slot IDs, order is safe only when every
+                # expected visible slot was recovered. Missing bars make an
+                # ordinal guess ambiguous, so block this reference candidate.
+                if len(bars) != expected_count:
                     return None
-                matches = [
-                    item for item in bars
-                    if isinstance(item, dict) and item.get("slot_index") == target_slot
-                ]
-                return matches[0] if len(matches) == 1 else None
             index = len(bars) - 1 - offset_from_right
             return bars[index] if 0 <= index < len(bars) else None
 
@@ -680,6 +686,7 @@ def analyze_chart_image(
             "status": "READY",
             "offset_from_right": selected_reference_candidate.get("offset_from_right"),
             "slot_index": selected_reference_bar.get("slot_index") if selected_reference_bar else None,
+            "bar_index": next((index for index, item in enumerate(bars) if item is selected_reference_bar), None),
             "time_server_ms": selected_reference_candidate.get("time_server_ms"),
             "closed": selected_reference_candidate.get("closed"),
         } if reference_anchor_verified and selected_reference_candidate else {
