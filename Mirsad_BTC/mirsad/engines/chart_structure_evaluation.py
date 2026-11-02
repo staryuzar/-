@@ -194,6 +194,9 @@ def evaluate_structure_events(
     timeframe: str,
     data_split: str,
     dataset_id: str,
+    split_start_ms: int,
+    split_end_ms: int,
+    embargo_bars: int = 0,
     market_regime: str = "UNSPECIFIED",
     horizons: tuple[int, ...] | list[int] = DEFAULT_HORIZONS,
     fee_bps_per_side: float | None = None,
@@ -240,6 +243,30 @@ def evaluate_structure_events(
         round_trip_cost_pct = None
 
     normalised_bars = _normalise_bars(bars, clean_timeframe)
+    interval_ms = CANDLE_INTERVAL_MS[clean_timeframe]
+    if (
+        not isinstance(split_start_ms, int)
+        or isinstance(split_start_ms, bool)
+        or not isinstance(split_end_ms, int)
+        or isinstance(split_end_ms, bool)
+        or split_start_ms <= 0
+        or split_end_ms <= split_start_ms
+    ):
+        raise ValueError("split_start_ms and split_end_ms must define a positive increasing time window")
+    if split_start_ms % interval_ms or split_end_ms % interval_ms:
+        raise ValueError("split window boundaries must align to the selected candle interval")
+    if not isinstance(embargo_bars, int) or isinstance(embargo_bars, bool) or embargo_bars < 0:
+        raise ValueError("embargo_bars must be a non-negative integer")
+    series_start_ms = int(normalised_bars[0]["open_time_ms"])
+    series_end_ms = int(normalised_bars[-1]["open_time_ms"]) + interval_ms
+    if split_start_ms < series_start_ms or split_end_ms > series_end_ms:
+        raise ValueError("split window must be fully contained in the supplied OHLC series")
+    first_split_index = next(
+        (index for index, bar in enumerate(normalised_bars)
+         if int(bar["open_time_ms"]) >= split_start_ms),
+        len(normalised_bars),
+    )
+    embargo_end_index = first_split_index + embargo_bars
     known_structures = {item["structure_id"] for item in MARKET_STRUCTURE_CATALOG}
     if not STRUCTURE_PATTERN_IDS.issubset(known_structures):
         raise RuntimeError("The visual structure knowledge catalog is missing evaluated pattern ids")
@@ -253,7 +280,12 @@ def evaluate_structure_events(
         "invalidated_events_skipped": 0,
         "duplicate_events_skipped": 0,
         "events_without_next_bar": 0,
+        "events_outside_split_skipped": 0,
+        "events_embargoed_at_split_start": 0,
         "events_without_any_complete_horizon": 0,
+        "incomplete_horizon_samples_by_horizon": {
+            str(horizon): 0 for horizon in requested_horizons
+        },
     }
 
     for event_number, event in enumerate(events):
@@ -308,6 +340,14 @@ def evaluate_structure_events(
                 f"Event {event_number} must occur after all formation pivots were confirmable"
             )
 
+        event_open_time_ms = int(normalised_bars[event_index]["open_time_ms"])
+        if not split_start_ms <= event_open_time_ms < split_end_ms:
+            counts["events_outside_split_skipped"] += 1
+            continue
+        if event_index < embargo_end_index:
+            counts["events_embargoed_at_split_start"] += 1
+            continue
+
         identity = _event_identity(
             event, pattern_id=pattern_id, event_index=event_index, direction=direction
         )
@@ -337,6 +377,11 @@ def evaluate_structure_events(
         for horizon in requested_horizons:
             exit_index = event_index + horizon
             if exit_index >= len(normalised_bars):
+                counts["incomplete_horizon_samples_by_horizon"][str(horizon)] += 1
+                continue
+            exit_close_time_ms = int(normalised_bars[exit_index]["open_time_ms"]) + interval_ms
+            if exit_close_time_ms > split_end_ms:
+                counts["incomplete_horizon_samples_by_horizon"][str(horizon)] += 1
                 continue
             future = normalised_bars[event_index + 1:exit_index + 1]
             entry_price = float(future[0]["open"])
@@ -400,6 +445,9 @@ def evaluate_structure_events(
         "dataset_id": clean_dataset_id,
         "dataset_fingerprint": fingerprint,
         "data_split": data_split,
+        "split_start_ms": split_start_ms,
+        "split_end_ms": split_end_ms,
+        "embargo_bars": embargo_bars,
         "event_source": "engine_2_confirmed_structure_events",
         "human_reviewed": False,
         "validation_status": "IN_PROGRESS",
