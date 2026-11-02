@@ -31,6 +31,51 @@ CREATE TABLE IF NOT EXISTS feed_health (
  venue TEXT PRIMARY KEY,checked_at_ms INTEGER NOT NULL,status TEXT NOT NULL,
  latency_ms REAL,error TEXT
 );
+CREATE TABLE IF NOT EXISTS visual_knowledge_meta (
+ namespace TEXT PRIMARY KEY,version TEXT NOT NULL,updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS visual_candle_pattern_knowledge (
+ pattern_id TEXT PRIMARY KEY,version TEXT NOT NULL,name_en TEXT NOT NULL,name_ar TEXT NOT NULL,
+ family TEXT NOT NULL,direction TEXT NOT NULL,formation_bars INTEGER NOT NULL,
+ definition_json TEXT NOT NULL,empirical_status TEXT NOT NULL,updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS visual_structure_knowledge (
+ structure_id TEXT PRIMARY KEY,version TEXT NOT NULL,name_en TEXT NOT NULL,name_ar TEXT NOT NULL,
+ category TEXT NOT NULL,definition_json TEXT NOT NULL,empirical_status TEXT NOT NULL,
+ updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS visual_pattern_observations (
+ observation_id TEXT PRIMARY KEY,sample_fingerprint TEXT NOT NULL,symbol TEXT NOT NULL,
+ timeframe TEXT NOT NULL,observed_at_ms INTEGER NOT NULL,pattern_id TEXT NOT NULL,
+ start_index INTEGER NOT NULL,end_index INTEGER NOT NULL,confirmation_state TEXT NOT NULL,
+ evidence_json TEXT NOT NULL,engine_version TEXT NOT NULL,
+ FOREIGN KEY(pattern_id) REFERENCES visual_candle_pattern_knowledge(pattern_id)
+);
+CREATE INDEX IF NOT EXISTS ix_visual_pattern_observations_lookup
+ ON visual_pattern_observations(symbol,timeframe,pattern_id,observed_at_ms);
+CREATE TABLE IF NOT EXISTS visual_structure_observations (
+ observation_id TEXT PRIMARY KEY,sample_fingerprint TEXT NOT NULL,symbol TEXT NOT NULL,
+ timeframe TEXT NOT NULL,observed_at_ms INTEGER NOT NULL,structure_id TEXT NOT NULL,
+ start_index INTEGER NOT NULL,end_index INTEGER NOT NULL,confirmed INTEGER NOT NULL,
+ level_price REAL,zone_low REAL,zone_high REAL,evidence_json TEXT NOT NULL,
+ engine_version TEXT NOT NULL,
+ FOREIGN KEY(structure_id) REFERENCES visual_structure_knowledge(structure_id)
+);
+CREATE INDEX IF NOT EXISTS ix_visual_structure_observations_lookup
+ ON visual_structure_observations(symbol,timeframe,structure_id,observed_at_ms);
+CREATE TABLE IF NOT EXISTS visual_pattern_evaluations (
+ evaluation_id INTEGER PRIMARY KEY AUTOINCREMENT,pattern_id TEXT NOT NULL,
+ symbol TEXT NOT NULL,timeframe TEXT NOT NULL,market_regime TEXT,
+ sample_count INTEGER NOT NULL,precision REAL,recall REAL,f1 REAL,
+ mean_return_pct REAL,median_return_pct REAL,mae_pct REAL,mfe_pct REAL,
+ fee_adjusted_expectancy_pct REAL,dataset_fingerprint TEXT NOT NULL,
+ validation_status TEXT NOT NULL CHECK(validation_status IN ('UNVALIDATED','IN_PROGRESS','VALIDATED','REJECTED')),
+ calculated_at_ms INTEGER NOT NULL,
+ UNIQUE(pattern_id,symbol,timeframe,market_regime,dataset_fingerprint),
+ FOREIGN KEY(pattern_id) REFERENCES visual_candle_pattern_knowledge(pattern_id)
+);
+CREATE INDEX IF NOT EXISTS ix_visual_pattern_evaluations_status
+ ON visual_pattern_evaluations(validation_status,pattern_id,symbol,timeframe);
 """
 
 def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
