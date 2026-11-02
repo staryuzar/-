@@ -4,7 +4,7 @@
 //| No trade functions. Does not publish MIR1 commands.               |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "0.10"
+#property version   "0.100"
 #property description "Mirsad read-only MT5 chart screenshot and OHLC observer"
 
 input int  InpCaptureIntervalSeconds = 60;   // Snapshot cadence (5..3600 seconds)
@@ -360,8 +360,6 @@ bool TryFinalizePendingCapture()
    }
 
    string payload = g_pending_payload;
-   string published_token = "\"published_at_utc_ms\":0";
-   string published_value = "\"published_at_utc_ms\":" + (string)UtcNowMs();
    StringReplace(payload, "\"forming_bar_included\":true,",
                  "\"forming_bar_included\":true,\"image_size_bytes\":" +
                  (string)common_size + ",\"published_at_utc_ms\":" +
