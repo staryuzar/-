@@ -497,7 +497,13 @@ def analyze_chart_image(
         "latest_candle_state": "CLOSED" if last_candle_closed else "FORMING_OR_UNVERIFIED",
         "last_bar_x_ratio": round(last_bar_x_ratio, 4) if last_bar_x_ratio is not None else None,
         "mean_colour_purity": round(mean_colour_purity, 4),
-        "palette_mode": str(meta.get("palette_mode", "auto")),
+        "palette_mode": extraction_diagnostics.get(
+            "selected_palette_mode", str(meta.get("palette_mode", "auto"))
+        ),
+        "palette_mode_requested": str(meta.get("palette_mode", "auto")),
+        "palette_inference": extraction_diagnostics.get(
+            "palette_inference", {"status": "UNAVAILABLE"}
+        ),
         "extraction_diagnostics": extraction_diagnostics,
         "colour_counts": {
             "GREEN": sum(bar.get("colour") == "GREEN" for bar in bars),
