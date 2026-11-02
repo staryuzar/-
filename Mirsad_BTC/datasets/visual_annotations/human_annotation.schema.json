@@ -156,6 +156,133 @@
           }
         }
       }
+    },
+    "image_source_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Public or internal source of the reviewed image; retain provenance."
+    },
+    "snapshot_time_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Chart snapshot time in UTC, when known."
+    },
+    "price_scale_type": {
+      "type": "string",
+      "enum": [
+        "linear",
+        "logarithmic"
+      ]
+    },
+    "visual_bias_scope": {
+      "type": "string",
+      "enum": [
+        "VISIBLE_CHART_WINDOW"
+      ],
+      "description": "This label describes the visible chart window only, not multi-timeframe confluence."
+    },
+    "visual_bias": {
+      "type": "string",
+      "enum": [
+        "BULLISH",
+        "BEARISH",
+        "NEUTRAL",
+        "CONTEXTUAL",
+        "UNKNOWN"
+      ]
+    },
+    "last_candle_direction": {
+      "type": "string",
+      "enum": [
+        "BULLISH",
+        "BEARISH",
+        "DOJI",
+        "UNKNOWN"
+      ]
+    },
+    "last_candle_ohlc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "properties": {
+        "open": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "high": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "low": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "close": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "description": "Reference OHLC for the final visible candle; use only when verified from the same chart and timestamp."
+    },
+    "trend_windows": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "short_6": {
+          "type": "string",
+          "enum": [
+            "BULLISH",
+            "BEARISH",
+            "NEUTRAL",
+            "MIXED_OR_UNKNOWN",
+            "UNKNOWN"
+          ]
+        },
+        "medium_12": {
+          "type": "string",
+          "enum": [
+            "BULLISH",
+            "BEARISH",
+            "NEUTRAL",
+            "MIXED_OR_UNKNOWN",
+            "UNKNOWN"
+          ]
+        },
+        "long_30": {
+          "type": "string",
+          "enum": [
+            "BULLISH",
+            "BEARISH",
+            "NEUTRAL",
+            "MIXED_OR_UNKNOWN",
+            "UNKNOWN"
+          ]
+        }
+      },
+      "description": "Human-reviewed directional labels for six-, twelve-, and thirty-candle windows within the same chart timeframe."
+    },
+    "market_structure_direction": {
+      "type": "string",
+      "enum": [
+        "BULLISH",
+        "BEARISH",
+        "MIXED_OR_UNKNOWN",
+        "UNKNOWN"
+      ]
+    },
+    "momentum_direction": {
+      "type": "string",
+      "enum": [
+        "BULLISH",
+        "BEARISH",
+        "NEUTRAL",
+        "UNKNOWN"
+      ]
     }
   },
   "description": "Human labels must be reviewed from source chart/OHLC without future-return labels. Machine-generated labels must never be declared manually reviewed."
