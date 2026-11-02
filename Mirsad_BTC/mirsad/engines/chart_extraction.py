@@ -188,6 +188,64 @@ def _extract_slot_guided_bars(
 
 
 
+def _select_slot_guided_bars(
+    legacy_bars: list[dict[str, Any]],
+    slot_bars: list[dict[str, Any]],
+    *,
+    expected_candle_count: int,
+    slot_mean_purity: float,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Choose slot-guided bars only when count or independently measured body geometry improves."""
+    minimum_recovery = max(8, int(np.ceil(expected_candle_count * 0.40)))
+    legacy_count_error = abs(len(legacy_bars) - expected_candle_count)
+    slot_count_error = abs(len(slot_bars) - expected_candle_count)
+
+    def shadow_separated_count(bars: list[dict[str, Any]]) -> int:
+        return sum(
+            int(
+                float(bar.get("high_y_px", 0)) < float(bar.get("body_top_y_px", 0))
+                and float(bar.get("body_bottom_y_px", 0)) < float(bar.get("low_y_px", 0))
+            )
+            for bar in bars
+        )
+
+    legacy_shadow_separated = shadow_separated_count(legacy_bars)
+    slot_shadow_separated = shadow_separated_count(slot_bars)
+    legacy_mean_body_ratio = (
+        float(np.mean([float(bar.get("body_ratio", 1.0)) for bar in legacy_bars]))
+        if legacy_bars else 1.0
+    )
+    slot_mean_body_ratio = (
+        float(np.mean([float(bar.get("body_ratio", 1.0)) for bar in slot_bars]))
+        if slot_bars else 1.0
+    )
+    count_fit_improves = slot_count_error < legacy_count_error
+    body_geometry_improves = (
+        slot_count_error == legacy_count_error
+        and slot_shadow_separated > legacy_shadow_separated
+        and slot_mean_body_ratio < legacy_mean_body_ratio
+    )
+    adopted = (
+        len(slot_bars) >= minimum_recovery
+        and slot_mean_purity >= 0.75
+        and (count_fit_improves or body_geometry_improves)
+    )
+    diagnostics = {
+        "minimum_recovery_threshold": minimum_recovery,
+        "expected_candle_count": expected_candle_count,
+        "legacy_count_error": legacy_count_error,
+        "slot_count_error": slot_count_error,
+        "mean_body_ratio": round(slot_mean_body_ratio, 4),
+        "legacy_mean_body_ratio": round(legacy_mean_body_ratio, 4),
+        "bars_with_both_wicks_separated": slot_shadow_separated,
+        "legacy_bars_with_both_wicks_separated": legacy_shadow_separated,
+        "count_fit_improves": count_fit_improves,
+        "body_geometry_improves": body_geometry_improves,
+        "adopted": adopted,
+    }
+    return (slot_bars if adopted else legacy_bars), diagnostics
+
+
 def _extract_bars(
     image: np.ndarray, meta: dict[str, Any], diagnostics: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
@@ -377,60 +435,22 @@ def _extract_bars(
             float(np.mean([bar["colour_purity"] for bar in slot_bars]))
             if slot_bars else 0.0
         )
-        legacy_mean_purity = (
-            float(np.mean([bar["colour_purity"] for bar in bars]))
-            if bars else 0.0
+        selected_bars, slot_selection = _select_slot_guided_bars(
+            bars,
+            slot_bars,
+            expected_candle_count=expected_candle_count,
+            slot_mean_purity=slot_mean_purity,
         )
-        legacy_shadow_separated = sum(
-            int(bar["high_y_px"] < bar["body_top_y_px"] and bar["body_bottom_y_px"] < bar["low_y_px"])
-            for bar in bars
-        )
-        slot_shadow_separated = sum(
-            int(bar["high_y_px"] < bar["body_top_y_px"] and bar["body_bottom_y_px"] < bar["low_y_px"])
-            for bar in slot_bars
-        )
-        legacy_mean_body_ratio = (
-            float(np.mean([bar["body_ratio"] for bar in bars])) if bars else 1.0
-        )
-        slot_mean_body_ratio = (
-            float(np.mean([bar["body_ratio"] for bar in slot_bars])) if slot_bars else 1.0
-        )
-        minimum_slot_recovery = max(
-            8,
-            int(np.ceil(expected_candle_count * 0.40)),
-        )
-        legacy_count_error = abs(len(bars) - expected_candle_count)
-        slot_count_error = abs(len(slot_bars) - expected_candle_count)
-        count_fit_improves = slot_count_error < legacy_count_error
-        body_geometry_improves = (
-            slot_count_error == legacy_count_error
-            and slot_shadow_separated > legacy_shadow_separated
-            and slot_mean_body_ratio < legacy_mean_body_ratio
-        )
-        # A known count is a constraint, not permission to fabricate candles.
-        # When counts tie, prefer slot-guided geometry only if it independently
-        # recovers more candles with both wick shadows outside a narrower body.
-        if (
-            len(slot_bars) >= minimum_slot_recovery
-            and slot_mean_purity >= 0.75
-            and (count_fit_improves or body_geometry_improves)
-        ):
+        if selected_bars is slot_bars:
             bars = slot_bars
             selected_mode = "expected_slot_hint"
         slot_diagnostics["mean_colour_purity"] = round(slot_mean_purity, 4)
-        slot_diagnostics["legacy_mean_colour_purity"] = round(legacy_mean_purity, 4)
-        slot_diagnostics["mean_body_ratio"] = round(slot_mean_body_ratio, 4)
-        slot_diagnostics["legacy_mean_body_ratio"] = round(legacy_mean_body_ratio, 4)
-        slot_diagnostics["bars_with_both_wicks_separated"] = slot_shadow_separated
-        slot_diagnostics["legacy_bars_with_both_wicks_separated"] = legacy_shadow_separated
-        slot_diagnostics["count_fit_improves"] = count_fit_improves
-        slot_diagnostics["body_geometry_improves"] = body_geometry_improves
-        slot_diagnostics["minimum_recovery_threshold"] = minimum_slot_recovery
-        slot_diagnostics["expected_candle_count"] = expected_candle_count
-        slot_diagnostics["legacy_count_error"] = legacy_count_error
-        slot_diagnostics["slot_count_error"] = slot_count_error
-        slot_diagnostics["adopted"] = selected_mode == "expected_slot_hint"
-
+        slot_diagnostics["legacy_mean_colour_purity"] = round(
+            float(np.mean([bar["colour_purity"] for bar in bars]))
+            if bars else 0.0,
+            4,
+        )
+        slot_diagnostics.update(slot_selection)
     if diagnostics is not None:
         diagnostics["accepted_bars"] = len(bars)
         diagnostics["rejected_groups"] = rejection_counts
