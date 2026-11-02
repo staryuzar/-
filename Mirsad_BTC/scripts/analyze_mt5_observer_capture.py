@@ -16,6 +16,14 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         return {
             "schema": "MIR-ENGINE2-OBSERVER-SMOKE-1",
             "capture_id": capture.get("capture_id"),
+            "capture": {
+                "source_width_px": chart.get("source_width_px"),
+                "source_main_window_height_px": chart.get("source_main_window_height_px"),
+                "visible_bars": chart.get("visible_bars"),
+                "windows_total": chart.get("windows_total"),
+                "chart_autoscroll": chart.get("chart_autoscroll"),
+                "source_dimensions_usable": chart.get("source_dimensions_usable"),
+            },
             "decision_eligible": False,
             "engine2": {"status": code, "visual_eligible": False, "reason": reason,
                         "detected_bars": 0, "confirmed_bars": 0,
