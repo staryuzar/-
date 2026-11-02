@@ -331,19 +331,16 @@ def run_benchmark(
                     row.get("next_close"),
                 )
                 decision_eligible = bool(result.get("decision_eligible", False))
+                calibration = result.get("calibration") or {}
+                if calibration.get("price_scale_valid") and calibration_source in {"manual", "ocr"}:
+                    axis_calibrated_images += 1
                 if decision_eligible:
                     eligible_images += 1
-                    calibration = result.get("calibration") or {}
-                    if calibration.get("price_scale_valid"):
-                        axis_calibrated_images += 1
                     visual_bias = str(result.get("visual_bias", "NEUTRAL")).upper()
                     if future_direction in {"BULLISH", "BEARISH"} and visual_bias in {"BULLISH", "BEARISH"}:
                         future_direction_cases += 1
                         matched = visual_bias == future_direction
                         future_direction_matches += int(matched)
-                        future_confusion[f"{future_direction}->{visual_bias}"] += 1
-                elif (result.get("calibration") or {}).get("price_scale_valid"):
-                    axis_calibrated_images += 1
 
                 gates = result.get("quality_gates") or {}
                 for failed in _quality_gate_failures(gates):
