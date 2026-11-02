@@ -11,6 +11,7 @@ import numpy as np
 from mirsad.engines.chart import _patterns, analyze_chart_image
 from mirsad.engines.chart_calibration import price_at_pixel, resolve_chart_calibration
 from mirsad.engines.chart_image import load_chart_image
+from mirsad.engines.chart_metrics import analyze_calibrated_bars
 
 
 class ChartEngineTests(unittest.TestCase):
@@ -305,6 +306,75 @@ class ChartEngineTests(unittest.TestCase):
         self.assertIn("support", result["market_structure"])
         self.assertIn("resistance", result["market_structure"])
         self.assertIn("trend", result["analysis_components"])
+
+    def test_insufficient_calibrated_history_returns_neutral_without_crashing(self) -> None:
+        bars = [
+            {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "colour_purity": 1.0}
+            for _ in range(5)
+        ]
+        result = analyze_calibrated_bars(bars, top_price=110.0, bottom_price=90.0)
+        self.assertEqual(result["visual_bias"], "NEUTRAL")
+        self.assertEqual(result["analysis_score"], 0.0)
+        self.assertEqual(result["analysis_confidence"], 0.0)
+        self.assertEqual(result["visual_trend"]["direction"], "NEUTRAL")
+
+    def test_flat_calibrated_history_returns_neutral_bias(self) -> None:
+        bars = [
+            {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
+             "x_px": i * 10, "colour_purity": 0.99}
+            for i in range(12)
+        ]
+        result = analyze_calibrated_bars(bars, top_price=110.0, bottom_price=90.0)
+        self.assertEqual(result["visual_bias"], "NEUTRAL")
+        self.assertEqual(result["visual_trend"]["direction"], "NEUTRAL")
+        self.assertEqual(result["visual_trend"]["score"], 0.0)
+
+    def test_minimum_move_and_directional_consistency_suppress_noise(self) -> None:
+        closes = [100.0, 100.03, 99.99, 100.02, 100.01, 100.04, 100.02, 100.05]
+        bars = [
+            {"open": close, "high": close + 0.5, "low": close - 0.5,
+             "close": close, "x_px": i * 10, "colour_purity": 1.0}
+            for i, close in enumerate(closes)
+        ]
+        result = analyze_calibrated_bars(bars, top_price=110.0, bottom_price=90.0)
+        self.assertEqual(result["visual_trend"]["direction"], "NEUTRAL")
+        self.assertFalse(result["visual_trend"]["minimum_move_met"])
+        self.assertEqual(result["visual_trend"]["score"], 0.0)
+
+    def test_trend_metrics_include_short_medium_and_long_windows(self) -> None:
+        result = self._analyze(direction="up", colour="GREEN")
+        windows = result["visual_trend"]["windows"]
+        self.assertEqual(set(windows), {"short_6", "medium_12", "long_30"})
+        self.assertEqual(windows["long_30"]["direction"], "BULLISH")
+
+    def test_market_structure_reports_pivot_indices_and_watch_zones(self) -> None:
+        closes = [
+            100, 101, 102, 103, 102, 103, 104, 105, 104, 105,
+            106, 107, 106, 107, 108, 109, 108, 109, 110, 111,
+            110, 111, 112, 113, 112, 110, 108, 106,
+        ]
+        bars = []
+        for index, close in enumerate(closes):
+            bars.append({
+                "open": float(close),
+                "high": float(close) + 0.5,
+                "low": float(close) - 0.5,
+                "close": float(close),
+                "x_px": index * 10,
+                "colour_purity": 0.99,
+            })
+        result = analyze_calibrated_bars(bars, top_price=120.0, bottom_price=90.0)
+        structure = result["market_structure"]
+        self.assertEqual(result["visual_bias"], "BULLISH")
+        self.assertTrue(structure["swing_highs"])
+        self.assertTrue(structure["swing_lows"])
+        self.assertTrue(all(0 <= p["index"] < len(bars) for p in structure["swing_highs"]))
+        self.assertTrue(all(0 <= p["index"] < len(bars) for p in structure["swing_lows"]))
+        self.assertTrue(structure["support_zones"])
+        self.assertTrue(structure["resistance_zones"])
+        self.assertIsNotNone(structure["entry_zone"])
+        self.assertIsNotNone(structure["exit_zone"])
+        self.assertEqual(structure["entry_zone"]["status"], "OBSERVATION_ONLY")
 
     def test_ocr_axis_calibration_is_used_only_when_manual_axis_is_missing(self) -> None:
         ticks = [

@@ -24,6 +24,7 @@ def parse_price_label(text: str) -> float | None:
         str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
     )
     normalized = normalized.replace("٬", ",").replace("٫", ".")
+    normalized = normalized.replace("٬", ",").replace("٫", ".")
     for match in _NUMERIC_TOKEN.finditer(normalized):
         raw = re.sub(r"[\s,]", "", match.group(1))
         suffix = (match.group(2) or "").upper()
@@ -218,9 +219,13 @@ def detect_price_axis_ticks(
     try:
         ocr = _get_ocr_engine()
         output = ocr(axis_crop)
-        texts = list(getattr(output, "txts", []) or [])
-        scores = list(getattr(output, "scores", []) or [])
-        boxes = list(getattr(output, "boxes", []) or [])
+        raw_texts = getattr(output, "txts", None)
+        raw_scores = getattr(output, "scores", None)
+        raw_boxes = getattr(output, "boxes", None)
+        # RapidOCR 3.x exposes boxes as a NumPy array; boolean evaluation is ambiguous.
+        texts = [] if raw_texts is None else list(raw_texts)
+        scores = [] if raw_scores is None else list(raw_scores)
+        boxes = [] if raw_boxes is None else list(raw_boxes)
     except Exception as exc:
         return {
             "status": "OCR_UNAVAILABLE",

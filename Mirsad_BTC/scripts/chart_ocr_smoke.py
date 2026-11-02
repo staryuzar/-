@@ -9,7 +9,7 @@ from mirsad.engines.chart_ocr import detect_price_axis_ticks, fit_price_axis
 
 
 def main() -> int:
-    width, height = 1280, 720
+    width, height = 1400, 720
     plot_left, plot_right = 80, 1120
     plot_top, plot_bottom = 60, 620
     image = np.full((height, width, 3), 255, dtype=np.uint8)
@@ -28,7 +28,7 @@ def main() -> int:
             text,
             (plot_right + 12, y + 7),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.68,
+            0.95,
             (20, 20, 20),
             2,
             cv2.LINE_AA,
@@ -49,6 +49,9 @@ def main() -> int:
     )
     report = {
         "detected_status": detected.get("status"),
+        "detected_reason": detected.get("reason"),
+        "ocr_variant": detected.get("ocr_variant"),
+        "ocr_attempt_errors": detected.get("ocr_attempt_errors"),
         "tick_count": len(detected.get("ticks", [])),
         "ticks": [
             {"text": tick["text"], "price": tick["price"], "y_px": round(tick["y_px"], 2)}

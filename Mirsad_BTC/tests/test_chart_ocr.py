@@ -103,6 +103,21 @@ class ChartOCRTests(unittest.TestCase):
         self.assertEqual(result["ticks"][0]["price"], 120000.0)
         self.assertGreater(result["candidate_plot_right_px"], 410)
 
+    def test_empty_numpy_ocr_boxes_are_no_text_not_an_ocr_crash(self) -> None:
+        class EmptyOCR:
+            def __call__(self, image):
+                return SimpleNamespace(
+                    txts=(),
+                    scores=(),
+                    boxes=np.empty((0, 4, 2), dtype=np.float32),
+                )
+
+        image = np.full((320, 500, 3), 255, dtype=np.uint8)
+        with patch("mirsad.engines.chart_ocr._get_ocr_engine", return_value=EmptyOCR()):
+            result = detect_price_axis_ticks(image)
+        self.assertEqual(result["status"], "NO_NUMERIC_TICKS")
+        self.assertEqual(result["ticks"], [])
+
     def test_detect_price_axis_ticks_reports_unavailable_engine_without_crashing(self) -> None:
         image = np.full((320, 500, 3), 255, dtype=np.uint8)
         with patch(
