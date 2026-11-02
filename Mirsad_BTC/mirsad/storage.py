@@ -114,6 +114,10 @@ CREATE TABLE IF NOT EXISTS visual_structure_evaluations (
  fee_bps_per_side REAL,
  slippage_bps_per_side REAL,
  round_trip_cost_pct REAL,
+ dataset_id TEXT NOT NULL DEFAULT '',
+ split_start_ms INTEGER NOT NULL DEFAULT 0,
+ split_end_ms INTEGER NOT NULL DEFAULT 0,
+ embargo_bars INTEGER NOT NULL DEFAULT 0,
  UNIQUE(structure_id,symbol,venue,timeframe,market_regime,dataset_fingerprint,data_split),
  FOREIGN KEY(structure_id) REFERENCES visual_structure_knowledge(structure_id)
 );
@@ -162,6 +166,22 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
         if column_name not in evaluation_columns:
             conn.execute(
                 f"ALTER TABLE visual_pattern_evaluations ADD COLUMN {column_name} {column_type}"
+            )
+    structure_columns = {
+        row["name"] for row in conn.execute(
+            "PRAGMA table_info(visual_structure_evaluations)"
+        ).fetchall()
+    }
+    structure_migrations = {
+        "dataset_id": "TEXT NOT NULL DEFAULT ''",
+        "split_start_ms": "INTEGER NOT NULL DEFAULT 0",
+        "split_end_ms": "INTEGER NOT NULL DEFAULT 0",
+        "embargo_bars": "INTEGER NOT NULL DEFAULT 0",
+    }
+    for column_name, column_type in structure_migrations.items():
+        if column_name not in structure_columns:
+            conn.execute(
+                f"ALTER TABLE visual_structure_evaluations ADD COLUMN {column_name} {column_type}"
             )
     return conn
 
