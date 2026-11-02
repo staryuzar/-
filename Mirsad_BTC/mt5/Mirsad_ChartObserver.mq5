@@ -101,10 +101,13 @@ void PublishObserverStatus(const string state,
       "{\"schema\":\"MIR-CHART-OBSERVER-STATUS-1\","
       "\"state\":\"%s\",\"capture_id\":\"%s\","
       "\"symbol\":\"%s\",\"timeframe\":\"%s\","
+      "\"chart_window_handle\":%I64d,\"chart_is_maximized\":%s,"
       "\"updated_at_utc_ms\":%I64d,\"message\":\"%s\"}",
       JsonEscape(state), JsonEscape(capture_id),
       JsonEscape(ChartSymbol(g_chart_id)),
       JsonEscape(TimeframeLabel((ENUM_TIMEFRAMES)ChartPeriod(g_chart_id))),
+      ChartGetInteger(g_chart_id, CHART_WINDOW_HANDLE),
+      JsonBool((bool)ChartGetInteger(g_chart_id, CHART_IS_MAXIMIZED)),
       UtcNowMs(), JsonEscape(message)
    );
 
@@ -218,6 +221,8 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"image_height_px\":" + (string)image_height + ",";
    payload += "\"chart\":{";
    payload += "\"chart_id\":\"" + (string)g_chart_id + "\",";
+   payload += "\"chart_window_handle\":" + (string)ChartGetInteger(g_chart_id, CHART_WINDOW_HANDLE) + ",";
+   payload += "\"chart_is_maximized\":" + JsonBool((bool)ChartGetInteger(g_chart_id, CHART_IS_MAXIMIZED)) + ",";
    payload += "\"symbol\":\"" + JsonEscape(symbol) + "\",";
    payload += "\"timeframe\":\"" + JsonEscape(TimeframeLabel(timeframe)) + "\",";
    payload += "\"digits\":" + (string)digits + ",";
@@ -430,6 +435,12 @@ int OnInit()
    g_chart_id = ChartID();
    if(g_chart_id == 0)
       return INIT_FAILED;
+
+   // Bring the exact chart carrying this Observer to the foreground.
+   ResetLastError();
+   if(!ChartSetInteger(g_chart_id, CHART_BRING_TO_TOP, true))
+      PrintFormat("Mirsad Observer: CHART_BRING_TO_TOP failed. Error=%d", GetLastError());
+   ChartRedraw(g_chart_id);
 
    FolderCreate("MirsadBTC", 0);
    FolderCreate("MirsadBTC", FILE_COMMON);
