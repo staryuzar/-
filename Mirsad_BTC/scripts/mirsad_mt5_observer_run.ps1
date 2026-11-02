@@ -153,6 +153,26 @@ try {
     Add-Report ("UTC start: {0}" -f [DateTime]::UtcNow.ToString('o'))
     Add-Report 'Mode: read-only Observer EA only. No execution EA, no trading commands, no MIR1 writes.'
 
+    # Hosted Windows runners may start with a small virtual desktop. A
+    # maximized terminal cannot enlarge its chart beyond that desktop. Request
+    # a larger display before launching MT5; native viewport dimensions remain
+    # the authoritative quality gate even if this request is unavailable.
+    try {
+        Import-Module ServerManager -ErrorAction SilentlyContinue
+        $displayCommand = Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue
+        if ($displayCommand) {
+            Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop
+            Start-Sleep -Seconds 2
+            Add-Report 'PASS — Hosted display resolution set to 1920x1080 before MT5 launch.'
+        }
+        else {
+            Add-Report 'WARN — Set-DisplayResolution is unavailable; native MT5 viewport dimensions remain the authoritative quality gate.'
+        }
+    }
+    catch {
+        Add-Report ("WARN — Could not change hosted display resolution: {0}. Native viewport quality gate remains active." -f $_.Exception.Message)
+    }
+
     if ([string]::IsNullOrWhiteSpace($credentialRaw)) {
         throw "Repository Actions secret 'mt5' is unavailable."
     }
