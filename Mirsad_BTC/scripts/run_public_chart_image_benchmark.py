@@ -20,7 +20,13 @@ MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 ALLOWED_IMAGE_HOSTS = {"itbfx.com", "img.bgstatic.com", "s3.tradingview.com"}
 
 
-def _crop_box(\n    width: int,\n    height: int,\n    crop: list[float] | tuple[float, ...] | None,\n    *,\n    preserve_right_axis: bool = False,\n) -> tuple[int, int, int, int]:
+def _crop_box(
+    width: int,
+    height: int,
+    crop: list[float] | tuple[float, ...] | None,
+    *,
+    preserve_right_axis: bool = False,
+) -> tuple[int, int, int, int]:
     if crop is None:
         return 0, 0, width, height
     if len(crop) != 4:
@@ -30,6 +36,10 @@ def _crop_box(\n    width: int,\n    height: int,\n    crop: list[float] | tuple
         raise ValueError("crop fractions must be finite")
     if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
         raise ValueError("crop fractions must define a non-empty rectangle inside the image")
+    # The manifest's right edge marks the plot area. Keep the axis labels beyond
+    # that boundary so Engine 2 can calibrate from labels actually present.
+    if preserve_right_axis:
+        right = 1.0
     box = (
         max(0, min(width, round(left * width))),
         max(0, min(height, round(top * height))),
@@ -86,7 +96,33 @@ def _bar_direction(bar: dict[str, Any] | None) -> str | None:
     return None
 
 
-def _ohlc_comparison(actual: dict[str, Any] | None, expected: dict[str, Any] | None) -> dict[str, Any] | None:\n    if not isinstance(actual, dict) or not isinstance(expected, dict):\n        return None\n    errors: dict[str, float] = {}\n    for field in (\"open\", \"high\", \"low\", \"close\"):\n        try:\n            observed = float(actual[field])\n            reference = float(expected[field])\n        except (KeyError, TypeError, ValueError, OverflowError):\n            continue\n        if not math.isfinite(observed) or not math.isfinite(reference) or reference <= 0:\n            continue\n        errors[field] = round(abs(observed - reference) / reference * 100.0, 4)\n    if not errors:\n        return None\n    maximum = max(errors.values())\n    return {\n        \"absolute_error_pct_by_field\": errors,\n        \"maximum_absolute_error_pct\": maximum,\n        \"within_3pct_tolerance\": maximum <= 3.0,\n    }\n\n\ndef _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
+def _ohlc_comparison(
+    actual: dict[str, Any] | None,
+    expected: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        return None
+    errors: dict[str, float] = {}
+    for field in ("open", "high", "low", "close"):
+        try:
+            observed = float(actual[field])
+            reference = float(expected[field])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(observed) or not math.isfinite(reference) or reference <= 0:
+            continue
+        errors[field] = round(abs(observed - reference) / reference * 100.0, 4)
+    if not errors:
+        return None
+    maximum = max(errors.values())
+    return {
+        "absolute_error_pct_by_field": errors,
+        "maximum_absolute_error_pct": maximum,
+        "within_3pct_tolerance": maximum <= 3.0,
+    }
+
+
+def _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
     chart_id = str(entry.get("id", "unknown"))
     image_url = str(entry.get("image_url", "")).strip()
     if not image_url:
@@ -98,7 +134,12 @@ def _ohlc_comparison(actual: dict[str, Any] | None, expected: dict[str, Any] | N
     with Image.open(downloaded_path) as opened:
         source = opened.convert("RGB")
         source_width, source_height = source.size
-        crop_box = _crop_box(source_width, source_height, entry.get("crop"))
+        crop_box = _crop_box(
+            source_width,
+            source_height,
+            entry.get("crop"),
+            preserve_right_axis=True,
+        )
         chart = source.crop(crop_box)
         chart.save(cropped_path, format="PNG")
         width, height = chart.size
@@ -106,16 +147,15 @@ def _ohlc_comparison(actual: dict[str, Any] | None, expected: dict[str, Any] | N
     metadata = {
         "symbol": entry.get("symbol"),
         "timeframe": entry.get("timeframe"),
-        "price_top": entry.get("price_top"),
-        "price_bottom": entry.get("price_bottom"),
         "price_scale_type": entry.get("price_scale_type", "linear"),
         "plot_left_px": 0,
         "plot_top_px": 0,
-        "plot_right_px": width,
         "plot_bottom_px": height,
+        # Price calibration must be derived from the right-hand axis OCR.
+        # Manifest price bounds are reference context, not input ground truth.
+        "auto_axis_ocr": True,
         "palette_mode": entry.get("palette_mode", "auto"),
         # The manifest does not establish that the rightmost candle is closed.
-        # It remains visible, but is excluded from confirmed trend/structure.
         "last_candle_closed": bool(entry.get("last_candle_closed", False)),
     }
     result = analyze_chart_image(
@@ -134,6 +174,12 @@ def _ohlc_comparison(actual: dict[str, Any] | None, expected: dict[str, Any] | N
         if reference_bias in {"BULLISH", "BEARISH"}
         else None
     )
+    latest_ohlc = (
+        {key: latest_bar.get(key) for key in ("open", "high", "low", "close")}
+        if latest_bar and all(key in latest_bar for key in ("open", "high", "low", "close"))
+        else None
+    )
+    axis_ocr = result.get("axis_ocr") or {}
 
     return {
         "id": chart_id,
@@ -162,12 +208,15 @@ def _ohlc_comparison(actual: dict[str, Any] | None, expected: dict[str, Any] | N
         "analysis_confidence": result.get("analysis_confidence"),
         "confidence_kind": result.get("confidence_kind"),
         "calibration": result.get("calibration", {}),
+        "axis_ocr_status": axis_ocr.get("status"),
+        "axis_ocr_tick_count": len(axis_ocr.get("ticks", [])),
+        "axis_ocr_fit": axis_ocr.get("fit"),
         "colour_counts": result.get("colour_counts", {}),
         "extraction_diagnostics": result.get("extraction_diagnostics", {}),
-        "latest_bar_ohlc": (
-            {key: latest_bar.get(key) for key in ("open", "high", "low", "close")}
-            if latest_bar and all(key in latest_bar for key in ("open", "high", "low", "close"))
-            else None
+        "latest_bar_ohlc": latest_ohlc,
+        "latest_bar_ohlc_reference_check": _ohlc_comparison(
+            latest_ohlc,
+            entry.get("expected_last_candle_ohlc"),
         ),
         "error": result.get("error"),
         "note": (
@@ -200,6 +249,11 @@ def run_benchmark(manifest_path: Path) -> dict[str, Any]:
     expected = [item for item in reports if item.get("last_candle_direction_match") is not None]
     direction_matches = sum(bool(item["last_candle_direction_match"]) for item in expected)
     eligible = sum(bool(item.get("decision_eligible")) for item in reports)
+    ohlc_checks = [
+        item["latest_bar_ohlc_reference_check"]
+        for item in reports
+        if item.get("latest_bar_ohlc_reference_check") is not None
+    ]
     return {
         "benchmark": "mirsad_public_chart_image_smoke_test",
         "schema_version": 1,
@@ -212,6 +266,10 @@ def run_benchmark(manifest_path: Path) -> dict[str, Any]:
         "last_candle_direction_accuracy_pct": (
             round(100.0 * direction_matches / len(expected), 2) if expected else None
         ),
+        "ohlc_reference_cases": len(ohlc_checks),
+        "ohlc_cases_within_3pct_tolerance": sum(
+            bool(item["within_3pct_tolerance"]) for item in ohlc_checks
+        ),
         "results": reports,
         "interpretation": (
             "This is an image-extraction and visual-evidence smoke test. It does not "
@@ -221,7 +279,9 @@ def run_benchmark(manifest_path: Path) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run Engine 2 against public BTC chart images in the manifest.")
+    parser = argparse.ArgumentParser(
+        description="Run Engine 2 against public BTC chart images in the manifest."
+    )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--output", type=Path, help="Optional path for the JSON benchmark report.")
     args = parser.parse_args()
