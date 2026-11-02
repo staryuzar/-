@@ -201,6 +201,20 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
             conn.execute(
                 f"ALTER TABLE visual_structure_evaluations ADD COLUMN {column_name} {column_type}"
             )
+    # Backfill the independent split registry from structure evaluations
+    # written by earlier versions, preserving the first-seen dataset window.
+    with conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO visual_structure_evaluation_splits
+               (dataset_id,symbol,venue,timeframe,data_split,split_start_ms,
+                split_end_ms,embargo_bars,dataset_fingerprint,registered_at_ms)
+               SELECT dataset_id,symbol,venue,timeframe,data_split,
+                      MIN(split_start_ms),MAX(split_end_ms),MAX(embargo_bars),
+                      MAX(dataset_fingerprint),MAX(calculated_at_ms)
+               FROM visual_structure_evaluations
+               WHERE dataset_id<>'' AND split_start_ms>0 AND split_end_ms>split_start_ms
+               GROUP BY dataset_id,symbol,venue,timeframe,data_split"""
+        )
     return conn
 
 def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) -> None:
