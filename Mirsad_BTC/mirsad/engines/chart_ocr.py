@@ -9,15 +9,93 @@ import cv2
 import numpy as np
 
 _NUMERIC_TOKEN = re.compile(
-    r"(?<![A-Za-z])(?:[$€£]\s*)?([0-9][0-9,\s]*(?:\.[0-9]+)?)\s*([KMB])?(?![A-Za-z])",
+    r"(?<![A-Za-z])(?:[$€£]\s*)?([0-9][0-9.,\s]*)\s*([KMB])?(?![A-Za-z])",
     re.IGNORECASE,
 )
 _OCR_ENGINE: Any | None = None
 _OCR_ERROR: str | None = None
 
 
+def _normalize_price_number(raw: str) -> str | None:
+    """Normalize decimal/thousands separators without guessing malformed groups."""
+    value = str(raw).strip()
+    if not value or not re.fullmatch(r"[0-9][0-9.,\s]*", value):
+        return None
+
+    # A chart locale normally uses either spaces or punctuation for grouping.
+    # Mixed space/punctuation grouping is rejected to avoid silently changing scale.
+    has_space = bool(re.search(r"\s", value))
+    has_dot = "." in value
+    has_comma = "," in value
+
+    def grouped_integer(part: str, separator: str | None) -> str | None:
+        if not part or not re.fullmatch(r"[0-9][0-9.,\s]*", part):
+            return None
+        if has_space and ("," in part or "." in part):
+            return None
+        if separator:
+            groups = part.split(separator)
+            if (
+                len(groups) < 2
+                or not 1 <= len(groups[0]) <= 3
+                or not groups[0].isdigit()
+                or any(len(group) != 3 or not group.isdigit() for group in groups[1:])
+            ):
+                return None
+            return "".join(groups)
+        if has_space:
+            groups = re.split(r"\s+", part.strip())
+            if (
+                len(groups) < 2
+                or not 1 <= len(groups[0]) <= 3
+                or not groups[0].isdigit()
+                or any(len(group) != 3 or not group.isdigit() for group in groups[1:])
+            ):
+                return None
+            return "".join(groups)
+        return part if part.isdigit() else None
+
+    if has_dot and has_comma:
+        decimal_separator = "." if value.rfind(".") > value.rfind(",") else ","
+        grouping_separator = "," if decimal_separator == "." else "."
+        if has_space:
+            return None
+        integer_part, fraction = value.rsplit(decimal_separator, 1)
+        if not fraction.isdigit():
+            return None
+        integer_digits = grouped_integer(integer_part, grouping_separator)
+        if integer_digits is None:
+            return None
+        return integer_digits + "." + fraction
+
+    separator = "," if has_comma else "." if has_dot else None
+    if separator is None:
+        return grouped_integer(value, None)
+
+    if value.count(separator) > 1:
+        if has_space:
+            return None
+        return grouped_integer(value, separator)
+
+    integer_part, tail = value.split(separator, 1)
+    if not integer_part or not tail.isdigit():
+        return None
+    if has_space:
+        integer_digits = grouped_integer(integer_part, None)
+        return integer_digits + "." + tail if integer_digits is not None else None
+
+    # With one punctuation mark, one or two trailing digits are decimal.
+    # Three trailing digits are treated as grouping for 1-3 digit leading groups
+    # (69.500 -> 69500); a leading zero remains decimal (0.125 -> 0.125).
+    if len(tail) in (1, 2) or integer_part == "0":
+        return integer_part + "." + tail
+    if len(tail) == 3 and 1 <= len(integer_part) <= 3:
+        return integer_part + tail
+    return integer_part + "." + tail
+
+
 def parse_price_label(text: str) -> float | None:
-    """Parse one numeric axis label, including separators and K/M/B suffixes."""
+    """Parse axis labels with conservative US/EU separators and K/M/B suffixes."""
     if not text:
         return None
     normalized = str(text).translate(
@@ -27,10 +105,16 @@ def parse_price_label(text: str) -> float | None:
     if re.search(r"\b(?:RSI|MACD|EMA|SMA|ATR|ADX|CCI|STOCH(?:ASTIC)?|WPR|WILLIAMS|BOLLINGER|BBANDS|VOLUME|VOL)\b", normalized, re.IGNORECASE):
         return None
     for match in _NUMERIC_TOKEN.finditer(normalized):
-        raw = re.sub(r"[\s,]", "", match.group(1))
+        # Percent labels and malformed separator groups are not price ticks.
+        end = match.end()
+        if end < len(normalized) and normalized[end:].lstrip().startswith("%"):
+            continue
+        number = _normalize_price_number(match.group(1))
+        if number is None:
+            continue
         suffix = (match.group(2) or "").upper()
         try:
-            value = float(raw)
+            value = float(number)
         except (TypeError, ValueError, OverflowError):
             continue
         multiplier = {"": 1.0, "K": 1_000.0, "M": 1_000_000.0, "B": 1_000_000_000.0}[suffix]
