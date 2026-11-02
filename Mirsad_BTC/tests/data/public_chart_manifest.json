@@ -23,7 +23,9 @@
       "high": 117543,
       "low": 115000,
       "close": 115351
-    }
+    },
+    "price_scale_type": "linear",
+    "last_candle_closed": false
   },
   {
     "id": "bitget_btcusdt_daily_2025_04_28",
@@ -49,7 +51,9 @@
       "high": 94426.92,
       "low": 92800.01,
       "close": 94401.65
-    }
+    },
+    "price_scale_type": "linear",
+    "last_candle_closed": false
   },
   {
     "id": "bybit_btcusdt_weekly_2026_01_30",
@@ -75,7 +79,9 @@
       "high": 90611,
       "low": 81000,
       "close": 82241.3
-    }
+    },
+    "price_scale_type": "logarithmic",
+    "last_candle_closed": false
   },
   {
     "id": "tradingview_btcusdt_weekly_2025",
@@ -94,6 +100,8 @@
       0.78
     ],
     "reference_bias": "NEUTRAL",
-    "reference_note": "The annotated chart shows a rising long-term channel with several support/resistance levels; no single short-term direction is asserted."
+    "reference_note": "The annotated chart shows a rising long-term channel with several support/resistance levels; no single short-term direction is asserted.",
+    "price_scale_type": "logarithmic",
+    "last_candle_closed": false
   }
 ]
