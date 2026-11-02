@@ -134,3 +134,11 @@ jobs:
 
       - name: Run Engine 2 on public BTC chart images
         run: python scripts/run_public_chart_image_benchmark.py --output reports/public_chart_image_benchmark.json
+
+      - name: Upload public chart benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-public-chart-image-benchmark-${{ github.run_id }}
+          path: Mirsad_BTC/reports/public_chart_image_benchmark.json
+          if-no-files-found: error
+          retention-days: 30
