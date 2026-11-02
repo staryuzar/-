@@ -279,6 +279,7 @@ def evaluate_structure_events(
 
     accumulators: dict[str, dict[str, Any]] = {}
     seen_events: set[tuple[str, int, str]] = set()
+    confirmed_event_indices: set[int] = set()
     counts = {
         "input_events": len(events),
         "confirmed_events": 0,
@@ -361,6 +362,7 @@ def evaluate_structure_events(
             counts["duplicate_events_skipped"] += 1
             continue
         seen_events.add(identity)
+        confirmed_event_indices.add(event_index)
         counts["confirmed_events"] += 1
 
         if event_index + 1 >= len(normalised_bars):
@@ -373,6 +375,12 @@ def evaluate_structure_events(
                 "pattern_id": pattern_id,
                 "direction_counts": {"BULLISH": 0, "BEARISH": 0},
                 "horizon_rows": {str(horizon): [] for horizon in requested_horizons},
+                "direction_horizon_rows": {
+                    direction_name: {
+                        str(horizon): [] for horizon in requested_horizons
+                    }
+                    for direction_name in ("BULLISH", "BEARISH")
+                },
             },
         )
         accumulator["direction_counts"][direction] += 1
@@ -409,7 +417,7 @@ def evaluate_structure_events(
                 if costs_applied and round_trip_cost_pct is not None
                 else None
             )
-            accumulator["horizon_rows"][str(horizon)].append({
+            observation = {
                 "gross_return_pct": gross_return_pct,
                 "net_return_pct": net_return_pct,
                 "mae_pct": mae_pct,
@@ -418,14 +426,101 @@ def evaluate_structure_events(
                 "entry_index": event_index + 1,
                 "exit_index": exit_index,
                 "direction": direction,
-            })
+            }
+            accumulator["horizon_rows"][str(horizon)].append(observation)
+            accumulator["direction_horizon_rows"][direction][str(horizon)].append(
+                observation
+            )
             any_horizon = True
 
         if not any_horizon:
             counts["events_without_any_complete_horizon"] += 1
 
+    baseline_rows: dict[str, dict[str, list[dict[str, Any]]]] = {
+        direction: {str(horizon): [] for horizon in requested_horizons}
+        for direction in ("BULLISH", "BEARISH")
+    }
+    for candidate_index in range(first_split_index, len(normalised_bars)):
+        candidate_time_ms = int(normalised_bars[candidate_index]["open_time_ms"])
+        if not split_start_ms <= candidate_time_ms < split_end_ms:
+            continue
+        if candidate_index < embargo_end_index or candidate_index in confirmed_event_indices:
+            continue
+        if candidate_index + 1 >= len(normalised_bars):
+            continue
+        for horizon in requested_horizons:
+            exit_index = candidate_index + horizon
+            if exit_index >= len(normalised_bars):
+                continue
+            exit_close_time_ms = int(normalised_bars[exit_index]["open_time_ms"]) + interval_ms
+            if exit_close_time_ms > split_end_ms:
+                continue
+            future = normalised_bars[candidate_index + 1:exit_index + 1]
+            entry_price = float(future[0]["open"])
+            exit_price = float(future[-1]["close"])
+            highest = max(float(bar["high"]) for bar in future)
+            lowest = min(float(bar["low"]) for bar in future)
+            for direction in ("BULLISH", "BEARISH"):
+                sign = 1.0 if direction == "BULLISH" else -1.0
+                gross_return_pct = sign * (exit_price / entry_price - 1.0) * 100.0
+                if direction == "BULLISH":
+                    mae_pct = (lowest / entry_price - 1.0) * 100.0
+                    mfe_pct = (highest / entry_price - 1.0) * 100.0
+                else:
+                    mae_pct = (entry_price - highest) / entry_price * 100.0
+                    mfe_pct = (entry_price - lowest) / entry_price * 100.0
+                net_return_pct = (
+                    gross_return_pct - float(round_trip_cost_pct)
+                    if costs_applied and round_trip_cost_pct is not None
+                    else None
+                )
+                baseline_rows[direction][str(horizon)].append({
+                    "gross_return_pct": gross_return_pct,
+                    "net_return_pct": net_return_pct,
+                    "mae_pct": mae_pct,
+                    "mfe_pct": mfe_pct,
+                    "event_index": candidate_index,
+                    "entry_index": candidate_index + 1,
+                    "exit_index": exit_index,
+                    "direction": direction,
+                })
+
     results_by_pattern: dict[str, Any] = {}
     for pattern_id, accumulator in sorted(accumulators.items()):
+        directional_comparisons: dict[str, Any] = {}
+        for direction in ("BULLISH", "BEARISH"):
+            if not accumulator["direction_counts"][direction]:
+                continue
+            direction_horizons: dict[str, Any] = {}
+            for horizon, event_rows in accumulator["direction_horizon_rows"][direction].items():
+                event_summary = _summarise_horizon(
+                    event_rows, costs_applied=costs_applied
+                )
+                baseline_summary = _summarise_horizon(
+                    baseline_rows[direction][horizon],
+                    costs_applied=costs_applied,
+                )
+                event_mean = event_summary["mean_return_pct"]
+                baseline_mean = baseline_summary["mean_return_pct"]
+                event_net = event_summary["fee_adjusted_expectancy_pct"]
+                baseline_net = baseline_summary["fee_adjusted_expectancy_pct"]
+                direction_horizons[horizon] = {
+                    "event": event_summary,
+                    "unconditional_non_event_baseline": baseline_summary,
+                    "excess_mean_return_pct": (
+                        round(event_mean - baseline_mean, 6)
+                        if event_mean is not None and baseline_mean is not None
+                        else None
+                    ),
+                    "excess_mean_net_return_pct": (
+                        round(event_net - baseline_net, 6)
+                        if event_net is not None and baseline_net is not None
+                        else None
+                    ),
+                }
+            directional_comparisons[direction] = {
+                "horizons": direction_horizons,
+            }
         results_by_pattern[pattern_id] = {
             "pattern_id": pattern_id,
             "direction_counts": accumulator["direction_counts"],
@@ -433,6 +528,7 @@ def evaluate_structure_events(
                 horizon: _summarise_horizon(rows, costs_applied=costs_applied)
                 for horizon, rows in accumulator["horizon_rows"].items()
             },
+            "directional_comparisons": directional_comparisons,
         }
 
     fingerprint = _dataset_fingerprint(
@@ -471,6 +567,9 @@ def evaluate_structure_events(
         "counts": counts,
         "results_by_pattern": results_by_pattern,
         "overlapping_events_possible": True,
+        "baseline_policy": "same_split_direction_adjusted_non_event_bars",
+        "baseline_overlapping_windows_possible": True,
+        "baseline_is_statistical_test": False,
         "portfolio_backtest": False,
     }
 
