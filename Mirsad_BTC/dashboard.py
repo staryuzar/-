@@ -301,6 +301,49 @@ def render_engine_dashboard():
   if advanced.get("limitations"):
    st.caption("حدود التحليل البنيوي: "+" | ".join(advanced["limitations"]))
 
+  stored_mtf=chart.get("stored_multi_timeframe_structure") or {}
+  st.markdown("**توافق بنية السوق بين الأطر الزمنية — من بيانات السوق المخزنة**")
+  mtf_alignment=stored_mtf.get("alignment","INSUFFICIENT_TIMEFRAME_CONFLUENCE")
+  mtf_alignment_ar={
+   "BULLISH_TIMEFRAME_CONFLUENCE":"توافق بنيوي صاعد",
+   "BEARISH_TIMEFRAME_CONFLUENCE":"توافق بنيوي هابط",
+   "MIXED_TIMEFRAME_STRUCTURE":"تضارب بين الأطر الزمنية",
+   "INSUFFICIENT_TIMEFRAME_CONFLUENCE":"بيانات غير كافية للتوافق",
+  }.get(mtf_alignment,mtf_alignment)
+  st.caption(
+   f"الحالة: {ar(stored_mtf.get('status','NOT_AVAILABLE'))} | "
+   f"مصدر البيانات: {stored_mtf.get('source','—')} | "
+   f"المنصة: {stored_mtf.get('venue','—')} | "
+   f"الرمز: {stored_mtf.get('symbol','—')} | "
+   f"النتيجة البنيوية: {mtf_alignment_ar}"
+  )
+  mtf_counts=stored_mtf.get("loaded_candle_counts") or {}
+  st.caption(
+   "الشموع المغلقة المحملة: "
+   + " | ".join(f"{tf}: {count}" for tf,count in mtf_counts.items())
+   + " | هذا التقرير وصفي ولا يدخل في حساب القرار أو المخاطر."
+  )
+  mtf_rows=[]
+  for tf,frame in (stored_mtf.get("timeframe_reports") or {}).items():
+   scales=frame.get("scales") or {}
+   swing=scales.get("swing") or {}
+   mtf_rows.append({
+    "الإطار":tf,
+    "الشموع المغلقة":frame.get("confirmed_bars",0),
+    "الحالة":frame.get("status"),
+    "الاتجاه البنيوي":swing.get("direction",frame.get("structure_direction","—")),
+    "قمم أعلى HH":swing.get("higher_highs",False),
+    "قيعان أعلى HL":swing.get("higher_lows",False),
+    "قمم أدنى LH":swing.get("lower_highs",False),
+    "قيعان أدنى LL":swing.get("lower_lows",False),
+    "عمر آخر إغلاق (ث)":round(frame.get("staleness_ms",0)/1000,1),
+   })
+  if mtf_rows:
+   st.dataframe(pd.DataFrame(mtf_rows),use_container_width=True,hide_index=True)
+  mtf_errors=stored_mtf.get("errors") or {}
+  if mtf_errors:
+   st.caption("أطر لم تدخل المقارنة: "+" | ".join(f"{tf}: {reason}" for tf,reason in mtf_errors.items()))
+
   axis_ocr=chart.get("axis_ocr") or {}
   calibration_info=chart.get("calibration") or {}
   st.caption(f"معايرة محور السعر: {calibration_info.get('source','غير متاح')} | نوع المحور: {calibration_info.get('price_scale_type','—')}")
