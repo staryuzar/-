@@ -20,6 +20,8 @@ on:
       - "Mirsad_BTC/tests/test_chart_structure_knowledge.py"
       - "Mirsad_BTC/tests/test_visual_knowledge.py"
       - "Mirsad_BTC/mirsad/engines/chart.py"
+      - "Mirsad_BTC/mirsad/engines/chart_pixel_metrics.py"
+      - "Mirsad_BTC/tests/test_chart_pixel_metrics.py"
       - "Mirsad_BTC/mirsad/engines/chart_calibration.py"
       - "Mirsad_BTC/mirsad/engines/chart_extraction.py"
       - "Mirsad_BTC/mirsad/engines/chart_image.py"
@@ -57,6 +59,8 @@ on:
       - "Mirsad_BTC/tests/test_chart_structure_knowledge.py"
       - "Mirsad_BTC/tests/test_visual_knowledge.py"
       - "Mirsad_BTC/mirsad/engines/chart.py"
+      - "Mirsad_BTC/mirsad/engines/chart_pixel_metrics.py"
+      - "Mirsad_BTC/tests/test_chart_pixel_metrics.py"
       - "Mirsad_BTC/mirsad/engines/chart_calibration.py"
       - "Mirsad_BTC/mirsad/engines/chart_extraction.py"
       - "Mirsad_BTC/mirsad/engines/chart_image.py"
@@ -125,6 +129,9 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_chart_ocr.py" -v
           python -m unittest discover -s tests -p "test_chart_header_ocr.py" -v
+
+      - name: Test scale-free pixel visual evidence
+        run: python -m unittest discover -s tests -p "test_chart_pixel_metrics.py" -v
 
       - name: Test calibrated chart image engine
         run: python -m unittest discover -s tests -p "test_chart_engine.py" -v
