@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from mirsad.engines.chart_structure_evaluation import (
+    evaluate_stored_structure_events,
     evaluate_structure_events,
     persist_structure_evaluations,
 )
@@ -54,6 +55,64 @@ class StructureEventEvaluationTests(unittest.TestCase):
             dataset_id="fixture-v1",
             **kwargs,
         )
+
+    def test_stored_evaluation_uses_only_selected_venue_and_as_of_time(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            db_path = str(Path(temporary) / "stored-market.sqlite3")
+            interval = CANDLE_INTERVAL_MS["1h"]
+            start = 1_700_000_000_000
+            conn = connect(db_path)
+            try:
+                for venue, offset in (("Binance Spot", 0.0), ("OKX Spot", 500.0)):
+                    conn.executemany(
+                        """INSERT INTO candles
+                           (venue,symbol,interval,open_time_ms,open,high,low,close,volume,is_closed)
+                           VALUES(?,?,?,?,?,?,?,?,?,1)""",
+                        [
+                            (
+                                venue, "BTCUSDT", "1h", start + index * interval,
+                                100.0 + offset + index,
+                                101.0 + offset + index,
+                                99.0 + offset + index,
+                                100.5 + offset + index,
+                                1.0,
+                            )
+                            for index in range(12)
+                        ],
+                    )
+            finally:
+                conn.close()
+
+            result = evaluate_stored_structure_events(
+                [reversal_event()],
+                symbol="BTCUSDT",
+                venue="Binance Spot",
+                timeframe="1h",
+                as_of_ms=start + 10 * interval,
+                data_split="test",
+                dataset_id="stored-fixture-v1",
+                horizons=(1,),
+                db_path=db_path,
+            )
+            self.assertEqual(result["storage_source"], "engine_1_stored_closed_candles")
+            self.assertEqual(result["venue"], "Binance Spot")
+            self.assertEqual(result["stored_bar_count"], 10)
+            self.assertEqual(result["bar_count"], 10)
+
+    def test_stored_evaluation_rejects_insufficient_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            db_path = str(Path(temporary) / "empty-market.sqlite3")
+            with self.assertRaisesRegex(ValueError, "Insufficient stored closed candles"):
+                evaluate_stored_structure_events(
+                    [],
+                    symbol="BTCUSDT",
+                    venue="Binance Spot",
+                    timeframe="1h",
+                    as_of_ms=1_700_000_000_000,
+                    data_split="test",
+                    dataset_id="empty-fixture",
+                    db_path=db_path,
+                )
 
     def test_entry_uses_next_open_and_costs_are_round_trip(self) -> None:
         bars = make_bars(20)
