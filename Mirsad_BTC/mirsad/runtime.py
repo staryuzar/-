@@ -14,7 +14,7 @@ from .engines.chart_multi_timeframe import analyze_stored_multi_timeframe_struct
 from .engines.indicators import IndicatorsEngine
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
-from .engines.mt5_observer import MT5ChartObserverInbox
+from .engines.mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candidates
 from .storage import save_market_snapshot,write_json_atomic,read_json
 
 def _chart_file()->Path|None:
@@ -129,6 +129,15 @@ def _analyze_mt5_observer_chart(
   return _blocked_observer_chart(observer,"Engine 2 could not read the validated Observer PNG.","OBSERVER_IMAGE_UNREADABLE")
  if not observer.get("image_sha256") or image_hash.lower()!=str(observer.get("image_sha256")).strip().lower():
   return _blocked_observer_chart(observer,"Observer PNG changed after inbox validation; its verified SHA-256 no longer matches.","OBSERVER_IMAGE_CHANGED")
+ reference_candidates=recent_reference_candle_candidates(bars,max_candidates=8,max_lookback=16)
+ if not reference_candidates:
+  return _blocked_observer_chart(observer,"No recent native MT5 candle has a positive range suitable for visual calibration.","OBSERVER_REFERENCE_CANDLE_UNAVAILABLE")
+ reference_candidates_for_chart=[{
+  "offset_from_right":item["offset_from_right"],
+  "time_server_ms":item.get("time_server_ms"),
+  "closed":item.get("closed"),
+  "ohlc":item["ohlc"],
+ } for item in reference_candidates]
  metadata={
   "symbol":market_symbol,
   "timeframe":timeframe,
@@ -137,9 +146,9 @@ def _analyze_mt5_observer_chart(
   "allow_reference_anchor_override":True,
   "last_candle_closed":False,
   "auto_axis_ocr":False,
-  "reference_last_candle_ohlc":{
-   key:float(bars[-1][key]) for key in ("open","high","low","close")
-  },
+  "reference_candle_candidates":reference_candidates_for_chart,
+  "reference_last_candle_ohlc":reference_candidates_for_chart[0]["ohlc"],
+  "reference_candle_offset_from_right":reference_candidates_for_chart[0]["offset_from_right"],
  }
  analysis=analyze_chart_image(image_path,metadata,expected_symbol=market_symbol)
  analysis={
@@ -151,7 +160,9 @@ def _analyze_mt5_observer_chart(
    "age_seconds":round(age,2),
    "capture_data_skew_ms":skew,
    "native_bar_count":len(bars),
-   "forming_bar_used_as_reference":True,
+   "forming_bar_used_as_reference":(analysis.get("reference_anchor") or {}).get("offset_from_right")==0,
+   "reference_anchor":analysis.get("reference_anchor"),
+   "reference_candidates_considered":len(reference_candidates_for_chart),
    "broker_symbol":observer_symbol,
    "market_symbol":market_symbol,
    "timeframe":timeframe,
@@ -170,7 +181,7 @@ def _analyze_mt5_observer_chart(
   if analysis.get("status")=="READY":
    analysis["status"]="OBSERVER_REFERENCE_NOT_VERIFIED"
   analysis["observer_reference_status"]=reference.get("status","NOT_VERIFIED")
-  analysis["observer_block_reason"]="The image's latest visible candle did not pass the native MT5 OHLC pixel-geometry anchor check."
+  analysis["observer_block_reason"]="No recent native MT5 candle passed the exact visible-slot colour/body/wick geometry anchor check."
  else:
   analysis["observer_reference_status"]="READY"
  return analysis
