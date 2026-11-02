@@ -282,6 +282,29 @@ class ChartEngineTests(unittest.TestCase):
         self.assertGreater(diagnostics["indicator_pixels_suppressed"], 0)
         self.assertGreaterEqual(diagnostics["vertical_kernel_height"], 3)
 
+    def test_diagonal_moving_average_overlays_do_not_merge_fixed_slot_candles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "chart_with_diagonal_moving_averages.png"
+            self._write_chart(path, direction="up", colour="GREEN", count=24)
+            image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            cv2.line(
+                image, (0, 42), (self.WIDTH - 1, 104),
+                (0, 190, 0), thickness=2, lineType=cv2.LINE_AA,
+            )
+            cv2.line(
+                image, (0, 280), (self.WIDTH - 1, 220),
+                (0, 0, 210), thickness=2, lineType=cv2.LINE_AA,
+            )
+            self.assertTrue(cv2.imwrite(str(path), image))
+            metadata = dict(self.META)
+            metadata["expected_candle_count"] = 24
+            result = analyze_chart_image(path, metadata, expected_symbol="BTCUSDT")
+        self.assertGreaterEqual(result["detected_bar_count"], 20)
+        self.assertEqual(result["visual_bias"], "BULLISH")
+        component_filter = result["extraction_diagnostics"]["component_filter"]
+        self.assertGreater(component_filter["raw_components"], 0)
+        self.assertGreater(component_filter["retained_components"], 0)
+
     def test_visual_bias_uses_price_progression_not_green_candle_count(self) -> None:
         result = self._analyze(direction="down", colour="GREEN")
         self.assertEqual(result["status"], "READY")

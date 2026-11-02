@@ -65,22 +65,69 @@ def _extract_bars(
     bearish = _hue_mask(hsv, palette["bearish"]) > 0
     mask = bullish | bearish
 
-    # Moving-average curves and other colored indicators can run across nearly
-    # every x-column. Retain vertically persistent candle cores/wicks for the
-    # column projection; use the original color masks below for OHLC geometry.
-    desired_kernel_height = max(3, int(round(area.shape[0] * 0.015)))
+    # Moving averages and Bollinger boundaries can use the same hue as candles.
+    # First require vertical persistence, then discard connected components that
+    # span many candle slots (long overlays) or are too short to be a wick/body.
+    # This avoids merging a full-width MA curve with every candle.
+    desired_kernel_height = max(7, int(round(area.shape[0] * 0.018)))
     if desired_kernel_height % 2 == 0:
         desired_kernel_height += 1
     largest_odd_height = area.shape[0] if area.shape[0] % 2 else max(1, area.shape[0] - 1)
     vertical_kernel_height = max(1, min(desired_kernel_height, largest_odd_height))
     vertical_kernel = np.ones((vertical_kernel_height, 1), dtype=np.uint8)
-    candle_core = cv2.morphologyEx(
+    raw_candle_core = cv2.morphologyEx(
         mask.astype(np.uint8) * 255,
         cv2.MORPH_OPEN,
         vertical_kernel,
     ) > 0
-    # Expand the candle core only along y to restore the original wick/body
-    # edges; indicator lines removed by opening stay excluded from OHLC geometry.
+
+    bars: list[dict[str, Any]] = []
+    max_bar_width = max(6, min(32, int(round(area.shape[1] * 0.02))))
+    try:
+        expected_candle_count = int(meta.get("expected_candle_count", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        expected_candle_count = 0
+    if expected_candle_count and not 2 <= expected_candle_count <= 500:
+        raise ValueError("expected_candle_count must be between 2 and 500")
+    slot_width = None
+    if expected_candle_count > 0:
+        slot_width = area.shape[1] / expected_candle_count
+        max_bar_width = max(max_bar_width, min(48, int(round(slot_width * 1.05))))
+
+    # Connected components let us reject long MA/Bollinger traces before they
+    # join candles into one full-width projection group. Candle bodies and wicks
+    # are vertically persistent and occupy only a fraction of a candle slot.
+    component_count, component_labels, component_stats, _ = cv2.connectedComponentsWithStats(
+        raw_candle_core.astype(np.uint8),
+        connectivity=8,
+    )
+    candle_core = np.zeros(raw_candle_core.shape, dtype=bool)
+    component_diagnostics = {
+        "raw_components": max(0, int(component_count) - 1),
+        "retained_components": 0,
+        "rejected_wide_components": 0,
+        "rejected_short_components": 0,
+        "rejected_flat_components": 0,
+    }
+    min_component_height = max(vertical_kernel_height, int(np.ceil(area.shape[0] * 0.018)))
+    for component_id in range(1, int(component_count)):
+        x, y, component_width, component_height, component_area = (
+            int(value) for value in component_stats[component_id]
+        )
+        if component_width > max_bar_width:
+            component_diagnostics["rejected_wide_components"] += 1
+            continue
+        if component_height < min_component_height or component_area < max(5, min_component_height):
+            component_diagnostics["rejected_short_components"] += 1
+            continue
+        if component_height < component_width * 0.80:
+            component_diagnostics["rejected_flat_components"] += 1
+            continue
+        candle_core[component_labels == component_id] = True
+        component_diagnostics["retained_components"] += 1
+
+    # Expand retained candle components only along y to recover anti-aliased
+    # body/wick edges. Excluded long overlay components stay excluded.
     candle_support = cv2.dilate(
         candle_core.astype(np.uint8) * 255,
         vertical_kernel,
@@ -90,23 +137,7 @@ def _extract_bars(
 
     activity = candle_core.sum(axis=0)
     minimum_activity = max(1, int(np.ceil(area.shape[0] * 0.0008)))
-    # Allow tiny anti-alias gaps between wick/body pixels, as seen in resized web charts.
     groups = _groups(activity >= minimum_activity, gap=2)
-    bars: list[dict[str, Any]] = []
-    # Public chart images vary significantly in resolution and candle thickness.
-    # A 1.2% / 18 px cap discarded valid ~19 px candles on high-resolution charts.
-    max_bar_width = max(6, min(32, int(round(area.shape[1] * 0.02))))
-    try:
-        expected_candle_count = int(meta.get("expected_candle_count", 0) or 0)
-    except (TypeError, ValueError, OverflowError):
-        expected_candle_count = 0
-    if expected_candle_count and not 2 <= expected_candle_count <= 500:
-        raise ValueError("expected_candle_count must be between 2 and 500")
-    if expected_candle_count > 0:
-        # Fixed-window educational renders have known candle slots. Use the
-        # slot geometry so thick bodies are not mistaken for overlays.
-        slot_width = area.shape[1] / expected_candle_count
-        max_bar_width = max(max_bar_width, min(48, int(round(slot_width * 1.05))))
     rejection_counts = {"wide_group": 0, "low_pixel_count": 0, "mixed_palette": 0, "short_component": 0, "no_body": 0}
     if diagnostics is not None:
         diagnostics.update({
@@ -114,8 +145,11 @@ def _extract_bars(
             "bullish_palette_pixels": int(bullish.sum()),
             "bearish_palette_pixels": int(bearish.sum()),
             "raw_active_columns": int(np.count_nonzero(mask.sum(axis=0) >= minimum_activity)),
+            "morphology_active_columns": int(np.count_nonzero(raw_candle_core.sum(axis=0) >= minimum_activity)),
             "active_columns": int(np.count_nonzero(activity >= minimum_activity)),
             "vertical_kernel_height": vertical_kernel_height,
+            "component_filter": component_diagnostics,
+            "minimum_component_height": min_component_height,
             "indicator_pixels_suppressed": int(
                 mask.sum() - np.count_nonzero(candle_bullish | candle_bearish)
             ),
