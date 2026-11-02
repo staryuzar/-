@@ -140,6 +140,7 @@ class StructureEventEvaluationTests(unittest.TestCase):
                             for index in range(12)
                         ],
                     )
+                conn.commit()
             finally:
                 conn.close()
 
@@ -180,6 +181,7 @@ class StructureEventEvaluationTests(unittest.TestCase):
                         for bar in bars
                     ],
                 )
+                conn.commit()
             finally:
                 conn.close()
 
@@ -211,6 +213,8 @@ class StructureEventEvaluationTests(unittest.TestCase):
                     timeframe="1h",
                     as_of_ms=1_700_000_000_000,
                     data_split="test",
+                    split_start_ms=1_700_000_000_000,
+                    split_end_ms=1_700_003_600_000,
                     dataset_id="empty-fixture",
                     db_path=db_path,
                 )
@@ -612,7 +616,7 @@ class StructureEventEvaluationTests(unittest.TestCase):
                 [reversal_event()],
                 data_split="train",
             )
-            with self.assertRaisesRegex(ValueError, "overlaps previously stored test window"):
+            with self.assertRaisesRegex(ValueError, "overlaps previously registered test window"):
                 persist_structure_evaluations(
                     overlapping_train,
                     primary_horizon_bars=1,
