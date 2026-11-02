@@ -1032,7 +1032,7 @@ def persist_structure_evaluations(
                         horizon_metrics.get("mean_mfe_pct"),
                         horizon_metrics.get("fee_adjusted_expectancy_pct"),
                         dataset_fingerprint, "IN_PROGRESS", now,
-                        json.dumps(pattern_result.get("horizons", {}), ensure_ascii=False, separators=(",", ":")),
+                        json.dumps(pattern_result, ensure_ascii=False, separators=(",", ":")),
                         int(primary_horizon_bars), data_split,
                         str(evaluation.get("event_source", "engine_2_confirmed_structure_events")),
                         0, fee, slippage, round_trip_cost,
