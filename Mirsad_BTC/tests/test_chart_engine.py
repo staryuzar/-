@@ -349,9 +349,11 @@ class ChartEngineTests(unittest.TestCase):
 
     def test_market_structure_reports_pivot_indices_and_watch_zones(self) -> None:
         closes = [
-            100, 101, 102, 103, 102, 103, 104, 105, 104, 105,
-            106, 107, 106, 107, 108, 109, 108, 109, 110, 111,
-            110, 111, 112, 113, 112, 110, 108, 106,
+            100, 101, 102, 103, 102, 101,
+            103, 104, 105, 106, 105, 104,
+            106, 107, 108, 109, 108, 107,
+            109, 110, 111, 112, 111, 110,
+            109, 108, 107, 106,
         ]
         bars = []
         for index, close in enumerate(closes):
