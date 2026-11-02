@@ -70,6 +70,22 @@ class ChartMultiTimeframeTests(unittest.TestCase):
         self.assertNotIn("1m", result["available_timeframes"])
         self.assertIn("5m", result["available_timeframes"])
 
+    def test_missing_candle_intervals_mark_frame_partial_and_exclude_it_from_confluence(self) -> None:
+        timeframe_ms = 60_000
+        as_of = 50_000_000
+        bars = bars_for(timeframe_ms, start_ms=as_of - 40 * timeframe_ms)
+        # Remove a candle in the middle while keeping the series chronological.
+        del bars[15]
+        result = analyze_multi_timeframe_structure(
+            {"1m": bars, "5m": bars_for(5 * 60_000, start_ms=as_of - 40 * 5 * 60_000)},
+            as_of_ms=as_of,
+        )
+        frame = result["timeframe_reports"]["1m"]
+        self.assertEqual(frame["data_continuity"], "GAPS_DETECTED")
+        self.assertTrue(frame["candle_gaps"])
+        self.assertEqual(frame["status"], "PARTIAL")
+        self.assertNotIn("1m", result["directional_structure_by_timeframe"])
+
     def test_non_chronological_bars_are_rejected(self) -> None:
         bars = bars_for(60_000, count=10)
         bars[5], bars[6] = bars[6], bars[5]
