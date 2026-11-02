@@ -315,6 +315,7 @@ Period=$observerTimeframe
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class MirsadNativeWindow {
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate bool EnumWindowProc(IntPtr hwnd, IntPtr lParam);
@@ -322,6 +323,7 @@ public static class MirsadNativeWindow {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string className, string windowName);
     [DllImport("user32.dll")] private static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("user32.dll", CharSet=CharSet.Auto)] private static extern int GetClassName(IntPtr hwnd, StringBuilder className, int maxCount);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumWindowProc callback, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
@@ -339,10 +341,38 @@ public static class MirsadNativeWindow {
         foreach (IntPtr child in children) PostMessage(mdi, 0x0225, child, IntPtr.Zero);
         return children.Count;
     }
+    public static IntPtr GetMdiChildWindow(IntPtr chartWindow) {
+        IntPtr current = chartWindow;
+        for (int depth = 0; depth < 12 && current != IntPtr.Zero; depth++) {
+            IntPtr parent = GetParent(current);
+            if (parent == IntPtr.Zero) return IntPtr.Zero;
+            var className = new StringBuilder(256);
+            GetClassName(parent, className, className.Capacity);
+            if (className.ToString() == "MDIClient") return current;
+            current = parent;
+        }
+        return IntPtr.Zero;
+    }
     public static bool MaximizeMdiChartWindow(IntPtr topWindow, IntPtr chartWindow) {
         IntPtr mdi = FindWindowEx(topWindow, IntPtr.Zero, "MDIClient", null);
-        if (mdi == IntPtr.Zero) return ShowWindowAsync(chartWindow, 3);
-        return PostMessage(mdi, 0x0225, chartWindow, IntPtr.Zero);
+        IntPtr mdiChild = GetMdiChildWindow(chartWindow);
+        if (mdiChild == IntPtr.Zero || mdi == IntPtr.Zero)
+            return ShowWindowAsync(chartWindow, 3);
+        bool posted = PostMessage(mdi, 0x0225, mdiChild, IntPtr.Zero);
+        bool shown = ShowWindowAsync(mdiChild, 3);
+        SetForegroundWindow(mdiChild);
+        return posted || shown;
+    }
+    public static string WindowChainText(IntPtr hwnd) {
+        var parts = new List<string>();
+        IntPtr current = hwnd;
+        for (int depth = 0; depth < 8 && current != IntPtr.Zero; depth++) {
+            var className = new StringBuilder(256);
+            GetClassName(current, className, className.Capacity);
+            parts.Add(className.ToString() + "[" + WindowRectText(current) + "]");
+            current = GetParent(current);
+        }
+        return String.Join(" <- ", parts);
     }
     public static string WindowRectText(IntPtr hwnd) {
         RECT r;
@@ -380,12 +410,21 @@ public static class MirsadNativeWindow {
         $allMdiChildren = [MirsadNativeWindow]::MaximizeMdiChildren($terminalWindow.MainWindowHandle)
         if ($observerChartStatus -and [long]$observerChartStatus.chart_window_handle -gt 0) {
             $observerChartHwnd = [IntPtr]([long]$observerChartStatus.chart_window_handle)
+            $mdiChartHwnd = [MirsadNativeWindow]::GetMdiChildWindow($observerChartHwnd)
             $targetedMaximize = [MirsadNativeWindow]::MaximizeMdiChartWindow($terminalWindow.MainWindowHandle,$observerChartHwnd)
-            $directMaximize = [MirsadNativeWindow]::ShowWindowAsync($observerChartHwnd,3)
-            [MirsadNativeWindow]::SetForegroundWindow($observerChartHwnd) | Out-Null
+            $directMaximize = $false
+            if ($mdiChartHwnd -ne [IntPtr]::Zero) {
+                $directMaximize = [MirsadNativeWindow]::ShowWindowAsync($mdiChartHwnd,3)
+                [MirsadNativeWindow]::SetForegroundWindow($mdiChartHwnd) | Out-Null
+            }
             Start-Sleep -Seconds 3
-            $chartWindowRect = [MirsadNativeWindow]::WindowRectText($observerChartHwnd)
-            Add-Report ("PASS — MDI windows maximized={0}; MDI request={1}; direct maximize={2}; target HWND={3}; target window={4}; symbol={5}; timeframe={6}." -f $allMdiChildren,$targetedMaximize,$directMaximize,$observerChartHwnd,$chartWindowRect,$observerChartStatus.symbol,$observerChartStatus.timeframe)
+            if ($mdiChartHwnd -ne [IntPtr]::Zero) {
+                $chartWindowRect = [MirsadNativeWindow]::WindowRectText($mdiChartHwnd)
+            } else {
+                $chartWindowRect = [MirsadNativeWindow]::WindowRectText($observerChartHwnd)
+            }
+            $chartHierarchy = [MirsadNativeWindow]::WindowChainText($observerChartHwnd)
+            Add-Report ("PASS — MDI windows maximized={0}; targeted MDI maximize={1}; direct maximize={2}; chart HWND={3}; MDI child HWND={4}; MDI child rect={5}; hierarchy={6}; symbol={7}; timeframe={8}." -f $allMdiChildren,$targetedMaximize,$directMaximize,$observerChartHwnd,$mdiChartHwnd,$chartWindowRect,$chartHierarchy,$observerChartStatus.symbol,$observerChartStatus.timeframe)
         } else {
             Add-Report ("WARN — Observer chart HWND was not published; MDI windows maximized={0}; source viewport quality gate remains in force." -f $allMdiChildren)
         }
