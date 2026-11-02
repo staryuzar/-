@@ -66,9 +66,10 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                 "source": "MT5_TERMINAL",
                 "venue_count": 1,
                 "primary_venue": "MT5 Broker",
-                "feed_health": {"terminal_connected": True, "quote_fresh": True, "timeframes_ready": True},
+                "feed_health": {"terminal_connected": True, "quote_fresh": True},
+                "market_context": {"microstructure": {"status": "NOT_AVAILABLE"}},
                 "venues": {
-                    "MT5 Broker": {"status": "LIVE", "candles_by_tf": {"1m": bars}},
+                    "MT5 Broker": {"status": "LIVE", "price": 90_100.0},
                 },
             }
             bridge_snapshot = {
@@ -100,6 +101,16 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             bridge_engine = Mock()
             bridge_engine.inspect.return_value = bridge_snapshot
             bridge_engine.publish_decision = Mock()
+            candle_history = {
+                "engine": "engine_2_chart_candles",
+                "source": "MT5_CHART_OBSERVER",
+                "status": "READY",
+                "candles_by_tf": {"1m": bars},
+                "timeframes": {"1m": len(bars)},
+                "closed_candles": {"1m": len(bars) - 1},
+            }
+            candle_history_engine = Mock()
+            candle_history_engine.collect.return_value = candle_history
             indicators_engine = Mock()
             indicators_engine.analyze.return_value = {"status": "READY"}
             decision_engine = Mock()
@@ -111,6 +122,7 @@ class RuntimeObserverFlowTests(unittest.TestCase):
 
             with (
                 patch.object(runtime, "MT5MarketDataEngine", return_value=market_engine),
+                patch.object(runtime, "MT5ChartCandleHistory", return_value=candle_history_engine),
                 patch.object(runtime, "MT5BridgeEngine", return_value=bridge_engine),
                 patch.object(runtime, "IndicatorsEngine", return_value=indicators_engine),
                 patch.object(runtime, "DecisionEngine", return_value=decision_engine),
@@ -133,6 +145,12 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             self.assertTrue(passed_chart["decision_eligible"])
             self.assertEqual(report["decision"]["action"], "WAIT")
             self.assertEqual(report["command_publish"]["status"], "NOT_READY")
+            candle_history_engine.collect.assert_called_once_with(
+                bridge=bridge_snapshot, market=market
+            )
+            indicators_engine.analyze.assert_called_once_with(candle_history)
+            self.assertEqual(report["engine_2_candles"]["status"], "READY")
+            self.assertTrue(report["readiness"]["engine_2_candles"])
             bridge_engine.publish_decision.assert_not_called()
 
 
