@@ -434,6 +434,16 @@ class ChartEngineTests(unittest.TestCase):
         self.assertEqual(result["status"], "ERROR")
         self.assertIn("expected_candle_count", result["error"])
 
+    def test_image_pixel_limit_is_checked_before_opencv_decode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "large_dimensions.png"
+            image = np.full((64, 64, 3), 255, dtype=np.uint8)
+            self.assertTrue(cv2.imwrite(str(path), image))
+            with patch("mirsad.engines.chart_image.MAX_IMAGE_PIXELS", 1000):
+                decoded, error = load_chart_image(path)
+        self.assertIsNone(decoded)
+        self.assertIn("pixel safety limit", error)
+
     def test_image_file_size_limit_is_checked_before_decode(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "oversized.png"

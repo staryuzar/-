@@ -21,6 +21,8 @@ class ChartOCRTests(unittest.TestCase):
         self.assertEqual(parse_price_label("90 000"), 90000.0)
         self.assertIsNone(parse_price_label("RSI 14"))
         self.assertIsNone(parse_price_label(""))
+        self.assertIsNone(parse_price_label("RSI 14"))
+        self.assertIsNone(parse_price_label("EMA 200"))
 
     def test_parse_price_label_normalizes_arabic_indic_digits(self) -> None:
         self.assertEqual(parse_price_label("١٢٠٬٠٠٠"), 120000.0)
