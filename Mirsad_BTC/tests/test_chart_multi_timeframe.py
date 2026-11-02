@@ -26,12 +26,9 @@ def bars_for(timeframe_ms: int, start_ms: int = 1_000_000, count: int = 40) -> l
 
 class ChartMultiTimeframeTests(unittest.TestCase):
     def test_two_timestamped_frames_are_analysed_independently_at_one_cutoff(self) -> None:
-        one_minute = bars_for(60_000)
-        five_minute = bars_for(5 * 60_000)
-        as_of = max(
-            one_minute[-1]["open_time_ms"] + 60_000,
-            five_minute[-1]["open_time_ms"] + 5 * 60_000,
-        )
+        as_of = 50_000_000
+        one_minute = bars_for(60_000, start_ms=as_of - 40 * 60_000)
+        five_minute = bars_for(5 * 60_000, start_ms=as_of - 40 * 5 * 60_000)
         result = analyze_multi_timeframe_structure(
             {"1m": one_minute, "5m": five_minute}, as_of_ms=int(as_of)
         )
@@ -61,6 +58,17 @@ class ChartMultiTimeframeTests(unittest.TestCase):
         self.assertEqual(result["status"], "PARTIAL")
         self.assertEqual(result["available_timeframes"], [])
         self.assertEqual(result["errors"]["1m"], "MISSING_OPEN_TIME_MS_AT_INDEX_0")
+
+    def test_stale_timeframe_is_excluded_from_confluence(self) -> None:
+        as_of = 50_000_000
+        stale = bars_for(60_000, start_ms=as_of - 3 * 60 * 60_000)
+        fresh = bars_for(5 * 60_000, start_ms=as_of - 40 * 5 * 60_000)
+        result = analyze_multi_timeframe_structure(
+            {"1m": stale, "5m": fresh}, as_of_ms=as_of
+        )
+        self.assertEqual(result["errors"]["1m"], "STALE_TIMEFRAME_DATA")
+        self.assertNotIn("1m", result["available_timeframes"])
+        self.assertIn("5m", result["available_timeframes"])
 
     def test_non_chronological_bars_are_rejected(self) -> None:
         bars = bars_for(60_000, count=10)
