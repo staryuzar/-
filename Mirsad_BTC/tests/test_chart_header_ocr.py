@@ -45,6 +45,21 @@ class ChartHeaderOCRTests(unittest.TestCase):
                 result = parse_chart_header_text([f"BTCUSDT · {raw} · BINANCE"])
                 self.assertEqual(result["timeframe_suggestion"], expected)
 
+    def test_market_cap_suffix_is_not_mistaken_for_monthly_timeframe(self) -> None:
+        result = parse_chart_header_text(["BTCUSDT", "Market Cap", "500M"])
+        self.assertIsNone(result["timeframe_suggestion"])
+
+    def test_decimal_price_suffix_is_not_mistaken_for_timeframe(self) -> None:
+        result = parse_chart_header_text(["BTCUSDT", "69.5M", "BINANCE"])
+        self.assertIsNone(result["timeframe_suggestion"])
+
+    def test_expected_symbol_match_requires_exact_detected_symbol(self) -> None:
+        result = parse_chart_header_text(
+            ["ETHBTCUSDT", "1h", "BINANCE"],
+            expected_symbol="BTCUSDT",
+        )
+        self.assertFalse(result["expected_symbol_match"])
+
     def test_price_number_alone_is_not_mistaken_for_timeframe(self) -> None:
         result = parse_chart_header_text(["BTCUSDT", "69,500.25", "BINANCE"])
         self.assertIsNone(result["timeframe_suggestion"])
