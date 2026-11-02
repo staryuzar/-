@@ -8,6 +8,18 @@ on:
       - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
       - '.github/workflows/mirsad-mt5-observer-demo.yml'
   workflow_dispatch:
+    inputs:
+      symbol:
+        description: 'Exact MT5 broker symbol (for example BTCUSD, BTCUSDm or BTCUSDT)'
+        required: false
+        default: 'BTC'
+        type: string
+      timeframe:
+        description: 'Chart timeframe to capture'
+        required: false
+        default: 'M1'
+        type: choice
+        options: [M1, M5, M15, M30, H1, H4, D1, W1]
 
 permissions:
   contents: read
@@ -34,6 +46,8 @@ jobs:
       - name: Install, compile, log into demo MT5 and capture BTC chart using read-only Observer
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
+          MIRSAD_MT5_OBSERVER_SYMBOL: ${{ inputs.symbol || 'BTC' }}
+          MIRSAD_MT5_OBSERVER_TIMEFRAME: ${{ inputs.timeframe || 'M1' }}
         shell: pwsh
         run: ./Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1
 
@@ -45,8 +59,6 @@ jobs:
           path: |
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
-            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-capture.png
-            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-capture.json
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-live-capture-summary.json
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
           if-no-files-found: warn
