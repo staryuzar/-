@@ -1,5 +1,6 @@
 name: Mirsad Chart Observer — any MT5 account capture (read-only)
 # Diagnostics iteration: retry ChartScreenShot even when the hosted chart viewport is compact.
+# Retry the Engine 2 smoke after restoring the PowerShell observer script syntax.
 
 on:
   push:
