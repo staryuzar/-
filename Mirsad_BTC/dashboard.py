@@ -535,6 +535,20 @@ def render_engine_dashboard():
    )
   else:
    st.error("ملف تقرير الإنجاز غير موجود في مجلد reports.")
+ research_path=Path(__file__).resolve().parent/"reports"/"OPEN_SOURCE_VISUAL_ENGINE_RESEARCH_AR_20261102.md"
+ with st.expander("نتائج البحث الخارجي عن أدوات ومشاريع جاهزة للمحرك البصري",expanded=False):
+  if research_path.is_file():
+   research_text=research_path.read_text(encoding="utf-8")
+   st.markdown(research_text)
+   st.download_button(
+    "تنزيل تقرير البحث الخارجي",
+    data=research_text,
+    file_name="OPEN_SOURCE_VISUAL_ENGINE_RESEARCH_AR_20261102.md",
+    mime="text/markdown",
+    key="mirsad_visual_research_download",
+   )
+  else:
+   st.warning("تقرير البحث الخارجي غير موجود في مجلد reports.")
 
 @st.fragment(run_every=10)
 def live_fragment():
