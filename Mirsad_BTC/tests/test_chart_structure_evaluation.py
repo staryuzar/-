@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -514,7 +515,7 @@ class StructureEventEvaluationTests(unittest.TestCase):
                 rows = conn.execute(
                     """SELECT structure_id,sample_count,validation_status,human_reviewed,
                               fee_adjusted_expectancy_pct,data_split,dataset_id,
-                              split_start_ms,split_end_ms,embargo_bars
+                              split_start_ms,split_end_ms,embargo_bars,horizon_metrics_json
                        FROM visual_structure_evaluations"""
                 ).fetchall()
                 self.assertEqual(len(rows), 1)
@@ -531,6 +532,13 @@ class StructureEventEvaluationTests(unittest.TestCase):
                 )
                 self.assertEqual(rows[0]["embargo_bars"], 0)
                 self.assertIsNotNone(rows[0]["fee_adjusted_expectancy_pct"])
+                stored_metrics = json.loads(rows[0]["horizon_metrics_json"])
+                self.assertIn("directional_comparisons", stored_metrics)
+                self.assertIsNotNone(
+                    stored_metrics["directional_comparisons"]["BULLISH"]["horizons"]["1"][
+                        "excess_mean_return_pct"
+                    ]
+                )
             finally:
                 conn.close()
 
