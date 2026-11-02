@@ -198,6 +198,10 @@ def run_benchmark(
     reference_calibration_status_counts: Counter[str] = Counter()
     reference_anchored_images = 0
     reference_ohlc_override_images = 0
+    slot_guided_adopted_images = 0
+    slot_geometry_improved_images = 0
+    slot_shadow_separated_total = 0
+    legacy_shadow_separated_total = 0
     images_with_20plus_bars = 0
     sample_errors: list[dict[str, Any]] = []
     sample_results: list[dict[str, Any]] = []
@@ -317,6 +321,12 @@ def run_benchmark(
                 reference_calibration_status_counts[reference_calibration_status] += 1
                 reference_anchored_images += int(calibration_source == "reference_last_candle_ohlc")
                 reference_ohlc_override_images += int(bool(result.get("reference_ohlc_override_applied")))
+                extraction_diagnostics = result.get("extraction_diagnostics") or {}
+                slot_diagnostics = extraction_diagnostics.get("slot_guided_extraction") or {}
+                slot_guided_adopted_images += int(bool(slot_diagnostics.get("adopted")))
+                slot_geometry_improved_images += int(bool(slot_diagnostics.get("body_geometry_improves")))
+                slot_shadow_separated_total += int(slot_diagnostics.get("bars_with_both_wicks_separated", 0) or 0)
+                legacy_shadow_separated_total += int(slot_diagnostics.get("legacy_bars_with_both_wicks_separated", 0) or 0)
                 if detected >= 20:
                     images_with_20plus_bars += 1
 
@@ -365,7 +375,18 @@ def run_benchmark(
                         "reference_calibration_max_residual_fraction": reference_calibration.get("maximum_residual_fraction"),
                         "reference_calibration_pixel_rows": reference_calibration.get("reference_pixel_rows"),
                         "reference_ohlc_override_applied": bool(result.get("reference_ohlc_override_applied")),
-                        "segmentation_mode": (result.get("extraction_diagnostics") or {}).get("segmentation_mode"),
+                        "segmentation_mode": extraction_diagnostics.get("segmentation_mode"),
+                        "slot_guided_extraction": slot_diagnostics,
+                        "latest_bar_pixel_geometry": (
+                            {
+                                "high_y_px": bars[-1].get("high_y_px"),
+                                "body_top_y_px": bars[-1].get("body_top_y_px"),
+                                "body_bottom_y_px": bars[-1].get("body_bottom_y_px"),
+                                "low_y_px": bars[-1].get("low_y_px"),
+                                "body_ratio": bars[-1].get("body_ratio"),
+                            }
+                            if bars else None
+                        ),
                         "last_bar_x_ratio": result.get("last_bar_x_ratio"),
                         "last_extracted_candle_direction": latest_direction,
                         "reference_last_candle_direction": expected_direction,
@@ -440,6 +461,10 @@ def run_benchmark(
             "axis_calibrated_images": axis_calibrated_images,
             "reference_anchored_images": reference_anchored_images,
             "reference_ohlc_override_images": reference_ohlc_override_images,
+            "slot_guided_adopted_images": slot_guided_adopted_images,
+            "slot_geometry_improved_images": slot_geometry_improved_images,
+            "slot_shadow_separated_candles_total": slot_shadow_separated_total,
+            "legacy_shadow_separated_candles_total": legacy_shadow_separated_total,
             "calibration_source_counts": dict(calibration_source_counts),
             "reference_calibration_status_counts": dict(reference_calibration_status_counts),
             "decision_eligible_images": eligible_images,
