@@ -141,4 +141,82 @@ def analyze_multi_timeframe_structure(
     }
 
 
-__all__ = ["TIMEFRAME_MS", "analyze_multi_timeframe_structure"]
+def analyze_stored_multi_timeframe_structure(
+    *,
+    symbol: str,
+    venue: str | None,
+    as_of_ms: int,
+    timeframes: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d"),
+    limit: int = 120,
+    db_path: str | None = None,
+) -> dict[str, Any]:
+    """Analyse Engine 1's stored closed candles as an isolated Engine 2 report.
+
+    The adapter reads a single explicitly selected venue. It does not modify
+    market ingestion, blend venue candles, or pass confluence into trade sizing.
+    """
+    clean_symbol = str(symbol).strip().upper()
+    clean_venue = str(venue or "").strip()
+    if not clean_venue:
+        return {
+            "status": "PARTIAL",
+            "source": "market_candles_sqlite",
+            "symbol": clean_symbol,
+            "venue": None,
+            "requested_timeframes": list(timeframes),
+            "available_timeframes": [],
+            "loaded_candle_counts": {},
+            "errors": {"venue": "NO_PRIMARY_VENUE_AVAILABLE"},
+            "alignment": "INSUFFICIENT_TIMEFRAME_CONFLUENCE",
+            "interpretation": "STRUCTURE_CONFLUENCE_ONLY_NOT_A_TRADE_SIGNAL",
+        }
+
+    from ..storage import load_candles_by_timeframe
+
+    try:
+        kwargs: dict[str, Any] = {
+            "symbol": clean_symbol,
+            "venue": clean_venue,
+            "timeframes": timeframes,
+            "as_of_ms": as_of_ms,
+            "limit": limit,
+        }
+        if db_path is not None:
+            kwargs["db_path"] = db_path
+        bars_by_timeframe = load_candles_by_timeframe(**kwargs)
+    except (TypeError, ValueError, OSError) as exc:
+        return {
+            "status": "ERROR",
+            "source": "market_candles_sqlite",
+            "symbol": clean_symbol,
+            "venue": clean_venue,
+            "requested_timeframes": list(timeframes),
+            "available_timeframes": [],
+            "loaded_candle_counts": {},
+            "errors": {"storage": f"{type(exc).__name__}: {exc}"},
+            "alignment": "INSUFFICIENT_TIMEFRAME_CONFLUENCE",
+            "interpretation": "STRUCTURE_CONFLUENCE_ONLY_NOT_A_TRADE_SIGNAL",
+        }
+
+    report = analyze_multi_timeframe_structure(
+        bars_by_timeframe,
+        as_of_ms=as_of_ms,
+        last_candle_closed_by_timeframe={
+            timeframe: True for timeframe in bars_by_timeframe
+        },
+    )
+    return {
+        **report,
+        "source": "market_candles_sqlite",
+        "symbol": clean_symbol,
+        "venue": clean_venue,
+        "requested_timeframes": list(timeframes),
+        "loaded_candle_counts": {
+            timeframe: len(bars) for timeframe, bars in bars_by_timeframe.items()
+        },
+        "venue_policy": "SINGLE_PRIMARY_VENUE_NO_CROSS_EXCHANGE_CANDLE_MERGE",
+        "does_not_affect_decision_engine": True,
+    }
+
+
+__all__ = ["TIMEFRAME_MS", "analyze_multi_timeframe_structure", "analyze_stored_multi_timeframe_structure"]
