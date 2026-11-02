@@ -71,6 +71,11 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
                 "symbol": "BTC",
                 "timeframe": "M1",
                 "digits": 2,
+                "source_width_px": 1400,
+                "source_main_window_height_px": 800,
+                "source_dimensions_usable": True,
+                "source_dimensions_status": "USABLE",
+                "windows_total": 1,
                 "price_min": 89_000.0,
                 "price_max": 92_000.0,
                 "plot_bounds_status": "NOT_CALIBRATED_FROM_PIXELS",
@@ -98,6 +103,27 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             self.assertEqual(result["capture_data_skew_ms"], 50)
             self.assertFalse(result["bars"][-1]["is_closed"])
             self.assertEqual(len(result["image_sha256"]), 64)
+
+    def test_accepts_capture_when_source_viewport_is_small_but_marks_calibration_unusable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            payload["chart"]["source_width_px"] = 0
+            payload["chart"]["source_main_window_height_px"] = 0
+            payload["chart"]["source_dimensions_usable"] = False
+            payload["chart"]["source_dimensions_status"] = "BELOW_VISUAL_CALIBRATION_THRESHOLD"
+            (root / f"capture_{payload['capture_id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            result = MT5ChartObserverInbox(root, max_age_seconds=120).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "READY_FOR_ENGINE_2_VALIDATION")
+            self.assertFalse(result["decision_eligible"])
+            self.assertFalse(result["visual_calibration_eligible"])
+            self.assertEqual(
+                result["visual_calibration_status"],
+                "BELOW_VISUAL_CALIBRATION_THRESHOLD",
+            )
+            self.assertEqual(result["chart"]["source_width_px"], 0)
 
     def test_rejects_stale_capture_instead_of_falling_back(self):
         with tempfile.TemporaryDirectory() as directory:
