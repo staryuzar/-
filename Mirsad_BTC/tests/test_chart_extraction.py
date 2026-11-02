@@ -74,6 +74,27 @@ class SlotGuidedExtractionTests(unittest.TestCase):
         self.assertEqual(slot_info["occupied_slots"], len(active_slots))
         self.assertTrue(slot_info["adopted"])
 
+    def test_narrow_candle_body_is_separated_from_one_pixel_wicks(self) -> None:
+        image = np.full((self.HEIGHT, self.WIDTH, 3), 255, dtype=np.uint8)
+        slot_width = self.WIDTH / self.COUNT
+        for index in range(self.COUNT):
+            x = int(round((index + 0.5) * slot_width))
+            top = 55 + (index % 4) * 2
+            bottom = 190 - (index % 3) * 2
+            cv2.line(image, (x, top), (x, bottom), self.GREEN, 1)
+            cv2.rectangle(image, (x - 1, 105), (x + 1, 140), self.GREEN, -1)
+
+        bars, diagnostics = self._extract(image)
+        self.assertEqual(len(bars), self.COUNT)
+        self.assertTrue(
+            all(bar["body_top_y_px"] > bar["high_y_px"] for bar in bars),
+            msg=repr(diagnostics),
+        )
+        self.assertTrue(
+            all(bar["body_bottom_y_px"] < bar["low_y_px"] for bar in bars),
+            msg=repr(diagnostics),
+        )
+
     def test_legacy_projection_is_retained_when_slot_hint_does_not_improve_count(self) -> None:
         # No expected count is not required for the fallback contract; this
         # test passes an approximate count but a sparse chart to force abstention.
