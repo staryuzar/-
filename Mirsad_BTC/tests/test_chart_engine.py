@@ -27,6 +27,7 @@ class ChartEngineTests(unittest.TestCase):
         "plot_right_px": WIDTH,
         "plot_top_px": 10,
         "plot_bottom_px": 310,
+        "last_candle_closed": True,
     }
 
     def _write_chart(
@@ -103,6 +104,21 @@ class ChartEngineTests(unittest.TestCase):
             len([x for x in patterns if x["pattern"] == "doji_candidate" and x["index"] == 10]),
             1,
         )
+
+    def test_unclosed_latest_pattern_is_marked_forming(self) -> None:
+        bars = [
+            self._pattern_bar("GREEN", 100, 105, high=98, low=112)
+            for _ in range(10)
+        ]
+        bars.append(self._pattern_bar("GREEN", 100, 101, high=98, low=112))
+        patterns = _patterns(bars, last_candle_closed=False)
+        latest_doji = [
+            item for item in patterns
+            if item["pattern"] == "doji_candidate" and item["index"] == len(bars) - 1
+        ]
+        self.assertEqual(len(latest_doji), 1)
+        self.assertEqual(latest_doji[0]["confirmation_state"], "FORMING")
+        self.assertTrue(latest_doji[0]["uses_unconfirmed_latest_candle"])
 
     def test_hammer_requires_short_body_long_lower_shadow_and_prior_low_context(self) -> None:
         bars = [
@@ -341,6 +357,29 @@ class ChartEngineTests(unittest.TestCase):
         self.assertIn("events", reference)
         self.assertIn("not probabilities", reference["interpretation"])
         self.assertIn("never add both outputs", reference["interpretation"])
+
+    def test_open_latest_candle_is_visible_but_excluded_from_confirmed_analysis(self) -> None:
+        result = self._analyze(metadata={"last_candle_closed": False})
+        self.assertEqual(
+            result["confirmed_bar_count"],
+            result["calibrated_bar_count"] - 1,
+        )
+        self.assertEqual(result["visual_trend"]["sample_bars"], result["confirmed_bar_count"])
+        self.assertFalse(result["last_candle_closed"])
+        self.assertEqual(result["latest_candle_state"], "FORMING_OR_UNVERIFIED")
+        self.assertEqual(result["bars"][-1]["candle_state"], "FORMING_OR_UNVERIFIED")
+
+    def test_unverified_latest_candle_cannot_satisfy_minimum_closed_bar_count(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "twenty_bar_chart.png"
+            self._write_chart(path, count=20)
+            metadata = dict(self.META)
+            metadata["last_candle_closed"] = False
+            result = analyze_chart_image(path, metadata, expected_symbol="BTCUSDT")
+        self.assertEqual(result["calibrated_bar_count"], 20)
+        self.assertEqual(result["confirmed_bar_count"], 19)
+        self.assertFalse(result["decision_eligible"])
+        self.assertFalse(result["quality_gates"]["minimum_candle_count"])
 
     def test_insufficient_calibrated_history_returns_neutral_without_crashing(self) -> None:
         bars = [

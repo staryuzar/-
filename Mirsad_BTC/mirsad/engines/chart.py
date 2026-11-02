@@ -108,13 +108,17 @@ def analyze_chart_image(
             "decision_eligible": False,
         }
 
-    pattern_candidates = _patterns(bars)
+    last_candle_closed = bool(meta.get("last_candle_closed", False))
+    pattern_candidates = _patterns(bars, last_candle_closed=last_candle_closed)
     calibrated = calibrate_bars(bars, calibration)
+    # The live/current candle remains visible in the result, but only closed
+    # candles may contribute to the confirmed trend and market-structure read.
+    confirmed_calibrated = calibrated if last_candle_closed else calibrated[:-1]
     if calibration["price_scale_valid"]:
         try:
             reference_patterns = analyze_talib_pattern_reference(
                 calibrated,
-                last_candle_closed=bool(meta.get("last_candle_closed", False)),
+                last_candle_closed=last_candle_closed,
             )
         except Exception as exc:
             # Keep the visual analyst operational if its independent reference
@@ -134,7 +138,7 @@ def analyze_chart_image(
         }
     if calibration["price_scale_valid"]:
         analysis = analyze_calibrated_bars(
-            calibrated,
+            confirmed_calibrated,
             top_price=float(calibration["price_top"]),
             bottom_price=float(calibration["price_bottom"]),
         )
@@ -172,16 +176,17 @@ def analyze_chart_image(
     last_bar_x_ratio = (
         (float(bars[-1]["x_px"]) - plot_left) / plot_width if bars else None
     )
+    quality_bars = bars if last_candle_closed else bars[:-1]
     mean_colour_purity = (
-        float(sum(float(bar.get("colour_purity", 0.0)) for bar in bars[-24:]) / min(len(bars), 24))
-        if bars else 0.0
+        float(sum(float(bar.get("colour_purity", 0.0)) for bar in quality_bars[-24:]) / min(len(quality_bars), 24))
+        if quality_bars else 0.0
     )
 
     quality_gates = {
         "price_axis_calibrated": bool(calibration["price_scale_valid"]),
         "market_symbol_matches": symbol_matches,
         "timeframe_supported": timeframe_valid,
-        "minimum_candle_count": len(calibrated) >= MIN_CALIBRATED_BARS,
+        "minimum_candle_count": len(confirmed_calibrated) >= MIN_CALIBRATED_BARS,
         "latest_candle_near_right_edge": (
             last_bar_x_ratio is not None and last_bar_x_ratio >= MIN_LAST_BAR_X_RATIO
         ),
@@ -190,7 +195,7 @@ def analyze_chart_image(
     eligible = all(quality_gates.values())
     if eligible:
         state = "READY"
-    elif len(bars) < 5:
+    elif len(confirmed_calibrated) < 5:
         state = "LOW_DETECTION"
     elif not calibration["price_scale_valid"]:
         state = "DETECTED_UNCALIBRATED"
@@ -204,6 +209,18 @@ def analyze_chart_image(
     if not math.isfinite(confidence):
         confidence = 0.0
 
+    output_bars = calibrated[-250:] if calibration["price_scale_valid"] else bars[-80:]
+    output_bars = [
+        {
+            **bar,
+            "candle_state": (
+                "CLOSED" if last_candle_closed or index < len(output_bars) - 1
+                else "FORMING_OR_UNVERIFIED"
+            ),
+        }
+        for index, bar in enumerate(output_bars)
+    ]
+
     return {
         **result,
         "status": state,
@@ -211,6 +228,9 @@ def analyze_chart_image(
         "image_height": image_height,
         "detected_bar_count": len(bars),
         "calibrated_bar_count": len(calibrated),
+        "confirmed_bar_count": len(confirmed_calibrated),
+        "last_candle_closed": last_candle_closed,
+        "latest_candle_state": "CLOSED" if last_candle_closed else "FORMING_OR_UNVERIFIED",
         "last_bar_x_ratio": round(last_bar_x_ratio, 4) if last_bar_x_ratio is not None else None,
         "mean_colour_purity": round(mean_colour_purity, 4),
         "palette_mode": str(meta.get("palette_mode", "auto")),
@@ -235,7 +255,7 @@ def analyze_chart_image(
         },
         "pattern_candidates": pattern_candidates,
         "reference_patterns": reference_patterns,
-        "bars": calibrated[-250:] if calibration["price_scale_valid"] else bars[-80:],
+        "bars": output_bars,
         "decision_eligible": eligible,
         "quality_gates": quality_gates,
         "axis_ocr": axis_ocr,
@@ -260,6 +280,7 @@ def analyze_chart_image(
             "Candle colours depend on the selected palette and chart theme.",
             "Visual pattern candidates and TA-Lib reference candidates are separate observations; neither is a probability or an independent directional vote.",
             "The visual confidence index is heuristic evidence quality, not a statistical probability.",
+            "The latest candle is treated as forming/unverified unless last_candle_closed is explicitly true; it is visible but excluded from confirmed trend and structure metrics.",
             "Engine 2 uses deterministic computer vision; it does not use a trained AI vision model.",
         ],
     }

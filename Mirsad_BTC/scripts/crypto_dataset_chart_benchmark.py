@@ -212,6 +212,8 @@ def decode_and_analyze(
             "plot_bottom_px": int(round(bottom * height)),
             "palette_mode": "auto",
             "expected_candle_count": 20,
+            # Samples are offline historical OHLC snapshots, not a live forming bar.
+            "last_candle_closed": True,
         }
         image_path = temp_dir / f"crypto_chart_{index:06d}.png"
         if not cv2.imwrite(str(image_path), image):
@@ -241,6 +243,8 @@ def decode_and_analyze(
             "engine_status": result.get("status"),
             "detected_bars": result.get("detected_bar_count", 0),
             "calibrated_bars": result.get("calibrated_bar_count", 0),
+            "confirmed_bars": result.get("confirmed_bar_count", 0),
+            "latest_candle_state": result.get("latest_candle_state"),
             "decision_eligible": eligible,
             "predicted_direction": predicted_direction,
             "visual_bias": bias,

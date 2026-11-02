@@ -10,7 +10,9 @@ def _body_bounds(bar: dict[str, Any]) -> tuple[float, float]:
     return top, bottom
 
 
-def _patterns(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _patterns(
+    bars: list[dict[str, Any]], *, last_candle_closed: bool = True
+) -> list[dict[str, Any]]:
     """Return low-confidence visual pattern candidates; never directional votes.
 
     The rules use only visible candle geometry. They are intentionally
@@ -25,6 +27,13 @@ def _patterns(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "start_index": start_index,
             "pattern": name,
             "confidence": "LOW",
+            "confirmation_state": (
+                "FORMING" if index == len(bars) - 1 and not last_candle_closed
+                else "CANDIDATE_ONLY"
+            ),
+            "uses_unconfirmed_latest_candle": bool(
+                index == len(bars) - 1 and not last_candle_closed
+            ),
         }
         if colour is not None:
             item["colour"] = colour
