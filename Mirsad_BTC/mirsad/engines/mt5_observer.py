@@ -274,6 +274,7 @@ class MT5ChartObserverInbox:
                 "source_timeframe": source_timeframe,
                 "timeframe": timeframe,
             },
+            "account": payload.get("account") if isinstance(payload.get("account"), dict) else {},
             "bars_time_basis": payload.get("bars_time_basis"),
             "bars": bars,
             "bar_count": len(bars or []),
