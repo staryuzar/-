@@ -5,7 +5,7 @@ import unittest
 import cv2
 import numpy as np
 
-from mirsad.engines.chart_extraction import _extract_bars
+from mirsad.engines.chart_extraction import _extract_bars, _select_slot_guided_bars
 
 
 class SlotGuidedExtractionTests(unittest.TestCase):
@@ -51,6 +51,55 @@ class SlotGuidedExtractionTests(unittest.TestCase):
             diagnostics,
         )
         return bars, diagnostics
+
+    def test_slot_guidance_wins_equal_count_when_body_and_wicks_are_better_separated(self) -> None:
+        legacy = [
+            {
+                "high_y_px": 10, "body_top_y_px": 10,
+                "body_bottom_y_px": 30, "low_y_px": 30,
+                "body_ratio": 1.0, "colour_purity": 0.90,
+            }
+            for _ in range(20)
+        ]
+        slot_guided = [
+            {
+                "high_y_px": 10, "body_top_y_px": 15,
+                "body_bottom_y_px": 25, "low_y_px": 30,
+                "body_ratio": 0.5, "colour_purity": 0.95,
+            }
+            for _ in range(20)
+        ]
+        selected, diagnostics = _select_slot_guided_bars(
+            legacy,
+            slot_guided,
+            expected_candle_count=20,
+            slot_mean_purity=0.95,
+        )
+        self.assertIs(selected, slot_guided)
+        self.assertTrue(diagnostics["body_geometry_improves"])
+        self.assertTrue(diagnostics["adopted"])
+
+    def test_slot_guidance_does_not_replace_equal_count_without_better_geometry(self) -> None:
+        legacy = [
+            {
+                "high_y_px": 10, "body_top_y_px": 15,
+                "body_bottom_y_px": 25, "low_y_px": 30,
+                "body_ratio": 0.5, "colour_purity": 0.90,
+            }
+            for _ in range(20)
+        ]
+        slot_guided = [
+            dict(bar) for bar in legacy
+        ]
+        selected, diagnostics = _select_slot_guided_bars(
+            legacy,
+            slot_guided,
+            expected_candle_count=20,
+            slot_mean_purity=0.95,
+        )
+        self.assertIs(selected, legacy)
+        self.assertFalse(diagnostics["body_geometry_improves"])
+        self.assertFalse(diagnostics["adopted"])
 
     def test_slot_guidance_recovers_candles_joined_by_same_colour_overlay(self) -> None:
         bars, diagnostics = self._extract(self._chart(list(range(self.COUNT))))
