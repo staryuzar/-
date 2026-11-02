@@ -93,6 +93,16 @@ class ChartEngineTests(unittest.TestCase):
             "body_bottom_y_px": bottom,
         }
 
+    def test_axisless_chart_reports_pixel_bias_without_decision_eligibility(self) -> None:
+        result = self._analyze(metadata={"price_top": None, "price_bottom": None})
+        self.assertFalse(result["calibration"]["price_scale_valid"])
+        self.assertFalse(result["decision_eligible"])
+        pixel = result["pixel_visual_evidence"]
+        self.assertEqual(pixel["status"], "READY")
+        self.assertEqual(pixel["direction"], "BULLISH")
+        self.assertFalse(pixel["decision_eligible"])
+        self.assertEqual(pixel["method"], "scale_free_pixel_close_trend")
+
     def test_doji_uses_previous_ten_candle_ranges(self) -> None:
         bars = [
             self._pattern_bar("GREEN", 100, 105, high=98, low=112)
