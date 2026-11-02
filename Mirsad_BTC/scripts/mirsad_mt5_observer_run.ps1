@@ -99,7 +99,7 @@ try {
         }
     }
 
-    if ($login -notmatch '^\d+
+    if ([string]::IsNullOrWhiteSpace($login) -or [string]::IsNullOrWhiteSpace($accountPassword)) {
         throw 'MT5 account login/password are incomplete.'
     }
     if ([string]::IsNullOrWhiteSpace($server)) {
