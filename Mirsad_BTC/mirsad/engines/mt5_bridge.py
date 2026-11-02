@@ -27,7 +27,7 @@ class MT5BridgeEngine:
         self.root = Path(configured).expanduser() / "MirsadBTC" if configured else None
 
     def inspect(self) -> dict[str, Any]:
-        base = {"engine": "engine_3_mt5_bridge", "direction": "bidirectional_program_to_expert"}
+        base = {"engine": "engine_5_communication_bridge", "direction": "bidirectional_program_to_expert"}
         if self.root is None:
             return {**base, "status": "NOT_CONFIGURED",
                     "message": "Set MIRSAD_MT5_COMMON_FILES to the terminal Common\\\\Files directory."}
