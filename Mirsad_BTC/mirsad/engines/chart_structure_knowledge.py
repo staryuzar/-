@@ -126,10 +126,16 @@ def analyze_chart_structure_knowledge(
 
     swing_highs, swing_lows = pivot_sets["swing"]
     overall_sequence = reports["swing"]
-    prior_direction = overall_sequence["direction"]
     events: list[dict[str, Any]] = []
     sweeps: list[dict[str, Any]] = []
     previous_close_by_index = {i: confirmed[i - 1]["close"] for i in range(1, len(confirmed))}
+
+    def prior_direction_at(index: int) -> str:
+        # Historical classification must use only pivots confirmed before
+        # this event; using the final chart direction would introduce look-ahead.
+        available_highs = [p for p in swing_highs if int(p["confirmation_index"]) < index]
+        available_lows = [p for p in swing_lows if int(p["confirmation_index"]) < index]
+        return _sequence(available_highs, available_lows)["direction"]
 
     for pivot in swing_highs:
         pivot_index = int(pivot["index"])
@@ -139,6 +145,7 @@ def analyze_chart_structure_knowledge(
             close = confirmed[index]["close"]
             high = confirmed[index]["high"]
             if previous_close is not None and previous_close <= level < close:
+                prior_direction = prior_direction_at(index)
                 event_name = "CHOCH_BULLISH" if prior_direction == "BEARISH" else "BOS_BULLISH"
                 events.append({
                     "event": event_name, "level": level, "pivot_index": pivot_index,
@@ -162,6 +169,7 @@ def analyze_chart_structure_knowledge(
             close = confirmed[index]["close"]
             low = confirmed[index]["low"]
             if previous_close is not None and previous_close >= level > close:
+                prior_direction = prior_direction_at(index)
                 event_name = "CHOCH_BEARISH" if prior_direction == "BULLISH" else "BOS_BEARISH"
                 events.append({
                     "event": event_name, "level": level, "pivot_index": pivot_index,
