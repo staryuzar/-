@@ -21,6 +21,8 @@ string g_image_root    = "MirsadBTC\\observer\\images";
 long   g_chart_id      = 0;
 ulong  g_next_capture_at_ms = 0;
 ulong  g_next_market_snapshot_at_ms = 0;
+ulong  g_next_calendar_refresh_at_ms = 0;
+string g_economic_calendar_json = "\"economic_calendar\":{\"status\":\"NOT_REQUESTED\",\"source\":\"MT5_ECONOMIC_CALENDAR\",\"currency\":\"USD\",\"events\":[]}";
 uint   g_sequence = 0;
 bool   g_pending = false;
 ulong  g_pending_started_tick = 0;
@@ -223,7 +225,104 @@ string BuildMarketFrameJson(const string symbol,
    );
 }
 
-string BuildMarketSnapshotPayload(const string broker_symbol)
+string CalendarImportanceLabel(const ENUM_CALENDAR_EVENT_IMPORTANCE importance)
+{
+   if(importance == CALENDAR_IMPORTANCE_HIGH)
+      return "HIGH";
+   if(importance == CALENDAR_IMPORTANCE_MODERATE)
+      return "MODERATE";
+   if(importance == CALENDAR_IMPORTANCE_LOW)
+      return "LOW";
+   return "NONE";
+}
+
+string BuildEconomicCalendarJson(const int server_utc_offset_seconds)
+{
+   datetime server_now = TimeTradeServer();
+   datetime from_time = server_now - 86400;
+   datetime to_time = server_now + 7 * 86400;
+   MqlCalendarValue values[];
+   ResetLastError();
+   int copied = CalendarValueHistory(values, from_time, to_time, "", "USD");
+   if(copied < 0)
+   {
+      int error_code = GetLastError();
+      return StringFormat(
+         "\"economic_calendar\":{\"status\":\"UNAVAILABLE\",\"source\":\"MT5_ECONOMIC_CALENDAR\",\"currency\":\"USD\",\"error_code\":%d,\"events\":[]}",
+         error_code
+      );
+   }
+
+   int limit = MathMin(copied, 64);
+   string events = "[";
+   int emitted = 0;
+   for(int i = 0; i < limit; i++)
+   {
+      MqlCalendarEvent event;
+      if(!CalendarEventById(values[i].event_id, event))
+         continue;
+      if(emitted > 0)
+         events += ",";
+      long event_utc_ms = ((long)values[i].time - server_utc_offset_seconds) * 1000;
+      events += StringFormat(
+         "{\"event_id\":%I64u,\"event_time_utc_ms\":%I64d,\"name\":\"%s\",\"importance\":\"%s\",\"currency\":\"USD\"}",
+         values[i].event_id,
+         event_utc_ms,
+         JsonEscape(event.name),
+         CalendarImportanceLabel(event.importance)
+      );
+      emitted++;
+   }
+   events += "]";
+   return StringFormat(
+      "\"economic_calendar\":{\"status\":\"AVAILABLE\",\"source\":\"MT5_ECONOMIC_CALENDAR\",\"currency\":\"USD\",\"events\":%s}",
+      events
+   );
+}
+
+string BuildTickHistoryJson(const string symbol,
+                            const int digits,
+                            const int server_utc_offset_seconds)
+{
+   long server_now_ms = (long)TimeTradeServer() * 1000;
+   ulong to_msc = (ulong)server_now_ms;
+   ulong from_msc = (ulong)MathMax(0, server_now_ms - 30000);
+   MqlTick ticks[];
+   ResetLastError();
+   int copied = CopyTicksRange(symbol, ticks, COPY_TICKS_INFO, from_msc, to_msc);
+   int error_code = 0;
+   if(copied < 0)
+   {
+      error_code = GetLastError();
+      copied = 0;
+      ArrayResize(ticks, 0);
+   }
+
+   int start_index = MathMax(0, copied - 256);
+   string output = "\"tick_window_seconds\":30,";
+   output += StringFormat("\"tick_copy_count\":%d,\"tick_error_code\":%d,\"ticks\":[", copied, error_code);
+   int emitted = 0;
+   for(int i = start_index; i < copied; i++)
+   {
+      if(ticks[i].bid <= 0 || ticks[i].ask < ticks[i].bid || ticks[i].time_msc <= 0)
+         continue;
+      if(emitted > 0)
+         output += ",";
+      long tick_utc_ms = ticks[i].time_msc - (long)server_utc_offset_seconds * 1000;
+      output += StringFormat(
+         "{\"time_utc_ms\":%I64d,\"bid\":%s,\"ask\":%s}",
+         tick_utc_ms,
+         DoubleToString(ticks[i].bid, digits),
+         DoubleToString(ticks[i].ask, digits)
+      );
+      emitted++;
+   }
+   output += "]";
+   return output;
+}
+
+string BuildMarketSnapshotPayload(const string broker_symbol,
+                                  const string economic_calendar_json)
 {
    long server_time_seconds = (long)TimeTradeServer();
    int server_utc_offset_seconds = (int)(server_time_seconds - (long)TimeGMT());
@@ -240,7 +339,7 @@ string BuildMarketSnapshotPayload(const string broker_symbol)
       : 2147483647.0;
 
    string payload = "{";
-   payload += "\"schema\":\"MIR-MT5-MARKET-1\",";
+   payload += "\"schema\":\"MIR-MT5-MARKET-2\",";
    payload += "\"captured_at_utc_ms\":" + (string)captured_at_utc_ms + ",";
    payload += "\"server_time_seconds\":" + (string)server_time_seconds + ",";
    payload += "\"server_utc_offset_seconds_at_capture\":" + (string)server_utc_offset_seconds + ",";
@@ -255,6 +354,28 @@ string BuildMarketSnapshotPayload(const string broker_symbol)
    payload += "\"tick_time_server_ms\":" + (string)tick_time_server_ms + ",";
    payload += "\"tick_age_seconds\":" + DoubleToString(tick_age_seconds, 3);
    payload += "},";
+   payload += "\"time_basis\":\"UTC_NORMALIZED_FROM_MT5_SERVER_TIME\",";
+   payload += BuildTickHistoryJson(broker_symbol, digits, server_utc_offset_seconds) + ",";
+   payload += economic_calendar_json;
+   payload += "}";
+   return payload;
+}
+
+string BuildEngine2CandleSnapshotPayload(const string broker_symbol)
+{
+   long server_time_seconds = (long)TimeTradeServer();
+   int server_utc_offset_seconds = (int)(server_time_seconds - (long)TimeGMT());
+   long captured_at_utc_ms = UtcNowMs();
+   int digits = (int)SymbolInfoInteger(broker_symbol, SYMBOL_DIGITS);
+
+   string payload = "{";
+   payload += "\"schema\":\"MIR-ENGINE2-CANDLES-1\",";
+   payload += "\"captured_at_utc_ms\":" + (string)captured_at_utc_ms + ",";
+   payload += "\"server_time_seconds\":" + (string)server_time_seconds + ",";
+   payload += "\"terminal_connected\":" + JsonBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED)) + ",";
+   payload += "\"broker_symbol\":\"" + JsonEscape(broker_symbol) + "\",";
+   payload += "\"market_symbol\":\"" + JsonEscape(InpMarketSymbol) + "\",";
+   payload += "\"account\":{\"server\":\"" + JsonEscape(AccountInfoString(ACCOUNT_SERVER)) + "\"},";
    payload += "\"time_basis\":\"UTC_NORMALIZED_FROM_MT5_SERVER_TIME\",";
    payload += "\"timeframes\":{";
    payload += BuildMarketFrameJson(broker_symbol, "1m", PERIOD_M1, digits, server_utc_offset_seconds) + ",";
@@ -272,14 +393,31 @@ bool PublishMarketSnapshot()
    string symbol = ChartSymbol(g_chart_id);
    if(symbol == "" || InpMarketSymbol == "")
       return false;
-   string payload = BuildMarketSnapshotPayload(symbol);
-   if(!WriteCommonManifest("MirsadBTC\\market.json", payload))
+
+   ulong now_tick = GetTickCount64();
+   if(now_tick >= g_next_calendar_refresh_at_ms)
    {
-      PrintFormat("Mirsad Observer: could not publish MT5 market snapshot. Error=%d", GetLastError());
+      int server_offset = (int)((long)TimeTradeServer() - (long)TimeGMT());
+      g_economic_calendar_json = BuildEconomicCalendarJson(server_offset);
+      g_next_calendar_refresh_at_ms = now_tick + 60000;
+   }
+
+   string market_payload = BuildMarketSnapshotPayload(symbol, g_economic_calendar_json);
+   if(!WriteCommonManifest("MirsadBTC\\market.json", market_payload))
+   {
+      PrintFormat("Mirsad Observer: could not publish Engine 1 MT5 market snapshot. Error=%d", GetLastError());
+      return false;
+   }
+
+   string candle_payload = BuildEngine2CandleSnapshotPayload(symbol);
+   if(!WriteCommonManifest("MirsadBTC\\observer\\candles.json", candle_payload))
+   {
+      PrintFormat("Mirsad Observer: could not publish Engine 2 candle history. Error=%d", GetLastError());
       return false;
    }
    return true;
 }
+
 
 string BuildCapturePayload(const string capture_id,
                            const string image_name,
