@@ -578,16 +578,27 @@ public static class MirsadNativeWindow {
     $analysisExitCode = $LASTEXITCODE
     foreach ($line in $analysisLines) { Add-Report ("Engine 2 smoke: {0}" -f [string]$line) }
     if ($analysisExitCode -ne 0) {
-        Add-Report ("WARN — Engine 2 image smoke exited with code {0}; Observer capture remains separately verified." -f $analysisExitCode)
+        Add-Report ("FAIL — MT5 Engine 1/2 validation script exited with code {0}." -f $analysisExitCode)
+        throw 'The actual MT5 market/candle/chart validation script failed.'
     }
-    elseif (Test-Path -LiteralPath $analysisOutput) {
-        $engine2Summary = Get-Content -LiteralPath $analysisOutput -Raw | ConvertFrom-Json
-        Add-Report ("Engine 2 MT5 image result: status={0}; visual eligible={1}; reference calibration={2}; detected bars={3}." -f $engine2Summary.engine2.status,$engine2Summary.engine2.visual_eligible,$engine2Summary.engine2.reference_calibration_status,$engine2Summary.engine2.detected_bars)
-        Add-Report 'Safety — Engine 2 smoke is diagnostic only and never authorizes a trade.'
+    if (!(Test-Path -LiteralPath $analysisOutput)) {
+        throw 'MT5 Engine 1/2 validation did not create its sanitized summary.'
     }
-    else {
-        Add-Report 'WARN — Engine 2 image smoke did not create its sanitized summary.'
+    $engine2Summary = Get-Content -LiteralPath $analysisOutput -Raw | ConvertFrom-Json
+    $engine1Status = [string]$engine2Summary.engine1_market.status
+    $engine2CandleStatus = [string]$engine2Summary.engine2_candle_history.status
+    Add-Report ("Engine 1 actual MT5 market result: status={0}; price={1}; tick status={2}; tick count={3}; economic calendar={4}; events={5}." -f $engine1Status,$engine2Summary.engine1_market.price,$engine2Summary.engine1_market.microstructure.status,$engine2Summary.engine1_market.microstructure.tick_count,$engine2Summary.engine1_market.economic_calendar.status,$engine2Summary.engine1_market.economic_calendar.event_count)
+    Add-Report ("Engine 2 actual MT5 candle result: status={0}; timeframes={1}; closed 1m={2}; 5m={3}; 15m={4}." -f $engine2CandleStatus,($engine2Summary.engine2_candle_history.timeframes | ConvertTo-Json -Compress),$engine2Summary.engine2_candle_history.closed_candles.'1m',$engine2Summary.engine2_candle_history.closed_candles.'5m',$engine2Summary.engine2_candle_history.closed_candles.'15m')
+    Add-Report ("Engine 2 MT5 image result: status={0}; visual eligible={1}; reference calibration={2}; detected bars={3}." -f $engine2Summary.engine2.status,$engine2Summary.engine2.visual_eligible,$engine2Summary.engine2.reference_calibration_status,$engine2Summary.engine2.detected_bars)
+
+    if ($engine1Status -ne 'LIVE') {
+        throw ("Engine 1 actual MT5 market feed is not LIVE: {0}. {1}" -f $engine1Status,$engine2Summary.engine1_market.reason)
     }
+    if ($engine2CandleStatus -ne 'READY') {
+        throw ("Engine 2 actual MT5 candle history is not READY: {0}. {1}" -f $engine2CandleStatus,$engine2Summary.engine2_candle_history.reason)
+    }
+    Add-Report 'PASS — Engine 1 and Engine 2 validated from separate files published by the connected MT5 terminal.'
+    Add-Report 'Safety — Observer and diagnostics only. Automated trading permission is disabled; no execution EA or MIR1 command is used.'
 
     Add-Report ("PASS — Observer capture received from MT5 account/server: {0} / {1} / {2}; account type={3}." -f $manifest.account.server,$manifest.chart.symbol, $manifest.chart.timeframe,$manifest.account.trade_mode_label)
     Add-Report ("PASS — PNG signature and byte size verified: {0} bytes." -f $imageBytes.Length)
