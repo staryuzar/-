@@ -175,6 +175,15 @@ def render_engine_dashboard():
   if chart.get("pattern_candidates"):
    st.markdown("**أنماط الرؤية الهندسية من الصورة**")
    st.dataframe(pd.DataFrame(chart["pattern_candidates"]),use_container_width=True,hide_index=True)
+  header_ocr=chart.get("header_ocr") or {}
+  if header_ocr.get("status") not in {None,"DISABLED"}:
+   st.caption(
+    f"اقتراحات بيانات عنوان الصورة: الرمز {header_ocr.get('symbol_suggestion') or 'غير واضح'} | "
+    f"الإطار {header_ocr.get('timeframe_suggestion') or 'غير واضح'} | "
+    f"البورصة {header_ocr.get('exchange_suggestion') or 'غير واضحة'} | "
+    f"مطابقة رمز السوق: {header_ocr.get('expected_symbol_match','—')}"
+   )
+   st.caption("هذه اقتراحات OCR للمراجعة ولا تستبدل البيانات المدخلة ولا تؤثر في معايرة السعر أو القرار.")
   reference_patterns=chart.get("reference_patterns") or {}
   st.markdown("**مرجع الأنماط الحسابي المستقل — TA-Lib على OHLC المعاير**")
   st.caption(
@@ -467,6 +476,11 @@ def render_engine_dashboard():
    value=bool(saved_meta.get("auto_axis_ocr",True)),
    help="يحتاج المحرك إلى أربع تدريجات رقمية متناسقة على الأقل. عند فشل القراءة لن يخمّن الأسعار.",
   )
+  auto_header_ocr=st.checkbox(
+   "اقتراح الرمز والإطار الزمني من شريط عنوان الصورة (OCR)",
+   value=bool(saved_meta.get("auto_header_ocr",False)),
+   help="قراءة مساعدة من أعلى الصورة فقط. لا تستبدل الرمز أو الفاصل المدخلين ولا تستخدم لمعايرة السعر أو قرار التداول.",
+  )
   last_candle_closed=st.checkbox(
    "آخر شمعة في الصورة مغلقة ومكتملة",
    value=bool(saved_meta.get("last_candle_closed",False)),
@@ -515,7 +529,7 @@ def render_engine_dashboard():
     target.write_bytes(payload)
     metadata={"schema_version":2,"symbol":syms.strip().upper(),"timeframe":timeframe,
      "price_top":float(top_price),"price_bottom":float(bottom_price),
-     "price_scale_type":price_scale_type,"auto_axis_ocr":bool(auto_axis_ocr),"last_candle_closed":bool(last_candle_closed),
+     "price_scale_type":price_scale_type,"auto_axis_ocr":bool(auto_axis_ocr),"auto_header_ocr":bool(auto_header_ocr),"last_candle_closed":bool(last_candle_closed),
      "persist_knowledge_observations":bool(persist_knowledge_observations),"expected_candle_count":int(expected_candle_count),
      "plot_left_px":int(plot_left),"plot_top_px":int(plot_top),
      "plot_right_px":int(plot_right),"plot_bottom_px":int(plot_bottom),
@@ -526,7 +540,7 @@ def render_engine_dashboard():
 
  with st.expander("قواعد وضوابط النظام"):
   st.write("المحرك 1 يجمع معلومات السوق. المحرك 2 يحلل المخططات والشموع وبنية السعر. المحرك 3 مستقل للمؤشرات. المحرك 4 يتخذ القرار ويتابع الصفقات ويدير المخاطر. المحرك 5 يربط البرنامج بخبير MT5 للتنفيذ وإعادة بيانات الحالة.")
-  st.write("لا يوجد نموذج توليدي أو نموذج ذكاء اصطناعي لاتخاذ قرار التداول. RapidOCR محلي يقرأ أرقام محور السعر فقط عند تفعيله، والاتجاه والأنماط تُحلّل بقواعد هندسية واضحة.")
+  st.write("لا يوجد نموذج توليدي أو نموذج ذكاء اصطناعي لاتخاذ قرار التداول. RapidOCR المحلي يقرأ تدريجات محور السعر عند تفعيله، ويمكنه اقتراح بيانات عنوان الصورة اختيارياً؛ لا يعتمد المحرك السعر أو القرار على هذه الاقتراحات. الاتجاه والأنماط تُحلّل بقواعد هندسية واضحة.")
 
  st.divider()
  st.subheader("تقرير الإنجاز والتدقيق التفصيلي")
