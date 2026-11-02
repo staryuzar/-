@@ -7,6 +7,7 @@
     "schema",
     "capture_id",
     "capture_at_utc_ms",
+    "rates_snapshot_at_utc_ms",
     "server_utc_offset_seconds_at_capture",
     "server_time_seconds",
     "published_at_utc_ms",
@@ -232,6 +233,10 @@
         },
         "additionalProperties": false
       }
+    },
+    "rates_snapshot_at_utc_ms": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "additionalProperties": false
