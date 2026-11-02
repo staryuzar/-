@@ -5,6 +5,7 @@ import unittest
 from scripts.run_public_chart_image_benchmark import (
     _bar_direction,
     _crop_box,
+    _failed_quality_gates,
     _ohlc_comparison,
 )
 
@@ -49,6 +50,16 @@ class PublicChartImageBenchmarkTests(unittest.TestCase):
         )
         self.assertEqual(result["absolute_error_pct_by_field"]["high"], 0.9804)
         self.assertTrue(result["within_3pct_tolerance"])
+
+    def test_failed_quality_gates_are_reported_without_promoting_chart(self) -> None:
+        self.assertEqual(
+            _failed_quality_gates({
+                "price_axis_calibrated": True,
+                "minimum_candle_count": False,
+                "latest_candle_near_right_edge": False,
+            }),
+            ["latest_candle_near_right_edge", "minimum_candle_count"],
+        )
 
     def test_last_bar_direction_falls_back_to_detected_palette(self) -> None:
         self.assertEqual(_bar_direction({"colour": "GREEN"}), "BULLISH")
