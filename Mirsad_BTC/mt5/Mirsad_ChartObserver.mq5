@@ -173,6 +173,7 @@ string BuildCapturePayload(const string capture_id,
                            const long bear_color,
                            const MqlRates &rates[],
                            const int copied,
+                           const int rates_error_code,
                            const int digits,
                            const long capture_at_utc_ms,
                            const long rates_snapshot_at_utc_ms,
@@ -218,6 +219,8 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"bars_time_basis\":\"MT5_SERVER_TIME\",";
    payload += "\"bars_requested\":" + (string)InpHistoryBars + ",";
    payload += "\"bars_copied\":" + (string)copied + ",";
+   payload += "\"rates_status\":\"" + (copied > 0 ? "AVAILABLE" : "UNAVAILABLE") + "\",";
+   payload += "\"rates_error_code\":" + (string)rates_error_code + ",";
    payload += "\"forming_bar_included\":" + JsonBool(copied > 0) + ",";
    payload += "\"bars\":" + BuildRatesJson(rates, copied, digits);
    payload += "}";
@@ -262,14 +265,17 @@ bool BeginCapture()
    ArraySetAsSeries(rates, false);
    ResetLastError();
    int copied = CopyRates(symbol, timeframe, 0, InpHistoryBars, rates);
+   int rates_error_code = 0;
    if(copied < 0)
    {
+      rates_error_code = GetLastError();
+      ArrayResize(rates, 0);
+      copied = 0;
       PublishObserverStatus(
-         "RATES_READ_ERROR", "",
-         StringFormat("CopyRates returned %d (error=%d). Capturing the chart image is still available on the next cycle.",
-                      copied, GetLastError())
+         "RATES_READ_PARTIAL", "",
+         StringFormat("Chart image capture will continue without OHLC bars. CopyRates error=%d.",
+                      rates_error_code)
       );
-      return false;
    }
 
    long rates_snapshot_at_utc_ms = UtcNowMs();
@@ -311,7 +317,7 @@ bool BeginCapture()
       first_visible_bar, visible_bars, chart_scale, chart_mode,
       chart_shift, chart_autoscroll, price_min, price_max,
       background_color, foreground_color, bull_color, bear_color,
-      rates, copied, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS),
+      rates, copied, rates_error_code, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS),
       capture_at_utc_ms, rates_snapshot_at_utc_ms,
       server_time_seconds, server_utc_offset_seconds
    );
