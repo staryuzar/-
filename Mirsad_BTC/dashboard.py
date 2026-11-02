@@ -332,6 +332,8 @@ def render_engine_dashboard():
     "الشموع المغلقة":frame.get("confirmed_bars",0),
     "الحالة":frame.get("status"),
     "الاتجاه البنيوي":swing.get("direction",frame.get("structure_direction","—")),
+    "انتظام الشموع":"متصل" if frame.get("data_continuity")=="CONTIGUOUS" else "فجوات",
+    "عدد الفجوات":len(frame.get("candle_gaps",[])),
     "قمم أعلى HH":swing.get("higher_highs",False),
     "قيعان أعلى HL":swing.get("higher_lows",False),
     "قمم أدنى LH":swing.get("lower_highs",False),
