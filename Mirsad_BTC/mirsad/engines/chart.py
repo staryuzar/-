@@ -319,6 +319,19 @@ def analyze_chart_image(
     last_candle_closed = bool(meta.get("last_candle_closed", False))
     pattern_candidates = _patterns(bars, last_candle_closed=last_candle_closed)
     calibrated = calibrate_bars(bars, calibration)
+    reference_ohlc_override_applied = False
+    reference_ohlc = meta.get("reference_last_candle_ohlc")
+    if (
+        calibration_source == "reference_last_candle_ohlc"
+        and isinstance(reference_ohlc, dict)
+        and bars
+    ):
+        reference_x = bars[-1].get("x_px")
+        for index in range(len(calibrated) - 1, -1, -1):
+            if calibrated[index].get("x_px") == reference_x:
+                calibrated[index] = {**calibrated[index], **reference_ohlc}
+                reference_ohlc_override_applied = True
+                break
     # The live/current candle remains visible in the result, but only closed
     # candles may contribute to confirmed visual evidence.
     confirmed_calibrated = calibrated if last_candle_closed else calibrated[:-1]
@@ -517,6 +530,7 @@ def analyze_chart_image(
             if "reference_calibration" in locals()
             else {"status": "NOT_REQUESTED"}
         ),
+        "reference_ohlc_override_applied": reference_ohlc_override_applied,
         "header_ocr": header_ocr,
         "ocr_model_used": (
             axis_ocr.get("ocr_backend") == "RapidOCR"
