@@ -149,6 +149,34 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             self.assertEqual(result["chart"]["timeframe"], "m2")
             self.assertFalse(result["decision_eligible"])
 
+    def test_accepts_more_than_500_bars_without_capture_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            bars = payload["bars"]
+            last_time = bars[-1]["time_server_ms"]
+            for index in range(30, 601):
+                base = 90_000.0 + index * 10.0
+                bars.append({
+                    "time_server_ms": last_time + (index - 29) * 60_000,
+                    "open": base,
+                    "high": base + 25,
+                    "low": base - 15,
+                    "close": base + 5,
+                    "tick_volume": 100 + index,
+                    "real_volume": 0,
+                    "spread_points": 20,
+                    "is_closed": index < 600,
+                })
+            payload["bars_copied"] = len(bars)
+            (root / f"capture_{payload['capture_id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "READY_FOR_ENGINE_2_VALIDATION")
+            self.assertEqual(result["bar_count"], 601)
+            self.assertFalse(result["decision_eligible"])
+
     def test_accepts_empty_history_and_keeps_chart_capture(self):
         with tempfile.TemporaryDirectory() as directory:
             now = int(time.time() * 1000)
