@@ -74,6 +74,8 @@
         "digits",
         "source_width_px",
         "source_main_window_height_px",
+        "source_dimensions_usable",
+        "source_dimensions_status",
         "windows_total",
         "first_visible_bar_shift",
         "visible_bars",
@@ -105,15 +107,25 @@
         },
         "source_width_px": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0
         },
         "source_main_window_height_px": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0
+        },
+        "source_dimensions_usable": {
+          "type": "boolean"
+        },
+        "source_dimensions_status": {
+          "type": "string",
+          "enum": [
+            "USABLE",
+            "BELOW_VISUAL_CALIBRATION_THRESHOLD"
+          ]
         },
         "windows_total": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0
         },
         "first_visible_bar_shift": {
           "type": "integer",
