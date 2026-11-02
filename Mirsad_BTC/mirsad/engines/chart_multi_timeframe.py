@@ -237,6 +237,20 @@ def analyze_stored_multi_timeframe_structure(
         "loaded_candle_counts": {
             timeframe: len(bars) for timeframe, bars in bars_by_timeframe.items()
         },
+        "candle_source_intervals": {
+            timeframe: sorted({
+                str(bar.get("source_interval", timeframe)) for bar in bars
+            })
+            for timeframe, bars in bars_by_timeframe.items()
+        },
+        "weekly_derivation": (
+            "Seven consecutive closed UTC daily candles, Monday 00:00 UTC boundary"
+            if any(
+                bar.get("source_interval") == "1d_aggregated_to_1w_utc_monday"
+                for bar in bars_by_timeframe.get("1w", [])
+            )
+            else "Native weekly candles if present; otherwise unavailable until seven complete daily candles exist"
+        ),
         "venue_policy": "SINGLE_PRIMARY_VENUE_NO_CROSS_EXCHANGE_CANDLE_MERGE",
         "does_not_affect_decision_engine": True,
     }
