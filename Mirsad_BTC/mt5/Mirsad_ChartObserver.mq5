@@ -8,8 +8,7 @@
 #property description "Mirsad read-only MT5 chart screenshot and OHLC observer"
 
 input int  InpCaptureIntervalSeconds = 60;   // Snapshot cadence (5..3600 seconds)
-input int  InpHistoryBars             = 120;  // Requested bars including the forming bar (30..500)
-input int  InpMinimumHistoryBars      = 30;   // Minimum complete response before capture
+input int  InpHistoryBars             = 120;  // Requested bars including the forming bar; set as needed
 input int  InpScreenshotWidth         = 1600; // PNG output width
 input int  InpScreenshotHeight        = 900;  // PNG output height
 input bool InpCaptureImmediately      = true; // Capture shortly after initialization
@@ -219,7 +218,7 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"bars_time_basis\":\"MT5_SERVER_TIME\",";
    payload += "\"bars_requested\":" + (string)InpHistoryBars + ",";
    payload += "\"bars_copied\":" + (string)copied + ",";
-   payload += "\"forming_bar_included\":true,";
+   payload += "\"forming_bar_included\":" + JsonBool(copied > 0) + ",";
    payload += "\"bars\":" + BuildRatesJson(rates, copied, digits);
    payload += "}";
    return payload;
@@ -263,12 +262,12 @@ bool BeginCapture()
    ArraySetAsSeries(rates, false);
    ResetLastError();
    int copied = CopyRates(symbol, timeframe, 0, InpHistoryBars, rates);
-   if(copied < InpMinimumHistoryBars)
+   if(copied < 0)
    {
       PublishObserverStatus(
-         "WAITING_FOR_HISTORY", "",
-         StringFormat("Need at least %d bars; CopyRates returned %d (error=%d).",
-                      InpMinimumHistoryBars, copied, GetLastError())
+         "RATES_READ_ERROR", "",
+         StringFormat("CopyRates returned %d (error=%d). Capturing the chart image is still available on the next cycle.",
+                      copied, GetLastError())
       );
       return false;
    }
@@ -391,11 +390,8 @@ bool TryFinalizePendingCapture()
 
 int OnInit()
 {
-   if(InpCaptureIntervalSeconds < 5 || InpCaptureIntervalSeconds > 3600 ||
-      InpHistoryBars < 30 || InpHistoryBars > 500 ||
-      InpMinimumHistoryBars < 20 || InpMinimumHistoryBars > InpHistoryBars ||
-      InpScreenshotWidth < 640 || InpScreenshotWidth > 3840 ||
-      InpScreenshotHeight < 360 || InpScreenshotHeight > 2160)
+   if(InpCaptureIntervalSeconds < 1 || InpHistoryBars < 1 ||
+      InpScreenshotWidth < 320 || InpScreenshotHeight < 180)
       return INIT_PARAMETERS_INCORRECT;
 
    g_chart_id = ChartID();
