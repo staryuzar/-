@@ -12,7 +12,52 @@ from PIL import Image
 import mirsad.runtime as runtime
 
 
+def make_engine2_multiframe_history(as_of_ms: int) -> dict:
+    durations = {
+        "1m": 60_000, "5m": 300_000, "15m": 900_000,
+        "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000,
+    }
+    frames = {}
+    for timeframe, duration in durations.items():
+        candles = []
+        for index in range(90):
+            wave = (0, 20, 40, 20, 0, -20, -40, -20)[index % 8]
+            close = 90_000.0 + index * 5.0 + wave
+            candles.append({
+                "open_time_ms": as_of_ms - (89 - index) * duration,
+                "open": close - 2.0, "high": close + 5.0,
+                "low": close - 5.0, "close": close,
+                "volume": 10.0, "closed": index < 89,
+            })
+        frames[timeframe] = candles
+    return {
+        "engine": "engine_2_chart_candles",
+        "source": "MT5_CHART_OBSERVER",
+        "status": "READY",
+        "captured_at_ms": as_of_ms,
+        "candles_by_tf": frames,
+        "timeframes": {key: len(rows) for key, rows in frames.items()},
+    }
+
 class RuntimeObserverFlowTests(unittest.TestCase):
+    def test_engine2_multi_timeframe_structure_uses_only_native_engine2_history(self) -> None:
+        now_ms = int(time.time() * 1000)
+        history = make_engine2_multiframe_history(now_ms)
+        result = runtime._analyze_engine2_multi_timeframe_structure(history)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["source"], "MT5_CHART_OBSERVER")
+        self.assertEqual(result["ownership"], "engine_2_native_candles_only")
+        self.assertEqual(result["as_of_ms"], now_ms)
+        self.assertEqual(set(result["available_timeframes"]), set(history["candles_by_tf"]))
+        self.assertGreaterEqual(len(result["eligible_timeframes"]), 2)
+        for frame in result["timeframe_reports"].values():
+            self.assertLessEqual(frame["last_close_time_ms"], now_ms)
+
+    def test_engine2_multi_timeframe_structure_refuses_unvalidated_history(self) -> None:
+        result = runtime._analyze_engine2_multi_timeframe_structure({"status": "STALE"})
+        self.assertEqual(result["status"], "NOT_READY")
+        self.assertEqual(result["source"], "MT5_CHART_OBSERVER")
+        self.assertEqual(result["available_timeframes"], [])
     def test_collect_once_feeds_eligible_observer_chart_into_engine4_without_publishing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             image_path = Path(directory) / "observer.png"
@@ -128,7 +173,6 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                 patch.object(runtime, "DecisionEngine", return_value=decision_engine),
                 patch.object(runtime, "_inspect_mt5_chart_observer", return_value=observer),
                 patch.object(runtime, "analyze_chart_image", return_value=analysis) as visual_analyzer,
-                patch.object(runtime, "analyze_stored_multi_timeframe_structure", return_value={"status": "READY"}),
                 patch.object(runtime, "save_market_snapshot"),
                 patch.object(runtime, "write_json_atomic"),
                 patch.object(runtime, "ENABLE_ORDER_PUBLISH", False),
@@ -151,6 +195,8 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             indicators_engine.analyze.assert_called_once_with(candle_history)
             self.assertEqual(report["engine_2_candles"]["status"], "READY")
             self.assertTrue(report["readiness"]["engine_2_candles"])
+            self.assertEqual(report["engine_2_multi_timeframe_structure"]["source"], "MT5_CHART_OBSERVER")
+            self.assertEqual(report["chart"]["engine_2_multi_timeframe_structure"]["source"], "MT5_CHART_OBSERVER")
             bridge_engine.publish_decision.assert_not_called()
 
 
