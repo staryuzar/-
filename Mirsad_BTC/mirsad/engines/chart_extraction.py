@@ -94,7 +94,7 @@ def _extract_slot_guided_bars(
             connectivity=8,
         )
         retained = np.zeros(local_core.shape, dtype=bool)
-        max_local_component_width = max(3, int(round(slot_width * 0.48)))
+        max_local_component_width = max(3, int(np.ceil(slot_width * 0.60)))
         min_vertical_bar_height = max(
             min_component_height * 2,
             int(round(slot_width * 0.50)),
