@@ -5,7 +5,7 @@ import unittest
 from mirsad.engines.indicators import IndicatorsEngine, _atr, _rsi, _timeframe_trend
 
 
-def make_market(count: int = 90, direction: str = "up", include_forming: bool = False) -> dict:
+def make_chart_candles(count: int = 90, direction: str = "up", include_forming: bool = False) -> dict:
     frames = {}
     for timeframe in ("1m", "5m", "15m", "1h", "4h", "1d"):
         candles = []
@@ -25,29 +25,33 @@ def make_market(count: int = 90, direction: str = "up", include_forming: bool = 
             })
         frames[timeframe] = candles
     return {
-        "status": "LIVE", "venue_count": 2, "primary_venue": "Venue A",
-        "venues": {"Venue A": {"status": "LIVE", "candles_by_tf": frames}},
+        "status": "READY",
+        "source": "MT5_CHART_OBSERVER",
+        "captured_at_ms": 1_700_000_000_000,
+        "candles_by_tf": frames,
     }
 
 
 class IndicatorsEngineTests(unittest.TestCase):
-    def test_returns_all_required_indicators_from_closed_ohlc(self) -> None:
-        result = IndicatorsEngine().analyze(make_market())
+    def test_returns_all_required_indicators_from_engine2_completed_ohlc(self) -> None:
+        result = IndicatorsEngine().analyze(make_chart_candles())
         self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["source"], "engine_2_chart_candles")
         self.assertIsNotNone(result["values"]["ema20_1m"])
         self.assertIsNotNone(result["values"]["ema50_1m"])
         self.assertIsNotNone(result["values"]["rsi14_1m"])
         self.assertGreater(result["values"]["atr14_5m"], 0)
         self.assertEqual(result["timeframes"]["15m"]["status"], "READY")
+        self.assertEqual(result["last_closed_candle_time_ms"], 89 * 60_000)
 
     def test_forming_candle_is_excluded_from_indicator_history(self) -> None:
-        base = IndicatorsEngine().analyze(make_market())
-        with_forming = IndicatorsEngine().analyze(make_market(include_forming=True))
+        base = IndicatorsEngine().analyze(make_chart_candles())
+        with_forming = IndicatorsEngine().analyze(make_chart_candles(include_forming=True))
         self.assertEqual(base["values"], with_forming["values"])
         self.assertEqual(base["timeframes"], with_forming["timeframes"])
 
     def test_insufficient_closed_history_blocks_indicator_engine(self) -> None:
-        result = IndicatorsEngine().analyze(make_market(count=49))
+        result = IndicatorsEngine().analyze(make_chart_candles(count=49))
         self.assertEqual(result["status"], "NOT_READY")
         self.assertIn("1m", result["missing_timeframes"])
         self.assertIn("5m", result["missing_timeframes"])
@@ -59,7 +63,7 @@ class IndicatorsEngineTests(unittest.TestCase):
         self.assertEqual(_rsi([float(i + 1) for i in range(30)]), 100.0)
 
     def test_timeframe_trend_uses_only_closed_candles(self) -> None:
-        candles = make_market(include_forming=True)["venues"]["Venue A"]["candles_by_tf"]["1m"]
+        candles = make_chart_candles(include_forming=True)["candles_by_tf"]["1m"]
         result = _timeframe_trend(candles)
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["closed_candles"], 90)
@@ -73,8 +77,18 @@ class IndicatorsEngineTests(unittest.TestCase):
         self.assertIsNotNone(value)
         self.assertGreater(value, 2.0)
 
-    def test_missing_live_venue_returns_not_ready(self) -> None:
-        result = IndicatorsEngine().analyze({"status": "OFFLINE", "venues": {}})
+    def test_engine1_market_quote_without_engine2_candles_is_not_ready(self) -> None:
+        result = IndicatorsEngine().analyze({
+            "status": "LIVE",
+            "source": "MT5_TERMINAL",
+            "price": 90_000,
+            "market_context": {"microstructure": {"status": "READY"}},
+        })
+        self.assertEqual(result["status"], "NOT_READY")
+        self.assertEqual(result["values"], {})
+
+    def test_missing_engine2_candle_source_returns_not_ready(self) -> None:
+        result = IndicatorsEngine().analyze({"status": "OFFLINE", "candles_by_tf": {}})
         self.assertEqual(result["status"], "NOT_READY")
         self.assertEqual(result["values"], {})
 
