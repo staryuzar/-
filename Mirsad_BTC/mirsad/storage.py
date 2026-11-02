@@ -89,6 +89,36 @@ CREATE TABLE IF NOT EXISTS visual_pattern_evaluations (
 );
 CREATE INDEX IF NOT EXISTS ix_visual_pattern_evaluations_status
  ON visual_pattern_evaluations(validation_status,pattern_id,symbol,timeframe);
+CREATE TABLE IF NOT EXISTS visual_structure_evaluations (
+ evaluation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+ structure_id TEXT NOT NULL,
+ symbol TEXT NOT NULL,
+ venue TEXT NOT NULL,
+ timeframe TEXT NOT NULL,
+ market_regime TEXT NOT NULL DEFAULT 'UNSPECIFIED',
+ sample_count INTEGER NOT NULL,
+ mean_return_pct REAL,
+ median_return_pct REAL,
+ mae_pct REAL,
+ mfe_pct REAL,
+ fee_adjusted_expectancy_pct REAL,
+ dataset_fingerprint TEXT NOT NULL,
+ validation_status TEXT NOT NULL DEFAULT 'IN_PROGRESS'
+   CHECK(validation_status IN ('UNVALIDATED','IN_PROGRESS','VALIDATED','REJECTED')),
+ calculated_at_ms INTEGER NOT NULL,
+ horizon_metrics_json TEXT NOT NULL DEFAULT '{}',
+ primary_horizon_bars INTEGER NOT NULL DEFAULT 5,
+ data_split TEXT NOT NULL CHECK(data_split IN ('train','validation','test')),
+ event_source TEXT NOT NULL DEFAULT 'engine_2_detector',
+ human_reviewed INTEGER NOT NULL DEFAULT 0,
+ fee_bps_per_side REAL,
+ slippage_bps_per_side REAL,
+ round_trip_cost_pct REAL,
+ UNIQUE(structure_id,symbol,venue,timeframe,market_regime,dataset_fingerprint,data_split),
+ FOREIGN KEY(structure_id) REFERENCES visual_structure_knowledge(structure_id)
+);
+CREATE INDEX IF NOT EXISTS ix_visual_structure_evaluations_lookup
+ ON visual_structure_evaluations(validation_status,structure_id,symbol,timeframe,data_split);
 """
 
 def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
