@@ -2,6 +2,7 @@ name: Mirsad Chart Observer — any MT5 account capture (read-only)
 
 on:
   push:
+    # A workflow-only update triggers a new read-only observer capture using the latest Mirsad source branch.
     branches: [main]
     paths:
       - '.github/workflows/mirsad-mt5-observer-demo.yml'
