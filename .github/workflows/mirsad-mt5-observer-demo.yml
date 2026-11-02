@@ -7,6 +7,7 @@ name: Mirsad Chart Observer — any MT5 account capture (read-only)
 # Retry the exact Observer chart HWND and include safe Engine 2 OCR/reference calibration diagnostics.
 # Re-run live Engine 2 native-OHLC cross-validation after fixing the OCR-success path.
 # Use MT5 visible-bar count to guide spatial extraction and report candle-slot diagnostics.
+# Verify MT5-native candle anchor can correct an inconsistent OCR fit without touching manual axes.
 # Retry with both MDI-wide and exact-BTC chart maximize, plus post-capture viewport readback.
 
 on:
