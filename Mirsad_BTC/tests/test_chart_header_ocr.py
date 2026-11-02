@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from mirsad.engines.chart_ocr import parse_chart_header_text
+import numpy as np
+
+from mirsad.engines.chart_ocr import (
+    detect_chart_header_metadata,
+    parse_chart_header_text,
+)
 
 
 class ChartHeaderOCRTests(unittest.TestCase):
@@ -83,6 +90,37 @@ class ChartHeaderOCRTests(unittest.TestCase):
         self.assertIsNone(result["symbol_suggestion"])
         self.assertIsNone(result["timeframe_suggestion"])
         self.assertIsNone(result["exchange_suggestion"])
+
+    def test_image_detector_reads_only_the_top_header_strip(self) -> None:
+        image = np.zeros((200, 400, 3), dtype=np.uint8)
+
+        def fake_ocr(crop):
+            self.assertEqual(crop.shape, (44, 400, 3))
+            return SimpleNamespace(
+                txts=["BTC/USDT", "1h", "BINANCE"],
+                scores=[0.99, 0.98, 0.97],
+            )
+
+        with patch("mirsad.engines.chart_ocr._get_ocr_engine", return_value=fake_ocr):
+            result = detect_chart_header_metadata(
+                image, expected_symbol="BTCUSDT"
+            )
+
+        self.assertEqual(result["status"], "SUGGESTIONS_FOUND")
+        self.assertEqual(result["crop_height_px"], 44)
+        self.assertEqual(result["symbol_suggestion"], "BTCUSDT")
+        self.assertEqual(result["timeframe_suggestion"], "1h")
+        self.assertEqual(result["exchange_suggestion"], "BINANCE")
+        self.assertTrue(result["expected_symbol_match"])
+
+    def test_invalid_header_crop_fraction_is_rejected_without_ocr(self) -> None:
+        image = np.zeros((200, 400, 3), dtype=np.uint8)
+        with patch("mirsad.engines.chart_ocr._get_ocr_engine") as engine:
+            result = detect_chart_header_metadata(
+                image, header_height_fraction=0.95
+            )
+        engine.assert_not_called()
+        self.assertEqual(result["status"], "INVALID_HEADER_REGION")
 
     def test_header_metadata_never_claims_price_calibration_or_decision(self) -> None:
         result = parse_chart_header_text(
