@@ -24,6 +24,28 @@ from mirsad.engines.mt5_bridge import MT5BridgeEngine
 from mirsad.storage import save_market_snapshot
 
 
+def make_engine2_candle_history(direction: str = "up", count: int = 90) -> dict:
+    now = int(time.time() * 1000)
+    frames = {}
+    for timeframe in ("1m", "5m", "15m", "1h", "4h", "1d"):
+        candles = []
+        for index in range(count):
+            close = 100.0 + (index * 0.6 if direction == "up" else -index * 0.6)
+            candles.append({
+                "open_time_ms": now - (count - index) * 60_000,
+                "open": close - 0.2 if direction == "up" else close + 0.2,
+                "high": close + 1.0, "low": close - 1.0,
+                "close": close, "volume": 2.0, "closed": True,
+            })
+        frames[timeframe] = candles
+    return {
+        "status": "READY",
+        "source": "MT5_CHART_OBSERVER",
+        "captured_at_ms": now,
+        "candles_by_tf": frames,
+    }
+
+
 def make_open_decision(command_id: str = "MIR-" + "a" * 24) -> dict:
     return {
         "status": "READY",
@@ -113,15 +135,13 @@ class WeightedDecisionTests(unittest.TestCase):
         self.assertAlmostEqual(score, 0.28)
         self.assertLess(score, 0.40)
 
-    def test_market_confirmation_score_uses_flow_and_book_as_minor_evidence(self) -> None:
-        orderflow = {"taker_buy_ratio": 0.75}
-        venues = {
-            "A": {"status": "LIVE", "orderbook": {"imbalance": 0.5}},
-            "B": {"status": "LIVE", "orderbook": {"imbalance": 0.5}},
-        }
-        score, parts = _market_confirmation_score(0.0, orderflow, venues)
-        self.assertAlmostEqual(score, 0.325, places=4)
-        self.assertEqual(parts["contributors"], 2)
+    def test_market_confirmation_score_uses_only_engine1_quote_update_pulse(self) -> None:
+        market = {"market_context": {"microstructure": {
+            "status": "READY", "quote_direction_balance": 0.65,
+        }}}
+        score, parts = _market_confirmation_score(0.0, market)
+        self.assertAlmostEqual(score, 0.13, places=4)
+        self.assertEqual(parts["quote_pulse_scope"], "bid/ask quote updates, not executed trades")
 
     def test_non_finite_directional_scores_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -131,43 +151,26 @@ class WeightedDecisionTests(unittest.TestCase):
 class ChartDominantDecisionIntegrationTests(unittest.TestCase):
     def _market(self, direction: str) -> dict:
         now = int(time.time() * 1000)
-        candles = []
-        for i in range(90):
-            close = 100.0 + (i * 0.6 if direction == "up" else -i * 0.6)
-            candles.append({
-                "open_time_ms": now - (90 - i) * 60_000,
-                "open": close - 0.2 if direction == "up" else close + 0.2,
-                "high": close + 1.0, "low": close - 1.0,
-                "close": close, "volume": 2.0, "closed": True,
-            })
-        frames = {tf: candles for tf in ("1m", "5m", "15m", "1h", "4h", "1d")}
-        flow = {
-            "unit": "BTC",
-            "taker_buy_quantity": 10.0 if direction == "up" else 1.0,
-            "taker_sell_quantity": 1.0 if direction == "up" else 10.0,
-            "trade_count": 11,
-        }
-        book = {"imbalance": 0.6 if direction == "up" else -0.6}
         return {
             "status": "LIVE", "source": "MT5_TERMINAL", "venue_count": 1, "symbol": "BTCUSDT",
-            "price": candles[-1]["close"], "captured_at_ms": now,
-            "primary_venue": "MT5 Broker",
-            "feed_health": {
-                "terminal_connected": True, "quote_fresh": True, "timeframes_ready": True,
-            },
-            "venues": {
-                "MT5 Broker": {"status": "LIVE", "candles_by_tf": frames, "orderflow": flow, "orderbook": book},
-            },
+            "price": 100.0, "captured_at_ms": now, "primary_venue": "MT5 Broker",
+            "feed_health": {"terminal_connected": True, "quote_fresh": True},
+            "market_context": {"microstructure": {
+                "status": "READY",
+                "quote_direction_balance": 0.75 if direction == "up" else -0.75,
+            }},
+            "venues": {"MT5 Broker": {"status": "LIVE", "price": 100.0}},
         }
 
     def test_eighty_percent_chart_analyst_can_overrule_opposite_market_vote(self) -> None:
         result = DecisionEngine().analyze(
             self._market("down"),
             {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-             "analysis_score": 0.95, "analysis_confidence": 0.90, "image": "chart.png"},
+             "analysis_score": 0.95, "analysis_confidence": 0.90, "image": "chart.png",
+             "candle_history": make_engine2_candle_history("down")},
             {},
         )
-        self.assertEqual(result["direction_inputs"], ["engine_1_market", "engine_2_chart"])
+        self.assertEqual(result["direction_inputs"], ["engine_1_market", "engine_2_chart", "engine_3_indicators"])
         self.assertEqual(result["calculation_inputs"], ["engine_3_indicators"])
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertAlmostEqual(result["decision_weights"]["engine_2_chart"], 0.80)
@@ -177,7 +180,8 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
         result = DecisionEngine().analyze(
             self._market("up"),
             {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-             "analysis_score": 0.10, "analysis_confidence": 0.90, "image": "chart.png"},
+             "analysis_score": 0.10, "analysis_confidence": 0.90, "image": "chart.png",
+             "candle_history": make_engine2_candle_history("up")},
             {},
         )
         self.assertEqual(result["candidate_action"], "WAIT")
@@ -187,7 +191,8 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
         result = DecisionEngine().analyze(
             self._market("up"),
             {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-             "analysis_score": 1.0, "analysis_confidence": 0.30, "image": "chart.png"},
+             "analysis_score": 1.0, "analysis_confidence": 0.30, "image": "chart.png",
+             "candle_history": make_engine2_candle_history("up")},
             {},
         )
         self.assertEqual(result["candidate_action"], "WAIT")
@@ -200,17 +205,15 @@ class DecisionBoundaryTests(unittest.TestCase):
             {
                 "status": "LIVE", "source": "MT5_TERMINAL", "venue_count": 1,
                 "primary_venue": "MT5 Broker",
-                "feed_health": {
-                    "terminal_connected": True, "quote_fresh": True, "timeframes_ready": True,
-                },
-                "venues": {"MT5 Broker": {"status": "LIVE", "candles_by_tf": {}}},
+                "feed_health": {"terminal_connected": True, "quote_fresh": True},
+                "venues": {"MT5 Broker": {"status": "LIVE"}},
             },
             {},
             {},
         )
         self.assertEqual(result["action"], "WAIT")
         self.assertEqual(result["status"], "NOT_READY")
-        self.assertIn("Completed OHLC history is insufficient", result["reason"])
+        self.assertIn("Engine 2", result["reason"])
 
     def test_one_public_venue_without_mt5_identity_is_still_blocked(self) -> None:
         result = DecisionEngine().analyze(
@@ -261,7 +264,8 @@ class DecisionBoundaryTests(unittest.TestCase):
             },
         }
         chart = {"status": "READY", "decision_eligible": True,
-                 "visual_bias": "NEUTRAL", "image": "unit.png"}
+                 "visual_bias": "NEUTRAL", "image": "unit.png",
+                 "candle_history": make_engine2_candle_history("up", 80)}
         result = DecisionEngine().analyze(market, chart, bridge)
         self.assertGreater(result["broker_market_price_divergence_pct"], 1.0)
         self.assertIsNone(result["broker_quote"])
