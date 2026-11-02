@@ -479,6 +479,71 @@ def evaluate_stored_structure_events(
     return result
 
 
+
+def analyze_and_evaluate_stored_market_structures(
+    *,
+    symbol: str,
+    venue: str,
+    timeframe: str,
+    as_of_ms: int,
+    data_split: str,
+    dataset_id: str,
+    market_regime: str = "UNSPECIFIED",
+    limit: int = 2000,
+    horizons: tuple[int, ...] | list[int] = DEFAULT_HORIZONS,
+    fee_bps_per_side: float | None = None,
+    slippage_bps_per_side: float | None = None,
+    db_path: str | None = None,
+) -> dict[str, Any]:
+    """Run Engine 2 structure detectors and the event study on stored market bars."""
+    from .chart_structure_knowledge import analyze_chart_structure_knowledge
+
+    clean_venue = str(venue).strip()
+    if not clean_venue:
+        raise ValueError("venue is required; stored candle feeds must not be mixed")
+    candle_map = load_candles_by_timeframe(
+        symbol=symbol,
+        venue=clean_venue,
+        timeframes=(timeframe,),
+        as_of_ms=as_of_ms,
+        limit=limit,
+        db_path=db_path if db_path is not None else DB_PATH,
+    )
+    bars = candle_map.get(timeframe, [])
+    if len(bars) < 16:
+        raise ValueError(
+            f"At least 16 stored closed candles are required to scan structures; got {len(bars)}"
+        )
+
+    structure_analysis = analyze_chart_structure_knowledge(
+        bars,
+        last_candle_closed=True,
+    )
+    events = structure_analysis.get("classical_patterns", [])
+    evaluation = evaluate_structure_events(
+        bars,
+        events,
+        symbol=symbol,
+        venue=clean_venue,
+        timeframe=timeframe,
+        data_split=data_split,
+        dataset_id=dataset_id,
+        market_regime=market_regime,
+        horizons=horizons,
+        fee_bps_per_side=fee_bps_per_side,
+        slippage_bps_per_side=slippage_bps_per_side,
+    )
+    evaluation["storage_source"] = "engine_1_stored_closed_candles"
+    evaluation["as_of_ms"] = int(as_of_ms)
+    evaluation["stored_bar_count"] = len(bars)
+    return {
+        "structure_analysis_status": structure_analysis.get("status"),
+        "structure_analysis_limitations": structure_analysis.get("limitations", []),
+        "detected_structure_events": events,
+        "evaluation": evaluation,
+    }
+
+
 def persist_structure_evaluations(
     evaluation: dict[str, Any],
     *,
@@ -578,5 +643,6 @@ __all__ = [
     "STRUCTURE_PATTERN_IDS",
     "evaluate_structure_events",
     "evaluate_stored_structure_events",
+    "analyze_and_evaluate_stored_market_structures",
     "persist_structure_evaluations",
 ]
