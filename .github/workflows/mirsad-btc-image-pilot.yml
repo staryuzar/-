@@ -9,6 +9,8 @@ on:
       - "Mirsad_BTC/scripts/run_hf_btc_chart_image_benchmark.py"
       - "Mirsad_BTC/tests/test_hf_btc_chart_image_benchmark.py"
       - "Mirsad_BTC/mirsad/engines/chart.py"
+      - "Mirsad_BTC/mirsad/engines/chart_pixel_metrics.py"
+      - "Mirsad_BTC/tests/test_chart_pixel_metrics.py"
       - "Mirsad_BTC/mirsad/engines/chart_calibration.py"
       - "Mirsad_BTC/mirsad/engines/chart_extraction.py"
       - "Mirsad_BTC/tests/test_chart_engine.py"
