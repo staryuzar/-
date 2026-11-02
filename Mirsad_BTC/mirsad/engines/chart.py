@@ -32,10 +32,10 @@ def _ensure_visual_knowledge_database() -> dict[str, Any]:
     with _VISUAL_KNOWLEDGE_DB_LOCK:
         try:
             if _VISUAL_KNOWLEDGE_DB_STATUS is None:
-                _VISUAL_KNOWLEDGE_DB_STATUS = seed_visual_knowledge()
-            # Refresh counts because observations are archived during analysis.
-            summary = visual_knowledge_summary()
-            return {**_VISUAL_KNOWLEDGE_DB_STATUS, **summary}
+                seeded = seed_visual_knowledge()
+                summary = visual_knowledge_summary()
+                _VISUAL_KNOWLEDGE_DB_STATUS = {**seeded, **summary}
+            return dict(_VISUAL_KNOWLEDGE_DB_STATUS)
         except Exception as exc:
             return {
                 **(_VISUAL_KNOWLEDGE_DB_STATUS or {}),
@@ -43,6 +43,20 @@ def _ensure_visual_knowledge_database() -> dict[str, Any]:
                 "error": f"{type(exc).__name__}: {exc}",
                 "empirical_status": "UNAVAILABLE",
             }
+
+
+def _refresh_visual_knowledge_summary() -> None:
+    global _VISUAL_KNOWLEDGE_DB_STATUS
+    try:
+        summary = visual_knowledge_summary()
+        with _VISUAL_KNOWLEDGE_DB_LOCK:
+            _VISUAL_KNOWLEDGE_DB_STATUS = {
+                **(_VISUAL_KNOWLEDGE_DB_STATUS or {}),
+                **summary,
+            }
+    except Exception:
+        # A display-count refresh must not invalidate a successfully archived chart.
+        return
 
 SUPPORTED_TIMEFRAMES = frozenset({"1m", "5m", "15m", "1h", "4h", "1d", "1w"})
 MIN_CALIBRATED_BARS = 20
@@ -153,6 +167,7 @@ def _persist_visual_observations(
         structure_count = record_structure_observations(
             fingerprint, symbol, timeframe, structural_events
         )
+        _refresh_visual_knowledge_summary()
         return {
             "status": "READY",
             "sample_fingerprint": fingerprint,
