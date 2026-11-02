@@ -435,6 +435,10 @@ def _extract_bars(
             float(np.mean([bar["colour_purity"] for bar in slot_bars]))
             if slot_bars else 0.0
         )
+        legacy_mean_purity = (
+            float(np.mean([bar["colour_purity"] for bar in bars]))
+            if bars else 0.0
+        )
         selected_bars, slot_selection = _select_slot_guided_bars(
             bars,
             slot_bars,
@@ -446,9 +450,7 @@ def _extract_bars(
             selected_mode = "expected_slot_hint"
         slot_diagnostics["mean_colour_purity"] = round(slot_mean_purity, 4)
         slot_diagnostics["legacy_mean_colour_purity"] = round(
-            float(np.mean([bar["colour_purity"] for bar in bars]))
-            if bars else 0.0,
-            4,
+            legacy_mean_purity, 4
         )
         slot_diagnostics.update(slot_selection)
     if diagnostics is not None:
