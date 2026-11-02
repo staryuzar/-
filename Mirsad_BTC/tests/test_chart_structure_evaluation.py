@@ -393,6 +393,55 @@ class StructureEventEvaluationTests(unittest.TestCase):
                 horizons=(1,),
             )
 
+    def test_empty_split_window_is_registered_and_blocks_later_overlap(self) -> None:
+        bars = make_bars(20)
+        interval = CANDLE_INTERVAL_MS["1h"]
+        start = int(bars[0]["open_time_ms"])
+        split_end = start + 10 * interval
+        full_end = int(bars[-1]["open_time_ms"]) + interval
+        with tempfile.TemporaryDirectory() as temporary:
+            db_path = str(Path(temporary) / "empty-split-registry.sqlite3")
+            empty_train = self.evaluate(
+                bars,
+                [],
+                data_split="train",
+                dataset_id="dataset-with-empty-train",
+                split_start_ms=start,
+                split_end_ms=split_end,
+            )
+            self.assertEqual(
+                persist_structure_evaluations(empty_train, db_path=db_path),
+                0,
+            )
+            conn = connect(db_path)
+            try:
+                registered = conn.execute(
+                    """SELECT data_split,split_start_ms,split_end_ms
+                       FROM visual_structure_evaluation_splits"""
+                ).fetchall()
+                self.assertEqual(len(registered), 1)
+                self.assertEqual(registered[0]["data_split"], "train")
+                evaluation_rows = conn.execute(
+                    "SELECT COUNT(*) FROM visual_structure_evaluations"
+                ).fetchone()[0]
+                self.assertEqual(evaluation_rows, 0)
+            finally:
+                conn.close()
+
+            overlapping_validation = self.evaluate(
+                bars,
+                [],
+                data_split="validation",
+                dataset_id="dataset-with-empty-train",
+                split_start_ms=start + 5 * interval,
+                split_end_ms=full_end,
+            )
+            with self.assertRaisesRegex(ValueError, "overlaps previously registered train window"):
+                persist_structure_evaluations(
+                    overlapping_validation,
+                    db_path=db_path,
+                )
+
     def test_train_validation_test_windows_must_be_chronological(self) -> None:
         bars = make_bars(20)
         interval = CANDLE_INTERVAL_MS["1h"]
