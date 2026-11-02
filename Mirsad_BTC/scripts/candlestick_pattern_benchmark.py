@@ -290,9 +290,27 @@ def analyze_sample(row: dict[str, Any], index: int, temp_dir: Path) -> dict[str,
             )
             for class_id in range(len(CLASS_NAMES))
         }
+        candle_geometry = [
+            {
+                "index": bar_index,
+                "x_px": int(bar["x_px"]),
+                "high_y_px": int(bar["high_y_px"]),
+                "low_y_px": int(bar["low_y_px"]),
+                "body_top_y_px": int(bar["body_top_y_px"]),
+                "body_bottom_y_px": int(bar["body_bottom_y_px"]),
+                "body_size_px": round(abs(float(bar["body_bottom_y_px"]) - float(bar["body_top_y_px"])), 3),
+                "range_size_px": round(float(bar["low_y_px"]) - float(bar["high_y_px"]), 3),
+                "upper_shadow_px": round(float(bar["body_top_y_px"]) - float(bar["high_y_px"]), 3),
+                "lower_shadow_px": round(float(bar["low_y_px"]) - float(bar["body_bottom_y_px"]), 3),
+                "colour": bar.get("colour"),
+            }
+            for bar_index, bar in enumerate(bars)
+        ]
         return {
             "sample_index": index,
             "sample_id": stem,
+            "image_width": width,
+            "image_height": height,
             "status": result.get("status"),
             "detected_bars": result.get("detected_bar_count", 0),
             "decision_eligible": bool(result.get("decision_eligible")),
@@ -300,6 +318,7 @@ def analyze_sample(row: dict[str, Any], index: int, temp_dir: Path) -> dict[str,
             "analysis_confidence": result.get("analysis_confidence"),
             "pattern_matches": matches,
             "ground_truth": row["labels"],
+            "candle_geometry": candle_geometry,
             "predictions": [
                 {"class_id": cls, "x_px": round(x, 2)}
                 for cls, xs in predictions_by_class.items()
@@ -320,10 +339,27 @@ def analyze_sample(row: dict[str, Any], index: int, temp_dir: Path) -> dict[str,
         image_path.unlink(missing_ok=True)
 
 
+def _end_candle_index(center_px: float, image_width: int, span: int) -> float:
+    # The external renderer uses mplfinance x limits [-0.8, 19.8] for
+    # 20 candles, so candle centres are affine in image pixels.
+    x_margin = 0.8
+    window = 20
+    slot = image_width / (window - 1 + 2 * x_margin)
+    first_center = image_width * x_margin / (window - 1 + 2 * x_margin)
+    center_index = (center_px - first_center) / slot
+    return center_index + (span - 1) / 2.0
+
+
 def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     per_class: dict[str, dict[str, float | int | None]] = {}
+    spans = {0: 1, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 1, 7: 2}
+    required_history = {0: 10, 1: 10, 2: 1, 3: 1, 4: 12, 5: 12, 6: 10, 7: 11}
+
     for class_id, class_name in enumerate(CLASS_NAMES):
         tp = fp = fn = predicted = truth = 0
+        context_tp = context_fp = context_fn = 0
+        context_predicted = context_truth = unseen_truth = 0
+
         for row in results:
             match = (row.get("pattern_matches") or {}).get(str(class_id), {})
             tp += int(match.get("tp", 0))
@@ -331,11 +367,62 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
             fn += int(match.get("fn", 0))
             predicted += int(match.get("predicted", 0))
             truth += int(match.get("ground_truth", 0))
+
+            image_width = int(row.get("image_width", 640) or 640)
+            min_history = required_history[class_id]
+            span = spans[class_id]
+            tolerance = image_width / 20.6 * 0.72
+
+            all_truth_x = [
+                float(gt["cx"]) * image_width
+                for gt in row.get("ground_truth", [])
+                if int(gt.get("class_id", -1)) == class_id
+            ]
+            available_truth_x = [
+                x for x in all_truth_x
+                if round(_end_candle_index(x, image_width, span)) >= min_history
+            ]
+            unseen_truth += len(all_truth_x) - len(available_truth_x)
+            context_truth += len(available_truth_x)
+
+            all_prediction_x = [
+                float(pred["x_px"])
+                for pred in row.get("predictions", [])
+                if int(pred.get("class_id", -1)) == class_id
+            ]
+            available_prediction_x = [
+                x for x in all_prediction_x
+                if round(_end_candle_index(x, image_width, span)) >= min_history
+            ]
+            context_predicted += len(available_prediction_x)
+            context_match = _match_class(
+                available_prediction_x,
+                available_truth_x,
+                tolerance,
+            )
+            context_tp += context_match["tp"]
+            context_fp += context_match["fp"]
+            context_fn += context_match["fn"]
+
         precision = tp / (tp + fp) if tp + fp else None
         recall = tp / (tp + fn) if tp + fn else None
         f1 = (
             2 * precision * recall / (precision + recall)
             if precision is not None and recall is not None and precision + recall > 0
+            else None
+        )
+        context_precision = (
+            context_tp / (context_tp + context_fp)
+            if context_tp + context_fp else None
+        )
+        context_recall = (
+            context_tp / (context_tp + context_fn)
+            if context_tp + context_fn else None
+        )
+        context_f1 = (
+            2 * context_precision * context_recall / (context_precision + context_recall)
+            if context_precision is not None and context_recall is not None
+            and context_precision + context_recall > 0
             else None
         )
         per_class[class_name] = {
@@ -347,6 +434,16 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
             "precision": round(precision, 4) if precision is not None else None,
             "recall": round(recall, 4) if recall is not None else None,
             "f1": round(f1, 4) if f1 is not None else None,
+            "context_required_prior_bars": min_history,
+            "context_predicted_instances": context_predicted,
+            "context_ground_truth_instances": context_truth,
+            "context_unavailable_ground_truth_instances": unseen_truth,
+            "context_tp": context_tp,
+            "context_fp": context_fp,
+            "context_fn": context_fn,
+            "context_precision": round(context_precision, 4) if context_precision is not None else None,
+            "context_recall": round(context_recall, 4) if context_recall is not None else None,
+            "context_f1": round(context_f1, 4) if context_f1 is not None else None,
         }
 
     ready = sum(int(row.get("detected_bars", 0)) >= 18 for row in results)
@@ -356,6 +453,11 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "analyzed_images": analyzed,
         "images_with_at_least_18_bars": ready,
         "bar_detection_coverage_pct": round(ready / len(results) * 100, 2) if results else 0.0,
+        "context_method": (
+            "Context-adjusted metrics exclude labels whose TA-Lib rule needs more prior candles "
+            "than are visible in the 20-candle image. Required prior bars: 10 for Hammer, "
+            "ShootingStar and Doji; 1 for Engulfing; 11 for Harami; 12 for Morning/Evening Star."
+        ),
         "per_class": per_class,
         "status_counts": dict(Counter(str(row.get("status")) for row in results)),
     }
@@ -441,13 +543,15 @@ def main() -> int:
             f"- Images with at least 18 detected bars: {metrics['images_with_at_least_18_bars']}",
             f"- Bar-detection coverage: {metrics['bar_detection_coverage_pct']}%",
             "",
-            "| Pattern | TP | FP | FN | Precision | Recall | F1 |",
+            "| Pattern | TP | FP | FN | P | R | F1 | Context GT | Unseen GT | Context P | Context R | Context F1 |",
             "|---|---:|---:|---:|---:|---:|---:|",
         ]
         for name, m in metrics["per_class"].items():
             lines.append(
                 f"| {name} | {m['tp']} | {m['fp']} | {m['fn']} | "
-                f"{m['precision']} | {m['recall']} | {m['f1']} |"
+                f"{m['precision']} | {m['recall']} | {m['f1']} | "
+                f"{m['context_ground_truth_instances']} | {m['context_unavailable_ground_truth_instances']} | "
+                f"{m['context_precision']} | {m['context_recall']} | {m['context_f1']} |"
             )
         lines.extend([
             "",
