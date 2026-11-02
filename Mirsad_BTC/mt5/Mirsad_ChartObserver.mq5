@@ -121,6 +121,18 @@ void PublishObserverStatus(const string state,
             FILE_COMMON | FILE_REWRITE);
 }
 
+string AccountTradeModeLabel()
+{
+   long mode = AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   if(mode == ACCOUNT_TRADE_MODE_DEMO)
+      return "DEMO";
+   if(mode == ACCOUNT_TRADE_MODE_REAL)
+      return "REAL";
+   if(mode == ACCOUNT_TRADE_MODE_CONTEST)
+      return "CONTEST";
+   return "UNKNOWN";
+}
+
 string BuildRatesJson(const MqlRates &rates[],
                       const int copied,
                       const int digits)
@@ -190,7 +202,13 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"rates_snapshot_at_utc_ms\":" + (string)rates_snapshot_at_utc_ms + ",";
    payload += "\"server_time_seconds\":" + (string)server_time_seconds + ",";
    payload += "\"server_utc_offset_seconds_at_capture\":" + (string)server_utc_offset_seconds + ",";
-   payload += "\"image_file\":\"" + JsonEscape(image_name) + "\",";
+   payload += "\"account\":{";
+   payload += "\"terminal_connected\":" + JsonBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED)) + ",";
+   payload += "\"server\":\"" + JsonEscape(AccountInfoString(ACCOUNT_SERVER)) + "\",";
+   payload += "\"trade_mode\":" + (string)AccountInfoInteger(ACCOUNT_TRADE_MODE) + ",";
+   payload += "\"trade_mode_label\":\"" + AccountTradeModeLabel() + "\"";
+   payload += "},";
+   payload += "\"image_file\":\"" + JsonEscape(image_name) + "\",
    payload += "\"image_width_px\":" + (string)image_width + ",";
    payload += "\"image_height_px\":" + (string)image_height + ",";
    payload += "\"chart\":{";
