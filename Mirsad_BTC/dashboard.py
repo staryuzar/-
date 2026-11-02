@@ -233,6 +233,19 @@ def render_engine_dashboard():
    f"سحب السيولة: {len(advanced.get('liquidity_sweeps',[]))} | "
    f"فجوات سعرية: {len(advanced.get('fair_value_gaps',[]))}"
   )
+  st.caption(
+   f"كتل أوامر مرشحة مرتبطة بكسر مؤكد: {len(advanced.get('order_block_candidates',[]))} "
+   "| هذه مناطق سعرية مرشحة وليست دليلاً على أوامر مؤسسات."
+  )
+  block_rows=[{
+   "الاتجاه":item.get("direction"),
+   "الحالة":item.get("status"),
+   "شمعة المصدر":item.get("source_candle_index"),
+   "شمعة الكسر":item.get("break_index"),
+   "منطقة السعر":f"{item.get('zone_low','—')} – {item.get('zone_high','—')}",
+  } for item in advanced.get("order_block_candidates",[]) if item.get("structure_id")]
+  if block_rows:
+   st.dataframe(pd.DataFrame(block_rows),use_container_width=True,hide_index=True)
   scale_rows=[{
    "المقياس داخل الإطار":"داخلي" if key=="internal" else "تأرجح" if key=="swing" else "خارجي",
    "الحالة":value.get("status"),
