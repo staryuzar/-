@@ -1,0 +1,53 @@
+name: Mirsad Chart Observer — live MT5 demo capture
+
+on:
+  push:
+    branches: [mirsad-mt5-demo]
+    paths:
+      - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
+      - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
+      - '.github/workflows/mirsad-mt5-observer-demo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-mt5-observer-demo
+  cancel-in-progress: false
+
+jobs:
+  capture-btc-demo-chart:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Mirsad project
+        uses: actions/checkout@v4
+
+      - name: Verify Windows runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_OS -ne 'Windows') { throw 'MetaTrader 5 requires a Windows runner.' }
+          Write-Output "Windows runner: $([System.Environment]::OSVersion.VersionString)"
+
+      - name: Install, compile, log into demo MT5 and capture BTC chart using read-only Observer
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+        shell: pwsh
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1
+
+      - name: Upload real MT5 chart capture and sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-mt5-observer-live-demo-capture
+          path: |
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-capture.png
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-capture.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-live-capture-summary.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
+          if-no-files-found: warn
+          retention-days: 14
