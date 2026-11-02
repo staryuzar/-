@@ -447,7 +447,8 @@ def analyze_chart_image(
             if last_reference_failure and last_reference_failure.get("status"):
                 reference_calibration = dict(last_reference_failure)
             else:
-                reference_calibration = {"status": "REFERENCE_NOT_VERIFIED"}    except (TypeError, ValueError, OverflowError) as exc:
+                reference_calibration = {"status": "REFERENCE_NOT_VERIFIED"}
+    except (TypeError, ValueError, OverflowError) as exc:
         return {
             **result,
             "status": "ERROR",
