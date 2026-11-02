@@ -42,8 +42,9 @@ jobs:
 
           $installArg = '/path:"' + $installDir + '"'
           $install = Start-Process -FilePath $installer -ArgumentList @('/auto', $installArg) -PassThru -Wait
-          if ($install.ExitCode -ne 0) { throw "MT5 installer exit code: $($install.ExitCode)" }
-
+          Write-Output "MT5 installer exit code: $($install.ExitCode)"
+          # The upstream installer may return a non-zero process code even when
+          # it has completed an installation. Verify the actual binaries instead.
           $metaEditor = Get-ChildItem -LiteralPath $installDir -Filter 'metaeditor64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($null -eq $metaEditor) { throw 'MetaEditor was not found after MT5 installation.' }
 
