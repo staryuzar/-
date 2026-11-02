@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from mirsad.engines.chart_multi_timeframe import analyze_stored_multi_timeframe_structure
-from mirsad.storage import load_candles_by_timeframe, save_market_snapshot
+from mirsad.storage import connect, load_candles_by_timeframe, save_market_snapshot
 
 
 def make_bars(
@@ -166,6 +166,77 @@ class StoredMultiTimeframeTests(unittest.TestCase):
             report["timeframe_reports"]["1m"]["last_close_time_ms"],
             self.as_of_ms + 1,
         )
+
+    def test_legacy_okx_utc_plus_eight_daily_rows_are_separated_from_utc_rows(self) -> None:
+        old_open = int(
+            datetime(2026, 11, 1, 16, 0, tzinfo=timezone.utc).timestamp() * 1000
+        )
+        new_open = int(
+            datetime(2026, 11, 2, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
+        )
+        conn = connect(self.db_path)
+        try:
+            with conn:
+                for venue in ("OKX Spot", "Binance Spot"):
+                    conn.execute(
+                        """INSERT INTO candles
+                           (venue,symbol,interval,open_time_ms,open,high,low,close,volume,is_closed)
+                           VALUES(?,?,?,?,?,?,?,?,?,1)""",
+                        (
+                            venue, "BTCUSDT", "1d", old_open,
+                            100, 102, 99, 101, 10,
+                        ),
+                    )
+                # Simulate an existing database from before the timezone migration.
+                conn.execute(
+                    "DELETE FROM storage_migrations WHERE migration_id='okx_daily_utc8_separation_v1'"
+                )
+        finally:
+            conn.close()
+
+        # First connect applies the migration once, moving old OKX daily bars
+        # aside while preserving the legacy values for audit/history.
+        conn = connect(self.db_path)
+        try:
+            intervals = {
+                (row["venue"], row["interval"])
+                for row in conn.execute(
+                    """SELECT venue,interval FROM candles
+                       WHERE symbol='BTCUSDT'"""
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+        self.assertIn(("OKX Spot", "1d_utc8"), intervals)
+        self.assertIn(("Binance Spot", "1d"), intervals)
+
+        # Fresh OKX 1Dutc candles continue to use the canonical 1d interval.
+        save_market_snapshot({
+            "captured_at_ms": new_open + 24 * 60 * 60 * 1000,
+            "symbol": "BTCUSDT",
+            "venues": {
+                "OKX Spot": {
+                    "status": "LIVE",
+                    "candles_by_tf": {
+                        "1d": [{
+                            "open_time_ms": new_open,
+                            "open": 101, "high": 103, "low": 100,
+                            "close": 102, "volume": 11, "closed": True,
+                        }],
+                    },
+                },
+            },
+        }, self.db_path)
+        current = load_candles_by_timeframe(
+            symbol="BTCUSDT",
+            venue="OKX Spot",
+            timeframes=("1d",),
+            as_of_ms=new_open + 24 * 60 * 60 * 1000,
+            db_path=self.db_path,
+        )["1d"]
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0]["open_time_ms"], new_open)
+        self.assertEqual(current[0]["close"], 102.0)
 
     def test_weekly_bars_are_derived_only_from_seven_complete_daily_bars(self) -> None:
         day_ms = 24 * 60 * 60 * 1000
