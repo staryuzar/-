@@ -83,11 +83,22 @@ def analyze_multi_timeframe_structure(
         except (TypeError, ValueError, OverflowError) as exc:
             errors[timeframe] = f"{type(exc).__name__}: {exc}"
             continue
+        latest_close_ms = timestamps[len(selected) - 1] + duration
+        staleness_ms = as_of_ms - latest_close_ms
+        if staleness_ms < 0:
+            errors[timeframe] = "FUTURE_CANDLE_SELECTED"
+            continue
+        max_allowed_staleness_ms = duration * 2
+        if staleness_ms > max_allowed_staleness_ms:
+            errors[timeframe] = "STALE_TIMEFRAME_DATA"
+            continue
         report = {
             **report,
             "timeframe": timeframe,
             "last_open_time_ms": timestamps[len(selected) - 1],
-            "last_close_time_ms": timestamps[len(selected) - 1] + duration,
+            "last_close_time_ms": latest_close_ms,
+            "staleness_ms": staleness_ms,
+            "max_allowed_staleness_ms": max_allowed_staleness_ms,
             "as_of_ms": as_of_ms,
         }
         reports[timeframe] = report
@@ -125,6 +136,7 @@ def analyze_multi_timeframe_structure(
             "Scheduled close times are derived from the declared timeframe duration; exchange-specific candle calendars may differ.",
             "Timeframes are compared at or before one explicit as_of_ms cutoff; no future candle may enter a frame.",
             "A matching multi-timeframe structure is descriptive confluence, not a probability or a trade recommendation.",
+            "A frame whose latest closed candle is more than two declared intervals stale is excluded from confluence.",
         ],
     }
 
