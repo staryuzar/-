@@ -140,6 +140,36 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             self.assertFalse(result["bars"][-1]["is_closed"])
             self.assertEqual(len(result["image_sha256"]), 64)
 
+    def test_upscaled_png_does_not_override_small_source_chart_viewport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            image_path = root / "images" / payload["image_file"]
+            # Simulate a 1600x900 screenshot generated from a 606x260
+            # native MT5 chart viewport.
+            Image.new("RGB", (1600, 900), (22, 28, 38)).save(image_path, format="PNG")
+            payload["image_width_px"] = 1600
+            payload["image_height_px"] = 900
+            payload["image_size_bytes"] = image_path.stat().st_size
+            payload["chart"]["source_width_px"] = 606
+            payload["chart"]["source_main_window_height_px"] = 260
+            # Even stale or incorrect producer flags cannot bypass this gate.
+            payload["chart"]["source_dimensions_usable"] = True
+            payload["chart"]["source_dimensions_status"] = "USABLE"
+            (root / f"capture_{payload['capture_id']}.json").write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+
+            result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "READY_FOR_ENGINE_2_VALIDATION")
+            self.assertFalse(result["visual_calibration_eligible"])
+            self.assertEqual(
+                result["visual_calibration_status"],
+                "BELOW_VISUAL_CALIBRATION_THRESHOLD",
+            )
+            self.assertFalse(result["chart"]["source_dimensions_usable"])
+
     def test_accepts_capture_when_source_viewport_is_small_but_marks_calibration_unusable(self):
         with tempfile.TemporaryDirectory() as directory:
             now = int(time.time() * 1000)
