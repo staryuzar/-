@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 from mirsad.engines.chart import _patterns, analyze_chart_image
+from mirsad.engines.chart_calibration import price_at_pixel, resolve_chart_calibration
+from mirsad.engines.chart_image import load_chart_image
 
 
 class ChartEngineTests(unittest.TestCase):
@@ -302,6 +305,62 @@ class ChartEngineTests(unittest.TestCase):
         self.assertIn("support", result["market_structure"])
         self.assertIn("resistance", result["market_structure"])
         self.assertIn("trend", result["analysis_components"])
+
+    def test_logarithmic_axis_uses_geometric_midpoint(self) -> None:
+        calibration = {
+            "price_scale_valid": True,
+            "price_scale_type": "logarithmic",
+            "price_top": 1000.0,
+            "price_bottom": 100.0,
+            "plot_top_px": 0,
+            "plot_bottom_px": 100,
+        }
+        midpoint = price_at_pixel(50, calibration)
+        self.assertAlmostEqual(midpoint, 316.227766, places=5)
+
+    def test_linear_axis_midpoint_is_arithmetic(self) -> None:
+        calibration = {
+            "price_scale_valid": True,
+            "price_scale_type": "linear",
+            "price_top": 1000.0,
+            "price_bottom": 100.0,
+            "plot_top_px": 0,
+            "plot_bottom_px": 100,
+        }
+        self.assertAlmostEqual(price_at_pixel(50, calibration), 550.0)
+
+    def test_unsupported_axis_scale_blocks_analysis(self) -> None:
+        result = self._analyze(metadata={"price_scale_type": "square_root"})
+        self.assertEqual(result["status"], "ERROR")
+        self.assertFalse(result["decision_eligible"])
+
+    def test_expected_candle_count_outside_safe_range_is_rejected(self) -> None:
+        result = self._analyze(metadata={"expected_candle_count": 501})
+        self.assertEqual(result["status"], "ERROR")
+        self.assertIn("expected_candle_count", result["error"])
+
+    def test_image_file_size_limit_is_checked_before_decode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "oversized.png"
+            path.write_bytes(b"123456")
+            with patch("mirsad.engines.chart_image.MAX_IMAGE_BYTES", 5):
+                image, error = load_chart_image(path)
+        self.assertIsNone(image)
+        self.assertIn("exceeds", error)
+
+    def test_logarithmic_calibration_metadata_is_validated(self) -> None:
+        calibration = resolve_chart_calibration(
+            {
+                "plot_left_px": 0, "plot_top_px": 0,
+                "plot_right_px": 500, "plot_bottom_px": 320,
+                "price_top": 1000.0, "price_bottom": 100.0,
+                "price_scale_type": "logarithmic",
+            },
+            image_width=500,
+            image_height=320,
+        )
+        self.assertTrue(calibration["price_scale_valid"])
+        self.assertEqual(calibration["price_scale_type"], "logarithmic")
 
     def test_image_crop_bounds_outside_image_return_controlled_error(self) -> None:
         result = self._analyze(metadata={"plot_left_px": 700, "plot_right_px": 800})

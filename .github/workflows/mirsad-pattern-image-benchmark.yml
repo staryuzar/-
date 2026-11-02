@@ -4,7 +4,9 @@ on:
   push:
     branches: [mirsad-mt5-demo]
     paths:
-      - 'Mirsad_BTC/mirsad/engines/chart.py'
+      - 'Mirsad_BTC/mirsad/engines/chart*.py'
+      - 'Mirsad_BTC/dashboard.py'
+      - 'Mirsad_BTC/mirsad/runtime.py'
       - 'Mirsad_BTC/scripts/candlestick_pattern_benchmark.py'
       - '.github/workflows/mirsad-pattern-image-benchmark.yml'
   workflow_dispatch:
@@ -48,7 +50,7 @@ jobs:
           python -m pip install -r Mirsad_BTC/requirements.txt
 
       - name: Compile pattern benchmark and chart analyzer
-        run: python -m compileall -q Mirsad_BTC/mirsad/engines/chart.py Mirsad_BTC/scripts/candlestick_pattern_benchmark.py Mirsad_BTC/tests
+        run: python -m compileall -q Mirsad_BTC/mirsad/engines Mirsad_BTC/scripts/candlestick_pattern_benchmark.py Mirsad_BTC/tests
 
       - name: Evaluate every held-out labelled candlestick chart
         env:

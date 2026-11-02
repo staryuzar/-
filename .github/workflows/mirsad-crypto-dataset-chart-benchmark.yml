@@ -1,10 +1,6 @@
 name: Mirsad BTC - Held-out Crypto Chart Image Benchmark
 
 on:
-  push:
-    branches: [mirsad-mt5-demo]
-    paths:
-      - 'Mirsad_BTC/mirsad/engines/chart.py'
   workflow_dispatch:
     inputs:
       ticker:

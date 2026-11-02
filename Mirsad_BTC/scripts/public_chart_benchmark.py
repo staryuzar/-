@@ -81,6 +81,8 @@ def analyze_sample(sample: dict[str, Any]) -> dict[str, Any]:
     metadata = {
         "symbol": sample["symbol"],
         "timeframe": sample["timeframe"],
+        "price_scale_type": sample.get("price_scale_type", "linear"),
+        "expected_candle_count": int(sample.get("expected_candle_count", 0) or 0),
         "price_top": float(sample["price_top"]),
         "price_bottom": float(sample["price_bottom"]),
         "plot_left_px": int(round(left * width)),

@@ -1,9 +1,12 @@
 from __future__ import annotations
 import sys
 import time
+import hashlib
+import io
 from pathlib import Path
 import pandas as pd
 import streamlit as st
+from PIL import Image, UnidentifiedImageError
 
 ROOT=Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -27,7 +30,7 @@ STATUS_AR={
  "OFFLINE":"غير متصل","STALE":"بيانات قديمة","READY":"جاهز",
  "NOT_READY":"غير جاهز","WAITING_FOR_IMAGE":"بانتظار صورة الرسم",
  "DETECTED_UNCALIBRATED":"تم كشف الشموع — بانتظار معايرة المحور",
- "LOW_DETECTION":"اكتشاف ضعيف","CONNECTED":"جسر الخبير متصل",
+ "LOW_DETECTION":"اكتشاف ضعيف","BLOCKED_QUALITY_GATE":"بوابات جودة الرسم لم تكتمل","IMAGE_METADATA_MISMATCH":"إعدادات المعايرة لا تطابق الصورة","CONNECTED":"جسر الخبير متصل",
  "WAITING_FOR_EXPERT":"بانتظار الخبير التنفيذي","NOT_CONFIGURED":"مسار MT5 غير محدد",
  "PUBLISH_DISABLED":"نشر أوامر الخبير معطل","PUBLISHED":"أُرسل أمر للجسر",
  "ALREADY_ACKNOWLEDGED":"الأمر له إقرار سابق","ALREADY_PUBLISHED":"الأمر منشور مسبقاً",
@@ -98,7 +101,8 @@ def render_engine_dashboard():
   c4.metric("الميل المرئي",chart.get("visual_bias","—"))
   a1,a2,a3=st.columns(3)
   a1.metric("درجة المحلل",f"{chart.get('analysis_score',0)*100:.1f} / 100")
-  a2.metric("ثقة المحلل",f"{chart.get('analysis_confidence',0)*100:.1f}%")
+  a2.metric("مؤشر جودة الأدلة",f"{chart.get('analysis_confidence',0)*100:.1f}%")
+  a2.caption("مؤشر إرشادي وليس احتمالاً إحصائياً لصحة التوقع.")
   a3.metric("الزخم البصري",chart.get("momentum",{}).get("score","—"))
   structure=chart.get("market_structure",{})
   st.caption(
@@ -115,6 +119,11 @@ def render_engine_dashboard():
    st.caption(f"عمر صورة الشارت: {chart['input_age_seconds']} ثانية")
   if chart.get("pattern_candidates"):
    st.dataframe(pd.DataFrame(chart["pattern_candidates"]),use_container_width=True,hide_index=True)
+  if chart.get("quality_gates"):
+   gate_rows=[{"بوابة الجودة":name,"النتيجة":"اجتازت" if passed else "لم تجتز"} for name,passed in chart["quality_gates"].items()]
+   st.dataframe(pd.DataFrame(gate_rows),use_container_width=True,hide_index=True)
+  if chart.get("confidence_components"):
+   st.caption("تفصيل مؤشر جودة الأدلة: "+ " | ".join(f"{k}: {v}" for k,v in chart["confidence_components"].items()))
   if chart.get("limitations"):
    st.caption("حدود التحليل: "+" | ".join(chart["limitations"]))
 
@@ -186,7 +195,7 @@ def render_engine_dashboard():
   uploaded=st.file_uploader("صورة الرسم",type=["png","jpg","jpeg","webp"])
   symbol_default=(market.get("symbol") if market else "BTCUSDT")
   syms=st.text_input("رمز الشارت كما يظهر على الصورة",value=saved_meta.get("symbol",symbol_default))
-  options=["1m","5m","15m","1h","4h","1d"]
+  options=["1m","5m","15m","1h","4h","1d","1w"]
   old_tf=saved_meta.get("timeframe","1m")
   timeframe=st.selectbox("الإطار الزمني الظاهر بالصورة",options,index=options.index(old_tf) if old_tf in options else 0)
   palette_labels={
@@ -202,6 +211,18 @@ def render_engine_dashboard():
    palette_keys,
    index=palette_keys.index(old_palette) if old_palette in palette_keys else 0,
    format_func=lambda key:palette_labels[key],
+  )
+  scale_labels={"linear":"خطي","logarithmic":"لوغاريتمي"}
+  scale_keys=list(scale_labels)
+  old_scale=saved_meta.get("price_scale_type","linear")
+  price_scale_type=st.selectbox(
+   "نوع مقياس الأسعار على المحور",scale_keys,
+   index=scale_keys.index(old_scale) if old_scale in scale_keys else 0,
+   format_func=lambda key:scale_labels[key],
+  )
+  expected_candle_count=st.number_input(
+   "عدد الشموع الظاهرة تقريباً (0 = غير معروف)",
+   min_value=0,max_value=500,value=int(saved_meta.get("expected_candle_count",0) or 0),step=1,
   )
   p1,p2=st.columns(2)
   with p1: top_price=st.number_input("أعلى سعر ظاهر على المحور",min_value=0.0,value=float(saved_meta.get("price_top",0.0)),format="%.2f")
@@ -220,17 +241,29 @@ def render_engine_dashboard():
   elif syms.strip().upper()!=symbol_default:
    st.error(f"رمز الصورة ({syms}) يجب أن يطابق رمز محرك السوق ({symbol_default}) حتى لا نخلط بيانات أداة بأخرى.")
   else:
-   CHART_DIR.mkdir(parents=True,exist_ok=True)
-   target=CHART_DIR/("active_chart"+Path(uploaded.name).suffix.lower())
-   target.write_bytes(uploaded.getvalue())
-   metadata={"symbol":syms.strip().upper(),"timeframe":timeframe,
-    "price_top":float(top_price),"price_bottom":float(bottom_price),
-    "plot_left_px":int(plot_left),"plot_top_px":int(plot_top),
-    "plot_right_px":int(plot_right),"plot_bottom_px":int(plot_bottom),
-    "source_filename":uploaded.name,"palette_mode":palette_mode,
-    "saved_at_ms":int(time.time()*1000)}
-   write_json_atomic(CHART_METADATA_PATH,metadata)
-   st.success("تم حفظ الصورة ومعايرتها. ستدخل نتيجة التحليل في الدورة التالية لمحرك القرار.")
+   payload=uploaded.getvalue()
+   try:
+    with Image.open(io.BytesIO(payload)) as preview:
+     image_width,image_height=preview.size
+     preview.verify()
+    if image_width<64 or image_height<64 or image_width*image_height>40_000_000:
+     raise ValueError("أبعاد الصورة خارج حدود التحليل الآمن.")
+   except (UnidentifiedImageError,OSError,ValueError) as exc:
+    st.error(f"الصورة غير صالحة للتحليل: {exc}")
+    payload=None
+   if payload is not None:
+    CHART_DIR.mkdir(parents=True,exist_ok=True)
+    target=CHART_DIR/("active_chart"+Path(uploaded.name).suffix.lower())
+    target.write_bytes(payload)
+    metadata={"schema_version":2,"symbol":syms.strip().upper(),"timeframe":timeframe,
+     "price_top":float(top_price),"price_bottom":float(bottom_price),
+     "price_scale_type":price_scale_type,"expected_candle_count":int(expected_candle_count),
+     "plot_left_px":int(plot_left),"plot_top_px":int(plot_top),
+     "plot_right_px":int(plot_right),"plot_bottom_px":int(plot_bottom),
+     "source_filename":uploaded.name,"source_sha256":hashlib.sha256(payload).hexdigest(),
+     "palette_mode":palette_mode,"saved_at_ms":int(time.time()*1000)}
+    write_json_atomic(CHART_METADATA_PATH,metadata)
+    st.success("تم حفظ الصورة والتحقق من سلامتها ومعايرة مقياسها. ستدخل نتيجة التحليل في الدورة التالية.")
 
  with st.expander("قواعد وضوابط النظام"):
   st.write("المحرك 1 يقرأ السوق العام. المحرك 2 رؤية حاسوبية تقليدية. المحرك 3 ينقل بيانات وأوامر MT5. المحرك 4 وحده يقرر ويدير المخاطر.")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
 import time
+import hashlib
 from pathlib import Path
 from typing import Any
 from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH
@@ -22,15 +23,30 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
  write_json_atomic(SNAPSHOT_PATH,market)
  image=_chart_file()
  metadata=read_json(CHART_METADATA_PATH,{})
+ if not isinstance(metadata,dict):
+  metadata={}
  if image:
-  chart=analyze_chart_image(image,metadata,expected_symbol=market.get("symbol"))
-  saved_at=int(metadata.get("saved_at_ms",0) or 0)
-  chart_age=max(0,(int(time.time()*1000)-saved_at)/1000) if saved_at else None
+  expected_hash=str(metadata.get("source_sha256","")).strip().lower()
+  actual_hash=hashlib.sha256(image.read_bytes()).hexdigest()
+  if expected_hash and expected_hash!=actual_hash:
+   chart={
+    "engine":"engine_2_chart_visual_analysis","status":"IMAGE_METADATA_MISMATCH",
+    "decision_eligible":False,
+    "error":"The saved calibration metadata belongs to a different image file.",
+   }
+  else:
+   chart=analyze_chart_image(image,metadata,expected_symbol=market.get("symbol"))
+  now_ms=int(time.time()*1000)
+  try:
+   saved_at=int(metadata.get("saved_at_ms",0) or 0)
+  except (TypeError,ValueError,OverflowError):
+   saved_at=0
+  chart_age=(now_ms-saved_at)/1000 if saved_at else None
   chart["input_age_seconds"]=round(chart_age,2) if chart_age is not None else None
-  if chart_age is None or chart_age>CHART_MAX_AGE_SECONDS:
+  if chart_age is None or chart_age< -60 or chart_age>CHART_MAX_AGE_SECONDS:
    chart["decision_eligible"]=False
    chart["status"]="STALE"
-   chart["stale_reason"]="Chart screenshot metadata is missing or older than the configured freshness limit."
+   chart["stale_reason"]="Chart metadata is missing, future-dated or older than the configured freshness limit."
  else:
   chart={"engine":"engine_2_chart_visual_analysis","status":"WAITING_FOR_IMAGE",
    "decision_eligible":False,"ai_used":False,
