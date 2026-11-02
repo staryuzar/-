@@ -171,6 +171,29 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
             analyzer.assert_not_called()
             self.assertFalse(result["decision_eligible"])
 
+    def test_stale_engine1_quote_does_not_block_valid_engine2_image_analysis(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            observer, market, bridge = fixture_capture(Path(directory))
+            market["status"] = "STALE"
+            market["venues"]["OKX Spot"]["status"] = "STALE"
+            expected_analysis = {
+                "status": "READY",
+                "decision_eligible": True,
+                "calibration": {"source": "reference_last_candle_ohlc"},
+                "reference_calibration": {"status": "READY"},
+                "reference_ohlc_override_applied": True,
+                "reference_anchor": {"status": "READY", "offset_from_right": 0},
+            }
+            with patch("mirsad.runtime.analyze_chart_image", return_value=expected_analysis) as analyzer:
+                result = _analyze_mt5_observer_chart(observer, market, bridge)
+
+            analyzer.assert_called_once()
+            self.assertEqual(result["status"], "READY")
+            self.assertTrue(result["decision_eligible"])
+            self.assertFalse(
+                result["observer_capture"]["engine_1_quote_freshness_required_for_visual_analysis"]
+            )
+
     def test_wrong_broker_server_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             observer, market, bridge = fixture_capture(Path(directory))
