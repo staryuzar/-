@@ -149,6 +149,7 @@ class MT5ChartObserverInbox:
 
         try:
             captured_at = int(payload["capture_at_utc_ms"])
+            rates_snapshot_at = int(payload["rates_snapshot_at_utc_ms"])
             published_at = int(payload["published_at_utc_ms"])
             image_width = int(payload["image_width_px"])
             image_height = int(payload["image_height_px"])
@@ -167,6 +168,8 @@ class MT5ChartObserverInbox:
                 capture_id=capture_id,
                 age_seconds=round(age_seconds, 2),
             )
+        if rates_snapshot_at > captured_at or captured_at - rates_snapshot_at > 2_000:
+            return _invalid("CAPTURE_DATA_SKEW", "OHLC snapshot and screenshot request are separated by more than two seconds.")
         if published_at < captured_at or published_at > clock_now + self.max_future_skew_seconds * 1000:
             return _invalid("INVALID_PUBLISH_TIME", "Manifest publish time is inconsistent with the capture time.")
         try:
@@ -259,6 +262,8 @@ class MT5ChartObserverInbox:
             "decision_eligible": False,
             "capture_id": capture_id,
             "captured_at_utc_ms": captured_at,
+            "rates_snapshot_at_utc_ms": rates_snapshot_at,
+            "capture_data_skew_ms": captured_at - rates_snapshot_at,
             "published_at_utc_ms": published_at,
             "age_seconds": round(age_seconds, 2),
             "image_path": str(image_path),
