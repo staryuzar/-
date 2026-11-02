@@ -295,6 +295,17 @@ def visual_knowledge_summary(db_path: str | None = None) -> dict[str, Any]:
                    ORDER BY calculated_at_ms DESC LIMIT 20"""
             ).fetchall()
         ]
+        evaluation_split_count = conn.execute(
+            "SELECT COUNT(*) FROM visual_structure_evaluation_splits"
+        ).fetchone()[0]
+        recent_evaluation_splits = [
+            dict(row) for row in conn.execute(
+                """SELECT dataset_id,symbol,venue,timeframe,data_split,split_start_ms,
+                          split_end_ms,embargo_bars,registered_at_ms
+                   FROM visual_structure_evaluation_splits
+                   ORDER BY registered_at_ms DESC LIMIT 20"""
+            ).fetchall()
+        ]
         return {
             "version": meta[0] if meta else None,
             "candle_pattern_definitions": int(patterns),
@@ -307,6 +318,8 @@ def visual_knowledge_summary(db_path: str | None = None) -> dict[str, Any]:
             "structure_evaluation_records": int(structure_evaluations),
             "validated_structure_evaluations": int(validated_structure_evaluations),
             "recent_structure_evaluations": recent_structure_evaluations,
+            "evaluation_split_windows": int(evaluation_split_count),
+            "recent_evaluation_split_windows": recent_evaluation_splits,
             "structure_empirical_status": (
                 "UNVALIDATED" if not validated_structure_evaluations else "HAS_VALIDATED_RECORDS"
             ),
