@@ -5,10 +5,12 @@ import time
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
 from mirsad.engines.mt5_observer import MT5ChartObserverInbox
+from mirsad.runtime import _inspect_mt5_chart_observer
 
 
 class MT5ChartObserverInboxTests(unittest.TestCase):
@@ -204,6 +206,21 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "WAITING_FOR_CAPTURE")
             self.assertFalse(result["decision_eligible"])
+
+    def test_runtime_reports_observer_not_configured_without_changing_decision(self):
+        with patch("mirsad.runtime.MT5_COMMON_FILES", ""):
+            result = _inspect_mt5_chart_observer()
+
+        self.assertEqual(result["status"], "NOT_CONFIGURED")
+        self.assertFalse(result["decision_eligible"])
+
+    def test_runtime_reads_observer_inbox_from_configured_common_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("mirsad.runtime.MT5_COMMON_FILES", directory):
+                result = _inspect_mt5_chart_observer()
+
+        self.assertEqual(result["status"], "WAITING_FOR_CAPTURE")
+        self.assertFalse(result["decision_eligible"])
 
 
 if __name__ == "__main__":
