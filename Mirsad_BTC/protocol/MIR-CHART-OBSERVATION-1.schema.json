@@ -7,6 +7,8 @@
     "schema",
     "capture_id",
     "capture_at_utc_ms",
+    "server_utc_offset_seconds_at_capture",
+    "server_time_seconds",
     "published_at_utc_ms",
     "image_file",
     "image_width_px",
