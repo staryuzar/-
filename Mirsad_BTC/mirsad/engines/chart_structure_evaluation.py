@@ -910,7 +910,7 @@ def persist_structure_evaluations(
         with conn:
             overlap = conn.execute(
                 """SELECT data_split,split_start_ms,split_end_ms
-                   FROM visual_structure_evaluations
+                   FROM visual_structure_evaluation_splits
                    WHERE dataset_id=? AND symbol=? AND venue=? AND timeframe=?
                      AND data_split<>? AND split_start_ms < ? AND split_end_ms > ?
                    LIMIT 1""",
@@ -921,24 +921,15 @@ def persist_structure_evaluations(
             ).fetchone()
             if overlap:
                 raise ValueError(
-                    "Split window overlaps previously stored "
+                    "Split window overlaps previously registered "
                     f"{overlap['data_split']} window "
                     f"[{overlap['split_start_ms']},{overlap['split_end_ms']})"
                 )
 
-            existing_split = conn.execute(
-                """SELECT MIN(split_start_ms) AS split_start_ms,
-                          MAX(split_end_ms) AS split_end_ms
-                   FROM visual_structure_evaluations
-                   WHERE dataset_id=? AND symbol=? AND venue=? AND timeframe=?
-                     AND data_split=?""",
-                (dataset_id, symbol, venue, timeframe, data_split),
-            ).fetchone()
-
             split_order = {"train": 0, "validation": 1, "test": 2}
             prior_splits = conn.execute(
                 """SELECT data_split,split_start_ms,split_end_ms
-                   FROM visual_structure_evaluations
+                   FROM visual_structure_evaluation_splits
                    WHERE dataset_id=? AND symbol=? AND venue=? AND timeframe=?
                      AND data_split<>?""",
                 (dataset_id, symbol, venue, timeframe, data_split),
@@ -956,15 +947,35 @@ def persist_structure_evaluations(
                     raise ValueError(
                         f"{data_split} must end before {prior['data_split']} begins"
                     )
-            if (
-                existing_split
-                and existing_split["split_start_ms"] is not None
-                and (
+
+            existing_split = conn.execute(
+                """SELECT split_start_ms,split_end_ms,embargo_bars,dataset_fingerprint
+                   FROM visual_structure_evaluation_splits
+                   WHERE dataset_id=? AND symbol=? AND venue=? AND timeframe=?
+                     AND data_split=?""",
+                (dataset_id, symbol, venue, timeframe, data_split),
+            ).fetchone()
+            if existing_split:
+                if (
                     int(existing_split["split_start_ms"]) != split_start_ms
                     or int(existing_split["split_end_ms"]) != split_end_ms
+                    or int(existing_split["embargo_bars"]) != embargo_bars
+                ):
+                    raise ValueError("A registered data_split cannot be reused with different time bounds or embargo")
+                if str(existing_split["dataset_fingerprint"]) != dataset_fingerprint:
+                    raise ValueError("A registered dataset_id cannot be reused with different OHLC data")
+            else:
+                conn.execute(
+                    """INSERT INTO visual_structure_evaluation_splits
+                       (dataset_id,symbol,venue,timeframe,data_split,split_start_ms,
+                        split_end_ms,embargo_bars,dataset_fingerprint,registered_at_ms)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        dataset_id, symbol, venue, timeframe, data_split,
+                        split_start_ms, split_end_ms, embargo_bars,
+                        dataset_fingerprint, now,
+                    ),
                 )
-            ):
-                raise ValueError("A stored data_split cannot be reused with different time bounds")
 
             for pattern_id, pattern_result in results.items():
                 if pattern_id not in STRUCTURE_PATTERN_IDS or pattern_id not in known:
