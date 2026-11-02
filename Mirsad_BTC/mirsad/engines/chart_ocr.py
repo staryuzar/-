@@ -383,6 +383,9 @@ def parse_chart_header_text(
             if numeric_scores else None
         ),
         "raw_text": clean_texts,
+        "overrides_input_metadata": False,
+        "used_for_price_calibration": False,
+        "used_for_decision": False,
         "interpretation": "METADATA_SUGGESTIONS_ONLY_NOT_USED_FOR_PRICE_CALIBRATION_OR_DECISION",
     }
 
@@ -401,14 +404,20 @@ def detect_chart_header_metadata(
     ):
         return {
             "status": "INVALID_IMAGE",
-            "interpretation": "METADATA_SUGGESTIONS_ONLY",
+            "overrides_input_metadata": False,
+            "used_for_price_calibration": False,
+            "used_for_decision": False,
+            "interpretation": "METADATA_SUGGESTIONS_ONLY_NOT_USED_FOR_PRICE_CALIBRATION_OR_DECISION",
         }
     if not math.isfinite(float(header_height_fraction)) or not (
         0.05 <= float(header_height_fraction) <= 0.40
     ):
         return {
             "status": "INVALID_HEADER_REGION",
-            "interpretation": "METADATA_SUGGESTIONS_ONLY",
+            "overrides_input_metadata": False,
+            "used_for_price_calibration": False,
+            "used_for_decision": False,
+            "interpretation": "METADATA_SUGGESTIONS_ONLY_NOT_USED_FOR_PRICE_CALIBRATION_OR_DECISION",
         }
     height, width = image_bgr.shape[:2]
     crop_height = max(32, min(height, int(round(height * header_height_fraction))))
@@ -425,7 +434,10 @@ def detect_chart_header_metadata(
             "status": "OCR_UNAVAILABLE",
             "reason": f"{type(exc).__name__}: {exc}",
             "crop_height_px": crop_height,
-            "interpretation": "METADATA_SUGGESTIONS_ONLY",
+            "overrides_input_metadata": False,
+            "used_for_price_calibration": False,
+            "used_for_decision": False,
+            "interpretation": "METADATA_SUGGESTIONS_ONLY_NOT_USED_FOR_PRICE_CALIBRATION_OR_DECISION",
         }
     parsed = parse_chart_header_text(
         texts,
@@ -436,6 +448,9 @@ def detect_chart_header_metadata(
         **parsed,
         "crop_height_px": crop_height,
         "ocr_backend": "RapidOCR",
+        "overrides_input_metadata": False,
+        "used_for_price_calibration": False,
+        "used_for_decision": False,
         "interpretation": "METADATA_SUGGESTIONS_ONLY_NOT_USED_FOR_PRICE_CALIBRATION_OR_DECISION",
     }
 
