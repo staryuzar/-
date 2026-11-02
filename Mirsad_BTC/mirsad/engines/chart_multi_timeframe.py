@@ -168,14 +168,15 @@ def analyze_stored_multi_timeframe_structure(
     symbol: str,
     venue: str | None,
     as_of_ms: int,
-    timeframes: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d"),
+    timeframes: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d", "1w"),
     limit: int = 120,
     db_path: str | None = None,
 ) -> dict[str, Any]:
     """Analyse Engine 1's stored closed candles as an isolated Engine 2 report.
 
-    The adapter reads a single explicitly selected venue. It does not modify
-    market ingestion, blend venue candles, or pass confluence into trade sizing.
+    The adapter reads a single explicitly selected venue. It derives a weekly
+    bar from seven closed UTC daily candles only when no native weekly data is
+    stored. It does not modify market ingestion, blend venues, or affect sizing.
     """
     clean_symbol = str(symbol).strip().upper()
     clean_venue = str(venue or "").strip()
