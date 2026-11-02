@@ -17,13 +17,30 @@ class HFBtcChartImageBenchmarkTests(unittest.TestCase):
         )
         self.assertEqual(parsed["direction"], "BULLISH")
         self.assertAlmostEqual(parsed["close"], 97898.80)
+        self.assertTrue(parsed["ohlc_valid"])
+        self.assertEqual(parsed["ohlc"], {
+            "open": 97368.62,
+            "high": 97898.81,
+            "low": 97339.16,
+            "close": 97898.80,
+        })
 
     def test_parse_reference_candle_handles_bearish_and_missing_fields(self) -> None:
         self.assertEqual(
             parse_reference_candle("Candle: bearish")["direction"],
             "BEARISH",
         )
-        self.assertIsNone(parse_reference_candle("no reference candle")["close"])
+        missing = parse_reference_candle("no reference candle")
+        self.assertIsNone(missing["close"])
+        self.assertFalse(missing["ohlc_valid"])
+        self.assertIsNone(missing["ohlc"])
+
+    def test_parse_reference_candle_rejects_inconsistent_ohlc(self) -> None:
+        parsed = parse_reference_candle(
+            "Candle: bullish, Open: 100, High: 99, Low: 90, Close: 105"
+        )
+        self.assertFalse(parsed["ohlc_valid"])
+        self.assertIsNone(parsed["ohlc"])
 
     def test_future_close_direction_uses_next_close_only(self) -> None:
         self.assertEqual(future_close_direction(100.0, 101.0), "BULLISH")
