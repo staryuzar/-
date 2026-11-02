@@ -275,7 +275,7 @@ def detect_price_axis_ticks(
 
 
 _HEADER_TIMEFRAME_RE = re.compile(
-    r"(?<![A-Za-z0-9])(\d{1,3}\s*[smhdwSMHDW])(?![A-Za-z0-9])"
+    r"(?<![A-Za-z0-9.])(\d{1,3}\s*[smhdwSMHDW])(?![A-Za-z0-9])"
 )
 _HEADER_PAIR_RE = re.compile(
     r"(?<![A-Za-z0-9])([A-Z0-9]{2,12})\s*[/\-]\s*(USDT|USDC|USD|BTC|ETH)(?![A-Za-z0-9])",
@@ -303,8 +303,6 @@ def parse_chart_header_text(
 
     expected = re.sub(r"[^A-Z0-9]", "", str(expected_symbol or "").upper())
     expected_match: bool | None = None
-    if expected:
-        expected_match = expected in normalised
 
     timeframe_suggestion = None
     timeframe_match = _HEADER_TIMEFRAME_RE.search(combined)
@@ -313,8 +311,27 @@ def parse_chart_header_text(
         number = re.match(r"\d+", token)
         unit = token[len(number.group(0)):] if number else ""
         if number and unit:
-            normalised_unit = "M" if unit == "M" else unit.lower()
-            timeframe_suggestion = f"{number.group(0)}{normalised_unit}"
+            numeric_part = int(number.group(0))
+            if unit == "M":
+                valid_value = numeric_part in {1, 3, 6, 12}
+                normalised_unit = "M"
+            elif unit.lower() == "m":
+                valid_value = numeric_part in {1, 3, 5, 10, 15, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720}
+                normalised_unit = "m"
+            elif unit.lower() == "h":
+                valid_value = numeric_part in {1, 2, 3, 4, 6, 8, 12, 16, 24}
+                normalised_unit = "h"
+            elif unit.lower() == "d":
+                valid_value = 1 <= numeric_part <= 365
+                normalised_unit = "d"
+            elif unit.lower() == "w":
+                valid_value = 1 <= numeric_part <= 52
+                normalised_unit = "w"
+            else:
+                valid_value = False
+                normalised_unit = unit.lower()
+            if valid_value:
+                timeframe_suggestion = f"{numeric_part}{normalised_unit}"
 
     symbol_suggestion = None
     pair_match = _HEADER_PAIR_RE.search(combined)
@@ -332,6 +349,13 @@ def parse_chart_header_text(
         (exchange for exchange in _HEADER_EXCHANGES if exchange in upper),
         None,
     )
+    if expected:
+        if symbol_suggestion:
+            expected_match = re.sub(
+                r"[^A-Z0-9]", "", symbol_suggestion.upper()
+            ) == expected
+        else:
+            expected_match = expected in normalised
     numeric_scores: list[float] = []
     for value in scores or []:
         try:
