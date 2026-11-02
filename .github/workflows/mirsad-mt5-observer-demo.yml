@@ -73,6 +73,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python -m pip install --disable-pip-version-check -r Mirsad_BTC/requirements-chart.txt
 
+      # Retry after resolving the MQL chart HWND to its top-level MDI child.
       - name: Validate Observer PowerShell syntax before account access
         shell: pwsh
         run: |
