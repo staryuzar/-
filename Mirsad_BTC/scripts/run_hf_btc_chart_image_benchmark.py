@@ -187,6 +187,10 @@ def run_benchmark(
     future_direction_cases = 0
     future_direction_matches = 0
     future_confusion: Counter[str] = Counter()
+    pixel_future_direction_cases = 0
+    pixel_future_direction_matches = 0
+    pixel_future_confusion: Counter[str] = Counter()
+    pixel_visual_ready_images = 0
     eligible_images = 0
     axis_calibrated_images = 0
     detected_bar_total = 0
@@ -342,6 +346,18 @@ def run_benchmark(
                     reference.get("close"),
                     row.get("next_close"),
                 )
+                pixel_visual = result.get("pixel_visual_evidence") or {}
+                pixel_direction = str(pixel_visual.get("direction", "NEUTRAL")).upper()
+                if pixel_visual.get("status") == "READY":
+                    pixel_visual_ready_images += 1
+                if (
+                    future_direction in {"BULLISH", "BEARISH"}
+                    and pixel_direction in {"BULLISH", "BEARISH"}
+                ):
+                    pixel_future_direction_cases += 1
+                    matched = pixel_direction == future_direction
+                    pixel_future_direction_matches += int(matched)
+                    pixel_future_confusion[f"{future_direction}->{pixel_direction}"] += 1
                 decision_eligible = bool(result.get("decision_eligible", False))
                 calibration = result.get("calibration") or {}
                 if calibration.get("price_scale_valid") and calibration_source in {"manual", "ocr"}:
@@ -398,6 +414,7 @@ def run_benchmark(
                         "axis_ocr_status": (result.get("axis_ocr") or {}).get("status"),
                         "decision_eligible": decision_eligible,
                         "visual_bias": result.get("visual_bias"),
+                        "pixel_visual_evidence": pixel_visual,
                         "failed_quality_gates": _quality_gate_failures(gates),
                         "future_close_direction": future_direction,
                     })
@@ -479,7 +496,18 @@ def run_benchmark(
                 if future_direction_cases else None
             ),
             "confusion": dict(future_confusion),
-            "meaning": "Diagnostic only, restricted to decision-eligible charts; compares visible chart bias with the next close direction, not a backtest or profitability result.",
+            "meaning": "Diagnostic only, restricted to decision-eligible calibrated charts; compares calibrated visual bias with the next close direction, not a backtest or profitability result.",
+        },
+        "pixel_only_one_step_forward_diagnostic": {
+            "pixel_visual_ready_images": pixel_visual_ready_images,
+            "directional_cases": pixel_future_direction_cases,
+            "matches": pixel_future_direction_matches,
+            "directional_match_pct": (
+                round(100.0 * pixel_future_direction_matches / pixel_future_direction_cases, 3)
+                if pixel_future_direction_cases else None
+            ),
+            "confusion": dict(pixel_future_confusion),
+            "meaning": "Scale-free pixel-coordinate trend only, explicitly not Engine 4 eligible. Diagnostic comparison with next_close; not calibrated OHLC, a backtest, or a profitability result.",
         },
         "elapsed_seconds": round(elapsed, 3),
         "errors_sample": sample_errors,
