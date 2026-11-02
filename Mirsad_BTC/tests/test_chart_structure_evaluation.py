@@ -483,6 +483,64 @@ class StructureEventEvaluationTests(unittest.TestCase):
                     db_path=db_path,
                 )
 
+    def test_one_dataset_id_requires_the_same_ohlc_fingerprint_across_splits(self) -> None:
+        bars = make_bars(20)
+        interval = CANDLE_INTERVAL_MS["1h"]
+        start = int(bars[0]["open_time_ms"])
+        split_point = start + 10 * interval
+        end = int(bars[-1]["open_time_ms"]) + interval
+        dataset_id = "immutable-cross-split-dataset"
+        with tempfile.TemporaryDirectory() as temporary:
+            db_path = str(Path(temporary) / "immutable-cross-split.sqlite3")
+            train = self.evaluate(
+                bars,
+                [reversal_event(confirmation_index=2)],
+                data_split="train",
+                dataset_id=dataset_id,
+                split_start_ms=start,
+                split_end_ms=split_point,
+                horizons=(1,),
+            )
+            self.assertEqual(
+                persist_structure_evaluations(
+                    train, primary_horizon_bars=1, db_path=db_path
+                ),
+                1,
+            )
+
+            # A later split cannot silently use a revised candle series under
+            # the same dataset_id, even when its own time window is disjoint.
+            revised_bars = make_bars(20)
+            revised_bars[-1]["close"] = float(revised_bars[-1]["close"]) + 0.25
+            validation = self.evaluate(
+                revised_bars,
+                [reversal_event(confirmation_index=12)],
+                data_split="validation",
+                dataset_id=dataset_id,
+                split_start_ms=split_point,
+                split_end_ms=end,
+                horizons=(1,),
+            )
+            with self.assertRaisesRegex(
+                ValueError, "same immutable OHLC fingerprint"
+            ):
+                persist_structure_evaluations(
+                    validation, primary_horizon_bars=1, db_path=db_path
+                )
+
+            conn = connect(db_path)
+            try:
+                registered = conn.execute(
+                    """SELECT data_split,dataset_fingerprint
+                       FROM visual_structure_evaluation_splits
+                       WHERE dataset_id=?""",
+                    (dataset_id,),
+                ).fetchall()
+                self.assertEqual(len(registered), 1)
+                self.assertEqual(registered[0]["data_split"], "train")
+            finally:
+                conn.close()
+
     def test_fee_and_slippage_assumptions_must_be_paired(self) -> None:
         with self.assertRaisesRegex(ValueError, "both be supplied"):
             self.evaluate(
