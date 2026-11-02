@@ -727,6 +727,7 @@ def analyze_and_evaluate_stored_market_structures(
         fee_bps_per_side=fee_bps_per_side,
         slippage_bps_per_side=slippage_bps_per_side,
     )
+    evaluation["event_source"] = "engine_2_closed_prefix_replay"
     evaluation["storage_source"] = "engine_1_stored_closed_candles"
     evaluation["as_of_ms"] = int(as_of_ms)
     evaluation["stored_bar_count"] = len(bars)
