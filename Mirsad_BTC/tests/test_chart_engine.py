@@ -280,7 +280,7 @@ class ChartEngineTests(unittest.TestCase):
         result = self._analyze(metadata={
             "price_top": None,
             "price_bottom": None,
-            "expected_candle_count": 24,
+            "expected_candle_count": 30,
             "reference_candle_candidates": [{
                 "offset_from_right": 0,
                 "ohlc": {
@@ -289,7 +289,7 @@ class ChartEngineTests(unittest.TestCase):
                 },
             }],
         })
-        # The slot-guided detector may omit an occupied slot; it must never
+        # Thirty expected slots but only twenty-four synthetic candle objects; it must never
         # silently attach another candle's OHLC to a different pixel candle.
         self.assertFalse(result["reference_ohlc_override_applied"])
         self.assertNotEqual(result["reference_anchor"]["status"], "READY")
