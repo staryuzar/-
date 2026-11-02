@@ -290,7 +290,7 @@ def visual_knowledge_summary(db_path: str | None = None) -> dict[str, Any]:
                 """SELECT structure_id,symbol,venue,timeframe,market_regime,sample_count,
                    mean_return_pct,median_return_pct,mae_pct,mfe_pct,
                    fee_adjusted_expectancy_pct,primary_horizon_bars,data_split,
-                   validation_status,calculated_at_ms
+                   horizon_metrics_json,validation_status,calculated_at_ms
                    FROM visual_structure_evaluations
                    ORDER BY calculated_at_ms DESC LIMIT 20"""
             ).fetchall()
