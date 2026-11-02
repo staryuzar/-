@@ -10,31 +10,31 @@ from mirsad.engines.mt5_market import MT5MarketDataEngine
 
 
 def make_snapshot(*, captured_at_ms: int | None = None) -> dict:
-    now = int(time.time() * 1000)
-    frames = {}
-    for timeframe, duration in (
-        ("1m", 60_000), ("5m", 300_000), ("15m", 900_000),
-        ("1h", 3_600_000), ("4h", 14_400_000), ("1d", 86_400_000),
-    ):
-        bars = []
-        for index in range(70):
-            close = 90_000.0 + index
-            bars.append({
-                "open_time_ms": now - (70 - index) * duration,
-                "open": close - 1.0, "high": close + 2.0,
-                "low": close - 2.0, "close": close,
-                "volume": 10.0, "closed": index < 69,
-            })
-        frames[timeframe] = {"copied": len(bars), "error_code": 0, "bars": bars}
+    now = int(time.time() * 1000) if captured_at_ms is None else captured_at_ms
     return {
-        "schema": "MIR-MT5-MARKET-1",
-        "captured_at_utc_ms": captured_at_ms or now,
+        "schema": "MIR-MT5-MARKET-2",
+        "captured_at_utc_ms": now,
         "terminal_connected": True,
         "broker_symbol": "BTC",
         "market_symbol": "BTCUSDT",
         "account": {"server": "Headway-Demo"},
+        "time_basis": "UTC_NORMALIZED_FROM_MT5_SERVER_TIME",
         "quote": {"bid": 90_000.0, "ask": 90_001.0, "tick_age_seconds": 1.0},
-        "timeframes": frames,
+        "tick_window_seconds": 30,
+        "ticks": [
+            {"time_utc_ms": now - 2_000, "bid": 89_998.0, "ask": 89_999.0},
+            {"time_utc_ms": now - 1_000, "bid": 89_999.0, "ask": 90_000.0},
+            {"time_utc_ms": now - 500, "bid": 90_000.0, "ask": 90_001.0},
+        ],
+        "economic_calendar": {
+            "status": "AVAILABLE", "source": "MT5_ECONOMIC_CALENDAR",
+            "currency": "USD",
+            "events": [{
+                "event_id": 11, "event_time_utc_ms": now + 600_000,
+                "name": "US inflation release", "importance": "HIGH",
+                "currency": "USD", "country_code": "US",
+            }],
+        },
     }
 
 
@@ -54,7 +54,7 @@ class MT5MarketDataEngineTests(unittest.TestCase):
             "quote": {"bid": 90_000.0, "ask": 90_001.0}, "quote_age_seconds": 1.0,
         }
 
-    def test_reads_one_fresh_mt5_source_with_all_six_timeframes(self) -> None:
+    def test_reads_fresh_mt5_quote_pulse_and_economic_calendar_without_candles(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             self._write_snapshot(directory, make_snapshot())
             market = self._engine(directory).collect(bridge=self._bridge())
@@ -62,10 +62,16 @@ class MT5MarketDataEngineTests(unittest.TestCase):
         self.assertEqual(market["source"], "MT5_TERMINAL")
         self.assertEqual(market["venue_count"], 1)
         self.assertEqual(market["primary_venue"], "MT5 Broker")
-        self.assertEqual(set(market["venues"]["MT5 Broker"]["candles_by_tf"]), {
-            "1m", "5m", "15m", "1h", "4h", "1d"
-        })
         self.assertEqual(market["feed_health"]["bridge_quote_check"]["status"], "MATCHED")
+        pulse = market["market_context"]["microstructure"]
+        self.assertEqual(pulse["status"], "READY")
+        self.assertEqual(pulse["upticks"], 2)
+        self.assertGreater(pulse["quote_direction_balance"], 0)
+        self.assertEqual(market["market_context"]["economic_calendar"]["events"][0]["importance"], "HIGH")
+        venue = market["venues"]["MT5 Broker"]
+        self.assertNotIn("candles", venue)
+        self.assertNotIn("candles_by_tf", venue)
+        self.assertNotIn("timeframes", market)
 
     def test_missing_common_files_configuration_is_not_ready(self) -> None:
         market = MT5MarketDataEngine(common_files="").collect()
@@ -104,23 +110,25 @@ class MT5MarketDataEngineTests(unittest.TestCase):
             market = self._engine(directory).collect(bridge=bridge)
         self.assertEqual(market["status"], "QUOTE_DIVERGENCE")
 
-    def test_insufficient_closed_history_blocks_engine_one(self) -> None:
+    def test_invalid_tick_history_is_not_silently_used_for_direction(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             payload = make_snapshot()
-            payload["timeframes"]["5m"]["bars"] = payload["timeframes"]["5m"]["bars"][-20:]
+            payload["ticks"][1]["time_utc_ms"] = payload["ticks"][0]["time_utc_ms"] - 1
             self._write_snapshot(directory, payload)
             market = self._engine(directory).collect()
-        self.assertEqual(market["status"], "INSUFFICIENT_HISTORY")
-        self.assertEqual(market["venue_count"], 0)
+        self.assertEqual(market["status"], "LIVE")
+        self.assertEqual(market["market_context"]["microstructure"]["status"], "INVALID")
+        self.assertIsNone(market["market_context"]["microstructure"]["quote_direction_balance"])
 
-    def test_bad_ohlc_geometry_is_rejected(self) -> None:
+    def test_unavailable_economic_calendar_is_reported_not_invented(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             payload = make_snapshot()
-            payload["timeframes"]["1m"]["bars"][5]["high"] = 1.0
+            payload["economic_calendar"] = {"status": "UNAVAILABLE", "error_code": 5402}
             self._write_snapshot(directory, payload)
             market = self._engine(directory).collect()
-        self.assertEqual(market["status"], "INVALID_HISTORY")
-        self.assertEqual(market["venue_count"], 0)
+        calendar = market["market_context"]["economic_calendar"]
+        self.assertEqual(calendar["status"], "NOT_AVAILABLE")
+        self.assertEqual(calendar["events"], [])
 
 
 if __name__ == "__main__":
