@@ -7,6 +7,7 @@ from scripts.run_public_chart_image_benchmark import (
     _crop_box,
     _failed_quality_gates,
     _ohlc_comparison,
+    _trend_window_snapshot,
 )
 
 
@@ -50,6 +51,18 @@ class PublicChartImageBenchmarkTests(unittest.TestCase):
         )
         self.assertEqual(result["absolute_error_pct_by_field"]["high"], 0.9804)
         self.assertTrue(result["within_3pct_tolerance"])
+
+    def test_trend_snapshot_preserves_mixed_time_horizons(self) -> None:
+        snapshot = _trend_window_snapshot({
+            "windows": {
+                "short_6": {"status": "READY", "sample_bars": 6, "direction": "BEARISH", "score": -0.4},
+                "medium_12": {"status": "READY", "sample_bars": 12, "direction": "BULLISH", "score": 0.3},
+                "long_30": {"status": "READY", "sample_bars": 30, "direction": "BULLISH", "score": 0.2},
+            }
+        })
+        self.assertEqual(snapshot["short_6"]["direction"], "BEARISH")
+        self.assertEqual(snapshot["medium_12"]["direction"], "BULLISH")
+        self.assertEqual(snapshot["long_30"]["direction"], "BULLISH")
 
     def test_failed_quality_gates_are_reported_without_promoting_chart(self) -> None:
         self.assertEqual(
