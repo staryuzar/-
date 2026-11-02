@@ -131,6 +131,28 @@ def _failed_quality_gates(gates: dict[str, Any] | None) -> list[str]:
     return sorted(name for name, passed in gates.items() if not bool(passed))
 
 
+def _trend_window_snapshot(visual_trend: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(visual_trend, dict):
+        return {}
+    windows = visual_trend.get("windows")
+    if not isinstance(windows, dict):
+        return {}
+    snapshot: dict[str, Any] = {}
+    for name in ("short_6", "medium_12", "long_30"):
+        window = windows.get(name)
+        if not isinstance(window, dict):
+            continue
+        snapshot[name] = {
+            key: window.get(key)
+            for key in (
+                "status", "sample_bars", "direction", "score",
+                "net_change_pct", "direction_consistency",
+                "directional_steps_met", "minimum_move_met",
+            )
+        }
+    return snapshot
+
+
 def _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
     chart_id = str(entry.get("id", "unknown"))
     image_url = str(entry.get("image_url", "")).strip()
@@ -195,6 +217,9 @@ def _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
         latest_ohlc,
         entry.get("expected_last_candle_ohlc"),
     )
+    visual_trend = result.get("visual_trend") or {}
+    market_structure = result.get("market_structure") or {}
+    momentum = result.get("momentum") or {}
 
     return {
         "id": chart_id,
@@ -219,6 +244,10 @@ def _analyse_entry(entry: dict[str, Any], temp_dir: Path) -> dict[str, Any]:
             if expected_direction else None
         ),
         "visual_bias": visual_bias,
+        "visual_trend_direction": visual_trend.get("direction"),
+        "visual_trend_windows": _trend_window_snapshot(visual_trend),
+        "market_structure_direction": market_structure.get("direction"),
+        "momentum_score": momentum.get("score"),
         "reference_bias": reference_bias,
         "bias_agreement": bias_match,
         "analysis_score": result.get("analysis_score"),
