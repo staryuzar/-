@@ -92,6 +92,37 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
             self.assertEqual(kwargs["expected_symbol"], "BTCUSDT")
             self.assertEqual(args[1]["expected_candle_count"], 30)
 
+    def test_flat_forming_bar_uses_previous_closed_mt5_candle_as_visual_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            observer, market, bridge = fixture_capture(Path(directory))
+            flat_price = float(observer["bars"][-1]["close"])
+            observer["bars"][-1].update({
+                "open": flat_price, "high": flat_price,
+                "low": flat_price, "close": flat_price,
+            })
+            expected_analysis = {
+                "status": "READY",
+                "decision_eligible": True,
+                "calibration": {"source": "reference_last_candle_ohlc"},
+                "reference_calibration": {"status": "READY"},
+                "reference_ohlc_override_applied": True,
+                "reference_anchor": {"status": "READY", "offset_from_right": 1},
+            }
+            with patch("mirsad.runtime.analyze_chart_image", return_value=expected_analysis) as analyzer:
+                result = _analyze_mt5_observer_chart(observer, market, bridge)
+
+            self.assertTrue(result["decision_eligible"])
+            self.assertFalse(result["observer_capture"]["forming_bar_used_as_reference"])
+            self.assertEqual(result["observer_capture"]["reference_anchor"]["offset_from_right"], 1)
+            metadata = analyzer.call_args.args[1]
+            self.assertEqual(metadata["reference_candle_candidates"][0]["offset_from_right"], 1)
+            self.assertTrue(metadata["reference_candle_candidates"][0]["closed"])
+            self.assertEqual(
+                metadata["reference_last_candle_ohlc"]["close"],
+                observer["bars"][-2]["close"],
+            )
+            self.assertFalse(metadata["last_candle_closed"])
+
     def test_changed_image_after_inbox_validation_is_rejected_by_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             observer, market, bridge = fixture_capture(Path(directory))
