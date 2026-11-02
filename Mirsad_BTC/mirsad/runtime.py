@@ -32,41 +32,188 @@ def _inspect_mt5_chart_observer(now_ms:int|None=None)->dict[str,Any]:
    "decision_eligible":False,"reason":f"{type(exc).__name__}: {exc}"}
 
 
+def _blocked_observer_chart(observer:dict[str,Any], reason:str, status:str="OBSERVER_VALIDATION_BLOCKED")->dict[str,Any]:
+ return {
+  "engine":"engine_2_chart_visual_analysis",
+  "source":"MT5_OBSERVER",
+  "status":status,
+  "decision_eligible":False,
+  "ai_used":False,
+  "observer_capture_id":observer.get("capture_id"),
+  "observer_block_reason":reason,
+  "message":reason,
+ }
+
+
+def _analyze_mt5_observer_chart(
+ observer:dict[str,Any], market:dict[str,Any], bridge:dict[str,Any],
+)->dict[str,Any]|None:
+ """Feed only a fresh, mapped, readable MT5 capture into Engine 2.
+
+ A None return means no current capture exists and permits the existing
+ manually calibrated image path. A READY capture that fails any gate returns
+ a blocked chart so stale/manual data cannot silently replace it.
+ """
+ if observer.get("status")!="READY_FOR_ENGINE_2_VALIDATION":
+  return None
+
+ chart_meta=observer.get("chart") if isinstance(observer.get("chart"),dict) else {}
+ bars=observer.get("bars") if isinstance(observer.get("bars"),list) else []
+ capture_id=observer.get("capture_id")
+ if not observer.get("visual_calibration_eligible") or not chart_meta.get("source_dimensions_usable"):
+  return _blocked_observer_chart(
+   observer,"MT5 source chart viewport is below the visual-calibration threshold; capture is retained for diagnostics only.",
+   "OBSERVER_VIEWPORT_UNSUITABLE",
+  )
+ if int(chart_meta.get("source_width_px",0) or 0)<320 or int(chart_meta.get("source_main_window_height_px",0) or 0)<160:
+  return _blocked_observer_chart(observer,"MT5 source chart dimensions are not sufficient for reliable candle geometry.","OBSERVER_VIEWPORT_UNSUITABLE")
+ if chart_meta.get("chart_autoscroll") is not True:
+  return _blocked_observer_chart(observer,"MT5 chart auto-scroll is not enabled; the screenshot may not show the latest forming candle.","OBSERVER_NOT_AT_LIVE_EDGE")
+ if int(chart_meta.get("windows_total",0) or 0)!=1:
+  return _blocked_observer_chart(observer,"MT5 chart has indicator subwindows; plot layout must be calibrated before automatic visual analysis.","OBSERVER_LAYOUT_UNVERIFIED")
+ if int(chart_meta.get("visible_bars",0) or 0)<21:
+  return _blocked_observer_chart(observer,"MT5 chart viewport shows fewer than 21 bars; at least 20 completed candles plus the forming candle are required.","OBSERVER_HISTORY_INSUFFICIENT")
+ if observer.get("rates_status")!="AVAILABLE" or int(observer.get("rates_error_code",-1))!=0:
+  return _blocked_observer_chart(observer,"MT5 native CopyRates data is unavailable or reported an error.","OBSERVER_OHLC_UNAVAILABLE")
+ if len(bars)!=int(observer.get("bar_count",-1)) or len(bars)<21:
+  return _blocked_observer_chart(observer,"MT5 OHLC bar count does not meet the visual-analysis minimum.","OBSERVER_HISTORY_INSUFFICIENT")
+ if any(not isinstance(item,dict) or item.get("is_closed") is not True for item in bars[:-1]) or bars[-1].get("is_closed") is not False:
+  return _blocked_observer_chart(observer,"MT5 must provide closed historical bars followed by exactly one forming bar.","OBSERVER_BAR_STATE_INVALID")
+ if bool(observer.get("newest_bar_after_server_clock")):
+  return _blocked_observer_chart(observer,"MT5 newest bar timestamp is ahead of the broker server clock.","OBSERVER_CLOCK_MISMATCH")
+ try:
+  skew=int(observer.get("capture_data_skew_ms",-1))
+  age=float(observer.get("age_seconds",float("inf")))
+  source_low=float(chart_meta.get("price_min",0))
+  source_high=float(chart_meta.get("price_max",0))
+  latest_low=float(bars[-1]["low"])
+  latest_high=float(bars[-1]["high"])
+  latest_close=float(bars[-1]["close"])
+  numbers=(age,source_low,source_high,latest_low,latest_high,latest_close)
+ except (TypeError,ValueError,KeyError,OverflowError):
+  return _blocked_observer_chart(observer,"MT5 capture timing or price-range metadata is incomplete.","OBSERVER_METADATA_INVALID")
+ if not all(math.isfinite(value) for value in numbers) or not 0<=skew<=2000 or age<0 or age>120:
+  return _blocked_observer_chart(observer,"MT5 capture is stale or its image/OHLC timing skew exceeds 2 seconds.","OBSERVER_CAPTURE_NOT_SYNCHRONIZED")
+ if not 0<source_low<source_high or latest_low<source_low or latest_high>source_high:
+  return _blocked_observer_chart(observer,"The latest MT5 candle is outside the price range reported for the visible chart.","OBSERVER_PRICE_RANGE_MISMATCH")
+
+ market_symbol=str(market.get("symbol","")).strip().upper()
+ observer_symbol=str(chart_meta.get("symbol","")).strip()
+ bridge_symbol=str(bridge.get("symbol","")).strip()
+ bridge_market_symbol=str(bridge.get("market_symbol","")).strip().upper()
+ observer_server=str((observer.get("account") or {}).get("server","")).strip().casefold()
+ bridge_server=str((bridge.get("account") or {}).get("server","")).strip().casefold()
+ if bridge.get("status")!="CONNECTED":
+  return _blocked_observer_chart(observer,"A fresh Engine 5 heartbeat is required to verify the MT5 symbol mapping and account server.")
+ if not market_symbol or not observer_symbol or bridge_symbol!=observer_symbol or bridge_market_symbol!=market_symbol:
+  return _blocked_observer_chart(observer,"MT5 chart symbol, Engine 5 broker symbol and Engine 1 market-symbol mapping do not match.")
+ if not observer_server or not bridge_server or observer_server!=bridge_server:
+  return _blocked_observer_chart(observer,"Observer and Engine 5 do not report the same broker server; chart identity is unverified.")
+ timeframe=str(chart_meta.get("timeframe","")).strip().lower()
+ if timeframe not in {"1m","5m","15m","1h","4h","1d","1w"}:
+  return _blocked_observer_chart(observer,"MT5 chart timeframe is not supported by Engine 2.","OBSERVER_TIMEFRAME_UNSUPPORTED")
+ venues=market.get("venues") or {}
+ primary=venues.get(market.get("primary_venue")) if market.get("primary_venue") else None
+ if not isinstance(primary,dict) or primary.get("status")!="LIVE":
+  return _blocked_observer_chart(observer,"Engine 1 does not currently have the mapped live market venue.","OBSERVER_MARKET_UNAVAILABLE")
+ market_frames=primary.get("candles_by_tf") or {}
+ if timeframe not in market_frames:
+  return _blocked_observer_chart(observer,"Engine 1 has no matching timeframe for the MT5 chart.","OBSERVER_TIMEFRAME_UNMAPPED")
+
+ image_path=Path(str(observer.get("image_path",""))).expanduser()
+ if not image_path.is_file():
+  return _blocked_observer_chart(observer,"The validated Observer PNG is no longer available to Engine 2.","OBSERVER_IMAGE_MISSING")
+ try:
+  image_hash=hashlib.sha256(image_path.read_bytes()).hexdigest()
+ except OSError:
+  return _blocked_observer_chart(observer,"Engine 2 could not read the validated Observer PNG.","OBSERVER_IMAGE_UNREADABLE")
+ metadata={
+  "symbol":market_symbol,
+  "timeframe":timeframe,
+  "price_scale_type":str(chart_meta.get("price_scale_type","linear")).strip().lower(),
+  "last_candle_closed":False,
+  "auto_axis_ocr":False,
+  "reference_last_candle_ohlc":{
+   key:float(bars[-1][key]) for key in ("open","high","low","close")
+  },
+ }
+ analysis=analyze_chart_image(image_path,metadata,expected_symbol=market_symbol)
+ analysis={
+  **analysis,
+  "source":"MT5_OBSERVER",
+  "observer_capture":{
+   "capture_id":capture_id,
+   "image_sha256":image_hash,
+   "age_seconds":round(age,2),
+   "capture_data_skew_ms":skew,
+   "native_bar_count":len(bars),
+   "forming_bar_used_as_reference":True,
+   "broker_symbol":observer_symbol,
+   "market_symbol":market_symbol,
+   "timeframe":timeframe,
+   "source_viewport_width_px":int(chart_meta.get("source_width_px",0) or 0),
+   "source_viewport_height_px":int(chart_meta.get("source_main_window_height_px",0) or 0),
+  },
+ }
+ reference=analysis.get("reference_calibration") or {}
+ anchor_verified=(
+  analysis.get("calibration",{}).get("source")=="reference_last_candle_ohlc"
+  and reference.get("status")=="READY"
+  and analysis.get("reference_ohlc_override_applied") is True
+ )
+ if not anchor_verified:
+  analysis["decision_eligible"]=False
+  if analysis.get("status")=="READY":
+   analysis["status"]="OBSERVER_REFERENCE_NOT_VERIFIED"
+  analysis["observer_reference_status"]=reference.get("status","NOT_VERIFIED")
+  analysis["observer_block_reason"]="The image's latest visible candle did not pass the native MT5 OHLC pixel-geometry anchor check."
+ else:
+  analysis["observer_reference_status"]="READY"
+ return analysis
+
+
 def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEngine|None=None)->dict[str,Any]:
  started=int(time.time()*1000)
  market=(market_engine or MarketEngine()).collect()
  save_market_snapshot(market)
  write_json_atomic(SNAPSHOT_PATH,market)
- image=_chart_file()
- metadata=read_json(CHART_METADATA_PATH,{})
- if not isinstance(metadata,dict):
-  metadata={}
- if image:
-  expected_hash=str(metadata.get("source_sha256","")).strip().lower()
-  actual_hash=hashlib.sha256(image.read_bytes()).hexdigest()
-  if expected_hash and expected_hash!=actual_hash:
-   chart={
-    "engine":"engine_2_chart_visual_analysis","status":"IMAGE_METADATA_MISMATCH",
-    "decision_eligible":False,
-    "error":"The saved calibration metadata belongs to a different image file.",
-   }
-  else:
-   chart=analyze_chart_image(image,metadata,expected_symbol=market.get("symbol"))
-  now_ms=int(time.time()*1000)
-  try:
-   saved_at=int(metadata.get("saved_at_ms",0) or 0)
-  except (TypeError,ValueError,OverflowError):
-   saved_at=0
-  chart_age=(now_ms-saved_at)/1000 if saved_at else None
-  chart["input_age_seconds"]=round(chart_age,2) if chart_age is not None else None
-  if chart_age is None or chart_age< -60 or chart_age>CHART_MAX_AGE_SECONDS:
-   chart["decision_eligible"]=False
-   chart["status"]="STALE"
-   chart["stale_reason"]="Chart metadata is missing, future-dated or older than the configured freshness limit."
+ bridge_adapter=bridge_engine or MT5BridgeEngine()
+ bridge=bridge_adapter.inspect()
+ chart_observer=_inspect_mt5_chart_observer(now_ms=int(time.time()*1000))
+ observer_chart=_analyze_mt5_observer_chart(chart_observer,market,bridge)
+ if observer_chart is not None:
+  chart=observer_chart
  else:
-  chart={"engine":"engine_2_chart_visual_analysis","status":"WAITING_FOR_IMAGE",
-   "decision_eligible":False,"ai_used":False,
-   "message":"Upload a real chart screenshot and enter its price-axis scale."}
+  image=_chart_file()
+  metadata=read_json(CHART_METADATA_PATH,{})
+  if not isinstance(metadata,dict):
+   metadata={}
+  if image:
+   expected_hash=str(metadata.get("source_sha256","")).strip().lower()
+   actual_hash=hashlib.sha256(image.read_bytes()).hexdigest()
+   if expected_hash and expected_hash!=actual_hash:
+    chart={
+     "engine":"engine_2_chart_visual_analysis","status":"IMAGE_METADATA_MISMATCH",
+     "decision_eligible":False,
+     "error":"The saved calibration metadata belongs to a different image file.",
+    }
+   else:
+    chart=analyze_chart_image(image,metadata,expected_symbol=market.get("symbol"))
+   now_ms=int(time.time()*1000)
+   try:
+    saved_at=int(metadata.get("saved_at_ms",0) or 0)
+   except (TypeError,ValueError,OverflowError):
+    saved_at=0
+   chart_age=(now_ms-saved_at)/1000 if saved_at else None
+   chart["input_age_seconds"]=round(chart_age,2) if chart_age is not None else None
+   if chart_age is None or chart_age< -60 or chart_age>CHART_MAX_AGE_SECONDS:
+    chart["decision_eligible"]=False
+    chart["status"]="STALE"
+    chart["stale_reason"]="Chart metadata is missing, future-dated or older than the configured freshness limit."
+  else:
+   chart={"engine":"engine_2_chart_visual_analysis","status":"WAITING_FOR_IMAGE",
+    "decision_eligible":False,"ai_used":False,
+    "message":"Upload a real chart screenshot and enter its price-axis scale."}
  # Engine 2 reads Engine 1's stored OHLCV through a read-only, venue-specific adapter.
  # This descriptive confluence report is not fed into Engine 4 sizing or scoring.
  try:
@@ -84,10 +231,7 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
   }
  # The read-only chart observer is surfaced independently. Its capture has
  # no effect on chart eligibility, Engine 4 scoring, or MIR1 order publication.
- chart_observer=_inspect_mt5_chart_observer(now_ms=int(time.time()*1000))
  indicators=IndicatorsEngine().analyze(market)
- bridge_adapter=bridge_engine or MT5BridgeEngine()
- bridge=bridge_adapter.inspect()
  decision=DecisionEngine().analyze(market,chart,bridge,indicators)
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
  if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
