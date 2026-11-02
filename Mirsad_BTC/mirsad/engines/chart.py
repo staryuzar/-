@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .chart_calibration import calibrate_bars, resolve_chart_calibration
+from .chart_calibration import calibrate_bars, calibrate_from_reference_candle, resolve_chart_calibration
 from .chart_extraction import PALETTE_PRESETS, _extract_bars
 from .chart_image import load_chart_image
 from .chart_metrics import analyze_calibrated_bars
@@ -291,6 +291,23 @@ def analyze_chart_image(
         }
         extraction_diagnostics: dict[str, Any] = {}
         bars = _extract_bars(image, extraction_metadata, diagnostics=extraction_diagnostics)
+        reference_calibration: dict[str, Any] = {"status": "NOT_REQUESTED"}
+        reference_ohlc = meta.get("reference_last_candle_ohlc")
+        if not calibration["price_scale_valid"] and isinstance(reference_ohlc, dict) and bars:
+            reference_calibration = calibrate_from_reference_candle(
+                bars[-1],
+                reference_ohlc,
+                image_width=image_width,
+                image_height=image_height,
+                plot_left_px=calibration["plot_left_px"],
+                plot_top_px=calibration["plot_top_px"],
+                plot_right_px=calibration["plot_right_px"],
+                plot_bottom_px=calibration["plot_bottom_px"],
+                scale_type=calibration["price_scale_type"],
+            )
+            if reference_calibration.get("status") == "READY":
+                calibration = reference_calibration["calibration"]
+                calibration_source = "reference_last_candle_ohlc"
     except (TypeError, ValueError, OverflowError) as exc:
         return {
             **result,
@@ -495,6 +512,11 @@ def analyze_chart_image(
         "decision_eligible": eligible,
         "quality_gates": quality_gates,
         "axis_ocr": axis_ocr,
+        "reference_calibration": (
+            reference_calibration
+            if "reference_calibration" in locals()
+            else {"status": "NOT_REQUESTED"}
+        ),
         "header_ocr": header_ocr,
         "ocr_model_used": (
             axis_ocr.get("ocr_backend") == "RapidOCR"
@@ -515,7 +537,7 @@ def analyze_chart_image(
             "price_bottom": calibration["price_bottom"],
         },
         "limitations": [
-            "The price axis depends on user-supplied top/bottom prices and the exact plot rectangle.",
+            "The price axis depends on user-supplied top/bottom prices and the exact plot rectangle; reference-assisted calibration is separately tagged and requires a trusted OHLC anchor for the last candle.",
             "The selected linear/logarithmic scale type must match the displayed chart axis.",
             "Candle colours depend on the selected palette and chart theme.",
             "Visual pattern candidates and TA-Lib reference candidates are separate observations; neither is a probability or an independent directional vote.",
