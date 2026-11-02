@@ -171,10 +171,20 @@ class MT5ChartObserverInbox:
             return _invalid("INVALID_PUBLISH_TIME", "Manifest publish time is inconsistent with the capture time.")
         try:
             server_time_ms = int(payload["server_time_seconds"]) * 1000
+            server_utc_offset_seconds = int(payload["server_utc_offset_seconds_at_capture"])
         except (KeyError, TypeError, ValueError, OverflowError):
-            return _invalid("INVALID_SERVER_TIME", "MT5 server time is missing or invalid.")
-        if server_time_ms <= 0 or server_time_ms > clock_now + self.max_future_skew_seconds * 1000:
-            return _invalid("INVALID_SERVER_TIME", "MT5 server time is invalid or too far in the future.")
+            return _invalid("INVALID_SERVER_TIME", "MT5 server time or capture-time UTC offset is missing or invalid.")
+        if server_time_ms <= 0 or not (-43_200 <= server_utc_offset_seconds <= 50_400):
+            return _invalid("INVALID_SERVER_TIME", "MT5 server time or UTC offset is outside accepted bounds.")
+        # MqlRates.time uses broker server time, not UTC. Normalize only the
+        # current server clock with the offset captured at the same instant.
+        # Historical bar timestamps remain untouched in broker-server time.
+        server_time_utc_ms = server_time_ms - server_utc_offset_seconds * 1000
+        if (
+            server_time_utc_ms > clock_now + self.max_future_skew_seconds * 1000
+            or clock_now - server_time_utc_ms > self.max_age_seconds * 1000
+        ):
+            return _invalid("INVALID_SERVER_TIME", "MT5 server clock is stale or inconsistent with the local capture clock.")
         if not (320 <= image_width <= 3840 and 180 <= image_height <= 2160):
             return _invalid("INVALID_IMAGE_DIMENSIONS", "Observer image dimensions are outside the accepted bounds.")
         if expected_size < 128:
@@ -237,8 +247,8 @@ class MT5ChartObserverInbox:
             return _invalid("INVALID_OHLC_SNAPSHOT", bar_error, capture_id=capture_id)
         if int(payload.get("bars_copied", -1)) != len(bars or []):
             return _invalid("BAR_COUNT_MISMATCH", "bars_copied does not match the actual bars array.")
-        if bars and bars[-1]["time_server_ms"] > server_time_ms + 60_000:
-            return _invalid("BAR_TIME_IN_FUTURE", "Newest MT5 bar opens more than one minute after the reported server time.")
+        if bars and bars[-1]["time_server_ms"] > server_time_ms + 5_000:
+            return _invalid("BAR_TIME_IN_FUTURE", "Newest MT5 bar opens after the reported broker server time.")
         if not bool(payload.get("forming_bar_included")):
             return _invalid("FORMING_BAR_FLAG_MISMATCH", "Protocol says a forming bar is included but flag is false.")
 
