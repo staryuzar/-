@@ -1,0 +1,64 @@
+name: Mirsad Chart Observer — any MT5 account capture (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      server:
+        description: 'MT5 broker server (defaults to Headway demo; ignored when server is stored in the mt5 secret)'
+        required: false
+        default: 'Headway-Demo'
+        type: string
+      symbol:
+        description: 'Exact symbol name as shown by this broker'
+        required: false
+        default: 'BTC'
+        type: string
+      timeframe:
+        description: 'Any MT5 timeframe label, e.g. M1, M2, M3, M5, H1, H2, D1, MN1'
+        required: false
+        default: 'M1'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-mt5-observer-demo
+  cancel-in-progress: false
+
+jobs:
+  capture-mt5-chart:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Mirsad project
+        uses: actions/checkout@v4
+
+      - name: Verify Windows runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_OS -ne 'Windows') { throw 'MetaTrader 5 requires a Windows runner.' }
+          Write-Output "Windows runner: $([System.Environment]::OSVersion.VersionString)"
+
+      - name: Connect to the configured MT5 account (demo or real), compile and capture using the read-only Observer
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+          MIRSAD_MT5_SERVER: ${{ inputs.server || 'Headway-Demo' }}
+          MIRSAD_MT5_OBSERVER_SYMBOL: ${{ inputs.symbol || 'BTC' }}
+          MIRSAD_MT5_OBSERVER_TIMEFRAME: ${{ inputs.timeframe || 'M1' }}
+        shell: pwsh
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1
+
+      - name: Upload sanitized MT5 Observer evidence only (no account credentials, raw chart image or OHLC history)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-mt5-observer-live-demo-capture
+          path: |
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-live-capture-summary.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
+          if-no-files-found: warn
+          retention-days: 14
