@@ -194,6 +194,10 @@ string BuildCapturePayload(const string capture_id,
 {
    string symbol = ChartSymbol(g_chart_id);
    ENUM_TIMEFRAMES timeframe = (ENUM_TIMEFRAMES)ChartPeriod(g_chart_id);
+   bool source_dimensions_usable = (source_width >= 320 && source_main_height >= 160);
+   string source_dimensions_status = source_dimensions_usable
+      ? "USABLE"
+      : "BELOW_VISUAL_CALIBRATION_THRESHOLD";
 
    string payload = "{";
    payload += "\"schema\":\"MIR-CHART-OBSERVATION-1\",";
@@ -218,6 +222,8 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"digits\":" + (string)digits + ",";
    payload += "\"source_width_px\":" + (string)source_width + ",";
    payload += "\"source_main_window_height_px\":" + (string)source_main_height + ",";
+   payload += "\"source_dimensions_usable\":" + JsonBool(source_dimensions_usable) + ",";
+   payload += "\"source_dimensions_status\":\"" + source_dimensions_status + "\",";
    payload += "\"windows_total\":" + (string)windows_total + ",";
    payload += "\"first_visible_bar_shift\":" + (string)first_visible_bar + ",";
    payload += "\"visible_bars\":" + (string)visible_bars + ",";
@@ -272,11 +278,12 @@ bool BeginCapture()
    long bull_color = ChartGetInteger(g_chart_id, CHART_COLOR_CANDLE_BULL);
    long bear_color = ChartGetInteger(g_chart_id, CHART_COLOR_CANDLE_BEAR);
 
-   if(source_width < 320 || source_main_height < 160 ||
-      InpScreenshotWidth < 640 || InpScreenshotHeight < 360)
+   bool source_dimensions_usable = (source_width >= 320 && source_main_height >= 160);
+   if(!source_dimensions_usable)
    {
-      PublishObserverStatus("ERROR", "", "Chart or screenshot dimensions are below the minimum.");
-      return false;
+      PrintFormat("Mirsad Observer: source chart viewport is %d x %d px; capture will still be requested at %d x %d px. Visual calibration must treat source dimensions as unavailable.",
+                  source_width, source_main_height,
+                  InpScreenshotWidth, InpScreenshotHeight);
    }
 
    MqlRates rates[];
