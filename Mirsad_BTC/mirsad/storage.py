@@ -71,6 +71,13 @@ CREATE TABLE IF NOT EXISTS visual_pattern_evaluations (
  fee_adjusted_expectancy_pct REAL,dataset_fingerprint TEXT NOT NULL,
  validation_status TEXT NOT NULL CHECK(validation_status IN ('UNVALIDATED','IN_PROGRESS','VALIDATED','REJECTED')),
  calculated_at_ms INTEGER NOT NULL,
+ horizon_metrics_json TEXT NOT NULL DEFAULT '{}',
+ primary_horizon_bars INTEGER NOT NULL DEFAULT 5,
+ data_split TEXT NOT NULL DEFAULT 'train',
+ label_source TEXT NOT NULL DEFAULT 'UNSPECIFIED',
+ human_reviewed INTEGER NOT NULL DEFAULT 0,
+ fee_bps REAL NOT NULL DEFAULT 0,
+ slippage_bps REAL NOT NULL DEFAULT 0,
  UNIQUE(pattern_id,symbol,timeframe,market_regime,dataset_fingerprint),
  FOREIGN KEY(pattern_id) REFERENCES visual_candle_pattern_knowledge(pattern_id)
 );
@@ -83,6 +90,26 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
     conn=sqlite3.connect(str(db_path),timeout=15)
     conn.row_factory=sqlite3.Row
     conn.executescript(SCHEMA)
+    # Forward-compatible columns for the visual pattern evaluation archive.
+    evaluation_columns = {
+        row["name"] for row in conn.execute(
+            "PRAGMA table_info(visual_pattern_evaluations)"
+        ).fetchall()
+    }
+    evaluation_migrations = {
+        "horizon_metrics_json": "TEXT NOT NULL DEFAULT '{}'",
+        "primary_horizon_bars": "INTEGER NOT NULL DEFAULT 5",
+        "data_split": "TEXT NOT NULL DEFAULT 'train'",
+        "label_source": "TEXT NOT NULL DEFAULT 'UNSPECIFIED'",
+        "human_reviewed": "INTEGER NOT NULL DEFAULT 0",
+        "fee_bps": "REAL NOT NULL DEFAULT 0",
+        "slippage_bps": "REAL NOT NULL DEFAULT 0",
+    }
+    for column_name, column_type in evaluation_migrations.items():
+        if column_name not in evaluation_columns:
+            conn.execute(
+                f"ALTER TABLE visual_pattern_evaluations ADD COLUMN {column_name} {column_type}"
+            )
     return conn
 
 def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) -> None:
