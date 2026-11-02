@@ -38,11 +38,11 @@ def _invalid(status: str, reason: str, **extra: Any) -> dict[str, Any]:
 
 
 def _validate_bars(raw_bars: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
-    if not isinstance(raw_bars, list) or len(raw_bars) < 20:
-        return None, "At least 20 OHLC bars are required in an observer capture."
-    if len(raw_bars) > 500:
-        return None, "Observer capture exceeds the 500-bar protocol limit."
+    if not isinstance(raw_bars, list):
+        return None, "OHLC bars must be a JSON array."
 
+    # The Observer forwards whatever MT5 currently has. Analysis sufficiency
+    # is decided downstream by Engine 2, not by a capture-layer bar-count gate.
     bars: list[dict[str, Any]] = []
     previous_time = 0
     for index, raw in enumerate(raw_bars):
@@ -168,8 +168,8 @@ class MT5ChartObserverInbox:
                 capture_id=capture_id,
                 age_seconds=round(age_seconds, 2),
             )
-        if rates_snapshot_at > captured_at or captured_at - rates_snapshot_at > 2_000:
-            return _invalid("CAPTURE_DATA_SKEW", "OHLC snapshot and screenshot request are separated by more than two seconds.")
+        if rates_snapshot_at > captured_at:
+            return _invalid("CAPTURE_DATA_ORDER", "OHLC snapshot timestamp occurs after the screenshot request.")
         if published_at < captured_at or published_at > clock_now + self.max_future_skew_seconds * 1000:
             return _invalid("INVALID_PUBLISH_TIME", "Manifest publish time is inconsistent with the capture time.")
         try:
@@ -177,19 +177,15 @@ class MT5ChartObserverInbox:
             server_utc_offset_seconds = int(payload["server_utc_offset_seconds_at_capture"])
         except (KeyError, TypeError, ValueError, OverflowError):
             return _invalid("INVALID_SERVER_TIME", "MT5 server time or capture-time UTC offset is missing or invalid.")
-        if server_time_ms <= 0 or not (-43_200 <= server_utc_offset_seconds <= 50_400):
-            return _invalid("INVALID_SERVER_TIME", "MT5 server time or UTC offset is outside accepted bounds.")
+        if server_time_ms <= 0:
+            return _invalid("INVALID_SERVER_TIME", "MT5 server time is not positive.")
         # MqlRates.time uses broker server time, not UTC. Normalize only the
         # current server clock with the offset captured at the same instant.
         # Historical bar timestamps remain untouched in broker-server time.
         server_time_utc_ms = server_time_ms - server_utc_offset_seconds * 1000
-        if (
-            server_time_utc_ms > clock_now + self.max_future_skew_seconds * 1000
-            or clock_now - server_time_utc_ms > self.max_age_seconds * 1000
-        ):
-            return _invalid("INVALID_SERVER_TIME", "MT5 server clock is stale or inconsistent with the local capture clock.")
-        if not (320 <= image_width <= 3840 and 180 <= image_height <= 2160):
-            return _invalid("INVALID_IMAGE_DIMENSIONS", "Observer image dimensions are outside the accepted bounds.")
+        server_clock_delta_seconds = (clock_now - server_time_utc_ms) / 1000.0
+        if image_width <= 0 or image_height <= 0:
+            return _invalid("INVALID_IMAGE_DIMENSIONS", "Observer image dimensions must be positive.")
         if expected_size < 128:
             return _invalid("INVALID_IMAGE_SIZE", "Observer PNG is unexpectedly small.")
 
@@ -236,11 +232,13 @@ class MT5ChartObserverInbox:
             return _invalid("INVALID_CHART_METADATA", "Chart metadata is missing.")
         symbol = str(chart.get("symbol", "")).strip()
         source_timeframe = str(chart.get("timeframe", "")).strip().upper()
-        timeframe = SUPPORTED_TIMEFRAMES.get(source_timeframe)
-        if not symbol or not timeframe:
+        # Preserve every MT5 period. Known Engine 2 periods get a canonical
+        # alias; unfamiliar MT5 periods pass through without being blocked.
+        timeframe = SUPPORTED_TIMEFRAMES.get(source_timeframe, source_timeframe.lower())
+        if not symbol or not source_timeframe:
             return _invalid(
-                "UNSUPPORTED_CHART",
-                "Chart symbol is missing or timeframe is not supported by the current Engine 2 contract.",
+                "INVALID_CHART_METADATA",
+                "MT5 chart symbol or timeframe metadata is missing.",
                 symbol=symbol or None,
                 source_timeframe=source_timeframe or None,
             )
@@ -250,10 +248,10 @@ class MT5ChartObserverInbox:
             return _invalid("INVALID_OHLC_SNAPSHOT", bar_error, capture_id=capture_id)
         if int(payload.get("bars_copied", -1)) != len(bars or []):
             return _invalid("BAR_COUNT_MISMATCH", "bars_copied does not match the actual bars array.")
-        if bars and bars[-1]["time_server_ms"] > server_time_ms + 5_000:
-            return _invalid("BAR_TIME_IN_FUTURE", "Newest MT5 bar opens after the reported broker server time.")
-        if not bool(payload.get("forming_bar_included")):
-            return _invalid("FORMING_BAR_FLAG_MISMATCH", "Protocol says a forming bar is included but flag is false.")
+        forming_flag = bool(payload.get("forming_bar_included"))
+        if forming_flag != bool(bars):
+            return _invalid("FORMING_BAR_FLAG_MISMATCH", "forming_bar_included does not match whether MT5 supplied a current bar.")
+        newest_bar_after_server_clock = bool(bars and bars[-1]["time_server_ms"] > server_time_ms + 5_000)
 
         digest = hashlib.sha256(image_bytes).hexdigest()
         return {
@@ -264,6 +262,8 @@ class MT5ChartObserverInbox:
             "captured_at_utc_ms": captured_at,
             "rates_snapshot_at_utc_ms": rates_snapshot_at,
             "capture_data_skew_ms": captured_at - rates_snapshot_at,
+            "server_clock_delta_seconds": round(server_clock_delta_seconds, 2),
+            "newest_bar_after_server_clock": newest_bar_after_server_clock,
             "published_at_utc_ms": published_at,
             "age_seconds": round(age_seconds, 2),
             "image_path": str(image_path),
@@ -277,6 +277,8 @@ class MT5ChartObserverInbox:
             "bars_time_basis": payload.get("bars_time_basis"),
             "bars": bars,
             "bar_count": len(bars or []),
+            "rates_status": payload.get("rates_status", "AVAILABLE" if bars else "UNAVAILABLE"),
+            "rates_error_code": payload.get("rates_error_code", 0),
             "plot_bounds_status": chart.get("plot_bounds_status", "UNKNOWN"),
             "message": (
                 "Image and native OHLC snapshot passed inbox validation. "
