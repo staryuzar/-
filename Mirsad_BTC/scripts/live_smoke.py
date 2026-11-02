@@ -1,37 +1,27 @@
 from __future__ import annotations
-import sys
-from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT))
-from mirsad.runtime import collect_once
-from mirsad.config import DB_PATH
-from mirsad.storage import connect
 
-def main()->int:
-    print("Mirsad BTC end-to-end live connection check. Actual public data only; order execution is not invoked.")
-    report=collect_once()
-    for name,row in report["market"]["venues"].items():
-        print(f"{name}: {row['status']} | latency_ms={row.get('latency_ms')} | error={row.get('error')}")
-    if report["market"].get("price") is None or report["market"].get("venue_count",0)<1:
-        print("FAIL: no live BTC/USDT venue was reachable.")
-        return 1
-    conn=connect(DB_PATH)
-    try:
-        saved=conn.execute("SELECT COUNT(*) FROM market_snapshots").fetchone()[0]
-        candles=conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0]
-        trades=conn.execute("SELECT COUNT(*) FROM public_trades").fetchone()[0]
-    finally:
-        conn.close()
-    if saved<1 or candles<1:
-        print("FAIL: live snapshot/candles were not persisted to SQLite.")
-        return 1
-    live_count=int(report["market"].get("venue_count",0) or 0)
-    if live_count>=2:
-        print(f"PASS: {live_count} actual venues; Engine 4 market quorum is available. SQLite snapshots={saved}, candles={candles}, trades={trades}.")
-    else:
-        print(f"PARTIAL: only {live_count} actual venue is reachable from this runner. SQLite snapshots={saved}, candles={candles}, trades={trades}.")
-        print("Engine 4 correctly remains in WAIT/NOT_READY until two independent live venues are available; no directional order can be published.")
-    print("No fake data, no paper-trading, no simulated orders, and no order was sent.")
-    return 0
-if __name__=="__main__":
+import os
+
+from mirsad.engines.mt5_market import MT5MarketDataEngine
+
+
+def main() -> int:
+    print("Mirsad BTC — MT5-only market feed smoke check. No external exchange APIs are queried.")
+    market = MT5MarketDataEngine().collect()
+    print(
+        f"Engine 1: {market['status']} | source={market.get('source')} "
+        f"| venue_count={market.get('venue_count')} | reason={market.get('reason')}"
+    )
+    if market.get("status") == "LIVE" and market.get("source") == "MT5_TERMINAL":
+        print("PASS: fresh MT5 broker quote and multi-timeframe OHLC snapshot are available.")
+        return 0
+    if market.get("status") == "NOT_CONFIGURED" and os.getenv("GITHUB_ACTIONS") == "true":
+        print("SKIP: isolated GitHub runner has no attached user's MT5 Common Files folder.")
+        print("The parser, freshness, OHLC, symbol/server and Engine 4 contracts are covered by unit tests.")
+        return 0
+    print("WAIT: MT5 feed is not decision-ready. Engine 4 must remain WAIT; no order is published.")
+    return 1
+
+
+if __name__ == "__main__":
     raise SystemExit(main())
