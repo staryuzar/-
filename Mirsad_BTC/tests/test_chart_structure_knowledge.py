@@ -57,6 +57,34 @@ class ChartStructureKnowledgeTests(unittest.TestCase):
         self.assertTrue(bullish_gaps)
         self.assertEqual(bullish_gaps[0]["status"], "UNMITIGATED_AT_SAMPLE_END")
 
+    def test_order_block_candidate_is_tied_to_a_confirmed_break(self) -> None:
+        closes = [
+            100, 102, 104, 106, 103, 101,
+            108, 112, 116, 120, 116, 112,
+            124, 128, 132, 136, 132, 128,
+            140, 144, 148, 152, 148, 144,
+            150, 154,
+        ]
+        bars = make_bars(closes)
+        bars[24] = {
+            "open": 151.0, "high": 151.5, "low": 149.5, "close": 150.0,
+        }
+        bars[25] = {
+            "open": 153.0, "high": 154.5, "low": 152.8, "close": 154.0,
+        }
+        result = analyze_chart_structure_knowledge(bars)
+        candidates = [
+            item for item in result["order_block_candidates"]
+            if item.get("structure_id") == "bullish_order_block"
+        ]
+        self.assertTrue(candidates)
+        self.assertEqual(candidates[-1]["source_candle_index"], 24)
+        self.assertEqual(candidates[-1]["break_index"], 25)
+        self.assertEqual(
+            candidates[-1]["interpretation"],
+            "ORDER_BLOCK_CANDIDATE_NOT_INSTITUTIONAL_ORDER_EVIDENCE",
+        )
+
     def test_insufficient_history_does_not_infer_structure(self) -> None:
         result = analyze_chart_structure_knowledge(make_bars([100, 101, 102, 103, 102]))
         self.assertEqual(result["status"], "INSUFFICIENT")
