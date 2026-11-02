@@ -5,7 +5,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 from mirsad.engines.chart import analyze_chart_image
-from mirsad.engines.mt5_observer import MT5ChartObserverInbox
+from mirsad.engines.mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candidates
 from mirsad.engines.mt5_market import MT5MarketDataEngine
 from mirsad.engines.mt5_chart_candles import MT5ChartCandleHistory
 
@@ -107,13 +107,29 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         return blocked("IMAGE_CHANGED", "PNG hash changed after inbox verification.")
     if not market_symbol or len(market_symbol) > 32:
         return blocked("MARKET_MAPPING_INVALID", "Explicit Mirsad market symbol is invalid.")
+    reference_candidates = recent_reference_candle_candidates(
+        bars, max_candidates=8, max_lookback=16
+    )
+    if not reference_candidates:
+        return blocked(
+            "REFERENCE_CANDLE_UNAVAILABLE",
+            "No recent native MT5 candle has a positive range suitable for visual calibration.",
+        )
+    candidates_for_chart = [{
+        "offset_from_right": item["offset_from_right"],
+        "time_server_ms": item.get("time_server_ms"),
+        "closed": item.get("closed"),
+        "ohlc": item["ohlc"],
+    } for item in reference_candidates]
     metadata = {
         "symbol": market_symbol, "timeframe": timeframe,
         "price_scale_type": str(chart.get("price_scale_type", "linear")).lower(),
         "expected_candle_count": int(chart.get("visible_bars", 0) or 0),
         "allow_reference_anchor_override": True,
         "last_candle_closed": False, "auto_axis_ocr": True,
-        "reference_last_candle_ohlc": {k: float(bars[-1][k]) for k in ("open", "high", "low", "close")}
+        "reference_candle_candidates": candidates_for_chart,
+        "reference_last_candle_ohlc": candidates_for_chart[0]["ohlc"],
+        "reference_candle_offset_from_right": candidates_for_chart[0]["offset_from_right"],
     }
     result = analyze_chart_image(image, metadata, expected_symbol=market_symbol)
     reference = result.get("reference_calibration") or {}
@@ -136,6 +152,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
               and axis_validation.get("status") == "READY"
               and result.get("reference_ohlc_override_applied") is True)
     eligible = bool(result.get("decision_eligible")) and anchor
+    selected_reference_anchor = result.get("reference_anchor") or {}
     return {
         "schema": "MIR-ENGINE2-OBSERVER-SMOKE-1",
         "capture_id": capture.get("capture_id"),
@@ -153,6 +170,8 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "confirmed_bars": result.get("confirmed_bar_count", 0),
             "reference_calibration_status": reference.get("status", "NOT_VERIFIED"),
             "reference_axis_validation": axis_validation,
+            "reference_anchor": selected_reference_anchor,
+            "reference_candidates_considered": len(candidates_for_chart),
             "reference_calibration_reason": reference_reason,
             "reference_calibration_diagnostics": reference_diagnostics,
             "calibration_source": calibration.get("source", "unavailable"),
