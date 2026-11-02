@@ -8,6 +8,7 @@ from typing import Any
 from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES
 from .engines.market import MarketEngine  # Research/benchmark adapter; not used for live runtime.
 from .engines.mt5_market import MT5MarketDataEngine
+from .engines.mt5_chart_candles import MT5ChartCandleHistory
 from .engines.chart import analyze_chart_image
 from .engines.chart_multi_timeframe import analyze_stored_multi_timeframe_structure
 from .engines.indicators import IndicatorsEngine
@@ -117,10 +118,7 @@ def _analyze_mt5_observer_chart(
  venues=market.get("venues") or {}
  primary=venues.get(market.get("primary_venue")) if market.get("primary_venue") else None
  if not isinstance(primary,dict) or primary.get("status")!="LIVE":
-  return _blocked_observer_chart(observer,"Engine 1 does not currently have the mapped live market venue.","OBSERVER_MARKET_UNAVAILABLE")
- market_frames=primary.get("candles_by_tf") or {}
- if timeframe not in market_frames:
-  return _blocked_observer_chart(observer,"Engine 1 has no matching timeframe for the MT5 chart.","OBSERVER_TIMEFRAME_UNMAPPED")
+  return _blocked_observer_chart(observer,"Engine 1 does not currently have the mapped live MT5 quote feed.","OBSERVER_MARKET_UNAVAILABLE")
 
  image_path=Path(str(observer.get("image_path",""))).expanduser()
  if not image_path.is_file():
@@ -223,8 +221,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    chart={"engine":"engine_2_chart_visual_analysis","status":"WAITING_FOR_IMAGE",
     "decision_eligible":False,"ai_used":False,
     "message":"Upload a real chart screenshot and enter its price-axis scale."}
- # Engine 2 reads Engine 1's stored OHLCV through a read-only, venue-specific adapter.
- # This descriptive confluence report is not fed into Engine 4 sizing or scoring.
+ # Historical multi-timeframe candle studies are kept as a separate research display.
+ # Live Engine 3 inputs come from the Engine 2 candle inbox below.
  try:
   chart["stored_multi_timeframe_structure"]=analyze_stored_multi_timeframe_structure(
    symbol=str(market.get("symbol","BTCUSDT")),
@@ -241,7 +239,15 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  # A fresh Observer capture is consumed by Engine 2 above as an image/market-data
  # evidence input. It never authorizes an order by itself: Engine 4 still owns
  # scoring, market-source quorum, position management and all risk gates.
- indicators=IndicatorsEngine().analyze(market)
+ candle_history=MT5ChartCandleHistory().collect(bridge=bridge,market=market)
+ indicators=IndicatorsEngine().analyze(candle_history)
+ chart["engine_2_candle_history"]={
+  "status":candle_history.get("status"),
+  "source":candle_history.get("source"),
+  "timeframes":candle_history.get("timeframes",{}),
+  "closed_candles":candle_history.get("closed_candles",{}),
+  "reason":candle_history.get("reason"),
+ }
  decision=DecisionEngine().analyze(market,chart,bridge,indicators)
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
  if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
@@ -255,6 +261,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  readiness={
   "engine_1_market":market_status=="LIVE",
   "engine_2_chart":bool(chart.get("decision_eligible")),
+  "engine_2_candles":candle_history.get("status")=="READY",
   "engine_3_indicators":indicators.get("status")=="READY",
   "engine_4_decision":decision.get("status")=="READY",
   "engine_5_communication_bridge":bridge.get("status")=="CONNECTED",
@@ -274,18 +281,25 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "primary_venue":market.get("primary_venue"),"venue_count":market.get("venue_count"),
    "status":market_status,
    "venues":{n:{"status":v.get("status"),"latency_ms":v.get("latency_ms"),
-    "error":v.get("error"),"timeframe_count":len(v.get("candles_by_tf",{})),
-    "orderflow":v.get("orderflow")} for n,v in market.get("venues",{}).items()}},
-  "chart":chart,"chart_observer":chart_observer,"indicators":indicators,
+    "error":v.get("error"),
+    "microstructure":v.get("microstructure",{}),
+    "economic_calendar_status":(v.get("economic_calendar") or {}).get("status")} for n,v in market.get("venues",{}).items()}},
+  "chart":chart,"chart_observer":chart_observer,"engine_2_candles":{
+   "status":candle_history.get("status"),"timeframes":candle_history.get("timeframes",{}),
+   "closed_candles":candle_history.get("closed_candles",{}),"reason":candle_history.get("reason")},
+  "indicators":indicators,
   "bridge":bridge,"decision":decision,"command_publish":command_publish,
-  "wiring":{"engine_1_to_engine_3":True,"engine_2_to_engine_4":True,
-   "engine_3_to_engine_4":True,
+  "wiring":{"engine_1_market_to_engine_4":True,"engine_2_chart_to_engine_4":True,
+   "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
    "engine_4_to_engine_5_command_envelope":"implemented_idempotent_user_authorized",
    "engine_5_to_engine_4_ack_and_positions":"read_from_common_files",
    "expert_connection":bridge.get("status","NOT_CONFIGURED")},
   "notices":[
-   "Engine 1: the configured MT5 broker market feed only. Engine 2: classical chart vision. Engine 3: technical indicator calculations. Engine 4: central decision and trade monitoring. Engine 5: MT5 communication bridge.",
-   "Engine 3 calculates from Engine 1 completed candles and does not create an independent directional vote.",
+   "Engine 1: MT5 quote pulse, spread/activity context and broker economic-calendar events. It does not read chart images or candles.",
+   "Engine 2: real chart screenshots, candle extraction/validation, price structure and visible patterns. Its native MT5 candle inbox is the only OHLC source for Engine 3.",
+   "Engine 3: EMA/RSI/ATR and multi-timeframe technical measures calculated exclusively from Engine 2 completed candles.",
+   "Engine 4: central synthesis, decision, position monitoring and risk ownership. Engine 5: MT5 communication bridge.",
+   "Engine 1 quote updates describe quote movement only; they are not represented as executed trades, taker flow or order-book depth.",
    "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
    "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
    "No market simulation or simulated order is used.",
