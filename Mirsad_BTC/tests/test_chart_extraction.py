@@ -158,5 +158,84 @@ class SlotGuidedExtractionTests(unittest.TestCase):
         self.assertEqual(len(bars), 4)
 
 
+class AutomaticPaletteInferenceTests(unittest.TestCase):
+    HEIGHT = 260
+    WIDTH = 400
+    COUNT = 20
+
+    PALETTES = {
+        "green_red": ((0, 200, 0), (0, 0, 220)),
+        "blue_orange": ((220, 80, 0), (0, 140, 255)),
+        "teal_magenta": ((180, 180, 0), (180, 0, 180)),
+    }
+
+    def _chart(self, mode: str) -> np.ndarray:
+        bullish_bgr, bearish_bgr = self.PALETTES[mode]
+        image = np.full((self.HEIGHT, self.WIDTH, 3), 255, dtype=np.uint8)
+        slot_width = self.WIDTH / self.COUNT
+        for index in range(self.COUNT):
+            x = int(round((index + 0.5) * slot_width))
+            upper = 52 + (index % 5) * 4
+            lower = 194 - (index % 4) * 3
+            bullish = index % 2 == 0
+            colour = bullish_bgr if bullish else bearish_bgr
+            open_y = 116 + (index % 3) * 3
+            close_y = open_y - 18 if bullish else open_y + 18
+            cv2.line(image, (x, upper), (x, lower), colour, 2)
+            cv2.rectangle(
+                image,
+                (x - 3, min(open_y, close_y)),
+                (x + 3, max(open_y, close_y)),
+                colour,
+                -1,
+            )
+        return image
+
+    def test_auto_palette_infers_green_red_blue_orange_and_teal_magenta(self) -> None:
+        for expected_mode in self.PALETTES:
+            with self.subTest(palette=expected_mode):
+                diagnostics: dict = {}
+                bars = _extract_bars(
+                    self._chart(expected_mode),
+                    {
+                        "plot_left_px": 0,
+                        "plot_right_px": self.WIDTH,
+                        "plot_top_px": 0,
+                        "plot_bottom_px": self.HEIGHT,
+                        "palette_mode": "auto",
+                        "expected_candle_count": self.COUNT,
+                    },
+                    diagnostics,
+                )
+                inference = diagnostics["palette_inference"]
+                self.assertEqual(inference["status"], "INFERRED", msg=repr(inference))
+                self.assertEqual(inference["selected_mode"], expected_mode, msg=repr(inference))
+                self.assertGreaterEqual(len(bars), 18, msg=repr(diagnostics))
+                self.assertEqual(diagnostics["selected_palette_mode"], expected_mode)
+                self.assertTrue(all(bar["palette_mode"] == expected_mode for bar in bars))
+
+    def test_auto_palette_falls_back_when_no_candle_like_components_exist(self) -> None:
+        image = np.full((self.HEIGHT, self.WIDTH, 3), 245, dtype=np.uint8)
+        diagnostics: dict = {}
+        bars = _extract_bars(
+            image,
+            {
+                "plot_left_px": 0,
+                "plot_right_px": self.WIDTH,
+                "plot_top_px": 0,
+                "plot_bottom_px": self.HEIGHT,
+                "palette_mode": "auto",
+                "expected_candle_count": self.COUNT,
+            },
+            diagnostics,
+        )
+        self.assertEqual(bars, [])
+        self.assertEqual(
+            diagnostics["palette_inference"]["status"],
+            "FALLBACK_NO_RELIABLE_PALETTE",
+        )
+        self.assertEqual(diagnostics["selected_palette_mode"], "green_red")
+
+
 if __name__ == "__main__":
     unittest.main()
