@@ -123,6 +123,24 @@ CREATE TABLE IF NOT EXISTS visual_structure_evaluations (
 );
 CREATE INDEX IF NOT EXISTS ix_visual_structure_evaluations_lookup
  ON visual_structure_evaluations(validation_status,structure_id,symbol,timeframe,data_split);
+CREATE TABLE IF NOT EXISTS visual_structure_evaluation_splits (
+ split_id INTEGER PRIMARY KEY AUTOINCREMENT,
+ dataset_id TEXT NOT NULL,
+ symbol TEXT NOT NULL,
+ venue TEXT NOT NULL,
+ timeframe TEXT NOT NULL,
+ data_split TEXT NOT NULL CHECK(data_split IN ('train','validation','test')),
+ split_start_ms INTEGER NOT NULL,
+ split_end_ms INTEGER NOT NULL,
+ embargo_bars INTEGER NOT NULL DEFAULT 0,
+ dataset_fingerprint TEXT NOT NULL,
+ registered_at_ms INTEGER NOT NULL,
+ UNIQUE(dataset_id,symbol,venue,timeframe,data_split),
+ CHECK(split_end_ms > split_start_ms),
+ CHECK(embargo_bars >= 0)
+);
+CREATE INDEX IF NOT EXISTS ix_visual_structure_split_windows
+ ON visual_structure_evaluation_splits(dataset_id,symbol,venue,timeframe,split_start_ms,split_end_ms);
 """
 
 def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
