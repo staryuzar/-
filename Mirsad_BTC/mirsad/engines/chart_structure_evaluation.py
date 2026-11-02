@@ -7,6 +7,7 @@ import time
 from statistics import mean, median
 from typing import Any
 
+from ..config import DB_PATH
 from ..storage import CANDLE_INTERVAL_MS, connect, load_candles_by_timeframe
 from .visual_knowledge import MARKET_STRUCTURE_CATALOG, seed_visual_knowledge
 
@@ -451,9 +452,7 @@ def evaluate_stored_structure_events(
         timeframes=(timeframe,),
         as_of_ms=as_of_ms,
         limit=limit,
-        db_path=db_path if db_path is not None else __import__(
-            "mirsad.config", fromlist=["DB_PATH"]
-        ).DB_PATH,
+        db_path=db_path if db_path is not None else DB_PATH,
     )
     bars = candle_map.get(timeframe, [])
     if len(bars) < 2:
