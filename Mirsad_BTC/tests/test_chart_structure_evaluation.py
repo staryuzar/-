@@ -46,6 +46,12 @@ def reversal_event(
 
 class StructureEventEvaluationTests(unittest.TestCase):
     def evaluate(self, bars, events, **kwargs):
+        interval = CANDLE_INTERVAL_MS["1h"]
+        split_start_ms = kwargs.pop("split_start_ms", int(bars[0]["open_time_ms"]))
+        split_end_ms = kwargs.pop(
+            "split_end_ms", int(bars[-1]["open_time_ms"]) + interval
+        )
+        embargo_bars = kwargs.pop("embargo_bars", 0)
         return evaluate_structure_events(
             bars,
             events,
@@ -54,6 +60,9 @@ class StructureEventEvaluationTests(unittest.TestCase):
             timeframe="1h",
             data_split="test",
             dataset_id="fixture-v1",
+            split_start_ms=split_start_ms,
+            split_end_ms=split_end_ms,
+            embargo_bars=embargo_bars,
             **kwargs,
         )
 
@@ -92,6 +101,8 @@ class StructureEventEvaluationTests(unittest.TestCase):
                 as_of_ms=start + 10 * interval,
                 data_split="test",
                 dataset_id="stored-fixture-v1",
+                split_start_ms=start,
+                split_end_ms=start + 10 * interval,
                 horizons=(1,),
                 db_path=db_path,
             )
@@ -129,6 +140,8 @@ class StructureEventEvaluationTests(unittest.TestCase):
                 as_of_ms=int(bars[-1]["open_time_ms"]) + CANDLE_INTERVAL_MS["1h"],
                 data_split="test",
                 dataset_id="engine-two-fixture-v1",
+                split_start_ms=int(bars[0]["open_time_ms"]),
+                split_end_ms=int(bars[-1]["open_time_ms"]) + CANDLE_INTERVAL_MS["1h"],
                 horizons=(1, 3),
                 db_path=db_path,
             )
@@ -217,6 +230,65 @@ class StructureEventEvaluationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "after all formation pivots"):
             self.evaluate(make_bars(10), [event], horizons=(1,))
 
+    def test_event_outside_split_is_skipped(self) -> None:
+        bars = make_bars(20)
+        split_start = int(bars[0]["open_time_ms"])
+        split_end = split_start + 10 * CANDLE_INTERVAL_MS["1h"]
+        result = self.evaluate(
+            bars,
+            [reversal_event(confirmation_index=12)],
+            split_start_ms=split_start,
+            split_end_ms=split_end,
+            horizons=(1,),
+        )
+        self.assertEqual(result["counts"]["events_outside_split_skipped"], 1)
+        self.assertEqual(result["results_by_pattern"], {})
+
+    def test_horizon_that_crosses_split_end_is_purged(self) -> None:
+        bars = make_bars(20)
+        split_start = int(bars[0]["open_time_ms"])
+        split_end = split_start + 6 * CANDLE_INTERVAL_MS["1h"]
+        result = self.evaluate(
+            bars,
+            [reversal_event(confirmation_index=4)],
+            split_start_ms=split_start,
+            split_end_ms=split_end,
+            horizons=(1, 3),
+        )
+        horizons = result["results_by_pattern"]["double_bottom"]["horizons"]
+        self.assertEqual(horizons["1"]["sample_count"], 1)
+        self.assertEqual(horizons["3"]["sample_count"], 0)
+        self.assertEqual(result["counts"]["incomplete_horizon_samples_by_horizon"]["3"], 1)
+
+    def test_split_start_embargo_excludes_early_events(self) -> None:
+        bars = make_bars(20)
+        interval = CANDLE_INTERVAL_MS["1h"]
+        split_start = int(bars[2]["open_time_ms"])
+        split_end = int(bars[-1]["open_time_ms"]) + interval
+        result = self.evaluate(
+            bars,
+            [
+                reversal_event(confirmation_index=3),
+                reversal_event(confirmation_index=5),
+            ],
+            split_start_ms=split_start,
+            split_end_ms=split_end,
+            embargo_bars=2,
+            horizons=(1,),
+        )
+        self.assertEqual(result["counts"]["events_embargoed_at_split_start"], 1)
+        self.assertEqual(result["results_by_pattern"]["double_bottom"]["horizons"]["1"]["sample_count"], 1)
+
+    def test_split_bounds_must_align_to_candle_interval(self) -> None:
+        bars = make_bars(10)
+        with self.assertRaisesRegex(ValueError, "align to the selected candle interval"):
+            self.evaluate(
+                bars,
+                [reversal_event()],
+                split_start_ms=int(bars[0]["open_time_ms"]) + 1,
+                horizons=(1,),
+            )
+
     def test_fee_and_slippage_assumptions_must_be_paired(self) -> None:
         with self.assertRaisesRegex(ValueError, "both be supplied"):
             self.evaluate(
@@ -249,7 +321,8 @@ class StructureEventEvaluationTests(unittest.TestCase):
             try:
                 rows = conn.execute(
                     """SELECT structure_id,sample_count,validation_status,human_reviewed,
-                              fee_adjusted_expectancy_pct,data_split
+                              fee_adjusted_expectancy_pct,data_split,dataset_id,
+                              split_start_ms,split_end_ms,embargo_bars
                        FROM visual_structure_evaluations"""
                 ).fetchall()
                 self.assertEqual(len(rows), 1)
@@ -258,6 +331,13 @@ class StructureEventEvaluationTests(unittest.TestCase):
                 self.assertEqual(rows[0]["validation_status"], "IN_PROGRESS")
                 self.assertEqual(rows[0]["human_reviewed"], 0)
                 self.assertEqual(rows[0]["data_split"], "test")
+                self.assertEqual(rows[0]["dataset_id"], "fixture-v1")
+                self.assertEqual(rows[0]["split_start_ms"], int(make_bars(20)[0]["open_time_ms"]))
+                self.assertEqual(
+                    rows[0]["split_end_ms"],
+                    int(make_bars(20)[-1]["open_time_ms"]) + CANDLE_INTERVAL_MS["1h"],
+                )
+                self.assertEqual(rows[0]["embargo_bars"], 0)
                 self.assertIsNotNone(rows[0]["fee_adjusted_expectancy_pct"])
             finally:
                 conn.close()
