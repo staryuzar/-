@@ -104,11 +104,10 @@ def analyze_mt5_observer_chart(
  timeframe=str(chart_meta.get("timeframe","")).strip().lower()
  if timeframe not in {"1m","5m","15m","1h","4h","1d","1w"}:
   return _blocked_observer_chart(observer,"MT5 chart timeframe is not supported by Engine 2.","OBSERVER_TIMEFRAME_UNSUPPORTED")
- venues=market.get("venues") or {}
- primary=venues.get(market.get("primary_venue")) if market.get("primary_venue") else None
- if not isinstance(primary,dict) or primary.get("status")!="LIVE":
-  return _blocked_observer_chart(observer,"Engine 1 does not currently have the mapped live MT5 quote feed.","OBSERVER_MARKET_UNAVAILABLE")
-
+  # Engine 2 validates its own chart image and native OHLC. A stale Engine 1
+  # quote must not erase valid visual evidence; Engine 4 independently gates
+  # any decision on the freshness and health of the live market feed.
+ 
  image_path=Path(str(observer.get("image_path",""))).expanduser()
  if not image_path.is_file():
   return _blocked_observer_chart(observer,"The validated Observer PNG is no longer available to Engine 2.","OBSERVER_IMAGE_MISSING")
@@ -156,6 +155,7 @@ def analyze_mt5_observer_chart(
    "reference_candidates_considered":len(reference_candidates_for_chart),
    "broker_symbol":observer_symbol,
    "market_symbol":market_symbol,
+   "engine_1_quote_freshness_required_for_visual_analysis":False,
    "timeframe":timeframe,
    "source_viewport_width_px":int(chart_meta.get("source_width_px",0) or 0),
    "source_viewport_height_px":int(chart_meta.get("source_main_window_height_px",0) or 0),
