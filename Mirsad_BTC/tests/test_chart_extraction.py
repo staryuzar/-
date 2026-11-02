@@ -33,7 +33,7 @@ class SlotGuidedExtractionTests(unittest.TestCase):
             )
         # A thick same-palette overlay crosses and joins the candle components.
         # Global connected-component filtering rejects this full-width object.
-        cv2.line(image, (0, 126), (self.WIDTH - 1, 126), self.GREEN, 8)
+        cv2.line(image, (0, 126), (self.WIDTH - 1, 126), self.GREEN, 20)
         return image
 
     def _extract(self, image: np.ndarray) -> tuple[list[dict], dict]:
