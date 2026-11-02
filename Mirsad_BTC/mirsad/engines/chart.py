@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .chart_calibration import calibrate_bars, calibrate_from_reference_candle, resolve_chart_calibration
+from .chart_pixel_metrics import analyze_pixel_visual_evidence
 from .chart_extraction import PALETTE_PRESETS, _extract_bars
 from .chart_image import load_chart_image
 from .chart_metrics import analyze_calibrated_bars
@@ -335,6 +336,7 @@ def analyze_chart_image(
     # The live/current candle remains visible in the result, but only closed
     # candles may contribute to confirmed visual evidence.
     confirmed_calibrated = calibrated if last_candle_closed else calibrated[:-1]
+    pixel_visual_evidence = analyze_pixel_visual_evidence(bars)
 
     knowledge_database = _ensure_visual_knowledge_database()
     observation_archive: dict[str, Any] = {"status": "DISABLED"}
@@ -503,6 +505,7 @@ def analyze_chart_image(
         },
         "visual_bias": analysis["visual_bias"],
         "visual_trend": analysis["visual_trend"],
+        "pixel_visual_evidence": pixel_visual_evidence,
         "market_structure": analysis["market_structure"],
         "momentum": analysis["momentum"],
         "analysis_score": round(max(-1.0, min(1.0, score)), 4),
