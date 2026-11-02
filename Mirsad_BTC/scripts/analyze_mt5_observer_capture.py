@@ -72,12 +72,26 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
     metadata = {
         "symbol": market_symbol, "timeframe": timeframe,
         "price_scale_type": str(chart.get("price_scale_type", "linear")).lower(),
-        "last_candle_closed": False, "auto_axis_ocr": False,
+        "last_candle_closed": False, "auto_axis_ocr": True,
         "reference_last_candle_ohlc": {k: float(bars[-1][k]) for k in ("open", "high", "low", "close")}
     }
     result = analyze_chart_image(image, metadata, expected_symbol=market_symbol)
     reference = result.get("reference_calibration") or {}
-    anchor = (result.get("calibration", {}).get("source") == "reference_last_candle_ohlc"
+    axis_ocr = result.get("axis_ocr") or {}
+    axis_fit = axis_ocr.get("fit") or {}
+    calibration = result.get("calibration") or {}
+    reference_reason = reference.get("reason")
+    reference_diagnostics = {
+        "detected_colour": reference.get("detected_colour"),
+        "expected_colour": reference.get("expected_colour"),
+        "maximum_residual_fraction": reference.get("maximum_residual_fraction"),
+        "body_residual_fraction_by_field": reference.get("body_residual_fraction_by_field", {}),
+        "reference_pixel_rows": reference.get("reference_pixel_rows", {}),
+    }
+    # Keep the live MT5 native candle as the only trusted calibration anchor.
+    # OCR may independently suggest axis ticks, but OCR-only calibration is not
+    # accepted until a separate native-OHLC-to-visible-candle residual check exists.
+    anchor = (calibration.get("source") == "reference_last_candle_ohlc"
               and reference.get("status") == "READY"
               and result.get("reference_ohlc_override_applied") is True)
     eligible = bool(result.get("decision_eligible")) and anchor
@@ -97,8 +111,26 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "detected_bars": result.get("detected_bar_count", 0),
             "confirmed_bars": result.get("confirmed_bar_count", 0),
             "reference_calibration_status": reference.get("status", "NOT_VERIFIED"),
+            "reference_calibration_reason": reference_reason,
+            "reference_calibration_diagnostics": reference_diagnostics,
+            "calibration_source": calibration.get("source", "unavailable"),
+            "axis_ocr": {
+                "status": axis_ocr.get("status", "NOT_RUN"),
+                "tick_count": len(axis_ocr.get("ticks", [])),
+                "fit_status": axis_fit.get("status", "NOT_RUN"),
+                "fit_residual_fraction": axis_fit.get("maximum_residual_fraction"),
+                "candidate_plot_right_px": axis_ocr.get("candidate_plot_right_px"),
+                "reason": axis_ocr.get("reason"),
+            },
+            "detected_bar_count": int(result.get("detected_bar_count", 0)),
+            "confirmed_bar_count": int(result.get("confirmed_bar_count", 0)),
+            "last_bar_x_ratio": result.get("last_bar_x_ratio"),
             "quality_gates": result.get("quality_gates", {}),
-            "reason": None if eligible else "Visual quality or native OHLC anchor did not pass."
+            "reason": None if eligible else (
+                reference_reason
+                or (axis_ocr.get("reason") if axis_ocr.get("status") == "OCR_UNAVAILABLE" else None)
+                or "Visual quality or native OHLC anchor did not pass."
+            )
         },
         "decision_eligible": False,
         "safety": {"read_only": True, "decision_eligible": False,
