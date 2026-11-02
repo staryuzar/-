@@ -176,6 +176,7 @@ string BuildCapturePayload(const string capture_id,
                            const int copied,
                            const int digits,
                            const long capture_at_utc_ms,
+                           const long rates_snapshot_at_utc_ms,
                            const long server_time_seconds,
                            const int server_utc_offset_seconds)
 {
@@ -186,6 +187,7 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"schema\":\"MIR-CHART-OBSERVATION-1\",";
    payload += "\"capture_id\":\"" + JsonEscape(capture_id) + "\",";
    payload += "\"capture_at_utc_ms\":" + (string)capture_at_utc_ms + ",";
+   payload += "\"rates_snapshot_at_utc_ms\":" + (string)rates_snapshot_at_utc_ms + ",";
    payload += "\"server_time_seconds\":" + (string)server_time_seconds + ",";
    payload += "\"server_utc_offset_seconds_at_capture\":" + (string)server_utc_offset_seconds + ",";
    payload += "\"image_file\":\"" + JsonEscape(image_name) + "\",";
@@ -271,9 +273,10 @@ bool BeginCapture()
       return false;
    }
 
-   long capture_at_utc_ms = UtcNowMs();
+   long rates_snapshot_at_utc_ms = UtcNowMs();
    long server_time_seconds = (long)TimeTradeServer();
    int server_utc_offset_seconds = (int)(TimeTradeServer() - TimeGMT());
+   long capture_at_utc_ms = UtcNowMs();
 
    g_sequence++;
    string capture_id = StringFormat("%I64d_%I64d_%u",
@@ -310,7 +313,8 @@ bool BeginCapture()
       chart_shift, chart_autoscroll, price_min, price_max,
       background_color, foreground_color, bull_color, bear_color,
       rates, copied, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS),
-      capture_at_utc_ms, server_time_seconds, server_utc_offset_seconds
+      capture_at_utc_ms, rates_snapshot_at_utc_ms,
+      server_time_seconds, server_utc_offset_seconds
    );
    g_pending = true;
    g_pending_started_tick = GetTickCount64();
