@@ -323,6 +323,13 @@ def render_engine_dashboard():
    + " | ".join(f"{tf}: {count}" for tf,count in mtf_counts.items())
    + " | هذا التقرير وصفي ولا يدخل في حساب القرار أو المخاطر."
   )
+  mtf_sources=stored_mtf.get("candle_source_intervals") or {}
+  if mtf_sources:
+   st.caption("مصدر شموع كل إطار: "+" | ".join(
+    f"{tf}: {', '.join(sources)}" for tf,sources in mtf_sources.items()
+   ))
+  if stored_mtf.get("weekly_derivation"):
+   st.caption("منهج الأسبوعي: "+stored_mtf["weekly_derivation"])
   mtf_rows=[]
   for tf,frame in (stored_mtf.get("timeframe_reports") or {}).items():
    scales=frame.get("scales") or {}
