@@ -38,6 +38,10 @@ on:
       - "Mirsad_BTC/tests/test_visual_knowledge.py"
       - ".github/workflows/mirsad-visual-evaluation.yml"
 
+concurrency:
+  group: mirsad-visual-evaluation-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -45,6 +49,7 @@ jobs:
   visual-structure-regression:
     name: Visual structure and event-study regression
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: Mirsad_BTC
