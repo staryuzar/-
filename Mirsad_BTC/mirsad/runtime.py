@@ -5,7 +5,7 @@ import hashlib
 import math
 from pathlib import Path
 from typing import Any
-from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH
+from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES
 from .engines.market import MarketEngine  # Research/benchmark adapter; not used for live runtime.
 from .engines.mt5_market import MT5MarketDataEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
@@ -58,7 +58,7 @@ def _chart_file()->Path|None:
  return max(files,key=lambda p:p.stat().st_mtime) if files else None
 
 def _inspect_mt5_chart_observer(now_ms:int|None=None)->dict[str,Any]:
- pipeline=Engine2MT5ChartImagePipeline()
+ pipeline=Engine2MT5ChartImagePipeline(common_files=MT5_COMMON_FILES)
  return pipeline.inspect_latest(now_ms=now_ms)
 
 
