@@ -153,9 +153,20 @@ def analyze_candle_patterns(
                 add("inside_bar", i - 1, i, "NEUTRAL")
             if float(cur["high"]) > float(prev["high"]) and float(cur["low"]) < float(prev["low"]):
                 add("outside_bar", i - 1, i, "CONTEXTUAL")
-            if previous_bear and bull and float(cur["close"]) > (prev_top + prev_bottom) / 2 and float(cur["close"]) < prev_top:
+            midpoint = (prev_top + prev_bottom) / 2
+            if (
+                previous_bear and bull
+                and float(cur["open"]) < midpoint
+                and float(cur["close"]) > midpoint
+                and float(cur["close"]) < prev_top
+            ):
                 add("piercing_line", i - 1, i, "BULLISH", "DOWN")
-            if previous_bull and bear and float(cur["close"]) < (prev_top + prev_bottom) / 2 and float(cur["close"]) > prev_bottom:
+            if (
+                previous_bull and bear
+                and float(cur["open"]) > midpoint
+                and float(cur["close"]) < midpoint
+                and float(cur["close"]) > prev_bottom
+            ):
                 add("dark_cloud_cover", i - 1, i, "BEARISH", "UP")
 
             tolerance = max(
