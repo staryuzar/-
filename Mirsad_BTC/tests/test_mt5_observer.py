@@ -23,8 +23,10 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
         image_path = images / image_name
         Image.new("RGB", (640, 360), (22, 28, 38)).save(image_path, format="PNG")
 
+        server_time_seconds = captured // 1000
+        server_time_ms = server_time_seconds * 1000
         bars = []
-        start = 1_800_000_000_000
+        start = server_time_ms - 30 * 60_000
         for index in range(30):
             base = 90_000.0 + index * 10.0
             bars.append({
@@ -44,6 +46,8 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             "capture_id": capture_id,
             "capture_at_utc_ms": captured,
             "published_at_utc_ms": captured + 100,
+            "server_time_seconds": server_time_seconds,
+            "server_utc_offset_seconds_at_capture": 0,
             "image_file": image_name,
             "image_width_px": 640,
             "image_height_px": 360,
@@ -100,6 +104,28 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
 
             self.assertEqual(result["status"], "INVALID_IMAGE_PATH")
+
+    def test_rejects_windows_path_traversal_image_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            payload["image_file"] = r"..\\outside.png"
+            (root / f"capture_{payload['capture_id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "INVALID_IMAGE_PATH")
+
+    def test_rejects_missing_server_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            del payload["server_time_seconds"]
+            (root / f"capture_{payload['capture_id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "INVALID_SERVER_TIME")
 
     def test_rejects_image_size_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
