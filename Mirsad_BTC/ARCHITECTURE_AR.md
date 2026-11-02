@@ -59,7 +59,7 @@ flowchart TB
 
 ## المحرك الثاني والثالث
 
-واجهة التحليل البصري هي `mirsad.engines.chart.analyze_chart_image`. وهي مسؤولة عن الصورة ومعايرة المحور واستخراج OHLC والأنماط والبنية والاتجاه البصري وجودة الأدلة. واجهة تحميل تاريخ الشموع الأصلي هي `mirsad.engines.mt5_chart_candles.MT5ChartCandleHistory`; وتتحقق من حداثة الملف، وهوية الرمز والخادم مع المحركين 1 و5، وصحة OHLC وترتيب الزمن ووجود شمعة تشكيل أخيرة، وحد أدنى قدره 50 شمعة مغلقة في 1m و5m و15m.
+تبدأ سلسلة صورة MT5 داخل المحرك الثاني من المكوّن `mirsad.engines.mt5_chart_pipeline.Engine2MT5ChartImagePipeline`: يقرأ أحدث `capture_<id>.json` من `Common\\Files\\MirsadBTC\\observer` ويطابقه مع PNG داخل `observer\\images`، ثم يتحقق من سلامة الصورة والحداثة والهوية والرمز والإطار ومزامنة الصورة مع OHLC. بعد ذلك يسلّم الصورة إلى `mirsad.engines.chart.analyze_chart_image` لتشغيل مراحل `chart_image.py` و`chart_calibration.py` و`chart_extraction.py` و`chart_patterns.py` و`chart_metrics.py` وغيرها. لذلك لا ينشئ المحرك ملتقطاً آخر؛ بل يستهلك مباشرةً ملفات خبير MT5 الموجود. واجهة تحميل تاريخ الشموع الأصلي هي `mirsad.engines.mt5_chart_candles.MT5ChartCandleHistory`; وتتحقق من حداثة الملف، وهوية الرمز والخادم مع المحركين 1 و5، وصحة OHLC وترتيب الزمن ووجود شمعة تشكيل أخيرة، وحد أدنى قدره 50 شمعة مغلقة في 1m و5m و15m.
 
 واجهة المؤشرات هي `mirsad.engines.indicators.IndicatorsEngine.analyze` وتستقبل نتيجة المحرك الثاني فقط. تستبعد الشمعة قيد التكوين، وتحسب EMA20/EMA50 وRSI14 وATR14 وملخص اتجاه الأطر. لا يعاد توجيه بيانات شموع المحرك الأول إلى هذه الواجهة.
 
