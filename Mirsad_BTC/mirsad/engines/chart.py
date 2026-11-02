@@ -7,7 +7,12 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .chart_calibration import calibrate_bars, calibrate_from_reference_candle, resolve_chart_calibration
+from .chart_calibration import (
+    calibrate_bars,
+    calibrate_from_reference_candle,
+    resolve_chart_calibration,
+    validate_reference_candle_against_calibration,
+)
 from .chart_pixel_metrics import analyze_pixel_visual_evidence
 from .chart_extraction import PALETTE_PRESETS, _extract_bars
 from .chart_image import load_chart_image
@@ -293,8 +298,10 @@ def analyze_chart_image(
         extraction_diagnostics: dict[str, Any] = {}
         bars = _extract_bars(image, extraction_metadata, diagnostics=extraction_diagnostics)
         reference_calibration: dict[str, Any] = {"status": "NOT_REQUESTED"}
+        reference_axis_validation: dict[str, Any] = {"status": "NOT_REQUESTED"}
+        reference_anchor_verified = False
         reference_ohlc = meta.get("reference_last_candle_ohlc")
-        if not calibration["price_scale_valid"] and isinstance(reference_ohlc, dict) and bars:
+        if isinstance(reference_ohlc, dict) and bars:
             reference_calibration = calibrate_from_reference_candle(
                 bars[-1],
                 reference_ohlc,
@@ -306,9 +313,33 @@ def analyze_chart_image(
                 plot_bottom_px=calibration["plot_bottom_px"],
                 scale_type=calibration["price_scale_type"],
             )
-            if reference_calibration.get("status") == "READY":
-                calibration = reference_calibration["calibration"]
-                calibration_source = "reference_last_candle_ohlc"
+            if not calibration["price_scale_valid"]:
+                if reference_calibration.get("status") == "READY":
+                    calibration = reference_calibration["calibration"]
+                    calibration_source = "reference_last_candle_ohlc"
+                    reference_axis_validation = {
+                        "status": "READY",
+                        "method": "reference_last_candle_ohlc_pixel_fit",
+                        "maximum_residual_fraction": reference_calibration.get("maximum_residual_fraction"),
+                    }
+                    reference_anchor_verified = True
+                else:
+                    reference_axis_validation = {
+                        "status": reference_calibration.get("status", "NOT_READY"),
+                        "reason": reference_calibration.get("reason"),
+                    }
+            elif reference_calibration.get("status") == "READY":
+                reference_axis_validation = validate_reference_candle_against_calibration(
+                    bars[-1], reference_ohlc, calibration
+                )
+                reference_anchor_verified = reference_axis_validation.get("status") == "READY"
+                if not reference_anchor_verified:
+                    reference_axis_validation["independent_reference_fit_status"] = "READY"
+            else:
+                reference_axis_validation = {
+                    "status": reference_calibration.get("status", "NOT_READY"),
+                    "reason": reference_calibration.get("reason"),
+                }
     except (TypeError, ValueError, OverflowError) as exc:
         return {
             **result,
@@ -322,11 +353,7 @@ def analyze_chart_image(
     calibrated = calibrate_bars(bars, calibration)
     reference_ohlc_override_applied = False
     reference_ohlc = meta.get("reference_last_candle_ohlc")
-    if (
-        calibration_source == "reference_last_candle_ohlc"
-        and isinstance(reference_ohlc, dict)
-        and bars
-    ):
+    if reference_anchor_verified and isinstance(reference_ohlc, dict) and bars:
         reference_x = bars[-1].get("x_px")
         for index in range(len(calibrated) - 1, -1, -1):
             if calibrated[index].get("x_px") == reference_x:
@@ -456,6 +483,8 @@ def analyze_chart_image(
         ),
         "candle_colour_purity": mean_colour_purity >= MIN_MEAN_COLOUR_PURITY,
     }
+    if isinstance(meta.get("reference_last_candle_ohlc"), dict):
+        quality_gates["native_reference_candle_verified"] = bool(reference_anchor_verified)
     eligible = all(quality_gates.values())
     if eligible:
         state = "READY"
@@ -540,6 +569,11 @@ def analyze_chart_image(
             else {"status": "NOT_REQUESTED"}
         ),
         "reference_ohlc_override_applied": reference_ohlc_override_applied,
+        "reference_axis_validation": (
+            reference_axis_validation
+            if "reference_axis_validation" in locals()
+            else {"status": "NOT_REQUESTED"}
+        ),
         "header_ocr": header_ocr,
         "ocr_model_used": (
             axis_ocr.get("ocr_backend") == "RapidOCR"

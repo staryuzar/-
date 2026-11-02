@@ -91,8 +91,9 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
     # Keep the live MT5 native candle as the only trusted calibration anchor.
     # OCR may independently suggest axis ticks, but OCR-only calibration is not
     # accepted until a separate native-OHLC-to-visible-candle residual check exists.
-    anchor = (calibration.get("source") == "reference_last_candle_ohlc"
-              and reference.get("status") == "READY"
+    axis_validation = result.get("reference_axis_validation") or {}
+    anchor = (reference.get("status") == "READY"
+              and axis_validation.get("status") == "READY"
               and result.get("reference_ohlc_override_applied") is True)
     eligible = bool(result.get("decision_eligible")) and anchor
     return {
@@ -111,6 +112,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "detected_bars": result.get("detected_bar_count", 0),
             "confirmed_bars": result.get("confirmed_bar_count", 0),
             "reference_calibration_status": reference.get("status", "NOT_VERIFIED"),
+            "reference_axis_validation": axis_validation,
             "reference_calibration_reason": reference_reason,
             "reference_calibration_diagnostics": reference_diagnostics,
             "calibration_source": calibration.get("source", "unavailable"),

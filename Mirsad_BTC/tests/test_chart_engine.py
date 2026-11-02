@@ -236,6 +236,37 @@ class ChartEngineTests(unittest.TestCase):
         self.assertAlmostEqual(result["bars"][-1]["low"], 119.2, places=4)
         self.assertAlmostEqual(result["bars"][-1]["close"], 120.5, places=4)
 
+    def test_native_reference_candle_is_checked_against_an_already_valid_manual_axis(self) -> None:
+        result = self._analyze(metadata={
+            "reference_last_candle_ohlc": {
+                "open": 107600.0,
+                "high": 109333.333333,
+                "low": 106933.333333,
+                "close": 108666.666667,
+            },
+        })
+        self.assertEqual(result["calibration"]["source"], "manual")
+        self.assertEqual(result["reference_calibration"]["status"], "READY")
+        self.assertEqual(result["reference_axis_validation"]["status"], "READY")
+        self.assertTrue(result["reference_ohlc_override_applied"])
+        self.assertTrue(result["quality_gates"]["native_reference_candle_verified"])
+        self.assertTrue(result["decision_eligible"])
+
+    def test_native_reference_mismatch_blocks_an_otherwise_valid_manual_axis(self) -> None:
+        result = self._analyze(metadata={
+            "reference_last_candle_ohlc": {
+                "open": 109100.0,
+                "high": 110833.333333,
+                "low": 108433.333333,
+                "close": 110166.666667,
+            },
+        })
+        self.assertTrue(result["calibration"]["price_scale_valid"])
+        self.assertEqual(result["reference_axis_validation"]["status"], "REFERENCE_AXIS_MISMATCH")
+        self.assertFalse(result["reference_ohlc_override_applied"])
+        self.assertFalse(result["quality_gates"]["native_reference_candle_verified"])
+        self.assertFalse(result["decision_eligible"])
+
     def test_reference_body_pixels_must_agree_with_wick_scale_fit(self) -> None:
         result = self._analyze(metadata={
             "price_top": None,

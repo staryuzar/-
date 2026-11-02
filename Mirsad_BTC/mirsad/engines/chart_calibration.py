@@ -262,3 +262,118 @@ def calibrate_from_reference_candle(
         "reference_pixel_rows": {key: round(value, 3) for key, value in pixel.items()},
     }
 
+
+def validate_reference_candle_against_calibration(
+    reference_bar: dict[str, Any],
+    reference_ohlc: dict[str, Any],
+    calibration: dict[str, Any],
+    *,
+    maximum_residual_fraction: float = 0.40,
+) -> dict[str, Any]:
+    """Cross-check a trusted native OHLC candle against an existing pixel/price axis.
+
+    This does not refit an existing OCR/manual axis. It tests whether the axis
+    maps the visible candle's wick and body pixels back to the supplied OHLC.
+    """
+    if not isinstance(reference_bar, dict) or not isinstance(reference_ohlc, dict):
+        return {"status": "INVALID_REFERENCE", "reason": "reference bar and OHLC must be objects"}
+    if not isinstance(calibration, dict) or not calibration.get("price_scale_valid"):
+        return {"status": "INVALID_CALIBRATION", "reason": "an existing valid price axis is required"}
+
+    try:
+        values = {key: float(reference_ohlc[key]) for key in ("open", "high", "low", "close")}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {"status": "INVALID_REFERENCE", "reason": "reference OHLC must contain finite numeric values"}
+    if not all(math.isfinite(value) and value > 0 for value in values.values()):
+        return {"status": "INVALID_REFERENCE", "reason": "reference OHLC values must be finite and positive"}
+    if values["high"] < max(values["open"], values["close"], values["low"]):
+        return {"status": "INVALID_REFERENCE", "reason": "reference high is below an OHLC value"}
+    if values["low"] > min(values["open"], values["close"], values["high"]):
+        return {"status": "INVALID_REFERENCE", "reason": "reference low is above an OHLC value"}
+    candle_range = values["high"] - values["low"]
+    if candle_range <= 0:
+        return {"status": "INVALID_REFERENCE", "reason": "reference candle must have a positive high-low range"}
+
+    colour = str(reference_bar.get("colour", "")).strip().upper()
+    expected_colour = (
+        "GREEN" if values["close"] > values["open"]
+        else "RED" if values["close"] < values["open"]
+        else "DOJI"
+    )
+    if colour != expected_colour:
+        return {
+            "status": "REFERENCE_DIRECTION_MISMATCH",
+            "reason": "detected last-candle colour conflicts with native OHLC direction",
+            "detected_colour": colour or None,
+            "expected_colour": expected_colour,
+        }
+
+    try:
+        pixel = {
+            "high": float(reference_bar["high_y_px"]),
+            "low": float(reference_bar["low_y_px"]),
+            "body_top": float(reference_bar["body_top_y_px"]),
+            "body_bottom": float(reference_bar["body_bottom_y_px"]),
+        }
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {"status": "INVALID_REFERENCE_BAR", "reason": "reference bar is missing finite pixel geometry"}
+    if not all(math.isfinite(value) for value in pixel.values()):
+        return {"status": "INVALID_REFERENCE_BAR", "reason": "reference bar pixel geometry must be finite"}
+    if not (
+        pixel["high"] < pixel["low"]
+        and pixel["body_top"] <= pixel["body_bottom"]
+        and pixel["high"] <= pixel["body_top"] + 1
+        and pixel["low"] >= pixel["body_bottom"] - 1
+    ):
+        return {"status": "INVALID_REFERENCE_BAR", "reason": "reference candle pixel geometry is inconsistent"}
+
+    if expected_colour == "GREEN":
+        pixel_open, pixel_close = pixel["body_bottom"], pixel["body_top"]
+    elif expected_colour == "RED":
+        pixel_open, pixel_close = pixel["body_top"], pixel["body_bottom"]
+    else:
+        midpoint = (pixel["body_top"] + pixel["body_bottom"]) / 2.0
+        pixel_open = pixel_close = midpoint
+
+    plot_top = float(calibration["plot_top_px"])
+    plot_bottom = float(calibration["plot_bottom_px"])
+    if any(y < plot_top or y > plot_bottom for y in pixel.values()):
+        return {"status": "REFERENCE_PIXEL_OUTSIDE_PLOT", "reason": "native candle pixels fall outside the calibrated plot"}
+
+    try:
+        predicted = {
+            "high": price_at_pixel(pixel["high"], calibration),
+            "low": price_at_pixel(pixel["low"], calibration),
+            "open": price_at_pixel(pixel_open, calibration),
+            "close": price_at_pixel(pixel_close, calibration),
+        }
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        return {"status": "INVALID_CALIBRATION", "reason": f"price mapping failed: {type(exc).__name__}"}
+
+    residuals = {
+        key: abs(predicted[key] - values[key]) / candle_range
+        for key in ("high", "low", "open", "close")
+    }
+    maximum_residual = max(residuals.values())
+    if not all(math.isfinite(value) for value in residuals.values()) or maximum_residual > maximum_residual_fraction:
+        return {
+            "status": "REFERENCE_AXIS_MISMATCH",
+            "reason": "existing price-axis calibration does not reproduce the native MT5 OHLC candle",
+            "maximum_residual_fraction": round(maximum_residual, 6),
+            "residual_fraction_by_field": {key: round(value, 6) for key, value in residuals.items()},
+            "predicted_ohlc": {key: round(value, 8) for key, value in predicted.items()},
+            "native_ohlc": values,
+            "tolerance": maximum_residual_fraction,
+            "reference_pixel_rows": {key: round(value, 3) for key, value in pixel.items()},
+        }
+    return {
+        "status": "READY",
+        "method": "native_ohlc_against_existing_axis",
+        "maximum_residual_fraction": round(maximum_residual, 6),
+        "residual_fraction_by_field": {key: round(value, 6) for key, value in residuals.items()},
+        "predicted_ohlc": {key: round(value, 8) for key, value in predicted.items()},
+        "native_ohlc": values,
+        "tolerance": maximum_residual_fraction,
+        "reference_pixel_rows": {key: round(value, 3) for key, value in pixel.items()},
+    }
+
