@@ -210,7 +210,7 @@ class DecisionBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(result["action"], "WAIT")
         self.assertEqual(result["status"], "NOT_READY")
-        self.assertIn("Engine 3 indicators", result["reason"])
+        self.assertIn("Completed OHLC history is insufficient", result["reason"])
 
     def test_one_public_venue_without_mt5_identity_is_still_blocked(self) -> None:
         result = DecisionEngine().analyze(
