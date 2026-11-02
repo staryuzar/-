@@ -27,6 +27,20 @@ class ChartOCRTests(unittest.TestCase):
     def test_parse_price_label_normalizes_arabic_indic_digits(self) -> None:
         self.assertEqual(parse_price_label("١٢٠٬٠٠٠"), 120000.0)
 
+    def test_parse_price_labels_with_european_and_arabic_decimal_separators(self) -> None:
+        self.assertEqual(parse_price_label("92.500,25"), 92500.25)
+        self.assertEqual(parse_price_label("92,500.25"), 92500.25)
+        self.assertEqual(parse_price_label("1 234 567,89"), 1234567.89)
+        self.assertEqual(parse_price_label("١٢٠٬٠٠٠٫٥٠"), 120000.50)
+        self.assertEqual(parse_price_label("1.234.567,89"), 1234567.89)
+        self.assertEqual(parse_price_label("1,234,567"), 1234567.0)
+        self.assertEqual(parse_price_label("0.125"), 0.125)
+
+    def test_parse_price_label_rejects_malformed_grouping_and_percent_axes(self) -> None:
+        self.assertIsNone(parse_price_label("12,34,56"))
+        self.assertIsNone(parse_price_label("50%"))
+        self.assertIsNone(parse_price_label("1.23.45,6"))
+
     def test_linear_axis_is_fitted_from_four_consistent_ticks(self) -> None:
         ticks = [
             {"y_px": 30, "price": 120000, "score": 0.95},
