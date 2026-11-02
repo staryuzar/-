@@ -337,6 +337,41 @@ class StructureEventEvaluationTests(unittest.TestCase):
                 horizons=(1,),
             )
 
+    def test_train_validation_test_windows_must_be_chronological(self) -> None:
+        bars = make_bars(20)
+        interval = CANDLE_INTERVAL_MS["1h"]
+        start = int(bars[0]["open_time_ms"])
+        split_point = start + 10 * interval
+        end = int(bars[-1]["open_time_ms"]) + interval
+        with tempfile.TemporaryDirectory() as temporary:
+            db_path = str(Path(temporary) / "chronological-splits.sqlite3")
+            later_test = self.evaluate(
+                bars,
+                [reversal_event(confirmation_index=2)],
+                data_split="test",
+                split_start_ms=start,
+                split_end_ms=split_point,
+                horizons=(1,),
+            )
+            self.assertEqual(
+                persist_structure_evaluations(later_test, primary_horizon_bars=1, db_path=db_path),
+                1,
+            )
+            earlier_validation = self.evaluate(
+                bars,
+                [reversal_event(confirmation_index=12)],
+                data_split="validation",
+                split_start_ms=split_point,
+                split_end_ms=end,
+                horizons=(1,),
+            )
+            with self.assertRaisesRegex(ValueError, "validation must end before test begins"):
+                persist_structure_evaluations(
+                    earlier_validation,
+                    primary_horizon_bars=1,
+                    db_path=db_path,
+                )
+
     def test_fee_and_slippage_assumptions_must_be_paired(self) -> None:
         with self.assertRaisesRegex(ValueError, "both be supplied"):
             self.evaluate(
