@@ -31,27 +31,48 @@ DEFAULT_OCR_SAMPLE_LIMIT = 128
 
 
 def parse_reference_candle(text: Any) -> dict[str, Any]:
-    """Read only the last-candle facts explicitly present in the dataset text."""
+    """Parse the dataset's independently supplied last-candle OHLC description."""
     value = str(text or "")
     direction_match = re.search(
-        r"\bCandle\s*:\s*(bullish|bearish|doji)\b",
+        r"\\bCandle\\s*:\\s*(bullish|bearish|doji)\\b",
         value,
         flags=re.IGNORECASE,
     )
-    close_match = re.search(
-        r"\bClose\s*:\s*([+-]?(?:\d{1,3}(?:,\d{3})+|\d+)?(?:\.\d+)?)",
-        value,
-        flags=re.IGNORECASE,
-    )
-    direction = direction_match.group(1).upper() if direction_match else None
-    close = None
-    if close_match:
+    number_pattern = r"([+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)"
+    ohlc: dict[str, float] = {}
+    for field in ("open", "high", "low", "close"):
+        match = re.search(
+            rf"\\b{field}\\s*:\\s*{number_pattern}",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            continue
         try:
-            parsed = float(close_match.group(1).replace(",", ""))
-            close = parsed if math.isfinite(parsed) else None
+            parsed = float(match.group(1).replace(",", ""))
         except (TypeError, ValueError, OverflowError):
-            close = None
-    return {"direction": direction, "close": close}
+            continue
+        if math.isfinite(parsed) and parsed > 0:
+            ohlc[field] = parsed
+
+    direction = direction_match.group(1).upper() if direction_match else None
+    if direction is None and "open" in ohlc and "close" in ohlc:
+        direction = (
+            "BULLISH" if ohlc["close"] > ohlc["open"]
+            else "BEARISH" if ohlc["close"] < ohlc["open"]
+            else "DOJI"
+        )
+    ohlc_valid = (
+        len(ohlc) == 4
+        and ohlc["high"] >= max(ohlc["open"], ohlc["close"], ohlc["low"])
+        and ohlc["low"] <= min(ohlc["open"], ohlc["close"], ohlc["high"])
+    )
+    return {
+        "direction": direction,
+        "close": ohlc.get("close"),
+        "ohlc": ohlc if ohlc_valid else None,
+        "ohlc_valid": bool(ohlc_valid),
+    }
 
 
 def future_close_direction(current_close: float | None, next_close: Any) -> str | None:
@@ -170,6 +191,12 @@ def run_benchmark(
     axis_calibrated_images = 0
     detected_bar_total = 0
     detected_bar_counts: list[int] = []
+    calibrated_bar_total = 0
+    confirmed_bar_total = 0
+    calibrated_bar_counts: list[int] = []
+    calibration_source_counts: Counter[str] = Counter()
+    reference_calibration_status_counts: Counter[str] = Counter()
+    reference_anchored_images = 0
     images_with_20plus_bars = 0
     sample_errors: list[dict[str, Any]] = []
     sample_results: list[dict[str, Any]] = []
@@ -230,7 +257,9 @@ def run_benchmark(
                     "plot_left_px": 0,
                     "plot_top_px": 0,
                     "plot_bottom_px": image.height,
+                    "expected_candle_count": 30,
                     "auto_axis_ocr": bool(use_ocr),
+                    "reference_last_candle_ohlc": reference.get("ohlc"),
                     "last_candle_closed": True,
                     "persist_knowledge_observations": False,
                 }
@@ -274,6 +303,18 @@ def run_benchmark(
                 detected = int(result.get("detected_bar_count", len(bars)) or 0)
                 detected_bar_total += detected
                 detected_bar_counts.append(detected)
+                calibrated_count = int(result.get("calibrated_bar_count", 0) or 0)
+                confirmed_count = int(result.get("confirmed_bar_count", 0) or 0)
+                calibrated_bar_total += calibrated_count
+                confirmed_bar_total += confirmed_count
+                calibrated_bar_counts.append(calibrated_count)
+                calibration_result = result.get("calibration") or {}
+                calibration_source = str(calibration_result.get("source", "unavailable"))
+                calibration_source_counts[calibration_source] += 1
+                reference_calibration = result.get("reference_calibration") or {}
+                reference_calibration_status = str(reference_calibration.get("status", "NOT_REPORTED"))
+                reference_calibration_status_counts[reference_calibration_status] += 1
+                reference_anchored_images += int(calibration_source == "reference_last_candle_ohlc")
                 if detected >= 20:
                     images_with_20plus_bars += 1
 
@@ -317,6 +358,12 @@ def run_benchmark(
                         "label_value_uninterpreted": label,
                         "status": status,
                         "detected_bar_count": detected,
+                        "calibrated_bar_count": calibrated_count,
+                        "confirmed_bar_count": confirmed_count,
+                        "calibration_source": calibration_source,
+                        "reference_calibration_status": reference_calibration_status,
+                        "reference_calibration_max_residual_fraction": reference_calibration.get("maximum_residual_fraction"),
+                        "last_bar_x_ratio": result.get("last_bar_x_ratio"),
                         "last_extracted_candle_direction": latest_direction,
                         "reference_last_candle_direction": expected_direction,
                         "last_candle_direction_match": (
@@ -371,6 +418,12 @@ def run_benchmark(
             "mean_detected_bars": mean_bars,
             "median_detected_bars": median_bars,
             "total_detected_bars": detected_bar_total,
+            "mean_calibrated_bars": (
+                round(calibrated_bar_total / len(calibrated_bar_counts), 3)
+                if calibrated_bar_counts else None
+            ),
+            "total_calibrated_bars": calibrated_bar_total,
+            "total_confirmed_bars": confirmed_bar_total,
         },
         "last_candle_colour_reference": {
             "cases": direction_cases,
@@ -382,9 +435,12 @@ def run_benchmark(
         "price_calibration_and_decision_gates": {
             "ocr_attempted_images": ocr_attempted,
             "axis_calibrated_images": axis_calibrated_images,
+            "reference_anchored_images": reference_anchored_images,
+            "calibration_source_counts": dict(calibration_source_counts),
+            "reference_calibration_status_counts": dict(reference_calibration_status_counts),
             "decision_eligible_images": eligible_images,
             "quality_gate_failure_counts": dict(gate_failure_counts),
-            "meaning": "Only charts with validated calibration and all original Engine 2 gates can be decision-eligible. No gate is relaxed for this benchmark.",
+            "meaning": "Axis OCR and reference-candle anchoring are reported separately. Reference-assisted calibration requires validated last-candle OHLC plus matching extracted candle colour and a bounded pixel-fit residual; it is not the autonomous live image path. No Engine 2 quality gate is relaxed.",
         },
         "one_step_forward_close_diagnostic": {
             "cases": future_direction_cases,
@@ -401,7 +457,7 @@ def run_benchmark(
         "representative_results": sample_results,
         "limitations": [
             "The dataset card declares 13,081 BTCUSDT records, 30 candles per image, a 1h interval, and next_close labels. The script reports actual rows consumed and does not assume label integer meanings.",
-            "Text descriptions are used only as a reference for the final candle direction and its close; label values are counted but not interpreted.",
+            "Text descriptions provide the last-candle OHLC reference for an explicitly tagged reference-assisted pixel calibration. The anchored candle is not an independent OHLC-accuracy test; the benchmark reports calibration provenance and rejects direction conflicts.",
             "An image without readable price-axis calibration must remain ineligible for a live Engine 4 decision, even if candle pixels can be extracted.",
             "This benchmark tests Engine 2 image ingestion and visual extraction. It does not test Engine 4 decisions, risk sizing, MT5 execution, or profitability.",
         ],
