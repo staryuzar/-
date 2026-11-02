@@ -381,19 +381,15 @@ public static class MirsadNativeWindow {
         if ($observerChartStatus -and [long]$observerChartStatus.chart_window_handle -gt 0) {
             $observerChartHwnd = [IntPtr]([long]$observerChartStatus.chart_window_handle)
             $targetedMaximize = [MirsadNativeWindow]::MaximizeMdiChartWindow($terminalWindow.MainWindowHandle,$observerChartHwnd)
+            $directMaximize = [MirsadNativeWindow]::ShowWindowAsync($observerChartHwnd,3)
             [MirsadNativeWindow]::SetForegroundWindow($observerChartHwnd) | Out-Null
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 3
             $chartWindowRect = [MirsadNativeWindow]::WindowRectText($observerChartHwnd)
-            Add-Report ("PASS — MDI windows maximized={0}; targeted Observer chart maximize requested={1}; target HWND={2}; target window={3}; symbol={4}; timeframe={5}." -f $allMdiChildren,$targetedMaximize,$observerChartHwnd,$chartWindowRect,$observerChartStatus.symbol,$observerChartStatus.timeframe)
-        }
-        else {
+            Add-Report ("PASS — MDI windows maximized={0}; MDI request={1}; direct maximize={2}; target HWND={3}; target window={4}; symbol={5}; timeframe={6}." -f $allMdiChildren,$targetedMaximize,$directMaximize,$observerChartHwnd,$chartWindowRect,$observerChartStatus.symbol,$observerChartStatus.timeframe)
+        } else {
             Add-Report ("WARN — Observer chart HWND was not published; MDI windows maximized={0}; source viewport quality gate remains in force." -f $allMdiChildren)
         }
-        else {
-            Add-Report 'WARN — Observer chart HWND was not published; the original viewport quality gate remains in force.'
-        }
-    }
-    else {
+    } else {
         Add-Report 'WARN — MT5 main window handle was not found for maximize; Observer will still apply its viewport safety gate.'
     }
     $observerDir = $null
