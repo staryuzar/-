@@ -154,7 +154,7 @@ def _extract_slot_guided_bars(
         row_width = roi.sum(axis=1)
         strongest_row = int(row_width.max())
         body_rows = np.flatnonzero(
-            row_width >= max(1, int(np.ceil(strongest_row * 0.48)))
+            row_width >= max(1, int(np.ceil(strongest_row * 0.75)))
         )
         if len(body_rows) == 0:
             diagnostics["rejected_component_quality"] += 1
@@ -335,7 +335,7 @@ def _extract_bars(
         strongest = int(row_width.max())
         if strongest <= 0:
             continue
-        body_rows = np.flatnonzero(row_width >= max(1, int(np.ceil(strongest * 0.48))))
+        body_rows = np.flatnonzero(row_width >= max(1, int(np.ceil(strongest * 0.75))))
         if len(body_rows) == 0:
             rejection_counts["no_body"] += 1
             continue
