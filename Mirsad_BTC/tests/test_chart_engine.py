@@ -12,6 +12,7 @@ from mirsad.engines.chart import _patterns, analyze_chart_image
 from mirsad.engines.chart_calibration import price_at_pixel, resolve_chart_calibration
 from mirsad.engines.chart_image import load_chart_image
 from mirsad.engines.chart_metrics import analyze_calibrated_bars
+from mirsad.engines.chart_pattern_reference import analyze_talib_pattern_reference
 
 
 class ChartEngineTests(unittest.TestCase):
@@ -306,6 +307,17 @@ class ChartEngineTests(unittest.TestCase):
         self.assertIn("support", result["market_structure"])
         self.assertIn("resistance", result["market_structure"])
         self.assertIn("trend", result["analysis_components"])
+
+    def test_chart_exposes_talib_reference_separate_from_visual_patterns(self) -> None:
+        result = self._analyze()
+        reference = result["reference_patterns"]
+        self.assertEqual(reference["status"], "READY")
+        self.assertEqual(reference["source"], "TA-Lib")
+        self.assertGreaterEqual(reference["pattern_definition_count"], 50)
+        self.assertIn("pattern_candidates", result)
+        self.assertIn("events", reference)
+        self.assertIn("not probabilities", reference["interpretation"])
+        self.assertIn("not an independent directional vote", reference["interpretation"])
 
     def test_insufficient_calibrated_history_returns_neutral_without_crashing(self) -> None:
         bars = [

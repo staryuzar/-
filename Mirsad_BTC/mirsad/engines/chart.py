@@ -12,6 +12,7 @@ from .chart_image import load_chart_image
 from .chart_metrics import analyze_calibrated_bars
 from .chart_patterns import _body_bounds, _patterns
 from .chart_ocr import detect_price_axis_ticks, fit_price_axis
+from .chart_pattern_reference import analyze_talib_pattern_reference
 
 SUPPORTED_TIMEFRAMES = frozenset({"1m", "5m", "15m", "1h", "4h", "1d", "1w"})
 MIN_CALIBRATED_BARS = 20
@@ -109,6 +110,28 @@ def analyze_chart_image(
 
     pattern_candidates = _patterns(bars)
     calibrated = calibrate_bars(bars, calibration)
+    if calibration["price_scale_valid"]:
+        try:
+            reference_patterns = analyze_talib_pattern_reference(
+                calibrated,
+                last_candle_closed=bool(meta.get("last_candle_closed", False)),
+            )
+        except Exception as exc:
+            # Keep the visual analyst operational if its independent reference
+            # scanner fails; the failure is exposed rather than hidden.
+            reference_patterns = {
+                "status": "ERROR",
+                "source": "TA-Lib",
+                "events": [],
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+    else:
+        reference_patterns = {
+            "status": "SKIPPED_UNCALIBRATED",
+            "source": "TA-Lib",
+            "events": [],
+            "error": "Calibrated OHLC is required before reference pattern scanning.",
+        }
     if calibration["price_scale_valid"]:
         analysis = analyze_calibrated_bars(
             calibrated,
@@ -211,7 +234,8 @@ def analyze_chart_image(
             "patterns": 0.0,
         },
         "pattern_candidates": pattern_candidates,
-        "bars": calibrated[-80:] if calibration["price_scale_valid"] else bars[-80:],
+        "reference_patterns": reference_patterns,
+        "bars": calibrated[-250:] if calibration["price_scale_valid"] else bars[-80:],
         "decision_eligible": eligible,
         "quality_gates": quality_gates,
         "axis_ocr": axis_ocr,
@@ -234,7 +258,7 @@ def analyze_chart_image(
             "The price axis depends on user-supplied top/bottom prices and the exact plot rectangle.",
             "The selected linear/logarithmic scale type must match the displayed chart axis.",
             "Candle colours depend on the selected palette and chart theme.",
-            "Pattern candidates are low-confidence observations and do not steer Engine 4 direction.",
+            "Visual pattern candidates and TA-Lib reference candidates are separate observations; neither is a probability or an independent directional vote.",
             "The visual confidence index is heuristic evidence quality, not a statistical probability.",
             "Engine 2 uses deterministic computer vision; it does not use a trained AI vision model.",
         ],

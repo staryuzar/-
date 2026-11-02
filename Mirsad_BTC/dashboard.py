@@ -30,7 +30,10 @@ STATUS_AR={
  "OFFLINE":"غير متصل","STALE":"بيانات قديمة","READY":"جاهز",
  "NOT_READY":"غير جاهز","WAITING_FOR_IMAGE":"بانتظار صورة الرسم",
  "DETECTED_UNCALIBRATED":"تم كشف الشموع — بانتظار معايرة المحور",
- "LOW_DETECTION":"اكتشاف ضعيف","BLOCKED_QUALITY_GATE":"بوابات جودة الرسم لم تكتمل","IMAGE_METADATA_MISMATCH":"إعدادات المعايرة لا تطابق الصورة","CONNECTED":"جسر الخبير متصل",
+ "LOW_DETECTION":"اكتشاف ضعيف",
+ "SKIPPED_UNCALIBRATED":"لم تُشغّل مرجعية الأنماط قبل معايرة الأسعار",
+ "UNAVAILABLE":"مكتبة مرجعية غير متاحة",
+ "INSUFFICIENT_DATA":"بيانات غير كافية","BLOCKED_QUALITY_GATE":"بوابات جودة الرسم لم تكتمل","IMAGE_METADATA_MISMATCH":"إعدادات المعايرة لا تطابق الصورة","CONNECTED":"جسر الخبير متصل",
  "WAITING_FOR_EXPERT":"بانتظار الخبير التنفيذي","NOT_CONFIGURED":"مسار MT5 غير محدد",
  "PUBLISH_DISABLED":"نشر أوامر الخبير معطل","PUBLISHED":"أُرسل أمر للجسر",
  "ALREADY_ACKNOWLEDGED":"الأمر له إقرار سابق","ALREADY_PUBLISHED":"الأمر منشور مسبقاً",
@@ -118,7 +121,30 @@ def render_engine_dashboard():
   if chart.get("input_age_seconds") is not None:
    st.caption(f"عمر صورة الشارت: {chart['input_age_seconds']} ثانية")
   if chart.get("pattern_candidates"):
+   st.markdown("**أنماط الرؤية الهندسية من الصورة**")
    st.dataframe(pd.DataFrame(chart["pattern_candidates"]),use_container_width=True,hide_index=True)
+  reference_patterns=chart.get("reference_patterns") or {}
+  st.markdown("**مرجع الأنماط الحسابي المستقل — TA-Lib على OHLC المعاير**")
+  st.caption(
+   f"الحالة: {ar(reference_patterns.get('status','NOT_AVAILABLE'))} | "
+   f"التعريفات: {reference_patterns.get('pattern_definition_count',0)} | "
+   f"الأحداث: {reference_patterns.get('event_count',0)} | "
+   f"مكتبة: {reference_patterns.get('version','—')}"
+  )
+  st.caption("هذه مطابقة حسابية ثانية للأنماط وليست تصويتاً إضافياً أو احتمال نجاح. اختلافها عن الرؤية الهندسية يظهر للمراجعة.")
+  if reference_patterns.get("events"):
+   ref_rows=[{
+    "النمط":item.get("pattern"),
+    "الاتجاه":item.get("side"),
+    "الحالة":item.get("state"),
+    "شمعة الحدث":item.get("bar_index"),
+    "قيمة TA-Lib":item.get("talib_value"),
+    "حد الإبطال":item.get("invalidation_level"),
+    "سبب الإبطال":item.get("invalidation_reason"),
+   } for item in reference_patterns["events"]]
+   st.dataframe(pd.DataFrame(ref_rows),use_container_width=True,hide_index=True)
+  elif reference_patterns.get("error"):
+   st.caption(reference_patterns["error"])
   axis_ocr=chart.get("axis_ocr") or {}
   calibration_info=chart.get("calibration") or {}
   st.caption(f"معايرة محور السعر: {calibration_info.get('source','غير متاح')} | نوع المحور: {calibration_info.get('price_scale_type','—')}")
@@ -233,6 +259,11 @@ def render_engine_dashboard():
    value=bool(saved_meta.get("auto_axis_ocr",True)),
    help="يحتاج المحرك إلى أربع تدريجات رقمية متناسقة على الأقل. عند فشل القراءة لن يخمّن الأسعار.",
   )
+  last_candle_closed=st.checkbox(
+   "آخر شمعة في الصورة مغلقة ومكتملة",
+   value=bool(saved_meta.get("last_candle_closed",False)),
+   help="اتركه غير محدد إن لم تكن متأكداً؛ سيصنف المحرك الأنماط على آخر شمعة كأنها قيد التكوين حتى لا يؤكد شمعة مفتوحة.",
+  )
   expected_candle_count=st.number_input(
    "عدد الشموع الظاهرة تقريباً (0 = غير معروف)",
    min_value=0,max_value=500,value=int(saved_meta.get("expected_candle_count",0) or 0),step=1,
@@ -271,7 +302,7 @@ def render_engine_dashboard():
     target.write_bytes(payload)
     metadata={"schema_version":2,"symbol":syms.strip().upper(),"timeframe":timeframe,
      "price_top":float(top_price),"price_bottom":float(bottom_price),
-     "price_scale_type":price_scale_type,"auto_axis_ocr":bool(auto_axis_ocr),"expected_candle_count":int(expected_candle_count),
+     "price_scale_type":price_scale_type,"auto_axis_ocr":bool(auto_axis_ocr),"last_candle_closed":bool(last_candle_closed),"expected_candle_count":int(expected_candle_count),
      "plot_left_px":int(plot_left),"plot_top_px":int(plot_top),
      "plot_right_px":int(plot_right),"plot_bottom_px":int(plot_bottom),
      "source_filename":uploaded.name,"source_sha256":hashlib.sha256(payload).hexdigest(),
