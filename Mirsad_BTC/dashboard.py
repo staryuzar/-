@@ -288,8 +288,29 @@ def render_engine_dashboard():
    f"الاتجاه البنيوي: {advanced.get('structure_direction','—')} | "
    f"أحداث BOS/CHOCH: {len(advanced.get('bos_choch_events',[]))} | "
    f"سحب السيولة: {len(advanced.get('liquidity_sweeps',[]))} | "
-   f"فجوات سعرية: {len(advanced.get('fair_value_gaps',[]))}"
+   f"فجوات سعرية: {len(advanced.get('fair_value_gaps',[]))} | "
+   f"أنماط سعرية متعددة القمم: {len(advanced.get('classical_patterns',[]))}"
   )
+  classical_rows=[{
+   "النمط":{
+    "double_top":"قمة مزدوجة",
+    "double_bottom":"قاع مزدوج",
+    "head_and_shoulders":"الرأس والكتفين",
+    "inverse_head_and_shoulders":"الرأس والكتفين المعكوس",
+   }.get(item.get("pattern_id"),item.get("pattern_id")),
+   "الحالة":ar(item.get("status","—")),
+   "الاتجاه الوصفي":item.get("direction"),
+   "قمم/قيعان التكوين":", ".join(str(x) for x in item.get("pivot_indices",[])),
+   "اكتمال تأكيد القمم":item.get("formation_confirmed_at"),
+   "شمعة كسر خط العنق":item.get("confirmation_index"),
+   "خط العنق":f"{item.get('neckline_left','—')} → {item.get('neckline_right','—')}",
+   "مستوى الإبطال":item.get("invalidation_level"),
+  } for item in advanced.get("classical_patterns",[])]
+  if classical_rows:
+   st.dataframe(pd.DataFrame(classical_rows),use_container_width=True,hide_index=True)
+   st.caption("هذه أنماط هندسية وصفية؛ لا تدخل في قرار التداول ولم تثبت فائدتها الإحصائية على BTC بعد.")
+  else:
+   st.caption("لم يتأكد تكوين قمة/قاع مزدوج أو رأس وكتفين في بيانات الشموع المؤكدة الحالية.")
   st.caption(
    f"كتل أوامر مرشحة مرتبطة بكسر مؤكد: {len(advanced.get('order_block_candidates',[]))} "
    "| هذه مناطق سعرية مرشحة وليست دليلاً على أوامر مؤسسات."

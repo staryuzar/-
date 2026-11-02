@@ -3,6 +3,8 @@ from __future__ import annotations
 from statistics import median
 from typing import Any
 
+from .chart_classical_patterns import detect_classical_reversal_patterns
+
 def _validate_bars(bars: list[dict[str, Any]]) -> list[dict[str, float]]:
     normalized: list[dict[str, float]] = []
     for index, bar in enumerate(bars):
@@ -95,6 +97,7 @@ def analyze_chart_structure_knowledge(
             "internal": {}, "swing": {}, "external": {},
             "bos_choch_events": [], "liquidity_sweeps": [],
             "equal_highs": [], "equal_lows": [], "fair_value_gaps": [],
+            "classical_patterns": [],
             "premium_discount": None,
             "limitations": ["At least eight confirmed candles are required for this structure pass."],
         }
@@ -277,6 +280,10 @@ def analyze_chart_structure_knowledge(
                 "confirmation": "three_closed_candle_price_imbalance",
             })
 
+    classical_patterns = detect_classical_reversal_patterns(
+        confirmed, swing_highs, swing_lows, atr=atr,
+    )
+
     premium_discount = None
     external_highs, external_lows = pivot_sets["external"]
     if external_highs and external_lows:
@@ -307,12 +314,15 @@ def analyze_chart_structure_knowledge(
         "equal_highs": equal_highs,
         "equal_lows": equal_lows,
         "fair_value_gaps": gaps[-30:],
+        "classical_patterns": classical_patterns,
         "premium_discount": premium_discount,
         "limitations": [
             "Internal, swing and external are pivot scales inside this one supplied timeframe, not true multi-timeframe analysis.",
             "Order-block detections are candidates linked to a confirmed structural break; they do not prove institutional orders. Breaker and mitigation block detectors are not implemented.",
             "A wick sweep describes price behaviour around a confirmed level; it does not prove actual resting orders or institutional activity.",
             "Fair value gaps are three-candle price-range imbalances and may be caused by ordinary volatility.",
+            "Classical double-top/bottom and head-and-shoulders structures are geometric candidates only; their empirical BTC performance is unvalidated.",
+            "Classical structure confirmation waits until every right-side pivot is confirmed, then requires a closed-candle neckline break; it does not create a trade vote.",
             "All event timestamps are candle indices because screenshot-derived OHLC may not include reliable timestamps.",
         ],
     }
