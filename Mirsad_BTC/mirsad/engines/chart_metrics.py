@@ -61,9 +61,9 @@ def _build_zones(
         midpoint = float(np.mean(prices))
         lower = min(prices) - half_width
         upper = max(prices) + half_width
-        if side == "support" and midpoint > current_price + tolerance:
+        if side == "support" and midpoint > current_price:
             continue
-        if side == "resistance" and midpoint < current_price - tolerance:
+        if side == "resistance" and midpoint < current_price:
             continue
         zones.append({
             "lower": round(lower, 8),
@@ -258,24 +258,6 @@ def analyze_calibrated_bars(
 
     entry_zone = None
     exit_zone = None
-    if trend_score > 0.05:
-        nearby_support = [zone for zone in support_zones if zone["midpoint"] <= current_price]
-        if nearby_support:
-            nearest = min(nearby_support, key=lambda zone: current_price - zone["midpoint"])
-            entry_zone = {**nearest, "kind": "BULLISH_PULLBACK_WATCH", "status": "OBSERVATION_ONLY"}
-        future_resistance = [zone for zone in resistance_zones if zone["midpoint"] > current_price]
-        if future_resistance:
-            nearest = min(future_resistance, key=lambda zone: zone["midpoint"] - current_price)
-            exit_zone = {**nearest, "kind": "NEXT_RESISTANCE_WATCH", "status": "OBSERVATION_ONLY"}
-    elif trend_score < -0.05:
-        nearby_resistance = [zone for zone in resistance_zones if zone["midpoint"] >= current_price]
-        if nearby_resistance:
-            nearest = min(nearby_resistance, key=lambda zone: zone["midpoint"] - current_price)
-            entry_zone = {**nearest, "kind": "BEARISH_PULLBACK_WATCH", "status": "OBSERVATION_ONLY"}
-        future_support = [zone for zone in support_zones if zone["midpoint"] < current_price]
-        if future_support:
-            nearest = max(future_support, key=lambda zone: zone["midpoint"])
-            exit_zone = {**nearest, "kind": "NEXT_SUPPORT_WATCH", "status": "OBSERVATION_ONLY"}
 
     market_structure = {
         "status": "READY" if structure_score is not None else "PARTIAL",
@@ -340,6 +322,31 @@ def analyze_calibrated_bars(
         bias = "BULLISH"
     elif analysis_score <= -0.20:
         bias = "BEARISH"
+
+    # Entry/exit watch zones follow the analyst's final integrated visual bias,
+    # not trend score alone. A bullish structure can still be actionable when
+    # the recent close path is choppy, and vice versa.
+    if bias == "BULLISH":
+        nearby_support = [zone for zone in support_zones if zone["midpoint"] <= current_price]
+        if nearby_support:
+            nearest = min(nearby_support, key=lambda zone: current_price - zone["midpoint"])
+            entry_zone = {**nearest, "kind": "BULLISH_PULLBACK_WATCH", "status": "OBSERVATION_ONLY"}
+        future_resistance = [zone for zone in resistance_zones if zone["midpoint"] > current_price]
+        if future_resistance:
+            nearest = min(future_resistance, key=lambda zone: zone["midpoint"] - current_price)
+            exit_zone = {**nearest, "kind": "NEXT_RESISTANCE_WATCH", "status": "OBSERVATION_ONLY"}
+    elif bias == "BEARISH":
+        nearby_resistance = [zone for zone in resistance_zones if zone["midpoint"] >= current_price]
+        if nearby_resistance:
+            nearest = min(nearby_resistance, key=lambda zone: zone["midpoint"] - current_price)
+            entry_zone = {**nearest, "kind": "BEARISH_PULLBACK_WATCH", "status": "OBSERVATION_ONLY"}
+        future_support = [zone for zone in support_zones if zone["midpoint"] < current_price]
+        if future_support:
+            nearest = max(future_support, key=lambda zone: zone["midpoint"])
+            exit_zone = {**nearest, "kind": "NEXT_SUPPORT_WATCH", "status": "OBSERVATION_ONLY"}
+
+    market_structure["entry_zone"] = entry_zone
+    market_structure["exit_zone"] = exit_zone
 
     sample_quality = min(1.0, len(recent) / 24.0)
     pivot_quality = min(1.0, min(len(swing_highs), len(swing_lows)) / 2.0)

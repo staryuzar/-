@@ -26,7 +26,6 @@ def parse_price_label(text: str) -> float | None:
     normalized = normalized.replace("٬", ",").replace("٫", ".")
     if re.search(r"\b(?:RSI|MACD|EMA|SMA|ATR|ADX|CCI|STOCH(?:ASTIC)?|WPR|WILLIAMS|BOLLINGER|BBANDS|VOLUME|VOL)\b", normalized, re.IGNORECASE):
         return None
-    normalized = normalized.replace("٬", ",").replace("٫", ".")
     for match in _NUMERIC_TOKEN.finditer(normalized):
         raw = re.sub(r"[\s,]", "", match.group(1))
         suffix = (match.group(2) or "").upper()
