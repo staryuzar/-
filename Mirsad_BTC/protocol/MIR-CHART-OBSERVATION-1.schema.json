@@ -20,7 +20,9 @@
     "bars_requested",
     "bars_copied",
     "forming_bar_included",
-    "bars"
+    "bars",
+    "rates_status",
+    "rates_error_code"
   ],
   "properties": {
     "schema": {
@@ -52,13 +54,11 @@
     },
     "image_width_px": {
       "type": "integer",
-      "minimum": 320,
-      "maximum": 3840
+      "minimum": 1
     },
     "image_height_px": {
       "type": "integer",
-      "minimum": 180,
-      "maximum": 2160
+      "minimum": 1
     },
     "image_size_bytes": {
       "type": "integer",
@@ -166,21 +166,18 @@
     },
     "bars_requested": {
       "type": "integer",
-      "minimum": 30,
-      "maximum": 500
+      "minimum": 1
     },
     "bars_copied": {
       "type": "integer",
-      "minimum": 20,
-      "maximum": 500
+      "minimum": 0
     },
     "forming_bar_included": {
       "const": true
     },
     "bars": {
       "type": "array",
-      "minItems": 20,
-      "maxItems": 500,
+      "minItems": 0,
       "items": {
         "type": "object",
         "required": [
@@ -237,6 +234,16 @@
     "rates_snapshot_at_utc_ms": {
       "type": "integer",
       "minimum": 1
+    },
+    "rates_status": {
+      "type": "string",
+      "enum": [
+        "AVAILABLE",
+        "UNAVAILABLE"
+      ]
+    },
+    "rates_error_code": {
+      "type": "integer"
     }
   },
   "additionalProperties": false
