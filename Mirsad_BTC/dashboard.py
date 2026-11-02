@@ -197,6 +197,20 @@ def render_engine_dashboard():
    st.dataframe(pd.DataFrame(ref_rows),use_container_width=True,hide_index=True)
   elif reference_patterns.get("error"):
    st.caption(reference_patterns["error"])
+  extraction=chart.get("extraction_diagnostics") or {}
+  slot_extraction=extraction.get("slot_guided_extraction") or {}
+  st.caption(
+   f"مسار استخراج الشموع: {extraction.get('segmentation_mode','projection_groups')} | "
+   f"الشموع المستخرجة: {chart.get('detected_bar_count',0)} | "
+   f"المواضع التي أعطت دليلاً: {slot_extraction.get('occupied_slots',0)} من "
+   f"{slot_extraction.get('slots_considered',0)}"
+  )
+  if slot_extraction:
+   st.caption(
+    f"استخدام التقسيم الموجّه: {'نعم' if slot_extraction.get('adopted') else 'لا'} | "
+    f"نقاوة ألوانه المتوسطة: {slot_extraction.get('mean_colour_purity','—')} | "
+    f"المواضع المرفوضة لضعف الدليل: {slot_extraction.get('rejected_component_quality',0) + slot_extraction.get('rejected_low_activity',0)}"
+   )
   st.markdown("**قاعدة معرفة المحرك البصري — الشموع وبنية السوق**")
   knowledge_db=chart.get("visual_knowledge_database") or {}
   k1,k2,k3,k4=st.columns(4)
