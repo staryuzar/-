@@ -300,11 +300,77 @@ def analyze_chart_image(
         reference_calibration: dict[str, Any] = {"status": "NOT_REQUESTED"}
         reference_axis_validation: dict[str, Any] = {"status": "NOT_REQUESTED"}
         reference_anchor_verified = False
-        reference_ohlc = meta.get("reference_last_candle_ohlc")
-        if isinstance(reference_ohlc, dict) and bars:
-            reference_calibration = calibrate_from_reference_candle(
-                bars[-1],
-                reference_ohlc,
+        selected_reference_bar: dict[str, Any] | None = None
+        selected_reference_ohlc: dict[str, Any] | None = None
+        selected_reference_candidate: dict[str, Any] | None = None
+        reference_candidates_raw = meta.get("reference_candle_candidates")
+        reference_candidates: list[dict[str, Any]] = []
+        if isinstance(reference_candidates_raw, list):
+            for item in reference_candidates_raw[:16]:
+                if not isinstance(item, dict) or not isinstance(item.get("ohlc"), dict):
+                    continue
+                try:
+                    offset = int(item.get("offset_from_right", -1))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if offset >= 0:
+                    reference_candidates.append({**item, "offset_from_right": offset})
+        if not reference_candidates:
+            legacy_reference = meta.get("reference_last_candle_ohlc")
+            try:
+                legacy_offset = int(meta.get("reference_candle_offset_from_right", 0))
+            except (TypeError, ValueError, OverflowError):
+                legacy_offset = -1
+            if isinstance(legacy_reference, dict) and legacy_offset >= 0:
+                reference_candidates.append({
+                    "offset_from_right": legacy_offset,
+                    "ohlc": legacy_reference,
+                    "time_server_ms": None,
+                    "closed": None,
+                })
+
+        try:
+            expected_count = int(meta.get("expected_candle_count", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            expected_count = 0
+        has_slot_indices = any(
+            isinstance(item, dict) and "slot_index" in item for item in bars
+        )
+        last_reference_failure: dict[str, Any] | None = None
+
+        def find_reference_pixel_bar(offset_from_right: int) -> dict[str, Any] | None:
+            if offset_from_right < 0:
+                return None
+            if expected_count > 0 and has_slot_indices:
+                target_slot = expected_count - 1 - offset_from_right
+                if target_slot < 0:
+                    return None
+                matches = [
+                    item for item in bars
+                    if isinstance(item, dict) and item.get("slot_index") == target_slot
+                ]
+                return matches[0] if len(matches) == 1 else None
+            index = len(bars) - 1 - offset_from_right
+            return bars[index] if 0 <= index < len(bars) else None
+
+        for candidate in reference_candidates:
+            offset = int(candidate["offset_from_right"])
+            if expected_count > 0 and offset >= expected_count:
+                continue
+            reference_bar = find_reference_pixel_bar(offset)
+            if reference_bar is None:
+                last_reference_failure = {
+                    "status": "REFERENCE_BAR_NOT_DETECTED",
+                    "reason": "The extracted chart image has no candle in the exact MT5 reference slot.",
+                    "offset_from_right": offset,
+                    "target_slot_index": expected_count - 1 - offset if expected_count > 0 else None,
+                }
+                continue
+
+            reference_ohlc_candidate = candidate["ohlc"]
+            candidate_calibration = calibrate_from_reference_candle(
+                reference_bar,
+                reference_ohlc_candidate,
                 image_width=image_width,
                 image_height=image_height,
                 plot_left_px=calibration["plot_left_px"],
@@ -313,52 +379,75 @@ def analyze_chart_image(
                 plot_bottom_px=calibration["plot_bottom_px"],
                 scale_type=calibration["price_scale_type"],
             )
-            if not calibration["price_scale_valid"]:
-                if reference_calibration.get("status") == "READY":
-                    calibration = reference_calibration["calibration"]
-                    calibration_source = "reference_last_candle_ohlc"
-                    reference_axis_validation = {
-                        "status": "READY",
-                        "method": "reference_last_candle_ohlc_pixel_fit",
-                        "maximum_residual_fraction": reference_calibration.get("maximum_residual_fraction"),
-                    }
-                    reference_anchor_verified = True
-                else:
-                    reference_axis_validation = {
-                        "status": reference_calibration.get("status", "NOT_READY"),
-                        "reason": reference_calibration.get("reason"),
-                    }
-            elif reference_calibration.get("status") == "READY":
-                reference_axis_validation = validate_reference_candle_against_calibration(
-                    bars[-1], reference_ohlc, calibration
-                )
-                reference_anchor_verified = reference_axis_validation.get("status") == "READY"
-                if (
-                    not reference_anchor_verified
-                    and calibration_source == "ocr"
-                    and bool(meta.get("allow_reference_anchor_override", False))
-                ):
-                    # A trusted, synchronized MT5 native candle may replace an
-                    # inconsistent OCR fit, but never a manually supplied axis.
-                    ocr_axis_validation = reference_axis_validation
-                    calibration = reference_calibration["calibration"]
-                    calibration_source = "reference_last_candle_ohlc"
-                    reference_axis_validation = {
-                        "status": "READY",
-                        "method": "native_ohlc_anchor_replaced_inconsistent_ocr",
-                        "ocr_axis_validation": ocr_axis_validation,
-                        "independent_reference_fit_status": "READY",
-                        "maximum_residual_fraction": reference_calibration.get("maximum_residual_fraction"),
-                    }
-                    reference_anchor_verified = True
-                elif not reference_anchor_verified:
-                    reference_axis_validation["independent_reference_fit_status"] = "READY"
-            else:
-                reference_axis_validation = {
-                    "status": reference_calibration.get("status", "NOT_READY"),
-                    "reason": reference_calibration.get("reason"),
+            if candidate_calibration.get("status") != "READY":
+                last_reference_failure = {
+                    **candidate_calibration,
+                    "offset_from_right": offset,
+                    "slot_index": reference_bar.get("slot_index"),
                 }
-    except (TypeError, ValueError, OverflowError) as exc:
+                continue
+
+            candidate_axis_validation: dict[str, Any]
+            candidate_calibration_map = calibration
+            replace_ocr_axis = False
+            if not calibration["price_scale_valid"]:
+                candidate_axis_validation = {
+                    "status": "READY",
+                    "method": "reference_candle_slot_ohlc_pixel_fit",
+                    "maximum_residual_fraction": candidate_calibration.get("maximum_residual_fraction"),
+                }
+                candidate_calibration_map = candidate_calibration["calibration"]
+            else:
+                candidate_axis_validation = validate_reference_candle_against_calibration(
+                    reference_bar, reference_ohlc_candidate, calibration
+                )
+                if candidate_axis_validation.get("status") != "READY":
+                    if calibration_source == "ocr" and bool(meta.get("allow_reference_anchor_override", False)):
+                        ocr_axis_validation = candidate_axis_validation
+                        candidate_axis_validation = {
+                            "status": "READY",
+                            "method": "native_ohlc_anchor_replaced_inconsistent_ocr",
+                            "ocr_axis_validation": ocr_axis_validation,
+                            "independent_reference_fit_status": "READY",
+                            "maximum_residual_fraction": candidate_calibration.get("maximum_residual_fraction"),
+                        }
+                        candidate_calibration_map = candidate_calibration["calibration"]
+                        replace_ocr_axis = True
+                    else:
+                        last_reference_failure = {
+                            **candidate_axis_validation,
+                            "offset_from_right": offset,
+                            "slot_index": reference_bar.get("slot_index"),
+                            "independent_reference_fit_status": "READY",
+                        }
+                        continue
+
+            reference_calibration = candidate_calibration
+            reference_axis_validation = {
+                **candidate_axis_validation,
+                "offset_from_right": offset,
+                "slot_index": reference_bar.get("slot_index"),
+                "reference_time_server_ms": candidate.get("time_server_ms"),
+                "reference_candle_closed": candidate.get("closed"),
+            }
+            selected_reference_bar = reference_bar
+            selected_reference_ohlc = reference_ohlc_candidate
+            selected_reference_candidate = candidate
+            reference_anchor_verified = True
+            if not calibration["price_scale_valid"] or replace_ocr_axis:
+                calibration = candidate_calibration_map
+                calibration_source = "reference_last_candle_ohlc"
+            break
+
+        if not reference_anchor_verified and reference_candidates:
+            reference_axis_validation = last_reference_failure or {
+                "status": "REFERENCE_NOT_VERIFIED",
+                "reason": "No recent MT5 native candle matched a detected visual chart slot.",
+            }
+            if last_reference_failure and last_reference_failure.get("status"):
+                reference_calibration = dict(last_reference_failure)
+            else:
+                reference_calibration = {"status": "REFERENCE_NOT_VERIFIED"}    except (TypeError, ValueError, OverflowError) as exc:
         return {
             **result,
             "status": "ERROR",
@@ -370,12 +459,11 @@ def analyze_chart_image(
     pattern_candidates = _patterns(bars, last_candle_closed=last_candle_closed)
     calibrated = calibrate_bars(bars, calibration)
     reference_ohlc_override_applied = False
-    reference_ohlc = meta.get("reference_last_candle_ohlc")
-    if reference_anchor_verified and isinstance(reference_ohlc, dict) and bars:
-        reference_x = bars[-1].get("x_px")
+    if reference_anchor_verified and isinstance(selected_reference_ohlc, dict) and selected_reference_bar:
+        reference_x = selected_reference_bar.get("x_px")
         for index in range(len(calibrated) - 1, -1, -1):
             if calibrated[index].get("x_px") == reference_x:
-                calibrated[index] = {**calibrated[index], **reference_ohlc}
+                calibrated[index] = {**calibrated[index], **selected_reference_ohlc}
                 reference_ohlc_override_applied = True
                 break
     # The live/current candle remains visible in the result, but only closed
@@ -501,7 +589,7 @@ def analyze_chart_image(
         ),
         "candle_colour_purity": mean_colour_purity >= MIN_MEAN_COLOUR_PURITY,
     }
-    if isinstance(meta.get("reference_last_candle_ohlc"), dict):
+    if isinstance(meta.get("reference_last_candle_ohlc"), dict) or isinstance(meta.get("reference_candle_candidates"), list):
         quality_gates["native_reference_candle_verified"] = bool(reference_anchor_verified)
     eligible = all(quality_gates.values())
     if eligible:
@@ -587,6 +675,16 @@ def analyze_chart_image(
             else {"status": "NOT_REQUESTED"}
         ),
         "reference_ohlc_override_applied": reference_ohlc_override_applied,
+        "reference_anchor": ({
+            "status": "READY",
+            "offset_from_right": selected_reference_candidate.get("offset_from_right"),
+            "slot_index": selected_reference_bar.get("slot_index") if selected_reference_bar else None,
+            "time_server_ms": selected_reference_candidate.get("time_server_ms"),
+            "closed": selected_reference_candidate.get("closed"),
+        } if reference_anchor_verified and selected_reference_candidate else {
+            "status": reference_axis_validation.get("status", "NOT_REQUESTED"),
+            "reason": reference_axis_validation.get("reason"),
+        }),
         "reference_axis_validation": (
             reference_axis_validation
             if "reference_axis_validation" in locals()
