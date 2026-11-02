@@ -176,6 +176,80 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
     finally:
         conn.close()
 
+CANDLE_INTERVAL_MS = {
+    "1m": 60_000,
+    "5m": 5 * 60_000,
+    "15m": 15 * 60_000,
+    "1h": 60 * 60_000,
+    "4h": 4 * 60 * 60_000,
+    "1d": 24 * 60 * 60_000,
+    "1w": 7 * 24 * 60 * 60_000,
+}
+
+
+def load_candles_by_timeframe(
+    *,
+    symbol: str,
+    venue: str,
+    timeframes: tuple[str, ...] | list[str],
+    as_of_ms: int,
+    limit: int = 120,
+    db_path: Path | str = DB_PATH,
+) -> dict[str, list[dict[str, Any]]]:
+    """Read one venue's closed OHLCV candles without merging exchanges.
+
+    A candle is returned only when its stored closed flag is true and its
+    scheduled close is at or before as_of_ms. Results are chronological.
+    """
+    clean_symbol = str(symbol).strip().upper()
+    clean_venue = str(venue).strip()
+    if not clean_symbol:
+        raise ValueError("symbol is required")
+    if not clean_venue:
+        raise ValueError("venue is required; candle feeds must not be merged implicitly")
+    if not isinstance(as_of_ms, int) or as_of_ms <= 0:
+        raise ValueError("as_of_ms must be a positive Unix timestamp in milliseconds")
+    if not isinstance(limit, int) or not 8 <= limit <= 2000:
+        raise ValueError("limit must be between 8 and 2000")
+    requested = tuple(dict.fromkeys(str(tf).strip() for tf in timeframes))
+    if not requested:
+        raise ValueError("at least one timeframe is required")
+    unsupported = [tf for tf in requested if tf not in CANDLE_INTERVAL_MS]
+    if unsupported:
+        raise ValueError(f"unsupported timeframe(s): {', '.join(unsupported)}")
+
+    conn = connect(db_path)
+    result: dict[str, list[dict[str, Any]]] = {}
+    try:
+        for timeframe in requested:
+            cutoff_open_ms = as_of_ms - CANDLE_INTERVAL_MS[timeframe]
+            rows = conn.execute(
+                """SELECT open_time_ms,open,high,low,close,volume,is_closed
+                   FROM candles
+                   WHERE venue=? AND symbol=? AND interval=?
+                     AND is_closed=1 AND open_time_ms<=?
+                   ORDER BY open_time_ms DESC
+                   LIMIT ?""",
+                (clean_venue, clean_symbol, timeframe, cutoff_open_ms, limit),
+            ).fetchall()
+            selected = list(reversed(rows))
+            result[timeframe] = [
+                {
+                    "open_time_ms": int(row["open_time_ms"]),
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row["volume"]),
+                    "closed": bool(row["is_closed"]),
+                }
+                for row in selected
+            ]
+        return result
+    finally:
+        conn.close()
+
+
 def write_json_atomic(path: Path | str,payload: dict[str,Any]) -> None:
     target=Path(path)
     target.parent.mkdir(parents=True,exist_ok=True)
