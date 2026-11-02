@@ -197,6 +197,60 @@ def render_engine_dashboard():
    st.dataframe(pd.DataFrame(ref_rows),use_container_width=True,hide_index=True)
   elif reference_patterns.get("error"):
    st.caption(reference_patterns["error"])
+  st.markdown("**قاعدة معرفة المحرك البصري — الشموع وبنية السوق**")
+  knowledge_db=chart.get("visual_knowledge_database") or {}
+  k1,k2,k3,k4=st.columns(4)
+  k1.metric("تعريفات الشموع",knowledge_db.get("candle_pattern_definitions",0))
+  k2.metric("تعريفات بنية السوق",knowledge_db.get("market_structure_definitions",0))
+  k3.metric("رصدات الأنماط",knowledge_db.get("pattern_observations",0))
+  k4.metric("تقييمات تجريبية متحققة",knowledge_db.get("validated_evaluation_records",0))
+  st.caption(
+   f"إصدار القاعدة: {knowledge_db.get('version','—')} | "
+   f"الحالة التجريبية: {knowledge_db.get('empirical_status','UNVALIDATED')} | "
+   "التعريفات الموثقة لا تعني أن فعاليتها على BTC قد ثبتت."
+  )
+  candle_knowledge=chart.get("candle_knowledge") or {}
+  st.caption(
+   f"محلل OHLC المعرفي: {ar(candle_knowledge.get('status','NOT_AVAILABLE'))} | "
+   f"مرشحات الأنماط: {candle_knowledge.get('count',0)}"
+  )
+  if candle_knowledge.get("detected"):
+   pattern_rows=[{
+    "النمط":item.get("pattern_id"),
+    "الاتجاه الوصفي":item.get("direction"),
+    "اتجاه سابق":item.get("prior_trend"),
+    "مطابقة السياق":item.get("context_match"),
+    "حالة الشمعة":item.get("confirmation_state"),
+    "من شمعة":item.get("start_index"),
+    "إلى شمعة":item.get("end_index"),
+   } for item in candle_knowledge["detected"]]
+   st.dataframe(pd.DataFrame(pattern_rows),use_container_width=True,hide_index=True)
+  advanced=chart.get("advanced_structure_knowledge") or {}
+  st.caption(
+   f"تحليل بنية السوق متعدد المقاييس: {ar(advanced.get('status','NOT_AVAILABLE'))} | "
+   f"الاتجاه البنيوي: {advanced.get('structure_direction','—')} | "
+   f"أحداث BOS/CHOCH: {len(advanced.get('bos_choch_events',[]))} | "
+   f"سحب السيولة: {len(advanced.get('liquidity_sweeps',[]))} | "
+   f"فجوات سعرية: {len(advanced.get('fair_value_gaps',[]))}"
+  )
+  scale_rows=[{
+   "المقياس داخل الإطار":"داخلي" if key=="internal" else "تأرجح" if key=="swing" else "خارجي",
+   "الحالة":value.get("status"),
+   "قمم محورية":len(value.get("swing_highs",[])),
+   "قيعان محورية":len(value.get("swing_lows",[])),
+   "التسلسل":value.get("direction"),
+  } for key,value in (advanced.get("scales") or {}).items()]
+  if scale_rows:
+   st.dataframe(pd.DataFrame(scale_rows),use_container_width=True,hide_index=True)
+  archive=chart.get("visual_observation_archive") or {}
+  st.caption(
+   f"أرشيف هذه الصورة: {archive.get('status','DISABLED')} | "
+   f"رصدات شموع مسجلة: {archive.get('pattern_observations_written',0)} | "
+   f"رصدات بنية مسجلة: {archive.get('structure_observations_written',0)}"
+  )
+  if advanced.get("limitations"):
+   st.caption("حدود التحليل البنيوي: "+" | ".join(advanced["limitations"]))
+
   axis_ocr=chart.get("axis_ocr") or {}
   calibration_info=chart.get("calibration") or {}
   st.caption(f"معايرة محور السعر: {calibration_info.get('source','غير متاح')} | نوع المحور: {calibration_info.get('price_scale_type','—')}")
@@ -316,6 +370,11 @@ def render_engine_dashboard():
    value=bool(saved_meta.get("last_candle_closed",False)),
    help="اتركه غير محدد إن لم تكن متأكداً؛ سيصنف المحرك الأنماط على آخر شمعة كأنها قيد التكوين حتى لا يؤكد شمعة مفتوحة.",
   )
+  persist_knowledge_observations=st.checkbox(
+   "أرشفة نتائج المحلل البصري لهذه الصورة في قاعدة المعرفة",
+   value=bool(saved_meta.get("persist_knowledge_observations",True)),
+   help="يحفظ رصدات الشموع والبنية مع بصمة للصورة. لا يحوّل المرشحات إلى نتائج إحصائية متحققة.",
+  )
   expected_candle_count=st.number_input(
    "عدد الشموع الظاهرة تقريباً (0 = غير معروف)",
    min_value=0,max_value=500,value=int(saved_meta.get("expected_candle_count",0) or 0),step=1,
@@ -354,7 +413,8 @@ def render_engine_dashboard():
     target.write_bytes(payload)
     metadata={"schema_version":2,"symbol":syms.strip().upper(),"timeframe":timeframe,
      "price_top":float(top_price),"price_bottom":float(bottom_price),
-     "price_scale_type":price_scale_type,"auto_axis_ocr":bool(auto_axis_ocr),"last_candle_closed":bool(last_candle_closed),"expected_candle_count":int(expected_candle_count),
+     "price_scale_type":price_scale_type,"auto_axis_ocr":bool(auto_axis_ocr),"last_candle_closed":bool(last_candle_closed),
+     "persist_knowledge_observations":bool(persist_knowledge_observations),"expected_candle_count":int(expected_candle_count),
      "plot_left_px":int(plot_left),"plot_top_px":int(plot_top),
      "plot_right_px":int(plot_right),"plot_bottom_px":int(plot_bottom),
      "source_filename":uploaded.name,"source_sha256":hashlib.sha256(payload).hexdigest(),
@@ -363,7 +423,7 @@ def render_engine_dashboard():
     st.success("تم حفظ الصورة والتحقق من سلامتها ومعايرة مقياسها. ستدخل نتيجة التحليل في الدورة التالية.")
 
  with st.expander("قواعد وضوابط النظام"):
-  st.write("المحرك 1 يقرأ السوق العام. المحرك 2 رؤية حاسوبية تقليدية. المحرك 3 ينقل بيانات وأوامر MT5. المحرك 4 وحده يقرر ويدير المخاطر.")
+  st.write("المحرك 1 يجمع معلومات السوق. المحرك 2 يحلل المخططات والشموع وبنية السعر. المحرك 3 مستقل للمؤشرات. المحرك 4 يتخذ القرار ويتابع الصفقات ويدير المخاطر. المحرك 5 يربط البرنامج بخبير MT5 للتنفيذ وإعادة بيانات الحالة.")
   st.write("لا يوجد نموذج توليدي أو نموذج ذكاء اصطناعي لاتخاذ قرار التداول. RapidOCR محلي يقرأ أرقام محور السعر فقط عند تفعيله، والاتجاه والأنماط تُحلّل بقواعد هندسية واضحة.")
 
  st.divider()
