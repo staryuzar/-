@@ -11,6 +11,7 @@
     "server_utc_offset_seconds_at_capture",
     "server_time_seconds",
     "published_at_utc_ms",
+    "account",
     "image_file",
     "image_width_px",
     "image_height_px",
@@ -244,6 +245,30 @@
     },
     "rates_error_code": {
       "type": "integer"
+    },
+    "account": {
+      "type": "object",
+      "required": [
+        "terminal_connected",
+        "server",
+        "trade_mode",
+        "trade_mode_label"
+      ],
+      "properties": {
+        "terminal_connected": {
+          "type": "boolean"
+        },
+        "server": {
+          "type": "string"
+        },
+        "trade_mode": {
+          "type": "integer"
+        },
+        "trade_mode_label": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
