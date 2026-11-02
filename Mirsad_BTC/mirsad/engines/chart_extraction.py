@@ -379,7 +379,7 @@ def _extract_bars(
         )
         minimum_slot_recovery = max(
             8,
-            int(np.ceil(expected_candle_count * 0.65)),
+            int(np.ceil(expected_candle_count * 0.40)),
         )
         legacy_count_error = abs(len(bars) - expected_candle_count)
         slot_count_error = abs(len(slot_bars) - expected_candle_count)
