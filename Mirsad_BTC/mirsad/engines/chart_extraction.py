@@ -141,7 +141,9 @@ def _extract_slot_guided_bars(
 
         column_activity = retained.sum(axis=0)
         maximum_activity = int(column_activity.max()) if len(column_activity) else 0
-        if maximum_activity < minimum_activity:
+        mean_activity = float(column_activity.mean()) if len(column_activity) else 0.0
+        vertical_dominance = maximum_activity / max(mean_activity, 1e-9)
+        if maximum_activity < minimum_activity or vertical_dominance < 1.15:
             diagnostics["rejected_low_activity"] += 1
             continue
         strongest_columns = np.flatnonzero(column_activity == maximum_activity)
@@ -174,6 +176,7 @@ def _extract_slot_guided_bars(
             "shape": "normal",
             "body_ratio": round(min(1.0, body_height / total_height), 3),
             "colour_purity": round(purity, 4),
+            "vertical_dominance": round(vertical_dominance, 4),
             "bullish_colour_pixels": bull_pixels,
             "bearish_colour_pixels": bear_pixels,
             "palette_mode": "slot_guided",
