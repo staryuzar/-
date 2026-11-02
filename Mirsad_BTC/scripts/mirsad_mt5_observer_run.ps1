@@ -308,6 +308,37 @@ Period=$observerTimeframe
 
     $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable', "/config:$loginConfig", "/login:$login") -WorkingDirectory $installDir -PassThru
     Add-Report ("MT5 terminal launched with the read-only Observer on {0},{1}. Automated trading permission is disabled." -f $observerSymbol, $observerTimeframe)
+
+    # Maximize the hosted terminal before the Observer's delayed first capture.
+    if (-not ("MirsadNativeWindow" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class MirsadNativeWindow {
+    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+"@
+    }
+    $windowDeadline = [DateTime]::UtcNow.AddSeconds(20)
+    $terminalWindow = $null
+    do {
+        $terminalProcess.Refresh()
+        if ($terminalProcess.MainWindowHandle -ne 0) { $terminalWindow = $terminalProcess; break }
+        $terminalWindow = Get-Process -Name 'terminal64','terminal' -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowHandle -ne 0 -and $_.Path -eq $terminal.FullName } |
+            Select-Object -First 1
+        if (!$terminalWindow) { Start-Sleep -Seconds 1 }
+    } while ([DateTime]::UtcNow -lt $windowDeadline)
+    if ($terminalWindow) {
+        [MirsadNativeWindow]::ShowWindowAsync($terminalWindow.MainWindowHandle, 3) | Out-Null
+        [MirsadNativeWindow]::SetForegroundWindow($terminalWindow.MainWindowHandle) | Out-Null
+        Start-Sleep -Seconds 2
+        Add-Report ("PASS — MT5 terminal window maximized before Observer capture; HWND={0}." -f $terminalWindow.MainWindowHandle)
+    }
+    else {
+        Add-Report 'WARN — MT5 main window handle was not found for maximize; Observer will still apply its viewport safety gate.'
+    }
     $observerDir = $null
     $manifestFile = $null
     $manifest = $null
@@ -422,6 +453,12 @@ Period=$observerTimeframe
         image_height_px = $manifest.image_height_px
         image_size_bytes = $imageBytes.Length
         image_sha256 = $imageHash
+        source_width_px = [int]$manifest.chart.source_width_px
+        source_main_window_height_px = [int]$manifest.chart.source_main_window_height_px
+        visible_bars = [int]$manifest.chart.visible_bars
+        windows_total = [int]$manifest.chart.windows_total
+        chart_autoscroll = [bool]$manifest.chart.chart_autoscroll
+        source_dimensions_usable = [bool]$manifest.chart.source_dimensions_usable
         bars_copied = @($manifest.bars).Count
         rates_status = $manifest.rates_status
         rates_error_code = $manifest.rates_error_code
