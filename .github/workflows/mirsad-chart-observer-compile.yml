@@ -1,0 +1,104 @@
+name: Mirsad Chart Observer — MT5 read-only EA compile
+
+on:
+  push:
+    branches: [mirsad-mt5-demo]
+    paths:
+      - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
+      - '.github/workflows/mirsad-chart-observer-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-chart-observer-compile
+  cancel-in-progress: false
+
+jobs:
+  compile-read-only-observer:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Mirsad project
+        uses: actions/checkout@v4
+
+      - name: Compile the standalone read-only observer with MetaEditor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $root = Join-Path $env:RUNNER_TEMP 'mirsad-chart-observer-build'
+          $installDir = Join-Path $root 'terminal'
+          $evidenceDir = Join-Path $root 'evidence'
+          New-Item -ItemType Directory -Path $installDir, $evidenceDir -Force | Out-Null
+
+          $installer = Join-Path $root 'mt5setup.exe'
+          $downloadUrl = 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe'
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $installer -TimeoutSec 240
+          if (!(Test-Path -LiteralPath $installer) -or (Get-Item -LiteralPath $installer).Length -lt 100000) {
+            throw 'Official MetaTrader 5 installer is missing or unexpectedly small.'
+          }
+
+          $installArg = '/path:"' + $installDir + '"'
+          $install = Start-Process -FilePath $installer -ArgumentList @('/auto', $installArg) -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "MT5 installer exit code: $($install.ExitCode)" }
+
+          $metaEditor = Get-ChildItem -LiteralPath $installDir -Filter 'metaeditor64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $metaEditor) { throw 'MetaEditor was not found after MT5 installation.' }
+
+          $source = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\mt5\Mirsad_ChartObserver.mq5'
+          if (!(Test-Path -LiteralPath $source)) { throw 'Observer EA source is missing.' }
+          $sourceText = Get-Content -LiteralPath $source -Raw
+          if ($sourceText -match '(?i)\b(OrderSend|OrderSendAsync|CTrade|PositionOpen|PositionClose)\s*\(') {
+            throw 'Safety stop: the read-only observer contains a trade execution API.'
+          }
+          if ($sourceText -match '(?im)^\s*#import\b') {
+            throw 'Safety stop: the observer must not import external DLL functions.'
+          }
+
+          $expertsDir = Join-Path $installDir 'MQL5\Experts'
+          New-Item -ItemType Directory -Path $expertsDir -Force | Out-Null
+          $eaSource = Join-Path $expertsDir 'Mirsad_ChartObserver.mq5'
+          $eaBinary = Join-Path $expertsDir 'Mirsad_ChartObserver.ex5'
+          $compileLog = Join-Path $expertsDir 'Mirsad_ChartObserver.log'
+          Copy-Item -LiteralPath $source -Destination $eaSource -Force
+
+          $compileArgs = '/compile:"' + $eaSource + '" /log'
+          $compiler = Start-Process -FilePath $metaEditor.FullName -ArgumentList $compileArgs -WorkingDirectory $installDir -PassThru
+          if (!$compiler.WaitForExit(90000)) {
+            Stop-Process -Id $compiler.Id -Force -ErrorAction SilentlyContinue
+            throw 'MetaEditor compilation timed out after 90 seconds.'
+          }
+          Start-Sleep -Seconds 2
+          if (!(Test-Path -LiteralPath $compileLog)) { throw 'MetaEditor compile log was not created.' }
+          $compileText = Get-Content -LiteralPath $compileLog -Raw
+          $compileText | Set-Content -LiteralPath (Join-Path $evidenceDir 'Mirsad_ChartObserver_compile.log') -Encoding utf8
+          if (!(Test-Path -LiteralPath $eaBinary) -or (Get-Item -LiteralPath $eaBinary).Length -le 0) {
+            throw 'MetaEditor did not produce the observer EX5 binary.'
+          }
+          if ($compileText -notmatch '(?i)0 errors' -or $compileText -match '(?i)[1-9][0-9]* errors') {
+            throw 'MetaEditor did not report zero compile errors.'
+          }
+
+          Copy-Item -LiteralPath $eaBinary -Destination (Join-Path $evidenceDir 'Mirsad_ChartObserver.ex5') -Force
+          @(
+            'Mirsad Chart Observer compile: PASS'
+            "UTC: $([DateTime]::UtcNow.ToString('o'))"
+            'Target: MetaTrader 5 / MQL5 Expert Advisor'
+            'Safety: read-only observer; no account credentials; no terminal login; no EA attachment; no trading API.'
+            "EX5 bytes: $((Get-Item -LiteralPath $eaBinary).Length)"
+          ) | Set-Content -LiteralPath (Join-Path $evidenceDir 'observer-build-report.txt') -Encoding utf8
+          Get-Content -LiteralPath (Join-Path $evidenceDir 'observer-build-report.txt')
+
+      - name: Upload compiled observer and compile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-chart-observer-mt5-build
+          path: |
+            \${{ runner.temp }}/mirsad-chart-observer-build/evidence/Mirsad_ChartObserver.ex5
+            \${{ runner.temp }}/mirsad-chart-observer-build/evidence/Mirsad_ChartObserver_compile.log
+            \${{ runner.temp }}/mirsad-chart-observer-build/evidence/observer-build-report.txt
+          if-no-files-found: warn
+          retention-days: 14
