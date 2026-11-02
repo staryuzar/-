@@ -55,6 +55,12 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             "image_width_px": 640,
             "image_height_px": 360,
             "image_size_bytes": image_path.stat().st_size,
+            "account": {
+                "terminal_connected": True,
+                "server": "Example-Broker-Server",
+                "trade_mode": 0,
+                "trade_mode_label": "DEMO",
+            },
             "forming_bar_included": True,
             "bars_time_basis": "MT5_SERVER_TIME",
             "bars_copied": len(bars),
@@ -85,6 +91,9 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             self.assertFalse(result["decision_eligible"])
             self.assertEqual(result["chart"]["symbol"], "BTC")
             self.assertEqual(result["chart"]["timeframe"], "1m")
+            self.assertEqual(result["account"]["server"], "Example-Broker-Server")
+            self.assertEqual(result["account"]["trade_mode_label"], "DEMO")
+            self.assertTrue(result["account"]["terminal_connected"])
             self.assertEqual(result["bar_count"], 30)
             self.assertEqual(result["capture_data_skew_ms"], 50)
             self.assertFalse(result["bars"][-1]["is_closed"])
