@@ -203,6 +203,42 @@ class ChartEngineTests(unittest.TestCase):
         self.assertEqual(stars[0]["start_index"], 10)
         self.assertEqual(stars[0]["index"], 12)
 
+    def test_reference_candle_ohlc_calibrates_axisless_benchmark_chart(self) -> None:
+        result = self._analyze(metadata={
+            "price_top": None,
+            "price_bottom": None,
+            "reference_last_candle_ohlc": {
+                "open": 119.7,
+                "high": 121.0,
+                "low": 119.2,
+                "close": 120.5,
+            },
+        })
+        self.assertEqual(result["reference_calibration"]["status"], "READY")
+        self.assertEqual(result["calibration"]["source"], "reference_last_candle_ohlc")
+        self.assertTrue(result["calibration"]["price_scale_valid"])
+        self.assertGreaterEqual(result["calibrated_bar_count"], 20)
+        self.assertTrue(result["decision_eligible"])
+        self.assertEqual(result["status"], "READY")
+
+    def test_reference_candle_colour_conflict_blocks_anchor_calibration(self) -> None:
+        result = self._analyze(metadata={
+            "price_top": None,
+            "price_bottom": None,
+            "reference_last_candle_ohlc": {
+                "open": 120.5,
+                "high": 121.0,
+                "low": 119.2,
+                "close": 119.7,
+            },
+        })
+        self.assertEqual(
+            result["reference_calibration"]["status"],
+            "REFERENCE_DIRECTION_MISMATCH",
+        )
+        self.assertFalse(result["calibration"]["price_scale_valid"])
+        self.assertFalse(result["decision_eligible"])
+
     def test_calibrated_chart_detects_bars_and_returns_consistent_ohlc(self) -> None:
         result = self._analyze(direction="up", colour="GREEN")
         self.assertEqual(result["status"], "READY")
