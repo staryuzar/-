@@ -102,7 +102,7 @@ def _json(value: Any) -> str:
 
 def seed_visual_knowledge(db_path: str | None = None) -> dict[str, Any]:
     """Idempotently seed documented rule catalogues; no performance stats are fabricated."""
-    from .storage import connect
+    from ..storage import connect
 
     conn = connect(db_path) if db_path is not None else connect()
     now = int(time.time() * 1000)
@@ -158,7 +158,7 @@ def record_pattern_observations(
     observed_at_ms: int | None = None,
 ) -> int:
     """Persist auditable pattern detections; duplicate sample events are idempotent."""
-    from .storage import connect
+    from ..storage import connect
 
     if not sample_fingerprint.strip() or not symbol.strip() or not timeframe.strip():
         raise ValueError("sample_fingerprint, symbol and timeframe are required")
@@ -199,7 +199,7 @@ def record_structure_observations(
     observed_at_ms: int | None = None,
 ) -> int:
     """Persist structural levels/events with their source evidence."""
-    from .storage import connect
+    from ..storage import connect
 
     if not sample_fingerprint.strip() or not symbol.strip() or not timeframe.strip():
         raise ValueError("sample_fingerprint, symbol and timeframe are required")
@@ -238,7 +238,7 @@ def record_structure_observations(
         conn.close()
 
 def visual_knowledge_summary(db_path: str | None = None) -> dict[str, Any]:
-    from .storage import connect
+    from ..storage import connect
 
     conn = connect(db_path) if db_path is not None else connect()
     try:
