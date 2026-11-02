@@ -116,6 +116,33 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "INVALID_IMAGE_PATH")
 
+    def test_accepts_broker_server_clock_with_utc_plus_two_offset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            payload["server_time_seconds"] += 7200
+            payload["server_utc_offset_seconds_at_capture"] = 7200
+            for bar in payload["bars"]:
+                bar["time_server_ms"] += 7_200_000
+            (root / f"capture_{payload['capture_id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "READY_FOR_ENGINE_2_VALIDATION")
+            self.assertEqual(result["bars_time_basis"], "MT5_SERVER_TIME")
+            self.assertFalse(result["decision_eligible"])
+
+    def test_rejects_bar_time_after_broker_server_clock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            payload["bars"][-1]["time_server_ms"] = (payload["server_time_seconds"] + 20) * 1000
+            (root / f"capture_{payload['capture_id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "BAR_TIME_IN_FUTURE")
+
     def test_rejects_missing_server_time(self):
         with tempfile.TemporaryDirectory() as directory:
             now = int(time.time() * 1000)
