@@ -12,9 +12,12 @@ from typing import Any
 
 from PIL import Image
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from mirsad.engines.chart import analyze_chart_image
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = PROJECT_ROOT / "tests" / "data" / "public_chart_manifest.json"
 MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 ALLOWED_IMAGE_HOSTS = {"itbfx.com", "img.bgstatic.com", "s3.tradingview.com"}
