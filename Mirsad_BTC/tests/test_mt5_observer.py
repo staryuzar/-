@@ -9,8 +9,44 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from mirsad.engines.mt5_observer import MT5ChartObserverInbox
+from mirsad.engines.mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candidates
 from mirsad.runtime import _inspect_mt5_chart_observer
+
+
+class MT5ReferenceCandleCandidateTests(unittest.TestCase):
+    def test_skips_flat_forming_bar_and_returns_recent_closed_candle(self) -> None:
+        bars = [
+            {
+                "time_server_ms": 1_000 + index * 60_000,
+                "open": 100.0 + index,
+                "high": 102.0 + index,
+                "low": 99.0 + index,
+                "close": 101.0 + index,
+                "is_closed": index < 2,
+            }
+            for index in range(3)
+        ]
+        bars.append({
+            "time_server_ms": 181_000,
+            "open": 103.0, "high": 103.0, "low": 103.0, "close": 103.0,
+            "is_closed": False,
+        })
+        candidates = recent_reference_candle_candidates(bars)
+        self.assertGreaterEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["offset_from_right"], 1)
+        self.assertTrue(candidates[0]["closed"])
+        self.assertEqual(candidates[0]["time_server_ms"], 121_000)
+        self.assertGreater(
+            candidates[0]["ohlc"]["high"] - candidates[0]["ohlc"]["low"], 0
+        )
+
+    def test_no_flat_or_invalid_candle_is_used_as_reference(self) -> None:
+        bars = [{
+            "time_server_ms": 1_000,
+            "open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
+            "is_closed": False,
+        }]
+        self.assertEqual(recent_reference_candle_candidates(bars), [])
 
 
 class MT5ChartObserverInboxTests(unittest.TestCase):
