@@ -875,3 +875,90 @@ Workflow run: https://github.com/staryuzar/-/actions/runs/41388564962
 ### القرار الحالي
 
 هذه الوثيقة مواصفات تصميم وليست ادعاءً باكتمال إعادة البناء. الخطوة التنفيذية التالية هي تحويل المواصفات إلى وحدات وعقود واختبارات على مراحل، مع المحافظة على خط الأساس الحالي وعدم كسر عقد المحرك الرابع. يجب أن يكون كل انتقال لمرحلة جديدة مشروطاً بنتائج مجموعة صور مستقلة موثقة.
+
+
+---
+
+## 36. بدء بناء وحدة مراقبة والتقاط مخططات MT5 — 2 نوفمبر 2026
+
+**النطاق المعتمد:** MT5 فقط في هذه المرحلة. مراقب مستقل للقراءة والالتقاط، وليس خبير تداول. لا تعديل على صلاحيات خبير التنفيذ الحالي ولا على بروتوكول MIR1.
+
+### البحث الرسمي والقرار التقني
+
+تمت مراجعة توثيق MQL5 الرسمي للواجهات التالية:
+
+- ChartScreenShot: طلب صورة للمخطط وحفظها في مجلد ملفات الطرفية.
+- CopyRates وMqlRates: جمع أسعار OHLCV وأوقات فتح الشموع الأصلية من MT5.
+- ChartGetInteger وChartGetDouble: جمع أبعاد المخطط وخصائصه ونطاق السعر الظاهر.
+- ChartTimePriceToXY: واجهة مرشحة لإضافة نقاط ربط زمن/سعر مع إحداثيات الصورة في مرحلة المعايرة التالية.
+- FileCopy وFileMove وFILE_COMMON: نقل الصورة إلى مساحة مشتركة ونشر manifest بعد اكتمال النقل.
+- OnTimer: التقاط دوري لا يعتمد على وصول Tick.
+
+المصادر:
+- https://www.mql5.com/en/docs/chart_operations/chartscreenshot
+- https://www.mql5.com/en/docs/series/copyrates
+- https://www.mql5.com/en/docs/constants/structures/mqlrates
+- https://www.mql5.com/en/docs/chart_operations/chartgetinteger
+- https://www.mql5.com/en/docs/chart_operations/chartgetdouble
+- https://www.mql5.com/en/docs/chart_operations/charttimepricetoxy
+- https://www.mql5.com/en/docs/files/filecopy
+- https://www.mql5.com/en/docs/files/filemove
+- https://www.mql5.com/en/docs/files/fileopen
+- https://www.mql5.com/en/docs/event_handlers/ontimer
+
+### الملفات الجديدة
+
+| الملف | المسؤولية |
+|---|---|
+| Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5 | خبير MQL5 مستقل لالتقاط مخطط واحد، جمع MqlRates وخصائص الرسم، ونقل الصورة والحزمة |
+| Mirsad_BTC/mirsad/engines/mt5_observer.py | قارئ Python لصندوق الوارد؛ يتحقق من manifest وPNG وحداثة الحزمة وصحة OHLC ومحاذاة التوقيت |
+| Mirsad_BTC/protocol/MIR-CHART-OBSERVATION-1.schema.json | العقد الرسمي لبيانات الالتقاط |
+| Mirsad_BTC/tests/test_mt5_observer.py | اختبارات وحدات لحالات النجاح والفساد والقدم والمسارات غير الآمنة وفروق توقيت الخادم |
+| Mirsad_BTC/mt5/CHART_OBSERVER_DESIGN_AR.md | التصميم التقني والبحث ومراحل التطوير |
+| Mirsad_BTC/mt5/INSTALL_CHART_OBSERVER_AR.md | تعليمات التثبيت اليدوي على طرفية MT5 |
+| .github/workflows/mirsad-chart-observer-compile.yml | تجميع خبير المراقبة عبر MetaEditor على Windows |
+
+### مواصفات التشغيل الأولية
+
+- مخطط واحد فقط يركب عليه الخبير.
+- الرمز والإطار يؤخذان من المخطط نفسه.
+- صورة PNG افتراضية 1600×900.
+- 120 شمعة افتراضياً، بحد أدنى 30 وحد أعلى 500.
+- الشمعة الحالية تُضمّن وتوسم is_closed=false.
+- فاصل التقاط افتراضي 60 ثانية.
+- لا حساب أو مراكز أو بيانات اعتماد في حزمة المراقبة.
+- لا OrderSend ولا CTrade ولا كتابة إلى command.json أو ack.json.
+- الصورة تنقل إلى Common\Files\MirsadBTC\observer\images ثم ينشر manifest في المجلد نفسه بعد نجاح النقل.
+- أوقات الشموع تحفظ بوصفها MT5_SERVER_TIME. يستخدم فرق وقت الخادم/UTC الملتقط في اللحظة نفسها لمقارنة ساعة الخادم الحالية، ولا يحول تاريخ الشموع السابق تلقائياً إلى UTC.
+- price_min/max من MT5 سياق سعري فقط؛ لا تعتبر معايرة بكسلية مكتملة. يظل plot_bounds_status=NOT_CALIBRATED_FROM_PIXELS.
+
+### التحقق البرمجي المنجز حتى الآن
+
+- قارئ Python يرفض الصورة المفقودة أو التالفة أو الحجم غير المطابق أو مسارات Windows traversal.
+- يرفض manifest قديم أو مستقبلي أو بمخطط غير مدعوم.
+- يرفض OHLC غير المنطقي أو الأوقات غير المتزايدة أو تعدد الشموع المفتوحة.
+- يحافظ على decision_eligible=false دائماً؛ قبول صندوق الوارد لا يساوي قبول المحرك الثاني ولا تفويضاً للمحرك الرابع.
+- أضيف اختبار خاص بفرق توقيت خادم الوسيط (مثال UTC+2) حتى لا تُرفض الحزم الصحيحة بسبب مقارنة وقت الوسيط مباشرة بساعة UTC المحلية.
+
+### نتائج CI الموثقة
+
+- Live Data Validation run 41515831361: مهمة الاختبارات الحية نجحت؛ شغّلت 226 اختباراً بنجاح، وظهر في فحص التغذية الحية Binance وOKX وBybit بحالة LIVE وقت التشغيل. بقيت مهمة held-out crypto image benchmark طويلة المدة قيد التنفيذ وقت تسجيل هذه الفقرة.
+  الرابط: https://github.com/staryuzar/-/actions/runs/41515831361
+- Observer build run 41515899326: أنتج EX5 بحجم 30,758 bytes؛ كان التجميع 0 errors لكن artifact path في تلك المحاولة كان غير صحيح، ولذلك لم يُرفع artifact.
+  الرابط: https://github.com/staryuzar/-/actions/runs/41515899326
+- Observer build run 41516195671: نجح التجميع وأُنتج EX5 بحجم 30,780 bytes ورُفع artifact. فحص compile log اللاحق كشف تحذيراً واحداً في صيغة #property version، ولذلك لا نعتبر هذه النسخة نهائية خالية من التحذيرات.
+  الرابط: https://github.com/staryuzar/-/actions/runs/41516195671
+- عُدلت صيغة الإصدار إلى 001.001، وأصبح سير البناء يشترط 0 errors و0 warnings. تشغيل التحقق الخاص بهذا التصحيح لم يكن قد اكتمل بعد عند إضافة هذا السجل.
+
+### ما لم يكتمل ويجب عدم ادعائه
+
+1. لم يُرفق Observer بعد بمخطط حي على جهاز التشغيل المستهدف لتأكيد أن PNG وmanifest يصدران فعلياً من جلسة MT5 متصلة.
+2. لم تُختبر مطابقة OHLC للحزمة مع قراءة مستقلة ثانية من الطرفية نفسها.
+3. لم يُنجز بعد كاشف حدود الرسم ولا نقاط الربط البكسلية ولا مطابقة الصورة زمنياً وعمودياً.
+4. لم تُضف بعد خدمة Python دائمة أو إدارة retention/cleanup؛ لذلك لا يُترك الالتقاط الدوري يعمل أياماً بلا سياسة احتفاظ.
+5. لم يتم دمج Observer في runtime أو ربطه بأهلية Engine 2/Engine 4. تبقى القراءة الأولية غير مؤهلة للقرار.
+6. لا يدعم الإصدار الأول عدة مخططات أو عدة رموز بالتوازي.
+
+### القرار والمرحلة التالية
+
+العمود البرمجي الأولي موجود ويمكن تجميعه على Windows، لكن اعتماد التشغيل يتطلب تجميعاً نظيفاً بلا تحذيرات، ثم اختبار التقاط حي على Demo، ومقارنة الصورة والبيانات، وبعدها بناء المعايرة البكسلية وإدارة التخزين وخدمة الاستقبال. لا يتغير قرار التداول ولا جسر MIR1 خلال هذه المراحل.
