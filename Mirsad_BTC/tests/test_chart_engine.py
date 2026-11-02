@@ -306,6 +306,31 @@ class ChartEngineTests(unittest.TestCase):
         self.assertIn("resistance", result["market_structure"])
         self.assertIn("trend", result["analysis_components"])
 
+    def test_ocr_axis_calibration_is_used_only_when_manual_axis_is_missing(self) -> None:
+        ticks = [
+            {"y_px": 30, "price": 120000.0, "score": 0.95},
+            {"y_px": 110, "price": 100000.0, "score": 0.95},
+            {"y_px": 190, "price": 80000.0, "score": 0.95},
+            {"y_px": 270, "price": 60000.0, "score": 0.95},
+        ]
+        with patch(
+            "mirsad.engines.chart.detect_price_axis_ticks",
+            return_value={"status": "TICKS_FOUND", "ticks": ticks, "candidate_plot_right_px": None},
+        ):
+            result = self._analyze(
+                metadata={"price_top": 0.0, "price_bottom": 0.0, "auto_axis_ocr": True}
+            )
+        self.assertEqual(result["calibration"]["source"], "ocr")
+        self.assertTrue(result["calibration"]["price_scale_valid"])
+        self.assertTrue(result["decision_eligible"])
+        self.assertEqual(result["axis_ocr"]["fit"]["status"], "READY")
+
+    def test_manual_axis_values_take_precedence_over_ocr(self) -> None:
+        with patch("mirsad.engines.chart.detect_price_axis_ticks") as mocked_ocr:
+            result = self._analyze(metadata={"auto_axis_ocr": True})
+        mocked_ocr.assert_not_called()
+        self.assertEqual(result["calibration"]["source"], "manual")
+
     def test_logarithmic_axis_uses_geometric_midpoint(self) -> None:
         calibration = {
             "price_scale_valid": True,

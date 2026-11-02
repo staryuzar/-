@@ -48,7 +48,7 @@ def render_engine_dashboard():
  state=read_json(STATUS_PATH,{})
  market=read_json(SNAPSHOT_PATH,{})
  st.title("₿ مرصاد البيتكوين")
- st.caption("نظام بأربعة محركات مترابطة — يعتمد بيانات السوق الفعلية ولا يستخدم الذكاء الاصطناعي أو الصفقات المحاكاة.")
+ st.caption("نظام بأربعة محركات مترابطة يعتمد بيانات السوق الفعلية. لا يستخدم نموذجاً توليدياً أو نموذجاً لاتخاذ قرار التداول؛ يمكن تشغيل OCR محلي لقراءة تدريجات المحور فقط. لا توجد أسعار مصطنعة أو صفقات محاكاة.")
  if state:
   st.metric("الحالة العامة",ar(state.get("overall_status","PARTIAL_OR_WAITING")))
   st.caption(age_text(state.get("heartbeat_at_ms")))
@@ -119,6 +119,14 @@ def render_engine_dashboard():
    st.caption(f"عمر صورة الشارت: {chart['input_age_seconds']} ثانية")
   if chart.get("pattern_candidates"):
    st.dataframe(pd.DataFrame(chart["pattern_candidates"]),use_container_width=True,hide_index=True)
+  axis_ocr=chart.get("axis_ocr") or {}
+  calibration_info=chart.get("calibration") or {}
+  st.caption(f"معايرة محور السعر: {calibration_info.get('source','غير متاح')} | نوع المحور: {calibration_info.get('price_scale_type','—')}")
+  if axis_ocr:
+   fit_info=axis_ocr.get("fit") or {}
+   st.caption(f"OCR المحور: {axis_ocr.get('status','—')} | تدريجات مقروءة: {len(axis_ocr.get('ticks',[]))} | ثقة الملاءمة: {fit_info.get('confidence','—')} | {axis_ocr.get('reason','') or fit_info.get('reason','')}")
+   if axis_ocr.get("ticks"):
+    st.dataframe(pd.DataFrame(axis_ocr["ticks"]),use_container_width=True,hide_index=True)
   if chart.get("quality_gates"):
    gate_rows=[{"بوابة الجودة":name,"النتيجة":"اجتازت" if passed else "لم تجتز"} for name,passed in chart["quality_gates"].items()]
    st.dataframe(pd.DataFrame(gate_rows),use_container_width=True,hide_index=True)
@@ -220,6 +228,11 @@ def render_engine_dashboard():
    index=scale_keys.index(old_scale) if old_scale in scale_keys else 0,
    format_func=lambda key:scale_labels[key],
   )
+  auto_axis_ocr=st.checkbox(
+   "استخراج تدريجات محور السعر تلقائياً من الصورة (OCR)",
+   value=bool(saved_meta.get("auto_axis_ocr",True)),
+   help="يحتاج المحرك إلى أربع تدريجات رقمية متناسقة على الأقل. عند فشل القراءة لن يخمّن الأسعار.",
+  )
   expected_candle_count=st.number_input(
    "عدد الشموع الظاهرة تقريباً (0 = غير معروف)",
    min_value=0,max_value=500,value=int(saved_meta.get("expected_candle_count",0) or 0),step=1,
@@ -237,7 +250,8 @@ def render_engine_dashboard():
  if submitted:
   if uploaded is None: st.error("اختر صورة حقيقية أولاً.")
   elif len(uploaded.getvalue())>8*1024*1024: st.error("حجم الصورة أكبر من 8 ميغابايت.")
-  elif not (top_price>bottom_price>0): st.error("أدخل أعلى وأدنى سعر صحيحين من محور الشارت.")
+  elif (top_price>0 or bottom_price>0) and not (top_price>bottom_price>0): st.error("أدخل أعلى وأدنى سعر صحيحين، أو اترك الاثنين صفراً لتفعيل OCR.")
+  elif top_price==0 and bottom_price==0 and not auto_axis_ocr: st.error("أدخل نطاق المحور يدوياً أو فعّل استخراج تدريجات السعر تلقائياً.")
   elif syms.strip().upper()!=symbol_default:
    st.error(f"رمز الصورة ({syms}) يجب أن يطابق رمز محرك السوق ({symbol_default}) حتى لا نخلط بيانات أداة بأخرى.")
   else:
@@ -257,7 +271,7 @@ def render_engine_dashboard():
     target.write_bytes(payload)
     metadata={"schema_version":2,"symbol":syms.strip().upper(),"timeframe":timeframe,
      "price_top":float(top_price),"price_bottom":float(bottom_price),
-     "price_scale_type":price_scale_type,"expected_candle_count":int(expected_candle_count),
+     "price_scale_type":price_scale_type,"auto_axis_ocr":bool(auto_axis_ocr),"expected_candle_count":int(expected_candle_count),
      "plot_left_px":int(plot_left),"plot_top_px":int(plot_top),
      "plot_right_px":int(plot_right),"plot_bottom_px":int(plot_bottom),
      "source_filename":uploaded.name,"source_sha256":hashlib.sha256(payload).hexdigest(),
@@ -267,7 +281,7 @@ def render_engine_dashboard():
 
  with st.expander("قواعد وضوابط النظام"):
   st.write("المحرك 1 يقرأ السوق العام. المحرك 2 رؤية حاسوبية تقليدية. المحرك 3 ينقل بيانات وأوامر MT5. المحرك 4 وحده يقرر ويدير المخاطر.")
-  st.write("لا ذكاء اصطناعي، ولا بيانات سوق وهمية، ولا صفقات محاكاة.")
+  st.write("لا يوجد نموذج توليدي أو نموذج ذكاء اصطناعي لاتخاذ قرار التداول. RapidOCR محلي يقرأ أرقام محور السعر فقط عند تفعيله، والاتجاه والأنماط تُحلّل بقواعد هندسية واضحة.")
 
  st.divider()
  st.subheader("تقرير الإنجاز والتدقيق التفصيلي")

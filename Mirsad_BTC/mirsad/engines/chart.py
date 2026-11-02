@@ -11,6 +11,7 @@ from .chart_extraction import PALETTE_PRESETS, _extract_bars
 from .chart_image import load_chart_image
 from .chart_metrics import analyze_calibrated_bars
 from .chart_patterns import _body_bounds, _patterns
+from .chart_ocr import detect_price_axis_ticks, fit_price_axis
 
 SUPPORTED_TIMEFRAMES = frozenset({"1m", "5m", "15m", "1h", "4h", "1d", "1w"})
 MIN_CALIBRATED_BARS = 20
@@ -28,8 +29,9 @@ def analyze_chart_image(
     meta = metadata if isinstance(metadata, dict) else {}
     result: dict[str, Any] = {
         "engine": "engine_2_chart_visual_analysis",
-        "method": "modular OpenCV computer vision and explicit candle rules",
+        "method": "OpenCV computer vision, optional local RapidOCR axis reading and explicit candle rules",
         "ai_used": False,
+        "ocr_model_used": False,
         "image": path.name,
         "analyzed_at_ms": int(time.time() * 1000),
         "symbol": meta.get("symbol"),
@@ -48,6 +50,46 @@ def analyze_chart_image(
     image_height, image_width = image.shape[:2]
     try:
         calibration = resolve_chart_calibration(meta, image_width=image_width, image_height=image_height)
+        axis_ocr: dict[str, Any] = {"status": "SKIPPED_MANUAL" if calibration["price_scale_valid"] else "DISABLED"}
+        calibration_source = "manual" if calibration["price_scale_valid"] else "unavailable"
+
+        # Manual axis values always take precedence. OCR is a fallback only,
+        # and must pass a robust multi-tick fit before becoming price data.
+        if not calibration["price_scale_valid"] and bool(meta.get("auto_axis_ocr", False)):
+            axis_ocr = detect_price_axis_ticks(
+                image,
+                plot_top_px=calibration["plot_top_px"],
+                plot_bottom_px=calibration["plot_bottom_px"],
+                plot_right_px=calibration["plot_right_px"],
+            )
+            if axis_ocr.get("ticks"):
+                axis_fit = fit_price_axis(
+                    axis_ocr["ticks"],
+                    plot_top_px=calibration["plot_top_px"],
+                    plot_bottom_px=calibration["plot_bottom_px"],
+                    scale_type=calibration["price_scale_type"],
+                )
+                axis_ocr["fit"] = axis_fit
+                if axis_fit.get("status") == "READY":
+                    proposed_right = axis_ocr.get("candidate_plot_right_px")
+                    explicit_right = int(meta.get("plot_right_px", 0) or 0)
+                    if not explicit_right and proposed_right is not None:
+                        proposed_right = int(proposed_right)
+                        if calibration["plot_left_px"] + 32 < proposed_right <= image_width:
+                            meta = {**meta, "plot_right_px": proposed_right}
+                    meta = {
+                        **meta,
+                        "price_top": float(axis_fit["price_top"]),
+                        "price_bottom": float(axis_fit["price_bottom"]),
+                        "price_scale_type": calibration["price_scale_type"],
+                    }
+                    calibration = resolve_chart_calibration(
+                        meta, image_width=image_width, image_height=image_height
+                    )
+                    calibration_source = "ocr" if calibration["price_scale_valid"] else "unavailable"
+            elif axis_ocr.get("status") == "OCR_UNAVAILABLE":
+                calibration_source = "unavailable"
+
         extraction_metadata = {
             **meta,
             "plot_left_px": calibration["plot_left_px"],
@@ -172,7 +214,11 @@ def analyze_chart_image(
         "bars": calibrated[-80:] if calibration["price_scale_valid"] else bars[-80:],
         "decision_eligible": eligible,
         "quality_gates": quality_gates,
+        "axis_ocr": axis_ocr,
+        "ocr_model_used": axis_ocr.get("ocr_backend") == "RapidOCR",
+        "ai_used": axis_ocr.get("ocr_backend") == "RapidOCR",
         "calibration": {
+            "source": calibration_source,
             "price_scale_valid": bool(calibration["price_scale_valid"]),
             "price_scale_type": calibration["price_scale_type"],
             "symbol_matches": symbol_matches,
