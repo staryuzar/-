@@ -47,6 +47,7 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             "schema": "MIR-CHART-OBSERVATION-1",
             "capture_id": capture_id,
             "capture_at_utc_ms": captured,
+            "rates_snapshot_at_utc_ms": captured - 50,
             "published_at_utc_ms": captured + 100,
             "server_time_seconds": server_time_seconds,
             "server_utc_offset_seconds_at_capture": 0,
@@ -83,6 +84,7 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             self.assertEqual(result["chart"]["symbol"], "BTC")
             self.assertEqual(result["chart"]["timeframe"], "1m")
             self.assertEqual(result["bar_count"], 30)
+            self.assertEqual(result["capture_data_skew_ms"], 50)
             self.assertFalse(result["bars"][-1]["is_closed"])
             self.assertEqual(len(result["image_sha256"]), 64)
 
@@ -117,6 +119,18 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
 
             self.assertEqual(result["status"], "INVALID_IMAGE_PATH")
+
+    def test_rejects_large_skew_between_rates_and_screenshot_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            payload["rates_snapshot_at_utc_ms"] = now - 10_000
+            (root / f"capture_{payload['capture_id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "CAPTURE_DATA_SKEW")
+            self.assertFalse(result["decision_eligible"])
 
     def test_accepts_broker_server_clock_with_utc_plus_two_offset(self):
         with tempfile.TemporaryDirectory() as directory:
