@@ -189,6 +189,8 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             now = int(time.time() * 1000)
             root, payload = self.make_capture(Path(directory), now_ms=now)
             bars = payload["bars"]
+            # The formerly forming bar becomes closed once a newer bar exists.
+            bars[-1]["is_closed"] = True
             last_time = bars[-1]["time_server_ms"]
             for index in range(30, 601):
                 base = 90_000.0 + index * 10.0
@@ -246,7 +248,7 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             self.assertEqual(result["bars_time_basis"], "MT5_SERVER_TIME")
             self.assertFalse(result["decision_eligible"])
 
-    def test_rejects_bar_time_after_broker_server_clock(self):
+    def test_records_bar_time_after_broker_server_clock_without_blocking_capture(self):
         with tempfile.TemporaryDirectory() as directory:
             now = int(time.time() * 1000)
             root, payload = self.make_capture(Path(directory), now_ms=now)
@@ -255,7 +257,9 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
 
             result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
 
-            self.assertEqual(result["status"], "BAR_TIME_IN_FUTURE")
+            self.assertEqual(result["status"], "READY_FOR_ENGINE_2_VALIDATION")
+            self.assertTrue(result["newest_bar_after_server_clock"])
+            self.assertFalse(result["decision_eligible"])
 
     def test_rejects_missing_server_time(self):
         with tempfile.TemporaryDirectory() as directory:
