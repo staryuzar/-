@@ -218,18 +218,32 @@ def analyze_calibrated_bars(
             and highs[index] > max(highs[index - 2:index])
             and highs[index] >= max(highs[index + 1:index + 3])
         ):
+            pivot_index = base_index + index
+            confirmation_index = pivot_index + 2
             swing_highs.append({
-                "index": base_index + index,
+                "index": pivot_index,
                 "price": float(highs[index]),
+                "confirmed": True,
+                "confirmation_index": confirmation_index,
+                "confirmation_delay_bars": 2,
+                "confirmation_x_px": float(calibrated[confirmation_index].get("x_px", confirmation_index)),
+                "confirmation_method": "two_right_shoulder_bars",
             })
         if (
             lows[index] <= np.min(low_window)
             and lows[index] < min(lows[index - 2:index])
             and lows[index] <= min(lows[index + 1:index + 3])
         ):
+            pivot_index = base_index + index
+            confirmation_index = pivot_index + 2
             swing_lows.append({
-                "index": base_index + index,
+                "index": pivot_index,
                 "price": float(lows[index]),
+                "confirmed": True,
+                "confirmation_index": confirmation_index,
+                "confirmation_delay_bars": 2,
+                "confirmation_x_px": float(calibrated[confirmation_index].get("x_px", confirmation_index)),
+                "confirmation_method": "two_right_shoulder_bars",
             })
 
     higher_highs = bool(len(swing_highs) >= 2 and swing_highs[-1]["price"] > swing_highs[-2]["price"])
@@ -244,7 +258,106 @@ def analyze_calibrated_bars(
         structure_score = (high_direction + low_direction) / 2.0
 
     current_price = float(closes[-1])
+    previous_close = float(calibrated[-2]["close"])
+    current_bar = calibrated[-1]
+    current_high = float(current_bar["high"])
+    current_low = float(current_bar["low"])
+    latest_index = len(calibrated) - 1
+
+    prior_structure_direction = (
+        "BULLISH" if higher_highs and higher_lows
+        else "BEARISH" if lower_highs and lower_lows
+        else "MIXED_OR_UNKNOWN"
+    )
+    structure_events: list[dict[str, Any]] = []
+    latest_confirmed_high = next(
+        (pivot for pivot in reversed(swing_highs) if pivot["confirmation_index"] <= latest_index),
+        None,
+    )
+    latest_confirmed_low = next(
+        (pivot for pivot in reversed(swing_lows) if pivot["confirmation_index"] <= latest_index),
+        None,
+    )
+
+    # A break is recorded only when the latest close crosses a previously
+    # confirmed swing. A wick alone is treated as a liquidity sweep, not BOS.
+    bullish_break = bool(
+        latest_confirmed_high
+        and previous_close <= float(latest_confirmed_high["price"])
+        and current_price > float(latest_confirmed_high["price"])
+    )
+    bearish_break = bool(
+        latest_confirmed_low
+        and previous_close >= float(latest_confirmed_low["price"])
+        and current_price < float(latest_confirmed_low["price"])
+    )
+    if bullish_break:
+        event_type = (
+            "CHOCH_BULLISH"
+            if prior_structure_direction == "BEARISH"
+            else "BOS_BULLISH"
+        )
+        structure_events.append({
+            "event": event_type,
+            "side": "BULLISH",
+            "level": round(float(latest_confirmed_high["price"]), 8),
+            "pivot_index": int(latest_confirmed_high["index"]),
+            "confirmation_index": latest_index,
+            "confirmation": "closed_candle_close_above_confirmed_swing_high",
+        })
+    if bearish_break:
+        event_type = (
+            "CHOCH_BEARISH"
+            if prior_structure_direction == "BULLISH"
+            else "BOS_BEARISH"
+        )
+        structure_events.append({
+            "event": event_type,
+            "side": "BEARISH",
+            "level": round(float(latest_confirmed_low["price"]), 8),
+            "pivot_index": int(latest_confirmed_low["index"]),
+            "confirmation_index": latest_index,
+            "confirmation": "closed_candle_close_below_confirmed_swing_low",
+        })
+
+    liquidity_sweeps: list[dict[str, Any]] = []
+    for pivot in swing_highs:
+        if pivot["confirmation_index"] > latest_index or current_high <= float(pivot["price"]):
+            continue
+        if current_price < float(pivot["price"]):
+            liquidity_sweeps.append({
+                "event": "HIGH_LIQUIDITY_SWEEP",
+                "side": "BEARISH_REJECTION",
+                "level": round(float(pivot["price"]), 8),
+                "pivot_index": int(pivot["index"]),
+                "confirmation_index": latest_index,
+                "confirmation": "wick_above_confirmed_high_then_close_below",
+            })
+    for pivot in swing_lows:
+        if pivot["confirmation_index"] > latest_index or current_low >= float(pivot["price"]):
+            continue
+        if current_price > float(pivot["price"]):
+            liquidity_sweeps.append({
+                "event": "LOW_LIQUIDITY_SWEEP",
+                "side": "BULLISH_REJECTION",
+                "level": round(float(pivot["price"]), 8),
+                "pivot_index": int(pivot["index"]),
+                "confirmation_index": latest_index,
+                "confirmation": "wick_below_confirmed_low_then_close_above",
+            })
+
+    # A repeated horizontal level is a more useful zone than a single touch.
     zone_tolerance = max(visible_range * 0.015, current_price * 0.001)
+    equal_high_zones = [
+        zone for zone in _build_zones(
+            swing_highs, tolerance=zone_tolerance, current_price=current_price, side="resistance"
+        ) if zone["touches"] >= 2
+    ]
+    equal_low_zones = [
+        zone for zone in _build_zones(
+            swing_lows, tolerance=zone_tolerance, current_price=current_price, side="support"
+        ) if zone["touches"] >= 2
+    ]
     support_zones = _build_zones(
         swing_lows, tolerance=zone_tolerance, current_price=current_price, side="support"
     )
@@ -269,6 +382,12 @@ def analyze_calibrated_bars(
         "score": round(structure_score, 4) if structure_score is not None else None,
         "swing_highs": swing_highs[-8:],
         "swing_lows": swing_lows[-8:],
+        "prior_structure_direction": prior_structure_direction,
+        "structure_events": structure_events,
+        "liquidity_sweeps": liquidity_sweeps[-8:],
+        "equal_high_zones": equal_high_zones[-6:],
+        "equal_low_zones": equal_low_zones[-6:],
+        "pivot_confirmation_policy": "two right-shoulder candles; unconfirmed edge pivots are not emitted",
         "higher_highs": higher_highs,
         "higher_lows": higher_lows,
         "lower_highs": lower_highs,

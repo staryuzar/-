@@ -384,11 +384,88 @@ class ChartEngineTests(unittest.TestCase):
         self.assertTrue(structure["swing_lows"])
         self.assertTrue(all(0 <= p["index"] < len(bars) for p in structure["swing_highs"]))
         self.assertTrue(all(0 <= p["index"] < len(bars) for p in structure["swing_lows"]))
+        for pivot in structure["swing_highs"] + structure["swing_lows"]:
+            self.assertTrue(pivot["confirmed"])
+            self.assertEqual(pivot["confirmation_index"], pivot["index"] + 2)
+            self.assertEqual(pivot["confirmation_delay_bars"], 2)
+            self.assertEqual(
+                pivot["confirmation_x_px"],
+                bars[pivot["confirmation_index"]]["x_px"],
+            )
         self.assertTrue(structure["support_zones"])
         self.assertTrue(structure["resistance_zones"])
         self.assertIsNotNone(structure["entry_zone"])
         self.assertIsNotNone(structure["exit_zone"])
         self.assertEqual(structure["entry_zone"]["status"], "OBSERVATION_ONLY")
+
+    @staticmethod
+    def _structure_bars(closes, *, last_high=None, last_low=None):
+        bars = []
+        for index, close in enumerate(closes):
+            high = float(close) + 0.5
+            low = float(close) - 0.5
+            if index == len(closes) - 1:
+                if last_high is not None:
+                    high = float(last_high)
+                if last_low is not None:
+                    low = float(last_low)
+            bars.append({
+                "open": float(close),
+                "high": high,
+                "low": low,
+                "close": float(close),
+                "x_px": index * 10,
+                "colour_purity": 0.99,
+            })
+        return bars
+
+    def test_confirmed_swing_break_emits_bullish_bos_on_close(self) -> None:
+        closes = [
+            100, 102, 104, 106, 104, 102,
+            108, 112, 116, 120, 116, 112,
+            124, 128, 132, 136, 132, 128,
+            140, 144, 148, 152, 148, 144, 150, 154,
+        ]
+        result = analyze_calibrated_bars(
+            self._structure_bars(closes), top_price=180.0, bottom_price=90.0
+        )
+        events = result["market_structure"]["structure_events"]
+        self.assertTrue(any(event["event"] == "BOS_BULLISH" for event in events))
+        self.assertTrue(all(event["confirmation_index"] == len(closes) - 1 for event in events))
+
+    def test_break_against_bullish_structure_emits_bearish_choch(self) -> None:
+        closes = [
+            100, 102, 104, 106, 104, 102,
+            108, 112, 116, 120, 116, 112,
+            124, 128, 132, 136, 132, 128,
+            140, 144, 148, 152, 148, 143, 146, 147, 140,
+        ]
+        result = analyze_calibrated_bars(
+            self._structure_bars(closes), top_price=180.0, bottom_price=90.0
+        )
+        structure = result["market_structure"]
+        self.assertEqual(structure["prior_structure_direction"], "BULLISH")
+        self.assertTrue(any(event["event"] == "CHOCH_BEARISH" for event in structure["structure_events"]))
+
+    def test_wick_through_confirmed_swing_is_liquidity_sweep_not_bos(self) -> None:
+        closes = [
+            100, 102, 104, 106, 104, 102,
+            108, 112, 116, 120, 116, 112,
+            124, 128, 132, 136, 132, 128,
+            140, 144, 148, 152, 148, 144, 150, 149,
+        ]
+        bars = self._structure_bars(closes, last_high=155.0)
+        result = analyze_calibrated_bars(bars, top_price=180.0, bottom_price=90.0)
+        structure = result["market_structure"]
+        self.assertFalse(any(
+            event["event"] == "BOS_BULLISH"
+            for event in structure["structure_events"]
+        ))
+        self.assertTrue(any(
+            event["event"] == "HIGH_LIQUIDITY_SWEEP"
+            and event["side"] == "BEARISH_REJECTION"
+            for event in structure["liquidity_sweeps"]
+        ))
 
     def test_ocr_axis_calibration_is_used_only_when_manual_axis_is_missing(self) -> None:
         ticks = [

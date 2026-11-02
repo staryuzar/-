@@ -112,6 +112,50 @@ def render_engine_dashboard():
    f"بنية السوق في الصورة: {structure.get('direction','غير كافية')} | "
    f"دعم مرئي: {structure.get('support','—')} | مقاومة مرئية: {structure.get('resistance','—')}"
   )
+  event_labels={
+   "BOS_BULLISH":"كسر بنية صاعد","BOS_BEARISH":"كسر بنية هابط",
+   "CHOCH_BULLISH":"تغير بنية إلى صاعد","CHOCH_BEARISH":"تغير بنية إلى هابط",
+   "HIGH_LIQUIDITY_SWEEP":"كنس سيولة فوق قمة","LOW_LIQUIDITY_SWEEP":"كنس سيولة تحت قاع",
+  }
+  structural_rows=[
+   {"الحدث":event_labels.get(item.get("event"),item.get("event")),"الاتجاه":item.get("side"),
+    "المستوى":item.get("level"),"شمعة التأكيد":item.get("confirmation_index"),
+    "شرط التأكيد":item.get("confirmation")}
+   for item in structure.get("structure_events",[])
+  ]
+  if structural_rows:
+   st.markdown("**أحداث بنية السعر المؤكدة**")
+   st.dataframe(pd.DataFrame(structural_rows),use_container_width=True,hide_index=True)
+  sweep_rows=[
+   {"الحدث":event_labels.get(item.get("event"),item.get("event")),"الأثر":item.get("side"),
+    "المستوى":item.get("level"),"شمعة التأكيد":item.get("confirmation_index")}
+   for item in structure.get("liquidity_sweeps",[])
+  ]
+  if sweep_rows:
+   st.markdown("**عمليات كنس السيولة من الذيل والإغلاق**")
+   st.dataframe(pd.DataFrame(sweep_rows),use_container_width=True,hide_index=True)
+  equal_rows=[
+   {"المنطقة":"قمم متساوية","من":zone.get("lower"),"إلى":zone.get("upper"),
+    "اللمسات":zone.get("touches"),"المسافة %":zone.get("distance_pct")}
+   for zone in structure.get("equal_high_zones",[])
+  ]+[
+   {"المنطقة":"قيعان متساوية","من":zone.get("lower"),"إلى":zone.get("upper"),
+    "اللمسات":zone.get("touches"),"المسافة %":zone.get("distance_pct")}
+   for zone in structure.get("equal_low_zones",[])
+  ]
+  if equal_rows:
+   st.markdown("**مناطق القمم والقيعان المتساوية**")
+   st.dataframe(pd.DataFrame(equal_rows),use_container_width=True,hide_index=True)
+  watch_rows=[]
+  if structure.get("entry_zone"):
+   zone=structure["entry_zone"]
+   watch_rows.append({"المنطقة":"مراقبة دخول","النوع":zone.get("kind"),"من":zone.get("lower"),"إلى":zone.get("upper"),"الحالة":zone.get("status")})
+  if structure.get("exit_zone"):
+   zone=structure["exit_zone"]
+   watch_rows.append({"المنطقة":"مراقبة خروج","النوع":zone.get("kind"),"من":zone.get("lower"),"إلى":zone.get("upper"),"الحالة":zone.get("status")})
+  if watch_rows:
+   st.markdown("**مناطق المراقبة التي حددها المحلل**")
+   st.dataframe(pd.DataFrame(watch_rows),use_container_width=True,hide_index=True)
   components=chart.get("analysis_components",{})
   st.caption(
    f"مكونات قراءة المحلل - اتجاه: {components.get('trend','—')} | "
