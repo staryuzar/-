@@ -7,6 +7,9 @@
 #property version   "1.001"
 #property description "Mirsad read-only MT5 chart screenshot and OHLC observer"
 
+#define MIRSAD_OBSERVER_MIN_SOURCE_WIDTH 640
+#define MIRSAD_OBSERVER_MIN_SOURCE_HEIGHT 360
+
 input int  InpCaptureIntervalSeconds = 60;   // Screenshot cadence (5..3600 seconds)
 input int  InpMarketSnapshotIntervalSeconds = 2; // MT5 market-feed cadence (1..30 seconds)
 input string InpMarketSymbol = "BTCUSDT"; // Stable Mirsad symbol mapped to this broker symbol
@@ -449,7 +452,7 @@ string BuildCapturePayload(const string capture_id,
 {
    string symbol = ChartSymbol(g_chart_id);
    ENUM_TIMEFRAMES timeframe = (ENUM_TIMEFRAMES)ChartPeriod(g_chart_id);
-   bool source_dimensions_usable = (source_width >= 320 && source_main_height >= 160);
+   bool source_dimensions_usable = (source_width >= MIRSAD_OBSERVER_MIN_SOURCE_WIDTH && source_main_height >= MIRSAD_OBSERVER_MIN_SOURCE_HEIGHT);
    string source_dimensions_status = source_dimensions_usable
       ? "USABLE"
       : "BELOW_VISUAL_CALIBRATION_THRESHOLD";
@@ -535,7 +538,7 @@ bool BeginCapture()
    long bull_color = ChartGetInteger(g_chart_id, CHART_COLOR_CANDLE_BULL);
    long bear_color = ChartGetInteger(g_chart_id, CHART_COLOR_CANDLE_BEAR);
 
-   bool source_dimensions_usable = (source_width >= 320 && source_main_height >= 160);
+   bool source_dimensions_usable = (source_width >= MIRSAD_OBSERVER_MIN_SOURCE_WIDTH && source_main_height >= MIRSAD_OBSERVER_MIN_SOURCE_HEIGHT);
    if(!source_dimensions_usable)
    {
       PrintFormat("Mirsad Observer: source chart viewport is %d x %d px; capture will still be requested at %d x %d px. Visual calibration must treat source dimensions as unavailable.",
