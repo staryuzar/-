@@ -244,14 +244,18 @@ class StructureEventEvaluationTests(unittest.TestCase):
             "directional_comparisons"
         ]["BULLISH"]["horizons"]["1"]
         self.assertEqual(comparison["event"]["sample_count"], 1)
-        self.assertGreater(
-            comparison["unconditional_non_event_baseline"]["sample_count"], 0
+        self.assertEqual(
+            comparison["unconditional_non_event_baseline"]["sample_count"], 16
         )
         self.assertIsNotNone(comparison["excess_mean_return_pct"])
         self.assertIsNotNone(comparison["excess_mean_net_return_pct"])
         self.assertEqual(
             result["baseline_policy"],
             "same_split_direction_adjusted_non_event_bars",
+        )
+        self.assertEqual(
+            result["baseline_event_overlap_policy"],
+            "purge_windows_overlapping_confirmed_event_windows_per_horizon",
         )
         self.assertTrue(result["baseline_overlapping_windows_possible"])
         self.assertFalse(result["baseline_is_statistical_test"])
