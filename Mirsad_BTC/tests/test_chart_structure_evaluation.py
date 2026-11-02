@@ -120,7 +120,7 @@ class StructureEventEvaluationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             db_path = str(Path(temporary) / "stored-market.sqlite3")
             interval = CANDLE_INTERVAL_MS["1h"]
-            start = 1_700_000_000_000
+            start = (1_700_000_000_000 // interval) * interval
             conn = connect(db_path)
             try:
                 for venue, offset in (("Binance Spot", 0.0), ("OKX Spot", 500.0)):
