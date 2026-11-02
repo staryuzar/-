@@ -20,6 +20,8 @@ ENGINE2_TIMEFRAME_ALIASES = {
     "W1": "1w",
 }
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+MIN_SOURCE_CHART_WIDTH_PX = 640
+MIN_SOURCE_CHART_HEIGHT_PX = 360
 
 
 def observer_root_from_common_files(common_files: str | Path) -> Path:
@@ -280,6 +282,24 @@ class MT5ChartObserverInbox:
         chart = payload.get("chart")
         if not isinstance(chart, dict):
             return _invalid("INVALID_CHART_METADATA", "Chart metadata is missing.")
+
+        # ChartScreenShot may produce a large PNG from a much smaller native
+        # viewport. Recompute eligibility here instead of trusting the manifest
+        # boolean, which is only producer metadata.
+        try:
+            source_width = int(chart.get("source_width_px", 0) or 0)
+            source_height = int(chart.get("source_main_window_height_px", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            source_width = source_height = 0
+        source_dimensions_usable = (
+            source_width >= MIN_SOURCE_CHART_WIDTH_PX
+            and source_height >= MIN_SOURCE_CHART_HEIGHT_PX
+        )
+        chart["source_dimensions_usable"] = source_dimensions_usable
+        chart["source_dimensions_status"] = (
+            "USABLE" if source_dimensions_usable
+            else "BELOW_VISUAL_CALIBRATION_THRESHOLD"
+        )
         symbol = str(chart.get("symbol", "")).strip()
         source_timeframe = str(chart.get("timeframe", "")).strip().upper()
         # Preserve every MT5 period. Known Engine 2 periods get a canonical
@@ -324,9 +344,9 @@ class MT5ChartObserverInbox:
                 "source_timeframe": source_timeframe,
                 "timeframe": timeframe,
             },
-            "visual_calibration_eligible": bool(chart.get("source_dimensions_usable", False)),
+            "visual_calibration_eligible": source_dimensions_usable,
             "visual_calibration_status": str(
-                chart.get("source_dimensions_status", "SOURCE_DIMENSIONS_NOT_REPORTED")
+                chart["source_dimensions_status"]
             ),
             "account": payload.get("account") if isinstance(payload.get("account"), dict) else {},
             "bars_time_basis": payload.get("bars_time_basis"),
