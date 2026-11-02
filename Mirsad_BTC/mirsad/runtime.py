@@ -10,12 +10,47 @@ from .engines.market import MarketEngine  # Research/benchmark adapter; not used
 from .engines.mt5_market import MT5MarketDataEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
 from .engines.chart import analyze_chart_image
-from .engines.chart_multi_timeframe import analyze_stored_multi_timeframe_structure
+from .engines.chart_multi_timeframe import analyze_multi_timeframe_structure
 from .engines.indicators import IndicatorsEngine
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
 from .engines.mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candidates
 from .storage import save_market_snapshot,write_json_atomic,read_json
+
+def _analyze_engine2_multi_timeframe_structure(candle_history:dict[str,Any])->dict[str,Any]:
+ if not isinstance(candle_history,dict) or candle_history.get("status")!="READY":
+  return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
+   "status":"NOT_READY","alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
+   "available_timeframes":[],"eligible_timeframes":[],
+   "reason":"Engine 2 has no validated native MT5 multi-timeframe candle history."}
+ frames=candle_history.get("candles_by_tf")
+ if not isinstance(frames,dict) or not frames:
+  return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
+   "status":"NOT_READY","alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
+   "available_timeframes":[],"eligible_timeframes":[],
+   "reason":"Engine 2 candle history is missing its timeframe map."}
+ try:
+  as_of_ms=int(candle_history["captured_at_ms"])
+  last_closed={
+   timeframe:bool(rows and rows[-1].get("closed"))
+   for timeframe,rows in frames.items()
+  }
+  result=analyze_multi_timeframe_structure(
+   frames,as_of_ms=as_of_ms,
+   last_candle_closed_by_timeframe=last_closed,
+  )
+ except (KeyError,TypeError,ValueError,OverflowError) as exc:
+  return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
+   "status":"ERROR","alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
+   "available_timeframes":[],"eligible_timeframes":[],
+   "reason":f"{type(exc).__name__}: {exc}"}
+ return {
+  **result,
+  "engine":"engine_2_multi_timeframe_structure",
+  "source":"MT5_CHART_OBSERVER",
+  "ownership":"engine_2_native_candles_only",
+  "reason":None if result.get("status")=="READY" else "Fewer than two fresh timeframes have complete confirmed price structure.",
+ }
 
 def _chart_file()->Path|None:
  if not CHART_DIR.exists(): return None
@@ -232,25 +267,13 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    chart={"engine":"engine_2_chart_visual_analysis","status":"WAITING_FOR_IMAGE",
     "decision_eligible":False,"ai_used":False,
     "message":"Upload a real chart screenshot and enter its price-axis scale."}
- # Historical multi-timeframe candle studies are kept as a separate research display.
- # Live Engine 3 inputs come from the Engine 2 candle inbox below.
- try:
-  chart["stored_multi_timeframe_structure"]=analyze_stored_multi_timeframe_structure(
-   symbol=str(market.get("symbol","BTCUSDT")),
-   venue=market.get("primary_venue"),
-   as_of_ms=int(market.get("captured_at_ms",started)),
-  )
- except Exception as exc:
-  chart["stored_multi_timeframe_structure"]={
-   "status":"ERROR","source":"market_candles_sqlite",
-   "errors":{"runtime":f"{type(exc).__name__}: {exc}"},
-   "alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
-   "does_not_affect_decision_engine":True,
-  }
+ # Engine 2 multi-timeframe structure is calculated below from its own MT5 candle inbox.
+
  # A fresh Observer capture is consumed by Engine 2 above as an image/market-data
  # evidence input. It never authorizes an order by itself: Engine 4 still owns
  # scoring, market-source quorum, position management and all risk gates.
  candle_history=MT5ChartCandleHistory().collect(bridge=bridge,market=market)
+ engine2_multitimeframe=_analyze_engine2_multi_timeframe_structure(candle_history)
  indicators=IndicatorsEngine().analyze(candle_history)
  chart["engine_2_candle_history"]={
   "status":candle_history.get("status"),
@@ -259,6 +282,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "closed_candles":candle_history.get("closed_candles",{}),
   "reason":candle_history.get("reason"),
  }
+ chart["engine_2_multi_timeframe_structure"]=engine2_multitimeframe
  decision=DecisionEngine().analyze(market,chart,bridge,indicators)
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
  if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
@@ -273,6 +297,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "engine_1_market":market_status=="LIVE",
   "engine_2_chart":bool(chart.get("decision_eligible")),
   "engine_2_candles":candle_history.get("status")=="READY",
+  "engine_2_multi_timeframe_structure":engine2_multitimeframe.get("status")=="READY",
   "engine_3_indicators":indicators.get("status")=="READY",
   "engine_4_decision":decision.get("status")=="READY",
   "engine_5_communication_bridge":bridge.get("status")=="CONNECTED",
@@ -298,6 +323,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "chart":chart,"chart_observer":chart_observer,"engine_2_candles":{
    "status":candle_history.get("status"),"timeframes":candle_history.get("timeframes",{}),
    "closed_candles":candle_history.get("closed_candles",{}),"reason":candle_history.get("reason")},
+  "engine_2_multi_timeframe_structure":engine2_multitimeframe,
   "indicators":indicators,
   "bridge":bridge,"decision":decision,"command_publish":command_publish,
   "wiring":{"engine_1_market_to_engine_4":True,"engine_2_chart_to_engine_4":True,
@@ -307,7 +333,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "expert_connection":bridge.get("status","NOT_CONFIGURED")},
   "notices":[
    "Engine 1: MT5 quote pulse, spread/activity context and broker economic-calendar events. It does not read chart images or candles.",
-   "Engine 2: real chart screenshots, candle extraction/validation, price structure and visible patterns. Its native MT5 candle inbox is the only OHLC source for Engine 3.",
+   "Engine 2: real chart screenshots, candle extraction/validation, price structure, visible patterns and timestamp-aligned multi-timeframe structure. Its native MT5 candle inbox is the only OHLC source for Engine 3.",
+   "Engine 2 multi-timeframe structure uses only its own six MT5 candle frames at one UTC cutoff; stale frames, missing intervals and forming candles are not allowed to create confluence.",
    "Engine 3: EMA/RSI/ATR and multi-timeframe technical measures calculated exclusively from Engine 2 completed candles.",
    "Engine 4: central synthesis, decision, position monitoring and risk ownership. Engine 5: MT5 communication bridge.",
    "Engine 1 quote updates describe quote movement only; they are not represented as executed trades, taker flow or order-book depth.",
