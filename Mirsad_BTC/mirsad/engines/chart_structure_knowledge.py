@@ -280,15 +280,19 @@ def analyze_chart_structure_knowledge(
     premium_discount = None
     external_highs, external_lows = pivot_sets["external"]
     if external_highs and external_lows:
-        range_high = max(p["price"] for p in external_highs)
-        range_low = min(p["price"] for p in external_lows)
+        latest_external_high = max(external_highs, key=lambda pivot: int(pivot["index"]))
+        latest_external_low = max(external_lows, key=lambda pivot: int(pivot["index"]))
+        range_high = float(latest_external_high["price"])
+        range_low = float(latest_external_low["price"])
         if range_high > range_low:
             equilibrium = (range_high + range_low) / 2
             premium_discount = {
                 "range_high": range_high, "range_low": range_low,
                 "equilibrium": equilibrium, "current_price": current,
                 "position": "DISCOUNT" if current < equilibrium else "PREMIUM",
-                "range_source": "confirmed_external_pivots_in_supplied_chart",
+                "range_source": "latest_confirmed_external_high_low_pair",
+                "range_high_pivot_index": int(latest_external_high["index"]),
+                "range_low_pivot_index": int(latest_external_low["index"]),
             }
 
     return {
