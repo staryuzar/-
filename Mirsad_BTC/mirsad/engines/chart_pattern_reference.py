@@ -268,11 +268,19 @@ def analyze_talib_pattern_reference(
             invalidated += state_name == "INVALIDATED"
             forming += state_name == "FORMING"
             completed += state_name == "COMPLETED"
+            start_index = int(state["formation_start_index"])
+            try:
+                start_x = float(bars[start_index].get("x_px", start_index))
+                end_x = float(bars[index].get("x_px", index))
+            except (TypeError, ValueError, OverflowError):
+                start_x, end_x = float(start_index), float(index)
             events.append({
                 "pattern": name,
                 "side": side,
                 "state": state_name,
                 "bar_index": index,
+                "x_px": round(end_x, 3),
+                "formation_center_x_px": round((start_x + end_x) / 2.0, 3),
                 "talib_value": raw_value,
                 "strength_semantics": "TA-Lib pattern output integer; not probability or expected return.",
                 **state,

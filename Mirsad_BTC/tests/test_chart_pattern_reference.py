@@ -100,6 +100,8 @@ class ChartPatternReferenceTests(unittest.TestCase):
         self.assertEqual(engulfing[0]["side"], "BULLISH")
         self.assertEqual(engulfing[0]["state"], "INVALIDATED")
         self.assertEqual(engulfing[0]["invalidation_rule"], "close_below_formation_low")
+        self.assertEqual(engulfing[0]["x_px"], 2.0)
+        self.assertEqual(engulfing[0]["formation_center_x_px"], 1.5)
 
     def test_scan_is_point_in_time_and_does_not_use_future_bars(self) -> None:
         bars = deterministic_ohlc(count=90, seed=23)

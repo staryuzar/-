@@ -352,6 +352,7 @@ def _end_candle_index(center_px: float, image_width: int, span: int) -> float:
 
 def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     per_class: dict[str, dict[str, float | int | None]] = {}
+    reference_per_class: dict[str, dict[str, float | int | None]] = {}
     spans = {0: 1, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 1, 7: 2}
     required_history = {0: 10, 1: 10, 2: 1, 3: 1, 4: 12, 5: 12, 6: 10, 7: 11}
 
@@ -446,6 +447,95 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
             "context_f1": round(context_f1, 4) if context_f1 is not None else None,
         }
 
+    # Separate score for TA-Lib applied to image-derived OHLC. Ground truth is
+    # itself TA-Lib-generated, so this measures OHLC reconstruction/definition
+    # agreement, not human validation or future-price prediction.
+    for class_id, class_name in enumerate(CLASS_NAMES):
+        tp = fp = fn = predicted = truth = 0
+        context_tp = context_fp = context_fn = 0
+        context_predicted = context_truth = unseen_truth = 0
+        for row in results:
+            match = (row.get("reference_pattern_matches") or {}).get(str(class_id), {})
+            tp += int(match.get("tp", 0))
+            fp += int(match.get("fp", 0))
+            fn += int(match.get("fn", 0))
+            predicted += int(match.get("predicted", 0))
+            truth += int(match.get("ground_truth", 0))
+
+            image_width = int(row.get("image_width", 640) or 640)
+            min_history = required_history[class_id]
+            span = spans[class_id]
+            tolerance = image_width / 20.6 * 0.72
+            truth_x = [
+                float(gt["cx"]) * image_width
+                for gt in row.get("ground_truth", [])
+                if int(gt.get("class_id", -1)) == class_id
+            ]
+            available_truth_x = [
+                x for x in truth_x
+                if round(_end_candle_index(x, image_width, span)) >= min_history
+            ]
+            unseen_truth += len(truth_x) - len(available_truth_x)
+            context_truth += len(available_truth_x)
+
+            reference_x = [
+                float(pred["x_px"])
+                for pred in row.get("reference_predictions", [])
+                if int(pred.get("class_id", -1)) == class_id
+            ]
+            available_reference_x = [
+                x for x in reference_x
+                if round(_end_candle_index(x, image_width, span)) >= min_history
+            ]
+            context_predicted += len(available_reference_x)
+            context_match = _match_class(
+                available_reference_x, available_truth_x, tolerance
+            )
+            context_tp += context_match["tp"]
+            context_fp += context_match["fp"]
+            context_fn += context_match["fn"]
+
+        precision = tp / (tp + fp) if tp + fp else None
+        recall = tp / (tp + fn) if tp + fn else None
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if precision is not None and recall is not None and precision + recall > 0
+            else None
+        )
+        context_precision = (
+            context_tp / (context_tp + context_fp)
+            if context_tp + context_fp else None
+        )
+        context_recall = (
+            context_tp / (context_tp + context_fn)
+            if context_tp + context_fn else None
+        )
+        context_f1 = (
+            2 * context_precision * context_recall / (context_precision + context_recall)
+            if context_precision is not None and context_recall is not None
+            and context_precision + context_recall > 0 else None
+        )
+        reference_per_class[class_name] = {
+            "tp": tp,
+            "fp": fp,
+            "fn": fn,
+            "predicted_instances": predicted,
+            "ground_truth_instances": truth,
+            "precision": round(precision, 4) if precision is not None else None,
+            "recall": round(recall, 4) if recall is not None else None,
+            "f1": round(f1, 4) if f1 is not None else None,
+            "context_required_prior_bars": min_history,
+            "context_predicted_instances": context_predicted,
+            "context_ground_truth_instances": context_truth,
+            "context_unavailable_ground_truth_instances": unseen_truth,
+            "context_tp": context_tp,
+            "context_fp": context_fp,
+            "context_fn": context_fn,
+            "context_precision": round(context_precision, 4) if context_precision is not None else None,
+            "context_recall": round(context_recall, 4) if context_recall is not None else None,
+            "context_f1": round(context_f1, 4) if context_f1 is not None else None,
+        }
+
     ready = sum(int(row.get("detected_bars", 0)) >= 18 for row in results)
     analyzed = sum(row.get("status") not in {"ANALYSIS_ERROR", "IMAGE_DECODE_ERROR", "IMAGE_WRITE_ERROR"} for row in results)
     return {
@@ -459,6 +549,13 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
             "ShootingStar and Doji; 1 for Engulfing; 11 for Harami; 12 for Morning/Evening Star."
         ),
         "per_class": per_class,
+        "talib_reference_per_class": reference_per_class,
+        "reference_status_counts": dict(Counter(str(row.get("reference_pattern_status", "UNAVAILABLE")) for row in results)),
+        "reference_method": (
+            "TA-Lib pattern recognition applied to image-extracted calibrated OHLC. "
+            "Ground-truth annotations were generated from source OHLC by TA-Lib; this is a parser/geometry "
+            "reconstruction diagnostic, not human-verified pattern accuracy."
+        ),
         "status_counts": dict(Counter(str(row.get("status")) for row in results)),
     }
 
@@ -501,13 +598,14 @@ def main() -> int:
         metrics = aggregate(ordered)
         document = {
             "project": "Mirsad BTC",
-            "benchmark": "held_out_talib_candlestick_pattern_imitation",
+            "benchmark": "held_out_visual_and_talib_reference_pattern_benchmark",
             "dataset": DATASET,
             "dataset_revision": REVISION,
             "split": "test",
             "dataset_role": (
-                "External SPY chart-pattern diagnostic. Pattern labels are generated by TA-Lib "
-                "rules, not human annotation. This is not a BTC outcome or profitability test."
+                "External SPY chart-pattern diagnostic. The visual pixel-geometry detector and the "
+                "TA-Lib-on-image-OHLC reference are scored separately against TA-Lib-generated source-OHLC "
+                "labels. Labels are not human annotation. This is not a BTC outcome or profitability test."
             ),
             "archive": archive_path,
             "archive_info": archive_info,
@@ -554,6 +652,22 @@ def main() -> int:
                 f"{m['context_precision']} | {m['context_recall']} | {m['context_f1']} |"
             )
         lines.extend([
+            "",
+            "## TA-Lib reference applied to OHLC reconstructed from the image",
+            "",
+            "| Pattern | TP | FP | FN | P | R | F1 | Context P | Context R | Context F1 |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ])
+        for name, m in metrics["talib_reference_per_class"].items():
+            lines.append(
+                f"| {name} | {m['tp']} | {m['fp']} | {m['fn']} | "
+                f"{m['precision']} | {m['recall']} | {m['f1']} | "
+                f"{m['context_precision']} | {m['context_recall']} | {m['context_f1']} |"
+            )
+        lines.extend([
+            "",
+            f"- TA-Lib reference statuses: {metrics['reference_status_counts']}",
+            "- Interpretation: the reference uses image-reconstructed OHLC and source annotations were generated by TA-Lib; it measures OHLC reconstruction agreement, not independent human-labelled pattern accuracy.",
             "",
             "| Batch | Range | Images with 18+ bars | Pattern TPs | Pattern FPs |",
             "|---:|---:|---:|---:|---:|",
