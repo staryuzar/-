@@ -116,7 +116,7 @@ Common\Files\MirsadBTC\observer\
 
 يوجد Workflow يدوي: https://github.com/staryuzar/-/actions/workflows/mirsad-mt5-observer-demo.yml
 
-احفظ بيانات الدخول في GitHub Secret باسم mt5 داخل المستودع الحالي staryuzar/-، بصيغة JSON تحتوي login وpassword، ويمكن إضافة server وsymbol وtimeframe اختيارياً. قيمة الخادم الافتراضية في Workflow هي العنوان التقني mt5.demo.trade-hw.online، وهو العنوان المستخدم في اختبار Headway Demo السابق الناجح؛ ويمكن تغييره من مدخل server عند الحاجة. إذا احتوى السر على server صريح فله الأولوية على مدخل Workflow.
+يستخدم Workflow السر الموجود مسبقاً باسم mt5 في المستودع الحالي staryuzar/-. يقبل سكربت التشغيل صيغة السطرين الحالية (رقم الدخول في السطر الأول وكلمة المرور في الثاني)، كما يقبل JSON يحتوي login وpassword، ويمكن إضافة server وsymbol وtimeframe اختيارياً. لا حاجة لإنشاء سر جديد إذا كان السر نفسه مستخدماً بنجاح في اختبار الخبير الناقل. قيمة الخادم الافتراضية في Workflow هي العنوان التقني mt5.demo.trade-hw.online، وهو العنوان المستخدم في اختبار Headway Demo السابق الناجح؛ ويمكن تغييره من مدخل server عند الحاجة. إذا احتوى السر على server صريح فله الأولوية على مدخل Workflow.
  
 للتوضيح: Headway-Demo هو اسم الخادم الظاهر للمستخدم، أما عنوان الاتصال التقني المستخدم في اختبار مرصاد السابق فهو mt5.demo.trade-hw.online. لا تضع كلمة المرور في مدخلات Workflow أو ملفات المشروع أو السجلات؛ تحفظ داخل GitHub Secret فقط. السر المحفوظ في مستودع آخر لا ينتقل تلقائياً إلى staryuzar/-.
  
