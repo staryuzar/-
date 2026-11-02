@@ -15,7 +15,12 @@ from .chart_ocr import detect_price_axis_ticks, fit_price_axis
 from .chart_pattern_reference import analyze_talib_pattern_reference
 from .chart_pattern_knowledge import analyze_candle_patterns
 from .chart_structure_knowledge import analyze_chart_structure_knowledge
-from .visual_knowledge import seed_visual_knowledge
+from .visual_knowledge import (
+    seed_visual_knowledge,
+    visual_knowledge_summary,
+    record_pattern_observations,
+    record_structure_observations,
+)
 
 _VISUAL_KNOWLEDGE_DB_STATUS: dict[str, Any] | None = None
 
@@ -24,7 +29,9 @@ def _ensure_visual_knowledge_database() -> dict[str, Any]:
     global _VISUAL_KNOWLEDGE_DB_STATUS
     if _VISUAL_KNOWLEDGE_DB_STATUS is None:
         try:
-            _VISUAL_KNOWLEDGE_DB_STATUS = seed_visual_knowledge()
+            seeded = seed_visual_knowledge()
+            summary = visual_knowledge_summary()
+            _VISUAL_KNOWLEDGE_DB_STATUS = {**seeded, **summary}
         except Exception as exc:
             _VISUAL_KNOWLEDGE_DB_STATUS = {
                 "status": "ERROR",
@@ -38,6 +45,109 @@ MIN_CALIBRATED_BARS = 20
 MIN_LAST_BAR_X_RATIO = 0.68
 MIN_MEAN_COLOUR_PURITY = 0.72
 
+
+
+def _persist_visual_observations(
+    image_path: Path,
+    symbol: str,
+    timeframe: str,
+    candle_knowledge: dict[str, Any],
+    structure_knowledge: dict[str, Any],
+) -> dict[str, Any]:
+    """Archive deterministic observations for an explicitly enabled chart sample."""
+    try:
+        fingerprint = hashlib.sha256(image_path.read_bytes()).hexdigest()
+        pattern_events = candle_knowledge.get("detected", [])
+        pattern_count = record_pattern_observations(
+            fingerprint, symbol, timeframe, pattern_events
+        )
+
+        structural_events: list[dict[str, Any]] = []
+        for scale_name, scale in (structure_knowledge.get("scales") or {}).items():
+            for key, structure_id in (("swing_highs", "pivot_high"), ("swing_lows", "pivot_low")):
+                for pivot in scale.get(key, []):
+                    index = int(pivot["index"])
+                    structural_events.append({
+                        "structure_id": structure_id,
+                        "start_index": index, "end_index": index,
+                        "confirmed": bool(pivot.get("confirmed")),
+                        "level_price": pivot.get("price"),
+                        "scope": scale_name,
+                        "confirmation_index": pivot.get("confirmation_index"),
+                        "evidence": pivot,
+                    })
+
+        mapping = {
+            "BOS_BULLISH": "bos_bullish",
+            "BOS_BEARISH": "bos_bearish",
+            "CHOCH_BULLISH": "choch_bullish",
+            "CHOCH_BEARISH": "choch_bearish",
+        }
+        for event in structure_knowledge.get("bos_choch_events", []):
+            structure_id = mapping.get(event.get("event"))
+            if structure_id:
+                index = int(event.get("confirmation_index", event.get("pivot_index", 0)))
+                structural_events.append({
+                    "structure_id": structure_id,
+                    "start_index": int(event.get("pivot_index", index)),
+                    "end_index": index, "confirmed": True,
+                    "level_price": event.get("level"),
+                    "scope": "swing", "evidence": event,
+                })
+
+        sweep_mapping = {
+            "HIGH_LIQUIDITY_SWEEP": "high_liquidity_sweep",
+            "LOW_LIQUIDITY_SWEEP": "low_liquidity_sweep",
+        }
+        for event in structure_knowledge.get("liquidity_sweeps", []):
+            structure_id = sweep_mapping.get(event.get("event"))
+            if structure_id:
+                index = int(event.get("confirmation_index", 0))
+                structural_events.append({
+                    "structure_id": structure_id,
+                    "start_index": int(event.get("pivot_index", index)),
+                    "end_index": index, "confirmed": True,
+                    "level_price": event.get("level"),
+                    "scope": "swing", "evidence": event,
+                })
+
+        for key, structure_id in (("equal_highs", "equal_highs"), ("equal_lows", "equal_lows")):
+            for zone in structure_knowledge.get(key, []):
+                indices = [int(x) for x in zone.get("pivot_indices", [])]
+                if indices:
+                    structural_events.append({
+                        "structure_id": structure_id,
+                        "start_index": min(indices), "end_index": max(indices),
+                        "confirmed": True, "level_price": zone.get("level"),
+                        "scope": "swing", "evidence": zone,
+                    })
+
+        for gap in structure_knowledge.get("fair_value_gaps", []):
+            index = int(gap.get("index", 0))
+            structural_events.append({
+                "structure_id": gap["structure_id"],
+                "start_index": max(0, index - 2), "end_index": index,
+                "confirmed": True, "zone_low": gap.get("zone_low"),
+                "zone_high": gap.get("zone_high"),
+                "scope": "single_timeframe", "evidence": gap,
+            })
+
+        structure_count = record_structure_observations(
+            fingerprint, symbol, timeframe, structural_events
+        )
+        return {
+            "status": "READY",
+            "sample_fingerprint": fingerprint,
+            "pattern_observations_written": pattern_count,
+            "structure_observations_written": structure_count,
+        }
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "error": f"{type(exc).__name__}: {exc}",
+            "pattern_observations_written": 0,
+            "structure_observations_written": 0,
+        }
 
 def analyze_chart_image(
     image_path: str | Path,
@@ -135,6 +245,7 @@ def analyze_chart_image(
     confirmed_calibrated = calibrated if last_candle_closed else calibrated[:-1]
 
     knowledge_database = _ensure_visual_knowledge_database()
+    observation_archive: dict[str, Any] = {"status": "DISABLED"}
     if calibration["price_scale_valid"]:
         try:
             candle_knowledge = analyze_candle_patterns(
@@ -152,6 +263,17 @@ def analyze_chart_image(
                 "status": "ERROR", "error": f"{type(exc).__name__}: {exc}",
                 "bos_choch_events": [], "liquidity_sweeps": [],
             }
+        if (
+            bool(meta.get("persist_knowledge_observations", False))
+            and candle_knowledge.get("status") not in {"ERROR", "SKIPPED_UNCALIBRATED"}
+            and advanced_structure.get("status") not in {"ERROR", "SKIPPED_UNCALIBRATED"}
+            and str(meta.get("symbol", "")).strip()
+            and str(meta.get("timeframe", "")).strip()
+        ):
+            observation_archive = _persist_visual_observations(
+                path, str(meta["symbol"]), str(meta["timeframe"]),
+                candle_knowledge, advanced_structure,
+            )
     else:
         candle_knowledge = {
             "status": "SKIPPED_UNCALIBRATED", "count": 0, "detected": [],
@@ -306,6 +428,7 @@ def analyze_chart_image(
         "candle_knowledge": candle_knowledge,
         "advanced_structure_knowledge": advanced_structure,
         "visual_knowledge_database": knowledge_database,
+        "visual_observation_archive": observation_archive,
         "bars": output_bars,
         "decision_eligible": eligible,
         "quality_gates": quality_gates,
