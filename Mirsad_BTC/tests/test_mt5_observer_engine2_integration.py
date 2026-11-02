@@ -91,6 +91,16 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
             self.assertEqual(args[1]["reference_last_candle_ohlc"]["close"], observer["bars"][-1]["close"])
             self.assertEqual(kwargs["expected_symbol"], "BTCUSDT")
 
+    def test_changed_image_after_inbox_validation_is_rejected_by_sha256(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            observer, market, bridge = fixture_capture(Path(directory))
+            Image.new("RGB", (640, 360), (220, 20, 20)).save(observer["image_path"], format="PNG")
+            with patch("mirsad.runtime.analyze_chart_image") as analyzer:
+                result = _analyze_mt5_observer_chart(observer, market, bridge)
+            analyzer.assert_not_called()
+            self.assertFalse(result["decision_eligible"])
+            self.assertEqual(result["status"], "OBSERVER_IMAGE_CHANGED")
+
     def test_capture_with_small_source_viewport_never_reaches_visual_analysis(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             observer, market, bridge = fixture_capture(Path(directory))
