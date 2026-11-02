@@ -252,6 +252,46 @@ class ChartEngineTests(unittest.TestCase):
         self.assertTrue(result["quality_gates"]["native_reference_candle_verified"])
         self.assertTrue(result["decision_eligible"])
 
+    def test_live_native_anchor_replaces_an_inconsistent_ocr_axis_only_when_explicitly_enabled(self) -> None:
+        ticks = [
+            {"y_px": 30, "price": 120000.0, "score": 0.95},
+            {"y_px": 110, "price": 100000.0, "score": 0.95},
+            {"y_px": 190, "price": 80000.0, "score": 0.95},
+            {"y_px": 270, "price": 60000.0, "score": 0.95},
+        ]
+        reference = {
+            "open": 107600.0,
+            "high": 109333.333333,
+            "low": 106933.333333,
+            "close": 108666.666667,
+        }
+        with patch(
+            "mirsad.engines.chart.detect_price_axis_ticks",
+            return_value={"status": "TICKS_FOUND", "ticks": ticks, "candidate_plot_right_px": None},
+        ):
+            result = self._analyze(metadata={
+                "price_top": 0.0,
+                "price_bottom": 0.0,
+                "auto_axis_ocr": True,
+                "allow_reference_anchor_override": True,
+                "expected_candle_count": 24,
+                "reference_last_candle_ohlc": reference,
+            })
+        self.assertEqual(result["axis_ocr"]["fit"]["status"], "READY")
+        self.assertEqual(result["calibration"]["source"], "reference_last_candle_ohlc")
+        self.assertEqual(result["reference_calibration"]["status"], "READY")
+        self.assertEqual(result["reference_axis_validation"]["status"], "READY")
+        self.assertEqual(
+            result["reference_axis_validation"]["method"],
+            "native_ohlc_anchor_replaced_inconsistent_ocr",
+        )
+        self.assertEqual(
+            result["reference_axis_validation"]["ocr_axis_validation"]["status"],
+            "REFERENCE_AXIS_MISMATCH",
+        )
+        self.assertTrue(result["reference_ohlc_override_applied"])
+        self.assertTrue(result["decision_eligible"])
+
     def test_native_reference_mismatch_blocks_an_otherwise_valid_manual_axis(self) -> None:
         result = self._analyze(metadata={
             "reference_last_candle_ohlc": {

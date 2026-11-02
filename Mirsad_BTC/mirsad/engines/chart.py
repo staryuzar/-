@@ -333,7 +333,25 @@ def analyze_chart_image(
                     bars[-1], reference_ohlc, calibration
                 )
                 reference_anchor_verified = reference_axis_validation.get("status") == "READY"
-                if not reference_anchor_verified:
+                if (
+                    not reference_anchor_verified
+                    and calibration_source == "ocr"
+                    and bool(meta.get("allow_reference_anchor_override", False))
+                ):
+                    # A trusted, synchronized MT5 native candle may replace an
+                    # inconsistent OCR fit, but never a manually supplied axis.
+                    ocr_axis_validation = reference_axis_validation
+                    calibration = reference_calibration["calibration"]
+                    calibration_source = "reference_last_candle_ohlc"
+                    reference_axis_validation = {
+                        "status": "READY",
+                        "method": "native_ohlc_anchor_replaced_inconsistent_ocr",
+                        "ocr_axis_validation": ocr_axis_validation,
+                        "independent_reference_fit_status": "READY",
+                        "maximum_residual_fraction": reference_calibration.get("maximum_residual_fraction"),
+                    }
+                    reference_anchor_verified = True
+                elif not reference_anchor_verified:
                     reference_axis_validation["independent_reference_fit_status"] = "READY"
             else:
                 reference_axis_validation = {
