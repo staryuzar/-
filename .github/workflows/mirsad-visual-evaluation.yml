@@ -1,6 +1,7 @@
 name: Mirsad Visual Engine Evaluation
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - mirsad-mt5-demo
@@ -146,6 +147,7 @@ jobs:
           retention-days: 30
 
   btc-huggingface-large-image-benchmark:
+    if: github.event_name == 'workflow_dispatch'
     name: BTC Hugging Face chart image benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 60
