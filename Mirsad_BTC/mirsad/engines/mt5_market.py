@@ -67,9 +67,11 @@ class MT5MarketDataEngine:
             error_code = int(payload.get("error_code", -1))
         except (TypeError, ValueError, OverflowError):
             return None, f"MT5 {name} timeframe count/error metadata is invalid."
-        if error_code != 0 or copied != len(raw_bars) if isinstance(raw_bars, list) else True:
+        if not isinstance(raw_bars, list):
+            return None, f"MT5 {name} timeframe bars payload is not a list."
+        if error_code != 0 or copied != len(raw_bars):
             return None, f"MT5 {name} timeframe CopyRates count or error code is inconsistent."
-        if not isinstance(raw_bars, list) or len(raw_bars) < 2:
+        if len(raw_bars) < 2:
             return None, f"MT5 {name} timeframe has fewer than two bars."
         bars: list[dict[str, Any]] = []
         previous_time = 0
