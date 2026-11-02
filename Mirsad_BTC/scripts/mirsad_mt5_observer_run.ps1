@@ -45,6 +45,55 @@ function Get-CommonObserverDirectory {
     return $null
 }
 
+function Get-ObserverStatusSnapshot {
+    $candidates = @(
+        (Join-Path $installDir 'Common\Files\MirsadBTC\observer\observer_status.json'),
+        (Join-Path $installDir 'Terminal\Common\Files\MirsadBTC\observer\observer_status.json'),
+        (Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files\MirsadBTC\observer\observer_status.json'),
+        (Join-Path $env:LOCALAPPDATA 'MetaQuotes\Terminal\Common\Files\MirsadBTC\observer\observer_status.json')
+    )
+    if ($observerDir) {
+        $candidates = @((Join-Path $observerDir 'observer_status.json')) + $candidates
+    }
+    foreach ($candidate in ($candidates | Select-Object -Unique)) {
+        if (!(Test-Path -LiteralPath $candidate)) { continue }
+        try {
+            return (Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json -ErrorAction Stop)
+        }
+        catch {
+            return $null
+        }
+    }
+    return $null
+}
+
+function Test-HeadwayAuthorizationLog {
+    $logRoots = @(
+        (Join-Path $installDir 'Logs'),
+        (Join-Path $installDir 'MQL5\Logs'),
+        (Join-Path $installDir 'Terminal\Logs'),
+        (Join-Path $installDir 'Terminal\MQL5\Logs')
+    ) | Where-Object { Test-Path -LiteralPath $_ }
+
+    foreach ($logRoot in $logRoots) {
+        $logs = Get-ChildItem -LiteralPath $logRoot -Filter '*.log' -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 12
+        foreach ($logFile in $logs) {
+            if ($logFile.LastWriteTimeUtc -lt $loginStarted.AddSeconds(-3)) { continue }
+            $content = Get-Content -LiteralPath $logFile.FullName -Raw -ErrorAction SilentlyContinue
+            if ([string]::IsNullOrWhiteSpace($content)) { continue }
+            foreach ($line in ($content -split "\r?\n")) {
+                if ($line -match '(?i)(Headway-Demo|mt5\.demo\.trade-hw\.online)' -and
+                    $line -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
+                    $line -notmatch '(?i)(failed|invalid|not authorized|authorization error)') {
+                    return $true
+                }
+            }
+        }
+    }
+    return $false
+}
+
 function Add-ObserverDiagnostics {
     Add-Report ("Terminal process alive: {0}" -f [bool]($terminalProcess -and !$terminalProcess.HasExited))
 
@@ -262,10 +311,22 @@ Period=$observerTimeframe
     $observerDir = $null
     $manifestFile = $null
     $manifest = $null
+    $authorizationConfirmed = $false
+    $lastObserverStatus = $null
+    $nextLogScan = [DateTime]::MinValue
+    $loginStarted = Get-Date
     $deadline = (Get-Date).AddSeconds(180)
 
     while ((Get-Date) -lt $deadline) {
         $observerDir = Get-CommonObserverDirectory
+
+        if ((Get-Date) -ge $nextLogScan) {
+            $authorizationConfirmed = Test-HeadwayAuthorizationLog
+            $nextLogScan = (Get-Date).AddSeconds(9)
+        }
+        $statusSnapshot = Get-ObserverStatusSnapshot
+        if ($statusSnapshot) { $lastObserverStatus = $statusSnapshot }
+
         if ($observerDir) {
             $candidates = Get-ChildItem -LiteralPath $observerDir -Filter 'capture_*.json' -File -ErrorAction SilentlyContinue |
                 Sort-Object LastWriteTimeUtc -Descending
@@ -286,15 +347,28 @@ Period=$observerTimeframe
 
         if ($manifestFile) { break }
         if ($terminalProcess.HasExited) {
-            Add-Report 'Terminal exited before MT5 itself reported a connected account and Observer capture.'
+            Add-Report 'Terminal exited before MT5 Observer capture was published.'
             break
         }
         Start-Sleep -Seconds 3
     }
 
     if (!$manifestFile -or !$observerDir -or !$manifest) {
+        Add-Report ("Headway authorization detected in terminal logs: {0}" -f $authorizationConfirmed)
+        if ($lastObserverStatus) {
+            Add-Report ("Last Observer state: {0}; symbol={1}; timeframe={2}; message={3}" -f $lastObserverStatus.state,$lastObserverStatus.symbol,$lastObserverStatus.timeframe,$lastObserverStatus.message)
+        }
+        else {
+            Add-Report 'No observer_status.json was found; the EA may not have initialized or may not have written to the expected Common Files location.'
+        }
         Add-ObserverDiagnostics
-        throw 'No MT5-connected Observer capture appeared within 180 seconds. Review Observer EA status and sanitized MT5 log diagnostics above.'
+        if (-not $authorizationConfirmed) {
+            throw 'MT5 Headway authorization was not confirmed and no Observer capture was published. Review sanitized terminal log diagnostics above.'
+        }
+        if (-not $lastObserverStatus) {
+            throw 'Headway authorization was detected, but the Observer EA did not publish its startup status. Review sanitized MT5 log diagnostics above.'
+        }
+        throw ("Headway authorization was detected, but Observer did not publish a connected capture. Last state={0}. Review the status message and sanitized log diagnostics above." -f $lastObserverStatus.state)
     }
     if (!$manifest.account -or -not [bool]$manifest.account.terminal_connected) {
         throw 'MT5 terminal did not report a connected account.'
