@@ -34,15 +34,15 @@ def parse_reference_candle(text: Any) -> dict[str, Any]:
     """Parse the dataset's independently supplied last-candle OHLC description."""
     value = str(text or "")
     direction_match = re.search(
-        r"\\bCandle\\s*:\\s*(bullish|bearish|doji)\\b",
+        r"\bCandle\s*:\s*(bullish|bearish|doji)\b",
         value,
         flags=re.IGNORECASE,
     )
-    number_pattern = r"([+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)"
+    number_pattern = r"([+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
     ohlc: dict[str, float] = {}
     for field in ("open", "high", "low", "close"):
         match = re.search(
-            rf"\\b{field}\\s*:\\s*{number_pattern}",
+            rf"\b{field}\s*:\s*{number_pattern}",
             value,
             flags=re.IGNORECASE,
         )
