@@ -327,17 +327,10 @@ public static class MirsadNativeWindow {
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
-    public static int MaximizeMdiChildren(IntPtr topWindow) {
-        IntPtr mdi = FindWindowEx(topWindow, IntPtr.Zero, "MDIClient", null);
-        if (mdi == IntPtr.Zero) return -1;
-        var children = new List<IntPtr>();
-        EnumWindowProc callback = (hwnd, lParam) => {
-            if (GetParent(hwnd) == mdi) children.Add(hwnd);
-            return true;
-        };
-        EnumChildWindows(mdi, callback, IntPtr.Zero);
-        foreach (IntPtr child in children) PostMessage(mdi, 0x0225, child, IntPtr.Zero);
-        return children.Count;
+    public static bool MaximizeMdiChartWindow(IntPtr chartWindow) {
+        IntPtr mdi = GetParent(chartWindow);
+        if (mdi == IntPtr.Zero) return ShowWindowAsync(chartWindow, 3);
+        return PostMessage(mdi, 0x0225, chartWindow, IntPtr.Zero);
     }
     public static string WindowRectText(IntPtr hwnd) {
         RECT r;
@@ -360,11 +353,28 @@ public static class MirsadNativeWindow {
     if ($terminalWindow) {
         [MirsadNativeWindow]::ShowWindowAsync($terminalWindow.MainWindowHandle, 3) | Out-Null
         [MirsadNativeWindow]::SetForegroundWindow($terminalWindow.MainWindowHandle) | Out-Null
-        $mdiChildren = [MirsadNativeWindow]::MaximizeMdiChildren($terminalWindow.MainWindowHandle)
-        Start-Sleep -Seconds 2
         $windowRect = [MirsadNativeWindow]::WindowRectText($terminalWindow.MainWindowHandle)
-        Add-Report ("PASS — MT5 terminal maximized; MDI chart windows maximized={0}; main window={1}; HWND={2}." -f $mdiChildren,$windowRect,$terminalWindow.MainWindowHandle)
-        if ($mdiChildren -lt 0) { Add-Report 'WARN — MT5 MDI client was not found; source viewport will be checked by the Observer.' }
+        Add-Report ("PASS — MT5 main terminal maximized; main window={0}; HWND={1}." -f $windowRect,$terminalWindow.MainWindowHandle)
+
+        # Wait for the Observer EA to publish the HWND of its exact BTC chart.
+        $chartHandleDeadline = [DateTime]::UtcNow.AddSeconds(25)
+        $observerChartStatus = $null
+        do {
+            $observerDir = Get-CommonObserverDirectory
+            $observerChartStatus = Get-ObserverStatusSnapshot
+            if ($observerChartStatus -and [long]$observerChartStatus.chart_window_handle -gt 0) { break }
+            Start-Sleep -Seconds 1
+        } while ([DateTime]::UtcNow -lt $chartHandleDeadline)
+        if ($observerChartStatus -and [long]$observerChartStatus.chart_window_handle -gt 0) {
+            $observerChartHwnd = [IntPtr]([long]$observerChartStatus.chart_window_handle)
+            $targetedMaximize = [MirsadNativeWindow]::MaximizeMdiChartWindow($observerChartHwnd)
+            [MirsadNativeWindow]::SetForegroundWindow($observerChartHwnd) | Out-Null
+            Start-Sleep -Seconds 2
+            Add-Report ("PASS — targeted Observer chart MDI maximize requested={0}; chart HWND={1}; symbol={2}; timeframe={3}." -f $targetedMaximize,$observerChartHwnd,$observerChartStatus.symbol,$observerChartStatus.timeframe)
+        }
+        else {
+            Add-Report 'WARN — Observer chart HWND was not published; the original viewport quality gate remains in force.'
+        }
     }
     else {
         Add-Report 'WARN — MT5 main window handle was not found for maximize; Observer will still apply its viewport safety gate.'
