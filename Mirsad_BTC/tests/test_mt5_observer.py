@@ -58,6 +58,8 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
             "forming_bar_included": True,
             "bars_time_basis": "MT5_SERVER_TIME",
             "bars_copied": len(bars),
+            "rates_status": "AVAILABLE",
+            "rates_error_code": 0,
             "bars": bars,
             "chart": {
                 "symbol": "BTC",
@@ -120,7 +122,7 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "INVALID_IMAGE_PATH")
 
-    def test_rejects_large_skew_between_rates_and_screenshot_request(self):
+    def test_records_large_skew_without_rejecting_capture(self):
         with tempfile.TemporaryDirectory() as directory:
             now = int(time.time() * 1000)
             root, payload = self.make_capture(Path(directory), now_ms=now)
@@ -129,7 +131,40 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
 
             result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
 
-            self.assertEqual(result["status"], "CAPTURE_DATA_SKEW")
+            self.assertEqual(result["status"], "READY_FOR_ENGINE_2_VALIDATION")
+            self.assertEqual(result["capture_data_skew_ms"], 10_000)
+            self.assertFalse(result["decision_eligible"])
+
+    def test_accepts_m2_timeframe_without_blocking_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            payload["chart"]["timeframe"] = "M2"
+            (root / f"capture_{payload['capture_id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "READY_FOR_ENGINE_2_VALIDATION")
+            self.assertEqual(result["chart"]["source_timeframe"], "M2")
+            self.assertEqual(result["chart"]["timeframe"], "m2")
+            self.assertFalse(result["decision_eligible"])
+
+    def test_accepts_empty_history_and_keeps_chart_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = int(time.time() * 1000)
+            root, payload = self.make_capture(Path(directory), now_ms=now)
+            payload["bars"] = []
+            payload["bars_copied"] = 0
+            payload["rates_status"] = "UNAVAILABLE"
+            payload["rates_error_code"] = 4401
+            payload["forming_bar_included"] = False
+            (root / f"capture_{payload['capture_id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            result = MT5ChartObserverInbox(root).inspect_latest(now_ms=now + 500)
+
+            self.assertEqual(result["status"], "READY_FOR_ENGINE_2_VALIDATION")
+            self.assertEqual(result["bar_count"], 0)
+            self.assertEqual(result["rates_status"], "UNAVAILABLE")
             self.assertFalse(result["decision_eligible"])
 
     def test_accepts_broker_server_clock_with_utc_plus_two_offset(self):
