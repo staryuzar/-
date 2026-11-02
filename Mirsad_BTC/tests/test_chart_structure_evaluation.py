@@ -12,6 +12,7 @@ from mirsad.engines.chart_structure_evaluation import (
     scan_historical_structure_events,
     persist_structure_evaluations,
 )
+from mirsad.engines.visual_knowledge import visual_knowledge_summary
 from mirsad.storage import CANDLE_INTERVAL_MS, connect
 
 
@@ -538,6 +539,12 @@ class StructureEventEvaluationTests(unittest.TestCase):
                     stored_metrics["directional_comparisons"]["BULLISH"]["horizons"]["1"][
                         "excess_mean_return_pct"
                     ]
+                )
+                summary = visual_knowledge_summary(db_path)
+                self.assertEqual(summary["evaluation_split_windows"], 1)
+                self.assertEqual(
+                    summary["recent_evaluation_split_windows"][0]["data_split"],
+                    "test",
                 )
             finally:
                 conn.close()
