@@ -44,6 +44,27 @@ CANDIDATE_NAMES = {
 }
 IMAGE_KEY = re.compile(r"^SPY_\d{8}$")
 
+REFERENCE_CLASS_NAMES = {
+    "CDLHAMMER": 0,
+    "CDLSHOOTINGSTAR": 1,
+    "CDLMORNINGSTAR": 4,
+    "CDLMORNINGDOJISTAR": 4,
+    "CDLEVENINGSTAR": 5,
+    "CDLEVENINGDOJISTAR": 5,
+    "CDLDOJI": 6,
+    "CDLHARAMI": 7,
+    "CDLHARAMICROSS": 7,
+}
+
+
+def _reference_class_id(event: dict[str, Any]) -> int | None:
+    """Map a TA-Lib candlestick event to the held-out dataset's class ID."""
+    name = str(event.get("pattern", "")).upper()
+    side = str(event.get("side", "")).upper()
+    if name == "CDLENGULFING":
+        return 2 if side == "BULLISH" else 3 if side == "BEARISH" else None
+    return REFERENCE_CLASS_NAMES.get(name)
+
 
 def request_bytes(url: str, maximum_bytes: int = 120 * 1024 * 1024, timeout: int = 90) -> bytes:
     request = urllib.request.Request(
@@ -254,6 +275,8 @@ def analyze_sample(row: dict[str, Any], index: int, temp_dir: Path) -> dict[str,
         "plot_bottom_px": height,
         "expected_candle_count": 20,
         "palette_mode": "auto",
+        # The source images are static historical charts, so the last candle is closed.
+        "last_candle_closed": True,
     }
     try:
         result = analyze_chart_image(image_path, metadata, expected_symbol="SPY")
@@ -290,6 +313,33 @@ def analyze_sample(row: dict[str, Any], index: int, temp_dir: Path) -> dict[str,
             )
             for class_id in range(len(CLASS_NAMES))
         }
+
+        # Independent TA-Lib formulas evaluated on OHLC reconstructed from the
+        # image. Keep this score separate from pixel-geometry candidates: both
+        # depend on the same extracted bars and are not independent votes.
+        reference_patterns = result.get("reference_patterns") or {}
+        reference_predictions_by_class: dict[int, list[float]] = defaultdict(list)
+        reference_events = reference_patterns.get("events", []) or []
+        for event in reference_events:
+            class_id = _reference_class_id(event)
+            if class_id is None:
+                continue
+            centre_x = event.get("formation_center_x_px", event.get("x_px"))
+            if centre_x is None:
+                event_index = int(event.get("bar_index", -1))
+                if 0 <= event_index < len(bars):
+                    centre_x = float(bars[event_index]["x_px"])
+            if centre_x is not None and math.isfinite(float(centre_x)):
+                reference_predictions_by_class[class_id].append(float(centre_x))
+
+        reference_matches = {
+            str(class_id): _match_class(
+                reference_predictions_by_class.get(class_id, []),
+                truths_by_class.get(class_id, []),
+                tolerance,
+            )
+            for class_id in range(len(CLASS_NAMES))
+        }
         candle_geometry = [
             {
                 "index": bar_index,
@@ -317,11 +367,18 @@ def analyze_sample(row: dict[str, Any], index: int, temp_dir: Path) -> dict[str,
             "calibrated_bars": result.get("calibrated_bar_count", 0),
             "analysis_confidence": result.get("analysis_confidence"),
             "pattern_matches": matches,
+            "reference_pattern_status": reference_patterns.get("status", "UNAVAILABLE"),
+            "reference_pattern_matches": reference_matches,
             "ground_truth": row["labels"],
             "candle_geometry": candle_geometry,
             "predictions": [
                 {"class_id": cls, "x_px": round(x, 2)}
                 for cls, xs in predictions_by_class.items()
+                for x in xs
+            ],
+            "reference_predictions": [
+                {"class_id": cls, "x_px": round(x, 2)}
+                for cls, xs in reference_predictions_by_class.items()
                 for x in xs
             ],
             "extraction_diagnostics": result.get("extraction_diagnostics"),
