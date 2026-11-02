@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       server:
-        description: 'MT5 broker server (defaults to Headway demo; ignored when server is stored in the mt5 secret)'
+        description: 'MT5 broker server (defaults to the previously validated Headway demo endpoint; ignored when server is stored in the mt5 secret)'
         required: false
-        default: 'Headway-Demo'
+        default: 'mt5.demo.trade-hw.online'
         type: string
       symbol:
         description: 'Exact symbol name as shown by this broker'
@@ -46,7 +46,7 @@ jobs:
       - name: Connect to the configured MT5 account (demo or real), compile and capture using the read-only Observer
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
-          MIRSAD_MT5_SERVER: ${{ inputs.server || 'Headway-Demo' }}
+          MIRSAD_MT5_SERVER: ${{ inputs.server || 'mt5.demo.trade-hw.online' }}
           MIRSAD_MT5_OBSERVER_SYMBOL: ${{ inputs.symbol || 'BTC' }}
           MIRSAD_MT5_OBSERVER_TIMEFRAME: ${{ inputs.timeframe || 'M1' }}
         shell: pwsh
