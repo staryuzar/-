@@ -70,7 +70,7 @@ def render_engine_dashboard():
   for col,(label,key) in zip(cols,labels):
    status=engine_states.get(key)
    if key=="engine_5_communication_bridge" and status is None:
-    status=engine_states.get("engine_3_mt5_bridge","NOT_STARTED")
+    status=engine_states.get("engine_3_mt5_bridge",engine_states.get("engine_5_mt5_bridge","NOT_STARTED"))
    with col: col.metric(label,ar(status or "NOT_REPORTED"))
   st.divider()
 
@@ -476,6 +476,24 @@ def render_engine_dashboard():
   if chart.get("limitations"):
    st.caption("حدود التحليل: "+" | ".join(chart["limitations"]))
 
+  indicators=state.get("indicators",{})
+  st.subheader("المحرك الثالث — المؤشرات")
+  i1,i2,i3,i4,i5=st.columns(5)
+  indicator_values=indicators.get("values",{})
+  i1.metric("حالة المؤشرات",ar(indicators.get("status","NOT_REPORTED")))
+  i2.metric("EMA 20 / 1m",f"{indicator_values.get('ema20_1m'):,.2f}" if indicator_values.get("ema20_1m") is not None else "—")
+  i3.metric("EMA 50 / 1m",f"{indicator_values.get('ema50_1m'):,.2f}" if indicator_values.get("ema50_1m") is not None else "—")
+  i4.metric("RSI 14 / 1m",f"{indicator_values.get('rsi14_1m'):.2f}" if indicator_values.get("rsi14_1m") is not None else "—")
+  i5.metric("ATR 14 / 5m",f"{indicator_values.get('atr14_5m'):,.2f}" if indicator_values.get("atr14_5m") is not None else "—")
+  if indicators.get("timeframes"):
+   indicator_rows=[{
+    "الإطار":tf,"الحالة":ar(item.get("status")),
+    "الاتجاه":item.get("trend"),"EMA 20":item.get("ema20"),
+    "EMA 50":item.get("ema50"),"الشموع المغلقة":item.get("closed_candles")
+   } for tf,item in indicators["timeframes"].items()]
+   st.dataframe(pd.DataFrame(indicator_rows),use_container_width=True,hide_index=True)
+  st.caption(indicators.get("reason") or "المؤشرات تحسب من الشموع المكتملة التي يجمعها محرك السوق؛ ولا تصدر أوامر أو تصويتاً مستقلاً.")
+ 
   observer=state.get("chart_observer",{})
   st.subheader("وحدة مراقبة والتقاط مخططات MT5")
   o1,o2,o3,o4=st.columns(4)
@@ -541,7 +559,7 @@ def render_engine_dashboard():
    st.write("المؤشرات المحسوبة من الشموع المغلقة")
    st.dataframe(pd.DataFrame([decision["indicators"]]),use_container_width=True,hide_index=True)
   risk=decision.get("risk_plan",{})
-  st.write("حساب المخاطر وحجم المركز داخل البرنامج:",ar(risk.get("status","WAITING_FOR_ENGINE_3_BRIDGE")))
+  st.write("حساب المخاطر وحجم المركز داخل البرنامج:",ar(risk.get("status","WAITING_FOR_ENGINE_5_BRIDGE")))
   if risk.get("volume") is not None:
    st.write(f"الحجم المحسوب: {risk['volume']} | المخاطرة النقدية: {risk.get('risk_cash')} | الخسارة التقديرية عند الوقف: {risk.get('estimated_loss')}")
   st.caption(risk.get("reason") or decision.get("reason",""))

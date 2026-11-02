@@ -6,62 +6,7 @@ from typing import Any
 
 from ..config import (RISK_PER_TRADE, MT5_QUOTE_MAX_AGE_SECONDS, MT5_MARKET_DIVERGENCE_MAX_PCT, MT5_MAX_SPREAD_PCT)
 
-TIMEFRAME_WEIGHTS = {"1m": 1.0, "5m": 2.0, "15m": 3.0, "1h": 4.0, "4h": 5.0, "1d": 5.0}
-
-
-def _ema(values: list[float], period: int) -> float | None:
-    if period < 2 or len(values) < period:
-        return None
-    alpha = 2.0 / (period + 1)
-    value = sum(values[:period]) / period
-    for item in values[period:]:
-        value = alpha * item + (1 - alpha) * value
-    return value
-
-
-def _rsi(values: list[float], period: int = 14) -> float | None:
-    if period < 2 or len(values) <= period:
-        return None
-    changes = [values[i] - values[i - 1] for i in range(1, len(values))]
-    gains = [max(x, 0.0) for x in changes]
-    losses = [max(-x, 0.0) for x in changes]
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-    for gain, loss in zip(gains[period:], losses[period:]):
-        avg_gain = (avg_gain * (period - 1) + gain) / period
-        avg_loss = (avg_loss * (period - 1) + loss) / period
-    if avg_loss == 0:
-        return 50.0 if avg_gain == 0 else 100.0
-    return 100.0 - (100.0 / (1.0 + avg_gain / avg_loss))
-
-
-def _atr(candles: list[dict[str, Any]], period: int = 14) -> float | None:
-    if period < 2 or len(candles) <= period:
-        return None
-    ranges = []
-    for previous, current in zip(candles[:-1], candles[1:]):
-        ranges.append(max(
-            float(current["high"]) - float(current["low"]),
-            abs(float(current["high"]) - float(previous["close"])),
-            abs(float(current["low"]) - float(previous["close"])),
-        ))
-    return sum(ranges[-period:]) / period
-
-
-def _timeframe_trend(candles: list[dict[str, Any]]) -> dict[str, Any]:
-    closed = [c for c in candles if c.get("closed")]
-    closes = [float(c["close"]) for c in closed]
-    fast, slow = _ema(closes, 20), _ema(closes, 50)
-    if fast is None or slow is None:
-        return {"status": "INSUFFICIENT", "trend": "UNKNOWN", "closed_candles": len(closes)}
-    last = closes[-1]
-    trend = "BULLISH" if fast > slow and last > fast else (
-        "BEARISH" if fast < slow and last < fast else "NEUTRAL"
-    )
-    return {
-        "status": "READY", "trend": trend, "ema20": fast, "ema50": slow,
-        "last_close": last, "closed_candles": len(closes),
-    }
+from .indicators import IndicatorsEngine, TIMEFRAME_WEIGHTS, _ema, _rsi, _atr, _timeframe_trend
 
 
 def _aggregate_orderflow(venues: dict[str, Any]) -> dict[str, Any]:
@@ -244,12 +189,12 @@ class DecisionEngine:
 
     def analyze(
         self, market: dict[str, Any], chart: dict[str, Any] | None,
-        bridge: dict[str, Any] | None,
+        bridge: dict[str, Any] | None, indicators: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         base = {
-            "engine": "engine_4_decision_and_risk", "method": "rules_only",
-            "direction_inputs": ["engine_1_market", "engine_2_chart"],
-            "bridge_role": "engine_3 transports commands and supplies live quote/account/specifications only",
+            "engine": "engine_4_decision_trade_monitor", "method": "rules_only",
+            "direction_inputs": ["engine_1_market", "engine_2_chart", "engine_3_indicators"],
+            "bridge_role": "engine_5 transports commands and supplies live quote/account/specifications only",
             "risk_owner": "Mirsad_BTC_program",
         }
         bridge = bridge or {}
@@ -257,35 +202,24 @@ class DecisionEngine:
             return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
                     "reason": "Engine 1 requires at least two current independent public venues before directional decisions."}
 
+        indicator_data = indicators if isinstance(indicators, dict) else IndicatorsEngine().analyze(market)
+        timeframe_data = indicator_data.get("timeframes") or {}
+        indicator_values = indicator_data.get("values") or {}
+        if indicator_data.get("status") != "READY":
+            return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
+                    "timeframes": timeframe_data, "indicators": indicator_values,
+                    "engine_3_indicator_status": indicator_data.get("status", "NOT_READY"),
+                    "reason": indicator_data.get("reason") or "Engine 3 indicators are not ready."}
+
         primary = market["venues"][market["primary_venue"]]
         candle_sets = primary.get("candles_by_tf") or {"1m": primary.get("candles", [])}
-        timeframe_data = {tf: _timeframe_trend(candle_sets.get(tf, [])) for tf in TIMEFRAME_WEIGHTS}
-        required = ("1m", "5m", "15m")
-        missing = [tf for tf in required if timeframe_data[tf]["status"] != "READY"]
-        if missing:
-            return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
-                    "timeframes": timeframe_data,
-                    "reason": "Engine 1 lacks completed candles for " + ", ".join(missing)}
-
         one = [c for c in candle_sets.get("1m", []) if c.get("closed")]
-        five = [c for c in candle_sets.get("5m", []) if c.get("closed")]
-        closes = [float(c["close"]) for c in one]
-        fast, slow = _ema(closes, 20), _ema(closes, 50)
-        rsi, atr1, atr5 = _rsi(closes), _atr(one), _atr(five)
-        if None in (fast, slow, rsi, atr1, atr5) or atr5 <= 0:
-            return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
-                    "timeframes": timeframe_data,
-                    "reason": "Completed candle data is insufficient for technical calculations."}
-
-        weighted = 0.0
-        weight_total = 0.0
-        for tf, weight in TIMEFRAME_WEIGHTS.items():
-            row = timeframe_data[tf]
-            if row["status"] != "READY":
-                continue
-            weight_total += weight
-            weighted += weight * (1 if row["trend"] == "BULLISH" else -1 if row["trend"] == "BEARISH" else 0)
-        trend_score = weighted / weight_total if weight_total else 0.0
+        fast = indicator_values["ema20_1m"]
+        slow = indicator_values["ema50_1m"]
+        rsi = indicator_values["rsi14_1m"]
+        atr1 = indicator_values["atr14_1m"]
+        atr5 = indicator_values["atr14_5m"]
+        trend_score = float(indicator_data["trend_score"])
         orderflow = _aggregate_orderflow(market.get("venues", {}))
         chart = chart or {}
         chart_eligible = bool(chart.get("decision_eligible")) and chart.get("status") == "READY"
@@ -396,8 +330,8 @@ class DecisionEngine:
         ) if aligned_signal in {"BUY", "SELL"} else None
 
         size: dict[str, Any] = {
-            "status": "WAITING_FOR_ENGINE_3_QUOTE",
-            "reason": "Engine 3 must provide a fresh mapped MT5 quote and live account/symbol specifications.",
+            "status": "WAITING_FOR_ENGINE_5_QUOTE",
+            "reason": "Engine 5 must provide a fresh mapped MT5 quote and live account/symbol specifications.",
         }
         if aligned_signal in {"BUY", "SELL"}:
             spec_fields = ("tick_size", "tick_value_loss", "volume_min", "volume_step", "volume_max")
@@ -406,7 +340,7 @@ class DecisionEngine:
                         "reason": "No fresh MT5 quote or broker symbol mapping does not match the market instrument."}
             elif "equity" not in account or not all(key in specs for key in spec_fields):
                 size = {"status": "UNAVAILABLE",
-                        "reason": "Engine 3 account equity or loss/volume specifications are incomplete."}
+                        "reason": "Engine 5 account equity or loss/volume specifications are incomplete."}
             else:
                 size = calculate_volume(
                     equity=account["equity"], entry=entry, stop_loss=stop_loss,
@@ -480,10 +414,8 @@ class DecisionEngine:
                 "combined_score": round(combined_score, 4),
                 "threshold": DIRECTIONAL_SCORE_THRESHOLD,
             },
-            "indicators": {
-                "ema20_1m": fast, "ema50_1m": slow, "rsi14_1m": rsi,
-                "atr14_1m": atr1, "atr14_5m": atr5,
-            },
+            "indicators": indicator_values,
+            "engine_3_indicator_status": indicator_data.get("status"),
             "orderflow": orderflow,
             "risk_plan": size,
             "position_management": {
@@ -495,12 +427,12 @@ class DecisionEngine:
             "engine_inputs": {
                 "direction_from_engine_1_market": market.get("status"),
                 "direction_from_engine_2_chart": "READY" if chart_eligible else chart.get("status", "NOT_READY"),
-                "engine_3_bridge_for_quote_account_specs_and_transport": bridge.get("status", "NOT_CONFIGURED"),
+                "engine_5_bridge_for_quote_account_specs_and_transport": bridge.get("status", "NOT_CONFIGURED"),
                 "broker_market_price_divergence_pct": round(price_divergence * 100, 4) if price_divergence is not None else None,
                 "broker_spread_pct": round(spread_pct * 100, 4) if spread_pct is not None else None,
             },
             "reason": (
                 "BUY/SELL is derived only from Engine 1 market data and Engine 2 calibrated chart analysis. "
-                "Engine 3 supplies execution and account facts only; it does not vote on direction."
+                "Engine 3 calculates technical measures from Engine 1 candles without adding a separate directional vote. Engine 5 supplies execution and account facts only."
             ),
         }

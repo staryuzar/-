@@ -8,6 +8,7 @@ from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPS
 from .engines.market import MarketEngine
 from .engines.chart import analyze_chart_image
 from .engines.chart_multi_timeframe import analyze_stored_multi_timeframe_structure
+from .engines.indicators import IndicatorsEngine
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
 from .engines.mt5_observer import MT5ChartObserverInbox
@@ -84,11 +85,13 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
  # The read-only chart observer is surfaced independently. Its capture has
  # no effect on chart eligibility, Engine 4 scoring, or MIR1 order publication.
  chart_observer=_inspect_mt5_chart_observer(now_ms=int(time.time()*1000))
- bridge=(bridge_engine or MT5BridgeEngine()).inspect()
- decision=DecisionEngine().analyze(market,chart,bridge)
+ indicators=IndicatorsEngine().analyze(market)
+ bridge_adapter=bridge_engine or MT5BridgeEngine()
+ bridge=bridge_adapter.inspect()
+ decision=DecisionEngine().analyze(market,chart,bridge,indicators)
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
  if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
-  command_publish=(bridge_engine or MT5BridgeEngine()).publish_decision(decision,bridge)
+  command_publish=bridge_adapter.publish_decision(decision,bridge)
  elif decision.get("command_ready"):
   command_publish={"status":"PUBLISH_DISABLED","message":"Decision is sized but the bridge command switch is disabled."}
  now=int(time.time()*1000)
@@ -98,14 +101,16 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
  readiness={
   "engine_1_market":market_status=="LIVE",
   "engine_2_chart":bool(chart.get("decision_eligible")),
-  "engine_3_mt5_bridge":bridge.get("status")=="CONNECTED",
+  "engine_3_indicators":indicators.get("status")=="READY",
   "engine_4_decision":decision.get("status")=="READY",
+  "engine_5_communication_bridge":bridge.get("status")=="CONNECTED",
  }
  overall="FULLY_OPERATIONAL" if all(readiness.values()) else "PARTIAL_OR_WAITING"
  engine_states={
   "engine_1_market":market_status,"engine_2_chart":chart.get("status","NOT_STARTED"),
-  "engine_3_mt5_bridge":bridge.get("status","NOT_STARTED"),
+  "engine_3_indicators":indicators.get("status","NOT_STARTED"),
   "engine_4_decision":decision.get("status","NOT_STARTED"),
+  "engine_5_communication_bridge":bridge.get("status","NOT_STARTED"),
  }
  report={
   "project":"Mirsad BTC","version":"0.2.0","heartbeat_at_ms":now,
@@ -117,29 +122,30 @@ def collect_once(market_engine:MarketEngine|None=None,bridge_engine:MT5BridgeEng
    "venues":{n:{"status":v.get("status"),"latency_ms":v.get("latency_ms"),
     "error":v.get("error"),"timeframe_count":len(v.get("candles_by_tf",{})),
     "orderflow":v.get("orderflow")} for n,v in market.get("venues",{}).items()}},
-  "chart":chart,"chart_observer":chart_observer,
+  "chart":chart,"chart_observer":chart_observer,"indicators":indicators,
   "bridge":bridge,"decision":decision,"command_publish":command_publish,
-  "wiring":{"engine_1_to_engine_4":True,"engine_2_to_engine_4":True,
+  "wiring":{"engine_1_to_engine_3":True,"engine_2_to_engine_4":True,
    "engine_3_to_engine_4":True,
-   "engine_4_to_engine_3_command_envelope":"implemented_idempotent_user_authorized",
-   "engine_3_to_engine_4_ack_and_positions":"read_from_common_files",
+   "engine_4_to_engine_5_command_envelope":"implemented_idempotent_user_authorized",
+   "engine_5_to_engine_4_ack_and_positions":"read_from_common_files",
    "expert_connection":bridge.get("status","NOT_CONFIGURED")},
   "notices":[
-   "Engine 1: actual public market feeds. Engine 2: classical chart vision. Engine 3: MT5 bridge. Engine 4: central decision and risk.",
-   "Engine 3 never classifies account type and never computes risk.",
-   "Engine 4 owns every decision, stop, target and volume calculation.",
+   "Engine 1: actual public market feeds. Engine 2: classical chart vision. Engine 3: technical indicator calculations. Engine 4: central decision and trade monitoring. Engine 5: MT5 communication bridge.",
+   "Engine 3 calculates from Engine 1 completed candles and does not create an independent directional vote.",
+   "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
+   "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
    "No market simulation or simulated order is used.",
    "The MT5 Chart Observer is a read-only capture source; its raw capture is not decision-eligible until Engine 2 validates the visual and temporal alignment.",
    "A directional decision requires at least two live public venues.",
    "A broker quote must be fresh, close to the spot reference and within the configured spread threshold.",
-   "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
+   "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions through Engine 5; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
   ],
  }
  write_json_atomic(STATUS_PATH,report)
  return report
 
 def run_forever(interval:int=COLLECT_INTERVAL_SECONDS)->None:
- print("Mirsad BTC runtime: Engine 1 + Engine 2 -> Engine 4 -> Engine 3 -> MT5 EA. Commands execute only when Engine 4 marks them ready.")
+ print("Mirsad BTC runtime: Engine 1 + Engine 2 + Engine 3 -> Engine 4 -> Engine 5 -> MT5 EA. Commands execute only when Engine 4 marks them ready.")
  while True:
   try:
    report=collect_once()

@@ -20,7 +20,7 @@ def _read_object(path: Path) -> dict[str, Any]:
 
 
 class MT5BridgeEngine:
-    """Engine 3: bidirectional program/EA bridge. No account classification or risk computation."""
+    """Engine 5: bidirectional program/EA bridge. No direction or risk computation."""
 
     def __init__(self, common_files: str | None = None):
         configured = common_files if common_files is not None else MT5_COMMON_FILES
