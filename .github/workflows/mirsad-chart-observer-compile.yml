@@ -81,6 +81,10 @@ jobs:
           if ($compileText -notmatch '(?i)0 errors' -or $compileText -match '(?i)[1-9][0-9]* errors') {
             throw 'MetaEditor did not report zero compile errors.'
           }
+          if ($compileText -notmatch '(?i)0 warnings' -or $compileText -match '(?i)[1-9][0-9]* warnings') {
+            throw 'MetaEditor did not report zero compile warnings.'
+          }
+          Write-Output $compileText
 
           Copy-Item -LiteralPath $eaBinary -Destination (Join-Path $evidenceDir 'Mirsad_ChartObserver.ex5') -Force
           @(
