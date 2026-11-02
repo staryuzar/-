@@ -41,8 +41,13 @@ def analyze_mt5_observer_chart(
  manually calibrated image path. A READY capture that fails any gate returns
  a blocked chart so stale/manual data cannot silently replace it.
  """
- if observer.get("status")!="READY_FOR_ENGINE_2_VALIDATION":
+ capture_status=observer.get("status")
+ if capture_status in {"NOT_CONFIGURED","WAITING_FOR_CAPTURE"}:
   return None
+ if capture_status!="READY_FOR_ENGINE_2_VALIDATION":
+  reason=str(observer.get("reason") or observer.get("message") or
+             f"Latest MT5 chart capture is not valid for Engine 2 (status={capture_status}).")
+  return _blocked_observer_chart(observer,reason,"OBSERVER_INBOX_VALIDATION_BLOCKED")
 
  chart_meta=observer.get("chart") if isinstance(observer.get("chart"),dict) else {}
  bars=observer.get("bars") if isinstance(observer.get("bars"),list) else []
@@ -195,7 +200,13 @@ class Engine2MT5ChartImagePipeline:
                 "message": "Set MIRSAD_MT5_COMMON_FILES to the MT5 Terminal\\Common\\Files folder.",
             }
         try:
-            return MT5ChartObserverInbox.from_common_files(self.common_files).inspect_latest(now_ms=now_ms)
+            result = MT5ChartObserverInbox.from_common_files(self.common_files).inspect_latest(now_ms=now_ms)
+            return {
+                **result,
+                "pipeline_component": "engine2_mt5_chart_image_pipeline",
+                "observer_directory": str(Path(self.common_files) / "MirsadBTC" / "observer"),
+                "image_directory": str(Path(self.common_files) / "MirsadBTC" / "observer" / "images"),
+            }
         except Exception as exc:
             return {
                 "engine": "engine_2_mt5_chart_image_pipeline",
