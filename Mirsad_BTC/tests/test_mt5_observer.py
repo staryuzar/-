@@ -412,6 +412,12 @@ class MT5ObserverScreenshotAlignmentTests(unittest.TestCase):
         self.assertIn(r'\"screenshot_alignment\":\"ALIGN_LEFT\"', content)
         self.assertIn("screenshot_width, screenshot_height, ALIGN_LEFT", content)
         self.assertNotIn("screenshot_width, screenshot_height, ALIGN_RIGHT", content)
+        capture_body = content.split("bool BeginCapture()", 1)[1].split("bool TryFinalizePendingCapture()", 1)[0]
+        navigation_call = "g_last_capture_navigation_ok = SynchronizeLatestChartViewport();"
+        self.assertIn(navigation_call, capture_body)
+        self.assertLess(capture_body.index(navigation_call), capture_body.index("CHART_FIRST_VISIBLE_BAR"))
+        self.assertIn(r'\"chart_navigated_to_end\"', content)
+
 
 
 if __name__ == "__main__":

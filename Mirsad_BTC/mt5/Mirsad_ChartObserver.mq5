@@ -31,6 +31,7 @@ ulong  g_next_calendar_refresh_at_ms = 0;
 string g_economic_calendar_json = "\"economic_calendar\":{\"status\":\"NOT_REQUESTED\",\"source\":\"MT5_ECONOMIC_CALENDAR\",\"currency\":\"USD\",\"events\":[]}";
 uint   g_sequence = 0;
 bool   g_pending = false;
+bool   g_last_capture_navigation_ok = false;
 ulong  g_pending_started_tick = 0;
 string g_pending_id = "";
 string g_pending_local_image = "";
@@ -871,6 +872,7 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"chart_scale\":" + (string)chart_scale + ",";
    payload += "\"chart_mode\":" + (string)chart_mode + ",";
    payload += "\"screenshot_alignment\":\"ALIGN_LEFT\",";
+   payload += "\"chart_navigated_to_end\":" + JsonBool(g_last_capture_navigation_ok) + ",";
    payload += "\"chart_shift\":" + JsonBool(chart_shift) + ",";
    payload += "\"chart_autoscroll\":" + JsonBool(chart_autoscroll) + ",";
    payload += "\"price_scale_visible\":" + JsonBool((bool)ChartGetInteger(g_chart_id, CHART_SHOW_PRICE_SCALE)) + ",";
@@ -897,6 +899,48 @@ string BuildCapturePayload(const string capture_id,
    return payload;
 }
 
+bool SynchronizeLatestChartViewport()
+{
+   // Re-anchor every capture. History refreshes and user window changes can
+   // leave the visible viewport behind the latest bar even while autoscroll
+   // is enabled. Never publish image geometry if navigation is uncertain.
+   ResetLastError();
+   if(!ChartSetInteger(g_chart_id, CHART_AUTOSCROLL, false))
+   {
+      PrintFormat("Mirsad Observer: cannot pause autoscroll before capture navigation. Error=%d", GetLastError());
+      return false;
+   }
+
+   ResetLastError();
+   if(!ChartNavigate(g_chart_id, CHART_END, 0))
+   {
+      PrintFormat("Mirsad Observer: CHART_END navigation failed before capture. Error=%d", GetLastError());
+      return false;
+   }
+
+   ResetLastError();
+   if(!ChartSetInteger(g_chart_id, CHART_AUTOSCROLL, true))
+   {
+      PrintFormat("Mirsad Observer: cannot re-enable autoscroll after capture navigation. Error=%d", GetLastError());
+      return false;
+   }
+
+   ChartRedraw(g_chart_id);
+
+   // ChartGetInteger is synchronous; this read waits for preceding chart
+   // commands to complete before the caller samples FIRST_VISIBLE_BAR/X/Y.
+   long synchronized_width = 0;
+   ResetLastError();
+   if(!ChartGetInteger(g_chart_id, CHART_WIDTH_IN_PIXELS, synchronized_width) ||
+      synchronized_width <= 0)
+   {
+      PrintFormat("Mirsad Observer: viewport synchronization barrier failed. Error=%d", GetLastError());
+      return false;
+   }
+   return true;
+}
+
+
 bool BeginCapture()
 {
    string symbol = ChartSymbol(g_chart_id);
@@ -904,6 +948,14 @@ bool BeginCapture()
    if(symbol == "" || timeframe == PERIOD_CURRENT)
    {
       PublishObserverStatus("ERROR", "", "Chart symbol or timeframe is unavailable.");
+      return false;
+   }
+
+   g_last_capture_navigation_ok = SynchronizeLatestChartViewport();
+   if(!g_last_capture_navigation_ok)
+   {
+      PublishObserverStatus("CHART_NAVIGATION_FAILED", "",
+                            "The Observer could not synchronize to CHART_END; no image/OHLC capture was published.");
       return false;
    }
 
@@ -919,10 +971,11 @@ bool BeginCapture()
    bool price_scale_visible = (bool)ChartGetInteger(g_chart_id, CHART_SHOW_PRICE_SCALE);
    bool date_scale_visible = (bool)ChartGetInteger(g_chart_id, CHART_SHOW_DATE_SCALE);
 
-   // ChartTimePriceToXY uses the main chart-window origin. Keep the capture
-   // on the existing viewport: ALIGN_RIGHT can navigate the chart before the
-   // screenshot is rendered and invalidate the pixel anchors computed below.
-   // Match PNG dimensions to that viewport plus the visible price/time scales instead
+   // ChartTimePriceToXY uses the main chart-window origin. The viewport was
+   // synchronized to CHART_END before these dimensions and native XY anchors
+   // were read. ALIGN_LEFT only selects screenshot output alignment; it is not
+   // a substitute for viewport synchronization. Match PNG dimensions to the
+   // viewport plus the visible price/time scales instead
    // of stretching a short, wide MT5 chart into an unrelated 16:9 canvas.
    // The 56x23 allowances include standard scale/border margins; the final
    // overlay validator independently verifies the actual pixel transform.
