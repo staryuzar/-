@@ -364,7 +364,11 @@ def _validate_frame(
                 "gap_duration_ms": delta,
                 "estimated_missing_intervals": max(1, int(round(delta / duration)) - 1),
             })
-    gap_fraction = len(gaps) / max(1, len(closed_bars) - 1)
+    missing_intervals = sum(
+        int(item["estimated_missing_intervals"]) for item in gaps
+    )
+    observed_intervals = max(1, len(closed_bars) - 1)
+    gap_fraction = missing_intervals / (observed_intervals + missing_intervals)
     status = "PARTIAL" if gap_fraction > 0.03 else "READY"
     return closed_bars, {
         "status": status,
@@ -374,6 +378,7 @@ def _validate_frame(
         "last_closed_bar_close_time_ms": last_close_time_ms,
         "staleness_ms": staleness_ms,
         "gap_count": len(gaps),
+        "estimated_missing_intervals": missing_intervals,
         "gap_fraction": round(gap_fraction, 5),
         "gaps": gaps[-10:],
         "reason": (
