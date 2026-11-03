@@ -92,11 +92,19 @@ class MT5NativeIndicatorHistory:
         for indicator in INDICATORS:
             item = raw_values.get(indicator)
             if not isinstance(item, dict) or str(item.get("status", "")).upper() != "READY":
+                source_status = (
+                    str(item.get("status", "UNAVAILABLE")).upper()
+                    if isinstance(item, dict) else "UNAVAILABLE"
+                )
+                if source_status not in {"WARMING_UP", "UNAVAILABLE", "INVALID"}:
+                    source_status = "UNAVAILABLE"
                 values[indicator] = {
-                    "status": "UNAVAILABLE",
+                    "status": source_status,
                     "closed": None,
                     "current": None,
                     "error_code": item.get("error_code") if isinstance(item, dict) else None,
+                    "copied": item.get("copied") if isinstance(item, dict) else None,
+                    "bars_calculated": item.get("bars_calculated") if isinstance(item, dict) else None,
                 }
                 continue
             closed = self._finite(item.get("closed"))
@@ -107,6 +115,8 @@ class MT5NativeIndicatorHistory:
                     "closed": None,
                     "current": None,
                     "error_code": item.get("error_code"),
+                    "copied": item.get("copied"),
+                    "bars_calculated": item.get("bars_calculated"),
                 }
                 continue
             values[indicator] = {
