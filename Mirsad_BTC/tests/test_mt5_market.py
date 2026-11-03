@@ -23,9 +23,20 @@ def make_snapshot(*, captured_at_ms: int | None = None) -> dict:
         "tick_window_seconds": 30,
         "ticks": [
             {"time_utc_ms": now - 2_000, "bid": 89_998.0, "ask": 89_999.0},
-            {"time_utc_ms": now - 1_000, "bid": 89_999.0, "ask": 90_000.0},
-            {"time_utc_ms": now - 500, "bid": 90_000.0, "ask": 90_001.0},
+            {"time_utc_ms": now - 1_000, "bid": 89_999.0, "ask": 90_000.0,
+             "last": 90_000.0, "volume": 2, "volume_real": 2.5, "flags": 24},
+            {"time_utc_ms": now - 500, "bid": 90_000.0, "ask": 90_001.0,
+             "last": 90_001.0, "volume": 3, "volume_real": 3.5, "flags": 56},
         ],
+        "depth_of_market": {
+            "status": "AVAILABLE", "source": "MT5_MARKET_BOOK",
+            "captured_at_utc_ms": now,
+            "levels": [
+                {"side": "BUY", "price": 89_999.0, "volume": 4, "volume_real": 4.5},
+                {"side": "BUY", "price": 89_998.0, "volume": 3, "volume_real": 3.5},
+                {"side": "SELL", "price": 90_002.0, "volume": 5, "volume_real": 5.5},
+            ],
+        },
         "economic_calendar": {
             "status": "AVAILABLE", "source": "MT5_ECONOMIC_CALENDAR",
             "currency": "USD",
@@ -68,10 +79,33 @@ class MT5MarketDataEngineTests(unittest.TestCase):
         self.assertEqual(pulse["upticks"], 2)
         self.assertGreater(pulse["quote_direction_balance"], 0)
         self.assertEqual(market["market_context"]["economic_calendar"]["events"][0]["importance"], "HIGH")
+        book = market["market_context"]["order_book"]
+        self.assertEqual(book["status"], "AVAILABLE")
+        self.assertEqual(book["bid_level_count"], 2)
+        self.assertEqual(book["ask_level_count"], 1)
+        self.assertAlmostEqual(book["bid_volume"], 8.0)
+        self.assertAlmostEqual(book["ask_volume"], 5.5)
+        self.assertEqual(pulse["reported_last_price_tick_count"], 2)
+        self.assertEqual(pulse["reported_volume_update_count"], 2)
+        self.assertAlmostEqual(pulse["reported_volume_sum"], 6.0)
+        self.assertEqual(pulse["reported_buy_flag_count"], 1)
         venue = market["venues"]["MT5 Broker"]
         self.assertNotIn("candles", venue)
         self.assertNotIn("candles_by_tf", venue)
         self.assertNotIn("timeframes", market)
+
+    def test_depth_of_market_unavailable_is_reported_without_inventing_levels(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            payload = make_snapshot()
+            payload["depth_of_market"] = {
+                "status": "UNAVAILABLE", "source": "MT5_MARKET_BOOK",
+                "subscribed": False, "error_code": 4302, "levels": [],
+            }
+            self._write_snapshot(directory, payload)
+            market = self._engine(directory).collect()
+        book = market["market_context"]["order_book"]
+        self.assertEqual(book["status"], "NOT_AVAILABLE")
+        self.assertEqual(book["levels"], [])
 
     def test_missing_common_files_configuration_is_not_ready(self) -> None:
         market = MT5MarketDataEngine(common_files="").collect()
