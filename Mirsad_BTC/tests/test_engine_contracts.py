@@ -312,6 +312,27 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             "BULLISH_CONFLUENCE",
         )
 
+        conflicting_patterns = {
+            **aligned_price_action,
+            "summary": {
+                **aligned_price_action["summary"],
+                "latest_candle_pattern_alignment": "BEARISH_CANDLE_PATTERN_EVIDENCE",
+                "bearish_pattern_timeframes": ["5m", "15m"],
+            },
+        }
+        pattern_veto = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators, engine2_price_action=conflicting_patterns
+        )
+        self.assertEqual(pattern_veto["candidate_action"], "WAIT")
+        self.assertEqual(
+            pattern_veto["engine_2_native_price_action_context"]["gate"],
+            "CANDLE_PATTERN_DIRECTION_CONFLICT",
+        )
+        self.assertEqual(
+            pattern_veto["engine_2_native_price_action_context"]["latest_candle_pattern_alignment"],
+            "BEARISH_CANDLE_PATTERN_EVIDENCE",
+        )
+
 
 class DecisionBoundaryTests(unittest.TestCase):
     def test_one_verified_mt5_source_passes_market_quorum_but_still_needs_engine3_history(self) -> None:
