@@ -312,6 +312,23 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             "BULLISH_CONFLUENCE",
         )
 
+        aligned_patterns = {
+            **aligned_price_action,
+            "summary": {
+                **aligned_price_action["summary"],
+                "latest_candle_pattern_alignment": "BULLISH_CANDLE_PATTERN_EVIDENCE",
+                "bullish_pattern_timeframes": ["5m", "15m"],
+            },
+        }
+        aligned_pattern_result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators, engine2_price_action=aligned_patterns
+        )
+        self.assertEqual(aligned_pattern_result["candidate_action"], "BUY")
+        self.assertEqual(
+            aligned_pattern_result["engine_2_native_price_action_context"]["gate"],
+            "BULLISH_CONFLUENCE",
+        )
+
         conflicting_patterns = {
             **aligned_price_action,
             "summary": {
@@ -331,6 +348,22 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(
             pattern_veto["engine_2_native_price_action_context"]["latest_candle_pattern_alignment"],
             "BEARISH_CANDLE_PATTERN_EVIDENCE",
+        )
+
+        mixed_patterns = {
+            **aligned_price_action,
+            "summary": {
+                **aligned_price_action["summary"],
+                "latest_candle_pattern_alignment": "MIXED_CANDLE_PATTERN_EVIDENCE",
+            },
+        }
+        mixed_pattern_veto = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators, engine2_price_action=mixed_patterns
+        )
+        self.assertEqual(mixed_pattern_veto["candidate_action"], "WAIT")
+        self.assertEqual(
+            mixed_pattern_veto["engine_2_native_price_action_context"]["gate"],
+            "MIXED_CANDLE_PATTERN_EVIDENCE",
         )
 
 
