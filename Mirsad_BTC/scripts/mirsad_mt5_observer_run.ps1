@@ -765,6 +765,18 @@ public static class MirsadNativeWindow {
         throw 'MT5 Engine 1/2 validation did not create its sanitized summary.'
     }
     $engine2Summary = Get-Content -LiteralPath $analysisOutput -Raw | ConvertFrom-Json
+    $engine2CaptureId = [string]$engine2Summary.capture_id
+    $engine2CaptureHash = [string]$engine2Summary.capture.image_sha256
+    $safe['engine2_analysis_capture'] = [ordered]@{
+        capture_id = $engine2CaptureId
+        image_sha256 = $engine2CaptureHash
+        capture_age_seconds = $engine2Summary.capture.age_seconds
+        capture_data_skew_ms = $engine2Summary.capture.capture_data_skew_ms
+        matches_initial_capture = ([string]$safe['capture_id'] -eq $engine2CaptureId)
+        image_hash_matches_initial_capture = ([string]$safe['image_sha256'] -eq $engine2CaptureHash)
+    }
+    $safe | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'observer-live-capture-summary.json') -Encoding utf8
+    Add-Report ("Engine 2 analysis capture id={0}; matches initial manifest={1}; image hash matches={2}; skew={3} ms; age={4} seconds." -f $engine2CaptureId,$safe['engine2_analysis_capture'].matches_initial_capture,$safe['engine2_analysis_capture'].image_hash_matches_initial_capture,$engine2Summary.capture.capture_data_skew_ms,$engine2Summary.capture.age_seconds)
     $engine1Status = [string]$engine2Summary.engine1_market.status
     $engine2CandleStatus = [string]$engine2Summary.engine2_candle_history.status
     Add-Report ("Engine 1 actual MT5 market result: status={0}; price={1}; tick status={2}; tick count={3}; economic calendar={4}; events={5}." -f $engine1Status,$engine2Summary.engine1_market.price,$engine2Summary.engine1_market.microstructure.status,$engine2Summary.engine1_market.microstructure.tick_count,$engine2Summary.engine1_market.economic_calendar.status,$engine2Summary.engine1_market.economic_calendar.event_count)
