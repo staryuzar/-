@@ -89,7 +89,7 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
             self.assertEqual(args[1]["symbol"], "BTCUSDT")
             self.assertEqual(args[1]["timeframe"], "1m")
             self.assertFalse(args[1]["last_candle_closed"])
-            self.assertFalse(args[1]["auto_axis_ocr"])
+            self.assertTrue(args[1]["auto_axis_ocr"])
             self.assertEqual(args[1]["reference_last_candle_ohlc"]["close"], observer["bars"][-1]["close"])
             self.assertEqual(kwargs["expected_symbol"], "BTCUSDT")
             self.assertEqual(args[1]["expected_candle_count"], 30)
