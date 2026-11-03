@@ -11,7 +11,7 @@
 #define MIRSAD_OBSERVER_MIN_SOURCE_HEIGHT 360
 
 input bool InpEnableImageCapture = true; // Disable image capture while keeping direct MT5 data feeds active
-input int  InpCaptureIntervalSeconds = 60;   // Screenshot cadence (5..3600 seconds)
+input int  InpCaptureIntervalSeconds = 15;   // Screenshot cadence (5..3600 seconds); allows a quick post-maximize recapture
 input int  InpMarketSnapshotIntervalSeconds = 2; // MT5 market-feed cadence (1..30 seconds)
 input string InpMarketSymbol = "BTCUSDT"; // Stable Mirsad symbol mapped to this broker symbol
 input int  InpHistoryBars             = 1000; // Deep history for stable EMA/ADX/MACD parity; includes forming bar
