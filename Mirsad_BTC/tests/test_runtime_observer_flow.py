@@ -96,6 +96,7 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                     "chart_autoscroll": True,
                     "windows_total": 1,
                     "visible_bars": 30,
+                    "first_visible_bar_shift": 29,
                     "price_min": 89_000.0,
                     "price_max": 91_000.0,
                     "price_scale_type": "linear",
