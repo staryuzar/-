@@ -122,7 +122,60 @@ def validate_mt5_chart_geometry(
             stamp = int(item["time_server_ms"])
             closed = item["is_closed"]
             item_x = float(item["x_px"])
-            points: dict[str, dict[str, float]] = {}
+            valid = item.get("valid") is True
+            visible = item.get("visible") is True
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return {
+                "status": "INVALID_BAR_GEOMETRY",
+                "decision_eligible": False,
+                "reason": f"Geometry item {index} has incomplete identity or validity metadata.",
+                "bars": output,
+            }
+
+        if stamp != int(native["time_server_ms"]) or closed is not native["is_closed"]:
+            return {
+                "status": "BAR_IDENTITY_MISMATCH",
+                "decision_eligible": False,
+                "reason": f"Geometry item {index} does not match its OHLC timestamp/close state.",
+                "bars": output,
+            }
+        if not math.isfinite(item_x):
+            return {
+                "status": "NON_FINITE_COORDINATE",
+                "decision_eligible": False,
+                "reason": f"Geometry item {index} has a non-finite X coordinate.",
+                "bars": output,
+            }
+
+        # ChartTimePriceToXY can legitimately fail for bars whose OHLC points
+        # are outside the drawable chart area. MQL5 serializes those points as
+        # null and marks the item invalid/invisible. Preserve that fact without
+        # discarding the entire geometry sample; visible invalid bars remain a
+        # hard failure.
+        if not valid:
+            if visible:
+                return {
+                    "status": "VISIBLE_POINT_INVALID",
+                    "decision_eligible": False,
+                    "reason": f"Geometry item {index} is declared visible but its point set is invalid.",
+                    "bars": output,
+                }
+            output.append({
+                "index": index,
+                "time_server_ms": stamp,
+                "is_closed": closed,
+                "valid": False,
+                "visible": False,
+                "x_source_px": item_x,
+                "x_image_px_provisional": None,
+                "points_source_px": None,
+                "points_image_px_provisional": None,
+                "x_alignment_error_px": None,
+            })
+            continue
+
+        points: dict[str, dict[str, float]] = {}
+        try:
             for name in _POINT_FIELDS:
                 point = item.get(name)
                 if not isinstance(point, dict):
@@ -135,15 +188,7 @@ def validate_mt5_chart_geometry(
             return {
                 "status": "INVALID_BAR_GEOMETRY",
                 "decision_eligible": False,
-                "reason": f"Geometry item {index} has incomplete point coordinates.",
-                "bars": output,
-            }
-
-        if stamp != int(native["time_server_ms"]) or closed is not native["is_closed"]:
-            return {
-                "status": "BAR_IDENTITY_MISMATCH",
-                "decision_eligible": False,
-                "reason": f"Geometry item {index} does not match its OHLC timestamp/close state.",
+                "reason": f"Valid geometry item {index} has incomplete point coordinates.",
                 "bars": output,
             }
 
@@ -178,26 +223,16 @@ def validate_mt5_chart_geometry(
                 "bars": output,
             }
 
-        visible = bool(item.get("visible"))
-        valid = bool(item.get("valid"))
-        if visible and not valid:
+        valid_count += 1
+        if previous_x is not None and item_x <= previous_x:
             return {
-                "status": "VISIBLE_POINT_INVALID",
+                "status": "X_SEQUENCE_INVALID",
                 "decision_eligible": False,
-                "reason": f"Geometry item {index} is declared visible but its point set is invalid.",
+                "reason": "Native chart X coordinates must increase with chronological OHLC bars.",
                 "bars": output,
             }
-        if valid:
-            valid_count += 1
-            if previous_x is not None and item_x <= previous_x:
-                return {
-                    "status": "X_SEQUENCE_INVALID",
-                    "decision_eligible": False,
-                    "reason": "Native chart X coordinates must increase with chronological OHLC bars.",
-                    "bars": output,
-                }
-            previous_x = item_x
-        if visible and valid:
+        previous_x = item_x
+        if visible:
             visible_count += 1
 
         output.append({
