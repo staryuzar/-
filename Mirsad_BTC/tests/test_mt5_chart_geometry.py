@@ -385,7 +385,7 @@ class RegularChartSlotInferenceTests(unittest.TestCase):
 
     def test_regular_grid_inference_rejects_rightmost_anchor_mismatch(self) -> None:
         extracted = [
-            {"x_px": 10.0 + index * 10.0, "colour": "RED"}
+            {"x_px": index * 10.0, "colour": "RED"}
             for index in range(30)
         ]
         result = infer_regular_chart_slot_centers(
