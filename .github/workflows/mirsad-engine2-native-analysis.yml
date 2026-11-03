@@ -11,6 +11,7 @@ on:
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
       - 'Mirsad_BTC/mirsad/engines/indicators.py'
+      - 'Mirsad_BTC/mirsad/engines/decision.py'
       - 'Mirsad_BTC/tests/test_indicators.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
       - 'Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py'
