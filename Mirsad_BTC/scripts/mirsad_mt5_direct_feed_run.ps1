@@ -753,7 +753,6 @@ public static class MirsadNativeWindow {
         throw 'Engine 3 indicator parity against native MT5 CopyBuffer did not pass on identical closed bars; see timestamp and metric diagnostics.'
     }
     Add-Report ("PASS — Engine 3 versus MT5 parity: {0}/{1} indicator checks passed across six timeframes." -f $paritySummary.passed_metrics,$paritySummary.total_metrics)
-    Add-Report ("PASS — Engine 3 versus MT5 parity: {0}/{1} indicator checks passed across six timeframes." -f $paritySummary.passed_metrics,$paritySummary.total_metrics)
     if ([string]$directSummary.engine2.status -ne 'READY') {
         throw 'Engine 2 native MT5 market/OHLC feed is not READY.'
     }
