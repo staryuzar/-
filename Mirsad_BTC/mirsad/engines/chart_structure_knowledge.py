@@ -103,11 +103,12 @@ def analyze_chart_structure_knowledge(
             "limitations": ["At least eight confirmed candles are required for this structure pass."],
         }
 
-    true_ranges = _true_ranges(confirmed)
-    atr_window = true_ranges[-14:] if true_ranges else []
-    atr = median(atr_window) if atr_window else 0.0
+    recent_ranges = [bar["high"] - bar["low"] for bar in confirmed[-14:]]
+    # Local price-range tolerance for clustering equal highs/lows. This is a
+    # structural price-distance rule, not an ATR indicator output.
+    median_recent_range = median(recent_ranges) if recent_ranges else 0.0
     current = confirmed[-1]["close"]
-    tolerance = max(atr * 0.15, current * 0.0001)
+    tolerance = max(median_recent_range * 0.15, current * 0.0001)
 
     scales = {
         "internal": (1, 1),
@@ -310,7 +311,6 @@ def analyze_chart_structure_knowledge(
     return {
         "status": "READY" if reports["swing"]["status"] == "READY" else "PARTIAL",
         "confirmed_bars": len(confirmed),
-        "atr_proxy": round(atr, 8),
         "scales": reports,
         "structure_direction": overall_sequence["direction"],
         "bos_choch_events": sorted(events, key=lambda x: x["confirmation_index"])[-20:],
