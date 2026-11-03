@@ -872,6 +872,8 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"chart_mode\":" + (string)chart_mode + ",";
    payload += "\"chart_shift\":" + JsonBool(chart_shift) + ",";
    payload += "\"chart_autoscroll\":" + JsonBool(chart_autoscroll) + ",";
+   payload += "\"price_scale_visible\":" + JsonBool((bool)ChartGetInteger(g_chart_id, CHART_SHOW_PRICE_SCALE)) + ",";
+   payload += "\"date_scale_visible\":" + JsonBool((bool)ChartGetInteger(g_chart_id, CHART_SHOW_DATE_SCALE)) + ",";
    payload += "\"price_min\":" + DoubleToString(price_min, digits) + ",";
    payload += "\"price_max\":" + DoubleToString(price_max, digits) + ",";
    payload += "\"background_color\":" + (string)background_color + ",";
@@ -912,6 +914,20 @@ bool BeginCapture()
    int chart_mode = (int)ChartGetInteger(g_chart_id, CHART_MODE);
    bool chart_shift = (bool)ChartGetInteger(g_chart_id, CHART_SHIFT);
    bool chart_autoscroll = (bool)ChartGetInteger(g_chart_id, CHART_AUTOSCROLL);
+   bool price_scale_visible = (bool)ChartGetInteger(g_chart_id, CHART_SHOW_PRICE_SCALE);
+   bool date_scale_visible = (bool)ChartGetInteger(g_chart_id, CHART_SHOW_DATE_SCALE);
+
+   // ChartTimePriceToXY uses the main chart-window origin. Match the PNG
+   // dimensions to that viewport plus the visible price/time scales instead
+   // of stretching a short, wide MT5 chart into an unrelated 16:9 canvas.
+   // The 56x23 allowances include standard scale/border margins; the final
+   // overlay validator independently verifies the actual pixel transform.
+   int screenshot_width = MathMax(320, MathMin(
+      InpScreenshotWidth, source_width + (price_scale_visible ? 56 : 2)
+   ));
+   int screenshot_height = MathMax(180, MathMin(
+      InpScreenshotHeight, source_main_height + (date_scale_visible ? 23 : 1)
+   ));
 
    double price_min = ChartGetDouble(g_chart_id, CHART_PRICE_MIN, 0);
    double price_max = ChartGetDouble(g_chart_id, CHART_PRICE_MAX, 0);
@@ -962,12 +978,12 @@ bool BeginCapture()
    ChartRedraw(g_chart_id);
    string pixel_geometry_json = BuildChartPixelGeometryJson(
       rates, copied, source_width, source_main_height,
-      InpScreenshotWidth, InpScreenshotHeight
+      screenshot_width, screenshot_height
    );
    ResetLastError();
    bool screenshot_requested = ChartScreenShot(
       g_chart_id, local_image,
-      InpScreenshotWidth, InpScreenshotHeight, ALIGN_RIGHT
+      screenshot_width, screenshot_height, ALIGN_RIGHT
    );
    if(!screenshot_requested)
    {
@@ -983,7 +999,7 @@ bool BeginCapture()
    g_pending_common_image = common_image;
    g_pending_manifest_name = g_observer_root + "\\capture_" + capture_id + ".json";
    g_pending_payload = BuildCapturePayload(
-      capture_id, image_name, InpScreenshotWidth, InpScreenshotHeight,
+      capture_id, image_name, screenshot_width, screenshot_height,
       source_width, source_main_height, windows_total,
       first_visible_bar, visible_bars, chart_scale, chart_mode,
       chart_shift, chart_autoscroll, price_min, price_max,
