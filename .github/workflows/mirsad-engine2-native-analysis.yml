@@ -102,6 +102,7 @@ jobs:
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_public_chart_image_benchmark.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_candlestick_pattern_benchmark.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine_contracts.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_position_management.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_market_candle_timezones.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_run_structure_study.py' -v
 
