@@ -140,32 +140,34 @@ void ReleaseIndicatorHandles()
 string IndicatorPairJson(const int indicator_handle, const int buffer_index)
 {
    if(indicator_handle == INVALID_HANDLE)
-      return "{\"status\":\"UNAVAILABLE\",\"closed\":null,\"current\":null,\"error_code\":-1,\"bars_calculated\":-1}";
+      return "{\"status\":\"UNAVAILABLE\",\"previous_closed\":null,\"closed\":null,\"current\":null,\"error_code\":-1,\"bars_calculated\":-1}";
    ResetLastError();
    int calculated = BarsCalculated(indicator_handle);
    int calculated_error = GetLastError();
-   if(calculated < 2)
+   if(calculated < 3)
       return StringFormat(
-         "{\"status\":\"WARMING_UP\",\"closed\":null,\"current\":null,\"bars_calculated\":%d,\"error_code\":%d}",
+         "{\"status\":\"WARMING_UP\",\"previous_closed\":null,\"closed\":null,\"current\":null,\"bars_calculated\":%d,\"error_code\":%d}",
          calculated, calculated_error
       );
-   double values[2];
+   double values[3];
    ResetLastError();
-   int copied = CopyBuffer(indicator_handle, buffer_index, 0, 2, values);
+   int copied = CopyBuffer(indicator_handle, buffer_index, 0, 3, values);
    int error_code = GetLastError();
-   if(copied != 2)
+   if(copied != 3)
       return StringFormat(
-         "{\"status\":\"WARMING_UP\",\"closed\":null,\"current\":null,\"copied\":%d,\"bars_calculated\":%d,\"error_code\":%d}",
+         "{\"status\":\"WARMING_UP\",\"previous_closed\":null,\"closed\":null,\"current\":null,\"copied\":%d,\"bars_calculated\":%d,\"error_code\":%d}",
          copied, calculated, error_code
       );
    // CopyBuffer stores the oldest requested element first: values[0] is
-   // shift 1 (last closed bar), values[1] is shift 0 (forming bar).
-   if(!MathIsValidNumber(values[0]) || !MathIsValidNumber(values[1]))
-      return "{\"status\":\"INVALID\",\"closed\":null,\"current\":null,\"error_code\":0}";
+   // shift 2 (previous closed), values[1] is shift 1 (last closed), and
+   // values[2] is shift 0 (forming bar).
+   if(!MathIsValidNumber(values[0]) || !MathIsValidNumber(values[1]) || !MathIsValidNumber(values[2]))
+      return "{\"status\":\"INVALID\",\"previous_closed\":null,\"closed\":null,\"current\":null,\"error_code\":0}";
    return StringFormat(
-      "{\"status\":\"READY\",\"closed\":%s,\"current\":%s,\"error_code\":0}",
+      "{\"status\":\"READY\",\"previous_closed\":%s,\"closed\":%s,\"current\":%s,\"error_code\":0}",
       DoubleToString(values[0], 10),
-      DoubleToString(values[1], 10)
+      DoubleToString(values[1], 10),
+      DoubleToString(values[2], 10)
    );
 }
 
