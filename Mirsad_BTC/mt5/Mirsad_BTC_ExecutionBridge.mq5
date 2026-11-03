@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //| Mirsad BTC — Execution Bridge Expert Advisor                     |
-//| Engine 3 transport endpoint: command in, telemetry/ACK out.       |
+//| Engine 5 transport endpoint: command in, telemetry/ACK out.       |
 //| All signal/risk calculations remain in Mirsad Engine 4.           |
 //+------------------------------------------------------------------+
 #property strict
