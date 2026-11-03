@@ -45,6 +45,7 @@ def fixture_capture(root: Path) -> tuple[dict, dict, dict]:
             "chart_autoscroll": True,
             "windows_total": 1,
             "visible_bars": 30,
+            "first_visible_bar_shift": 29,
             "price_min": 89_000.0,
             "price_max": 91_000.0,
             "price_scale_type": "linear",
@@ -156,6 +157,16 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
                 result = _analyze_mt5_observer_chart(observer, market, bridge)
             analyzer.assert_not_called()
             self.assertEqual(result["status"], "OBSERVER_CAPTURE_NOT_SYNCHRONIZED")
+
+    def test_capture_scrolled_away_from_latest_candles_is_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            observer, market, bridge = fixture_capture(Path(directory))
+            observer["chart"]["first_visible_bar_shift"] = 100
+            with patch("mirsad.runtime.analyze_chart_image") as analyzer:
+                result = _analyze_mt5_observer_chart(observer, market, bridge)
+            analyzer.assert_not_called()
+            self.assertFalse(result["decision_eligible"])
+            self.assertEqual(result["status"], "OBSERVER_NOT_AT_LIVE_EDGE")
 
     def test_capture_without_autoscroll_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
