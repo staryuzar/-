@@ -39,7 +39,11 @@ function Get-CommonObserverDirectory {
     ) | Where-Object { Test-Path -LiteralPath $_ }
 
     foreach ($searchRoot in $roots) {
-        $found = Get-ChildItem -LiteralPath $searchRoot -Filter 'capture_*.json' -File -Recurse -ErrorAction SilentlyContinue |
+        $found = Get-ChildItem -LiteralPath $searchRoot -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -in @('capture_latest.json','candles.json','indicators.json') -or
+                $_.Name -like 'capture_*.json'
+            } |
             Where-Object { $_.Directory.Name -eq 'observer' -and $_.Directory.Parent.Name -eq 'MirsadBTC' } |
             Sort-Object LastWriteTimeUtc -Descending |
             Select-Object -First 1
