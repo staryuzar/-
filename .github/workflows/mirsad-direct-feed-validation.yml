@@ -50,19 +50,20 @@ jobs:
           PYTHONPATH: Mirsad_BTC
         run: |
           python -m compileall -q Mirsad_BTC/mirsad/engines/mt5_market.py Mirsad_BTC/mirsad/engines/mt5_chart_candles.py Mirsad_BTC/mirsad/engines/mt5_native_indicators.py Mirsad_BTC/scripts/validate_mt5_direct_feed.py
-          python -m unittest Mirsad_BTC.tests.test_direct_feed_validator -v
-          python -m unittest Mirsad_BTC.tests.test_mt5_market Mirsad_BTC.tests.test_mt5_chart_candles Mirsad_BTC.tests.test_mt5_native_indicators -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_direct_feed_validator.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_market.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_chart_candles.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_native_indicators.py" -v
 
       - name: Connect to MT5 demo and verify direct feeds with images disabled
         env:
-          MT5_CREDENTIALS: \${{ secrets.mt5 }}
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
           MIRSAD_MT5_SERVER: 'mt5.demo.trade-hw.online'
           MIRSAD_MT5_OBSERVER_SYMBOL: 'BTC'
           MIRSAD_MT5_OBSERVER_TIMEFRAME: 'M1'
           MIRSAD_MT5_MARKET_SYMBOL: 'BTCUSDT'
-          MIRSAD_MT5_IMAGE_CAPTURE: 'false'
         shell: pwsh
-        run: ./Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_direct_feed_run.ps1
 
       - name: Upload sanitized image-free direct feed evidence
         if: always()
@@ -70,9 +71,9 @@ jobs:
         with:
           name: mirsad-mt5-direct-feed-images-disabled
           path: |
-            \${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
-            \${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
-            \${{ runner.temp }}/mirsad-mt5-observer-check/evidence/direct-feed-validation.json
-            \${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/direct-feed-validation.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
           if-no-files-found: warn
           retention-days: 14
