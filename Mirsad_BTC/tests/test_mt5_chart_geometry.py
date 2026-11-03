@@ -372,6 +372,26 @@ class NativeGeometrySlotAssignmentTests(unittest.TestCase):
             self.assertNotIn("slot_assignment_source", item)
             self.assertNotIn("native_geometry_x_residual_px", item)
 
+    def test_native_slot_assignment_refines_systematic_scale_and_offset_before_matching(self) -> None:
+        native_slots = [
+            {"slot_index": index, "x_px": 30.0 + index * 12.0}
+            for index in range(80)
+        ]
+        extracted = [
+            {"x_px": 1.01 * slot["x_px"] + 2.0, "colour": "GREEN"}
+            for slot in native_slots
+        ]
+        assigned, diagnostics = assign_native_geometry_slots(extracted, native_slots)
+        self.assertEqual(diagnostics["status"], "PROVISIONAL_ASSIGNMENT")
+        self.assertTrue(diagnostics["x_affine_refinement_used"])
+        self.assertAlmostEqual(diagnostics["x_affine_scale"], 1.01, places=5)
+        self.assertAlmostEqual(diagnostics["x_affine_offset_px"], 2.0, places=4)
+        self.assertEqual(diagnostics["matched_candles"], len(native_slots))
+        self.assertEqual([item["slot_index"] for item in assigned], list(range(80)))
+        self.assertLessEqual(diagnostics["maximum_residual_px"], 1e-6)
+        self.assertFalse(diagnostics["mapping_verified"])
+        self.assertFalse(diagnostics["decision_eligible"])
+
     def test_native_slot_assignment_refuses_unverified_horizontal_offset(self) -> None:
         native_slots = [
             {"slot_index": index, "x_px": 30.0 + index * 12.0}

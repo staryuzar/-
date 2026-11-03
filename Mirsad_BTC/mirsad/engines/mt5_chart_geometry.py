@@ -323,60 +323,134 @@ def assign_native_geometry_slots(
     spacing = float(median(spacings))
     tolerance = max(2.5, min(10.0, spacing * 0.30))
 
-    n, m = len(native_slots), len(extracted_rows)
-    match_count = [[0] * (m + 1) for _ in range(n + 1)]
-    residual_sum = [[0.0] * (m + 1) for _ in range(n + 1)]
-    action = [[""] * (m + 1) for _ in range(n + 1)]
-    for i in range(1, n + 1):
-        action[i][0] = "skip_native"
-    for j in range(1, m + 1):
-        action[0][j] = "skip_extracted"
+    def match_slots(
+        candidate_slots: list[dict[str, Any]], match_tolerance: float
+    ) -> list[tuple[int, int]]:
+        n, m = len(candidate_slots), len(extracted_rows)
+        match_count = [[0] * (m + 1) for _ in range(n + 1)]
+        residual_sum = [[0.0] * (m + 1) for _ in range(n + 1)]
+        action = [[""] * (m + 1) for _ in range(n + 1)]
+        for row in range(1, n + 1):
+            action[row][0] = "skip_native"
+        for column in range(1, m + 1):
+            action[0][column] = "skip_extracted"
 
-    def better(candidate: tuple[int, float], current: tuple[int, float]) -> bool:
-        return (
-            candidate[0] > current[0]
-            or (candidate[0] == current[0] and candidate[1] < current[1] - 1e-9)
-        )
-
-    for i in range(1, n + 1):
-        for j in range(1, m + 1):
-            best = (match_count[i - 1][j], residual_sum[i - 1][j])
-            best_action = "skip_native"
-            skip_extracted = (match_count[i][j - 1], residual_sum[i][j - 1])
-            if better(skip_extracted, best):
-                best, best_action = skip_extracted, "skip_extracted"
-            residual = abs(
-                float(native_slots[i - 1]["x_px"]) - float(extracted_rows[j - 1]["x_px"])
+        def better(candidate: tuple[int, float], current: tuple[int, float]) -> bool:
+            return (
+                candidate[0] > current[0]
+                or (candidate[0] == current[0] and candidate[1] < current[1] - 1e-9)
             )
-            if residual <= tolerance:
-                matched = (
-                    match_count[i - 1][j - 1] + 1,
-                    residual_sum[i - 1][j - 1] + residual,
-                )
-                if better(matched, best):
-                    best, best_action = matched, "match"
-            match_count[i][j], residual_sum[i][j] = best
-            action[i][j] = best_action
 
-    pairs: list[tuple[int, int]] = []
-    i, j = n, m
-    while i > 0 or j > 0:
-        step = action[i][j] if i >= 0 and j >= 0 else ""
-        if step == "match":
-            pairs.append((i - 1, j - 1))
-            i -= 1
-            j -= 1
-        elif step == "skip_native" and i > 0:
-            i -= 1
-        elif step == "skip_extracted" and j > 0:
-            j -= 1
-        elif i > 0:
-            i -= 1
-        elif j > 0:
-            j -= 1
-        else:
-            break
-    pairs.reverse()
+        for row in range(1, n + 1):
+            for column in range(1, m + 1):
+                best = (match_count[row - 1][column], residual_sum[row - 1][column])
+                best_action = "skip_native"
+                skip_extracted = (
+                    match_count[row][column - 1],
+                    residual_sum[row][column - 1],
+                )
+                if better(skip_extracted, best):
+                    best, best_action = skip_extracted, "skip_extracted"
+                residual = abs(
+                    float(candidate_slots[row - 1]["x_px"])
+                    - float(extracted_rows[column - 1]["x_px"])
+                )
+                if residual <= match_tolerance:
+                    matched = (
+                        match_count[row - 1][column - 1] + 1,
+                        residual_sum[row - 1][column - 1] + residual,
+                    )
+                    if better(matched, best):
+                        best, best_action = matched, "match"
+                match_count[row][column], residual_sum[row][column] = best
+                action[row][column] = best_action
+
+        pairs: list[tuple[int, int]] = []
+        row, column = n, m
+        while row > 0 or column > 0:
+            step = action[row][column] if row >= 0 and column >= 0 else ""
+            if step == "match":
+                pairs.append((row - 1, column - 1))
+                row -= 1
+                column -= 1
+            elif step == "skip_native" and row > 0:
+                row -= 1
+            elif step == "skip_extracted" and column > 0:
+                column -= 1
+            elif row > 0:
+                row -= 1
+            elif column > 0:
+                column -= 1
+            else:
+                break
+        pairs.reverse()
+        return pairs
+
+    pairs = match_slots(native_slots, tolerance)
+    aligned_native_slots = [dict(item) for item in native_slots]
+    x_scale, x_offset = 1.0, 0.0
+    x_refinement_used = False
+    if len(pairs) >= 8:
+        seed_pairs = [
+            (
+                float(native_slots[native_index]["x_px"]),
+                float(extracted_rows[extracted_index]["x_px"]),
+            )
+            for native_index, extracted_index in pairs
+        ]
+        slopes = [
+            (y2 - y1) / (x2 - x1)
+            for index, (x1, y1) in enumerate(seed_pairs)
+            for x2, y2 in seed_pairs[index + 1:]
+            if abs(x2 - x1) >= spacing * 2.0
+        ]
+        if slopes:
+            candidate_scale = float(median(slopes))
+            candidate_offset = float(median(
+                y - candidate_scale * x for x, y in seed_pairs
+            ))
+            transform_residuals = [
+                abs(candidate_scale * x + candidate_offset - y)
+                for x, y in seed_pairs
+            ]
+            image_width = max(
+                float(row["x_px"]) for row in extracted_rows
+            ) - min(float(row["x_px"]) for row in extracted_rows)
+            transform_is_plausible = (
+                math.isfinite(candidate_scale)
+                and math.isfinite(candidate_offset)
+                and 0.80 <= candidate_scale <= 1.20
+                and abs(candidate_offset) <= max(40.0, image_width * 0.08)
+                and float(median(transform_residuals)) <= max(2.5, tolerance * 0.75)
+            )
+            if transform_is_plausible:
+                candidate_slots = [
+                    {
+                        **item,
+                        "x_px": candidate_scale * float(item["x_px"]) + candidate_offset,
+                    }
+                    for item in native_slots
+                ]
+                refined_pairs = match_slots(candidate_slots, tolerance)
+                initial_error = sum(
+                    abs(float(native_slots[a]["x_px"]) - float(extracted_rows[j]["x_px"]))
+                    for a, j in pairs
+                )
+                refined_error = sum(
+                    abs(float(candidate_slots[a]["x_px"]) - float(extracted_rows[j]["x_px"]))
+                    for a, j in refined_pairs
+                )
+                if (
+                    len(refined_pairs) > len(pairs)
+                    or (
+                        len(refined_pairs) == len(pairs)
+                        and refined_error < initial_error - 1e-6
+                    )
+                ):
+                    pairs = refined_pairs
+                    aligned_native_slots = candidate_slots
+                    x_scale, x_offset = candidate_scale, candidate_offset
+                    x_refinement_used = True
 
     if len(pairs) < 8:
         return fail(
@@ -434,7 +508,8 @@ def assign_native_geometry_slots(
                     conflicts += 1
             except (TypeError, ValueError, OverflowError):
                 conflicts += 1
-        residual = abs(float(native["x_px"]) - float(extracted["x_px"]))
+        aligned_x = float(aligned_native_slots[native_index]["x_px"])
+        residual = abs(aligned_x - float(extracted["x_px"]))
         target["slot_index"] = slot
         target["native_geometry_x_residual_px"] = round(residual, 3)
         target["slot_assignment_source"] = source
@@ -443,6 +518,7 @@ def assign_native_geometry_slots(
             sample.append({
                 "slot_index": slot,
                 "native_x_px": round(float(native["x_px"]), 3),
+                "aligned_native_x_px": round(aligned_x, 3),
                 "image_x_px": round(float(extracted["x_px"]), 3),
                 "residual_px": round(residual, 3),
             })
@@ -451,7 +527,10 @@ def assign_native_geometry_slots(
         "status": "PROVISIONAL_ASSIGNMENT",
         "mapping_verified": False,
         "decision_eligible": False,
-        "method": "monotonic_one_to_one_x_match",
+        "method": "monotonic_one_to_one_x_match_with_provisional_affine_refinement",
+        "x_affine_refinement_used": x_refinement_used,
+        "x_affine_scale": round(x_scale, 8),
+        "x_affine_offset_px": round(x_offset, 4),
         "matched_candles": len(pairs),
         "native_slot_count": n,
         "native_slot_x_min_px": round(min(float(item["x_px"]) for item in native_slots), 3),
