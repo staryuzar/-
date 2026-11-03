@@ -405,5 +405,14 @@ class MT5ChartObserverInboxTests(unittest.TestCase):
         self.assertFalse(result["decision_eligible"])
 
 
+class MT5ObserverScreenshotAlignmentTests(unittest.TestCase):
+    def test_capture_preserves_viewport_used_for_native_pixel_geometry(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "mt5" / "Mirsad_ChartObserver.mq5"
+        content = source.read_text(encoding="utf-8")
+        self.assertIn('"screenshot_alignment":"ALIGN_LEFT"', content)
+        self.assertIn("screenshot_width, screenshot_height, ALIGN_LEFT", content)
+        self.assertNotIn("screenshot_width, screenshot_height, ALIGN_RIGHT", content)
+
+
 if __name__ == "__main__":
     unittest.main()

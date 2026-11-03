@@ -870,6 +870,7 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"visible_bars\":" + (string)visible_bars + ",";
    payload += "\"chart_scale\":" + (string)chart_scale + ",";
    payload += "\"chart_mode\":" + (string)chart_mode + ",";
+   payload += "\"screenshot_alignment\":\"ALIGN_LEFT\",";
    payload += "\"chart_shift\":" + JsonBool(chart_shift) + ",";
    payload += "\"chart_autoscroll\":" + JsonBool(chart_autoscroll) + ",";
    payload += "\"price_scale_visible\":" + JsonBool((bool)ChartGetInteger(g_chart_id, CHART_SHOW_PRICE_SCALE)) + ",";
@@ -918,8 +919,10 @@ bool BeginCapture()
    bool price_scale_visible = (bool)ChartGetInteger(g_chart_id, CHART_SHOW_PRICE_SCALE);
    bool date_scale_visible = (bool)ChartGetInteger(g_chart_id, CHART_SHOW_DATE_SCALE);
 
-   // ChartTimePriceToXY uses the main chart-window origin. Match the PNG
-   // dimensions to that viewport plus the visible price/time scales instead
+   // ChartTimePriceToXY uses the main chart-window origin. Keep the capture
+   // on the existing viewport: ALIGN_RIGHT can navigate the chart before the
+   // screenshot is rendered and invalidate the pixel anchors computed below.
+   // Match PNG dimensions to that viewport plus the visible price/time scales instead
    // of stretching a short, wide MT5 chart into an unrelated 16:9 canvas.
    // The 56x23 allowances include standard scale/border margins; the final
    // overlay validator independently verifies the actual pixel transform.
@@ -984,7 +987,7 @@ bool BeginCapture()
    ResetLastError();
    bool screenshot_requested = ChartScreenShot(
       g_chart_id, local_image,
-      screenshot_width, screenshot_height, ALIGN_RIGHT
+      screenshot_width, screenshot_height, ALIGN_LEFT
    );
    if(!screenshot_requested)
    {
