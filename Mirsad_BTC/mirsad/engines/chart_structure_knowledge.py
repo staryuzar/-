@@ -286,7 +286,7 @@ def analyze_chart_structure_knowledge(
         confirmed, swing_highs, swing_lows, range_reference=median_recent_range,
     )
     continuation_patterns = detect_classical_continuation_patterns(
-        confirmed, swing_highs, swing_lows, atr=atr,
+        confirmed, swing_highs, swing_lows, range_reference=median_recent_range,
     )
     classical_patterns = reversal_patterns + continuation_patterns
 
