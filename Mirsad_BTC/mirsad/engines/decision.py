@@ -185,13 +185,22 @@ class DecisionEngine:
         bridge = bridge or {}
         chart = chart if isinstance(chart, dict) else {}
         price_action = engine2_price_action if isinstance(engine2_price_action, dict) else {}
+        price_action_summary = (
+            price_action.get("summary")
+            if isinstance(price_action.get("summary"), dict) else {}
+        )
         price_action_context = {
             "status": price_action.get("status", "NOT_PROVIDED"),
             "direction": price_action.get("direction", "UNKNOWN"),
             "structure_score": price_action.get("structure_score"),
             "as_of_utc_ms": price_action.get("as_of_utc_ms"),
-            "eligible_timeframes": (price_action.get("summary") or {}).get("eligible_timeframes", []),
-            "timeframe_alignment": (price_action.get("summary") or {}).get("timeframe_alignment", "NOT_AVAILABLE"),
+            "eligible_timeframes": price_action_summary.get("eligible_timeframes", []),
+            "timeframe_alignment": price_action_summary.get("timeframe_alignment", "NOT_AVAILABLE"),
+            "latest_candle_pattern_alignment": price_action_summary.get(
+                "latest_candle_pattern_alignment", "NO_DIRECTIONAL_CANDLE_PATTERN"
+            ),
+            "bullish_pattern_timeframes": price_action_summary.get("bullish_pattern_timeframes", []),
+            "bearish_pattern_timeframes": price_action_summary.get("bearish_pattern_timeframes", []),
             "decision_eligible": False,
             "gate": "NOT_EVALUATED",
             "role": "NON_DIRECTIONAL_SAFETY_GATE_ONLY",
@@ -313,8 +322,11 @@ class DecisionEngine:
         if engine2_price_action is not None:
             native_pa_status = str(price_action.get("status", "NOT_READY"))
             native_pa_direction = str(price_action.get("direction", "UNKNOWN"))
-            native_pa_alignment = str(
-                (price_action.get("summary") or {}).get("timeframe_alignment", "NOT_AVAILABLE")
+            native_pa_alignment = str(price_action_summary.get("timeframe_alignment", "NOT_AVAILABLE"))
+            candle_pattern_alignment = str(
+                price_action_summary.get(
+                    "latest_candle_pattern_alignment", "NO_DIRECTIONAL_CANDLE_PATTERN"
+                )
             )
             if native_pa_status != "READY":
                 native_pa_gate = "NOT_READY"
@@ -332,6 +344,23 @@ class DecisionEngine:
             else:
                 native_pa_gate = "MIXED_OR_NO_CONFLUENCE"
                 native_pa_allows_candidate = False
+
+            # Directional candle patterns are a veto-only confirmation layer:
+            # mixed or opposite latest-pattern evidence cannot overturn the
+            # multi-timeframe OHLC structure or become a standalone vote.
+            if native_pa_allows_candidate:
+                if candle_pattern_alignment == "MIXED_CANDLE_PATTERN_EVIDENCE":
+                    native_pa_gate = "MIXED_CANDLE_PATTERN_EVIDENCE"
+                    native_pa_allows_candidate = False
+                elif (
+                    native_pa_direction == "BULLISH"
+                    and candle_pattern_alignment == "BEARISH_CANDLE_PATTERN_EVIDENCE"
+                ) or (
+                    native_pa_direction == "BEARISH"
+                    and candle_pattern_alignment == "BULLISH_CANDLE_PATTERN_EVIDENCE"
+                ):
+                    native_pa_gate = "CANDLE_PATTERN_DIRECTION_CONFLICT"
+                    native_pa_allows_candidate = False
 
             if candidate in {"BUY", "SELL"}:
                 expected_native_direction = "BULLISH" if candidate == "BUY" else "BEARISH"
