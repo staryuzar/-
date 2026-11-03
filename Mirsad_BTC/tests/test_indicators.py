@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from mirsad.engines.indicators import IndicatorsEngine, _atr, _rsi, _timeframe_trend
+from mirsad.engines.indicators import IndicatorsEngine, _adx, _atr, _rsi, _stochastic, _timeframe_trend
 
 
 def make_chart_candles(count: int = 90, direction: str = "up", include_forming: bool = False) -> dict:
@@ -77,6 +77,31 @@ class IndicatorsEngineTests(unittest.TestCase):
         value = _atr(candles, period=14)
         self.assertIsNotNone(value)
         self.assertGreater(value, 2.0)
+
+    def test_stochastic_matches_mt5_slowing_and_signal_smoothing(self) -> None:
+        closes = [10.0, 90.0, 30.0, 70.0, 50.0, 80.0, 20.0, 60.0, 40.0, 100.0, 0.0]
+        candles = [
+            {"high": 100.0, "low": 0.0, "close": close}
+            for close in closes
+        ]
+        slow_k, slow_d = _stochastic(candles, k_period=5, d_period=3, slowing=3)
+        self.assertAlmostEqual(slow_k, 46.6666666667, places=8)
+        self.assertAlmostEqual(slow_d, 51.1111111111, places=8)
+
+    def test_adx_uses_initial_dx_and_wilder_smoothing_window(self) -> None:
+        candles = []
+        for index in range(28):
+            close = 100.0 + index
+            candles.append({
+                "high": close + 1.0,
+                "low": close - 1.0,
+                "close": close,
+            })
+        adx, plus_di, minus_di = _adx(candles, period=14)
+        self.assertAlmostEqual(adx, 100.0, places=8)
+        self.assertGreater(plus_di, 0.0)
+        self.assertEqual(minus_di, 0.0)
+        self.assertEqual(_adx(candles[:-1], period=14), (None, None, None))
 
     def test_full_twenty_indicator_catalog_is_calculated_for_each_timeframe(self) -> None:
         result = IndicatorsEngine().analyze(make_chart_candles(count=90))
