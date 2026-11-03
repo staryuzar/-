@@ -18,6 +18,8 @@ input int  InpScreenshotWidth         = 1600; // PNG output width
 input int  InpScreenshotHeight        = 900;  // PNG output height
 input bool InpCaptureImmediately      = true; // Capture after the initial terminal window has stabilized
 input int  InpInitialCaptureDelaySeconds = 10; // Allow Windows to maximize the chart before its first snapshot
+input bool InpPublishNativeIndicators = true; // Publish native MT5 CopyBuffer values independently of chart images
+input bool InpPublishMarketDepth = true; // Publish broker market book when supported
 
 string g_observer_root = "MirsadBTC\\observer";
 string g_image_root    = "MirsadBTC\\observer\\images";
@@ -34,6 +36,228 @@ string g_pending_local_image = "";
 string g_pending_common_image = "";
 string g_pending_manifest_name = "";
 string g_pending_payload = "";
+
+#define MIRSAD_TIMEFRAME_COUNT 6
+ENUM_TIMEFRAMES g_indicator_timeframes[MIRSAD_TIMEFRAME_COUNT] =
+   {PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_H1, PERIOD_H4, PERIOD_D1};
+string g_indicator_timeframe_names[MIRSAD_TIMEFRAME_COUNT] =
+   {"1m", "5m", "15m", "1h", "4h", "1d"};
+
+int g_h_ema20[MIRSAD_TIMEFRAME_COUNT];
+int g_h_ema50[MIRSAD_TIMEFRAME_COUNT];
+int g_h_rsi14[MIRSAD_TIMEFRAME_COUNT];
+int g_h_atr14[MIRSAD_TIMEFRAME_COUNT];
+int g_h_macd[MIRSAD_TIMEFRAME_COUNT];
+int g_h_bands[MIRSAD_TIMEFRAME_COUNT];
+int g_h_stochastic[MIRSAD_TIMEFRAME_COUNT];
+int g_h_adx[MIRSAD_TIMEFRAME_COUNT];
+int g_h_cci20[MIRSAD_TIMEFRAME_COUNT];
+int g_h_mfi14[MIRSAD_TIMEFRAME_COUNT];
+int g_h_momentum14[MIRSAD_TIMEFRAME_COUNT];
+int g_h_wpr14[MIRSAD_TIMEFRAME_COUNT];
+int g_h_obv[MIRSAD_TIMEFRAME_COUNT];
+int g_h_osma[MIRSAD_TIMEFRAME_COUNT];
+bool g_book_subscribed = false;
+
+void ResetIndicatorHandles()
+{
+   ArrayInitialize(g_h_ema20, INVALID_HANDLE);
+   ArrayInitialize(g_h_ema50, INVALID_HANDLE);
+   ArrayInitialize(g_h_rsi14, INVALID_HANDLE);
+   ArrayInitialize(g_h_atr14, INVALID_HANDLE);
+   ArrayInitialize(g_h_macd, INVALID_HANDLE);
+   ArrayInitialize(g_h_bands, INVALID_HANDLE);
+   ArrayInitialize(g_h_stochastic, INVALID_HANDLE);
+   ArrayInitialize(g_h_adx, INVALID_HANDLE);
+   ArrayInitialize(g_h_cci20, INVALID_HANDLE);
+   ArrayInitialize(g_h_mfi14, INVALID_HANDLE);
+   ArrayInitialize(g_h_momentum14, INVALID_HANDLE);
+   ArrayInitialize(g_h_wpr14, INVALID_HANDLE);
+   ArrayInitialize(g_h_obv, INVALID_HANDLE);
+   ArrayInitialize(g_h_osma, INVALID_HANDLE);
+}
+
+void InitializeIndicatorHandles(const string symbol)
+{
+   if(!InpPublishNativeIndicators)
+      return;
+   ResetIndicatorHandles();
+   for(int i = 0; i < MIRSAD_TIMEFRAME_COUNT; i++)
+   {
+      ENUM_TIMEFRAMES timeframe = g_indicator_timeframes[i];
+      g_h_ema20[i] = iMA(symbol, timeframe, 20, 0, MODE_EMA, PRICE_CLOSE);
+      g_h_ema50[i] = iMA(symbol, timeframe, 50, 0, MODE_EMA, PRICE_CLOSE);
+      g_h_rsi14[i] = iRSI(symbol, timeframe, 14, PRICE_CLOSE);
+      g_h_atr14[i] = iATR(symbol, timeframe, 14);
+      g_h_macd[i] = iMACD(symbol, timeframe, 12, 26, 9, PRICE_CLOSE);
+      g_h_bands[i] = iBands(symbol, timeframe, 20, 0, 2.0, PRICE_CLOSE);
+      g_h_stochastic[i] = iStochastic(symbol, timeframe, 5, 3, 3, MODE_SMA, STO_LOWHIGH);
+      g_h_adx[i] = iADX(symbol, timeframe, 14);
+      g_h_cci20[i] = iCCI(symbol, timeframe, 20, PRICE_TYPICAL);
+      g_h_mfi14[i] = iMFI(symbol, timeframe, 14, VOLUME_TICK);
+      g_h_momentum14[i] = iMomentum(symbol, timeframe, 14, PRICE_CLOSE);
+      g_h_wpr14[i] = iWPR(symbol, timeframe, 14);
+      g_h_obv[i] = iOBV(symbol, timeframe, VOLUME_TICK);
+      g_h_osma[i] = iOsMA(symbol, timeframe, 12, 26, 9, PRICE_CLOSE);
+   }
+}
+
+void ReleaseIndicatorHandles()
+{
+   for(int i = 0; i < MIRSAD_TIMEFRAME_COUNT; i++)
+   {
+      if(g_h_ema20[i] != INVALID_HANDLE) IndicatorRelease(g_h_ema20[i]);
+      if(g_h_ema50[i] != INVALID_HANDLE) IndicatorRelease(g_h_ema50[i]);
+      if(g_h_rsi14[i] != INVALID_HANDLE) IndicatorRelease(g_h_rsi14[i]);
+      if(g_h_atr14[i] != INVALID_HANDLE) IndicatorRelease(g_h_atr14[i]);
+      if(g_h_macd[i] != INVALID_HANDLE) IndicatorRelease(g_h_macd[i]);
+      if(g_h_bands[i] != INVALID_HANDLE) IndicatorRelease(g_h_bands[i]);
+      if(g_h_stochastic[i] != INVALID_HANDLE) IndicatorRelease(g_h_stochastic[i]);
+      if(g_h_adx[i] != INVALID_HANDLE) IndicatorRelease(g_h_adx[i]);
+      if(g_h_cci20[i] != INVALID_HANDLE) IndicatorRelease(g_h_cci20[i]);
+      if(g_h_mfi14[i] != INVALID_HANDLE) IndicatorRelease(g_h_mfi14[i]);
+      if(g_h_momentum14[i] != INVALID_HANDLE) IndicatorRelease(g_h_momentum14[i]);
+      if(g_h_wpr14[i] != INVALID_HANDLE) IndicatorRelease(g_h_wpr14[i]);
+      if(g_h_obv[i] != INVALID_HANDLE) IndicatorRelease(g_h_obv[i]);
+      if(g_h_osma[i] != INVALID_HANDLE) IndicatorRelease(g_h_osma[i]);
+   }
+}
+
+string IndicatorPairJson(const int indicator_handle, const int buffer_index)
+{
+   if(indicator_handle == INVALID_HANDLE)
+      return "{\"status\":\"UNAVAILABLE\",\"closed\":null,\"current\":null,\"error_code\":-1}";
+   double values[2];
+   ResetLastError();
+   int copied = CopyBuffer(indicator_handle, buffer_index, 0, 2, values);
+   int error_code = GetLastError();
+   if(copied != 2)
+      return StringFormat(
+         "{\"status\":\"UNAVAILABLE\",\"closed\":null,\"current\":null,\"copied\":%d,\"error_code\":%d}",
+         copied, error_code
+      );
+   // CopyBuffer stores the oldest requested element first: values[0] is
+   // shift 1 (last closed bar), values[1] is shift 0 (forming bar).
+   if(!MathIsValidNumber(values[0]) || !MathIsValidNumber(values[1]))
+      return "{\"status\":\"INVALID\",\"closed\":null,\"current\":null,\"error_code\":0}";
+   return StringFormat(
+      "{\"status\":\"READY\",\"closed\":%s,\"current\":%s,\"error_code\":0}",
+      DoubleToString(values[0], 10),
+      DoubleToString(values[1], 10)
+   );
+}
+
+string BuildIndicatorFrameJson(const string symbol,
+                               const int frame_index,
+                               const int server_utc_offset_seconds)
+{
+   ENUM_TIMEFRAMES timeframe = g_indicator_timeframes[frame_index];
+   long closed_time_utc_ms = ((long)iTime(symbol, timeframe, 1) - server_utc_offset_seconds) * 1000;
+   long current_time_utc_ms = ((long)iTime(symbol, timeframe, 0) - server_utc_offset_seconds) * 1000;
+   string values = "";
+   values += "\"ema20\":" + IndicatorPairJson(g_h_ema20[frame_index], 0) + ",";
+   values += "\"ema50\":" + IndicatorPairJson(g_h_ema50[frame_index], 0) + ",";
+   values += "\"rsi14\":" + IndicatorPairJson(g_h_rsi14[frame_index], 0) + ",";
+   values += "\"atr14\":" + IndicatorPairJson(g_h_atr14[frame_index], 0) + ",";
+   values += "\"macd_main\":" + IndicatorPairJson(g_h_macd[frame_index], 0) + ",";
+   values += "\"macd_signal\":" + IndicatorPairJson(g_h_macd[frame_index], 1) + ",";
+   values += "\"bollinger_middle\":" + IndicatorPairJson(g_h_bands[frame_index], 0) + ",";
+   values += "\"bollinger_upper\":" + IndicatorPairJson(g_h_bands[frame_index], 1) + ",";
+   values += "\"bollinger_lower\":" + IndicatorPairJson(g_h_bands[frame_index], 2) + ",";
+   values += "\"stochastic_k\":" + IndicatorPairJson(g_h_stochastic[frame_index], 0) + ",";
+   values += "\"stochastic_d\":" + IndicatorPairJson(g_h_stochastic[frame_index], 1) + ",";
+   values += "\"adx14\":" + IndicatorPairJson(g_h_adx[frame_index], 0) + ",";
+   values += "\"plus_di14\":" + IndicatorPairJson(g_h_adx[frame_index], 1) + ",";
+   values += "\"minus_di14\":" + IndicatorPairJson(g_h_adx[frame_index], 2) + ",";
+   values += "\"cci20\":" + IndicatorPairJson(g_h_cci20[frame_index], 0) + ",";
+   values += "\"mfi14\":" + IndicatorPairJson(g_h_mfi14[frame_index], 0) + ",";
+   values += "\"momentum14\":" + IndicatorPairJson(g_h_momentum14[frame_index], 0) + ",";
+   values += "\"wpr14\":" + IndicatorPairJson(g_h_wpr14[frame_index], 0) + ",";
+   values += "\"obv\":" + IndicatorPairJson(g_h_obv[frame_index], 0) + ",";
+   values += "\"osma\":" + IndicatorPairJson(g_h_osma[frame_index], 0);
+   return StringFormat(
+      "\"%s\":{\"closed_bar_time_utc_ms\":%I64d,\"forming_bar_time_utc_ms\":%I64d,\"values\":{%s}}",
+      g_indicator_timeframe_names[frame_index],
+      closed_time_utc_ms, current_time_utc_ms, values
+   );
+}
+
+string BuildNativeIndicatorSnapshotPayload(const string symbol)
+{
+   long server_time_seconds = (long)TimeTradeServer();
+   int server_utc_offset_seconds = (int)(server_time_seconds - (long)TimeGMT());
+   string payload = "{";
+   payload += "\"schema\":\"MIR-MT5-INDICATORS-1\",";
+   payload += "\"captured_at_utc_ms\":" + (string)UtcNowMs() + ",";
+   payload += "\"server_time_seconds\":" + (string)server_time_seconds + ",";
+   payload += "\"terminal_connected\":" + JsonBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED)) + ",";
+   payload += "\"broker_symbol\":\"" + JsonEscape(symbol) + "\",";
+   payload += "\"market_symbol\":\"" + JsonEscape(InpMarketSymbol) + "\",";
+   payload += "\"account\":{\"server\":\"" + JsonEscape(AccountInfoString(ACCOUNT_SERVER)) + "\"},";
+   payload += "\"time_basis\":\"UTC_NORMALIZED_FROM_MT5_SERVER_TIME\",";
+   payload += "\"calculation_source\":\"MT5_NATIVE_INDICATOR_BUFFERS\",";
+   payload += "\"closed_values_are_shift\":1,";
+   payload += "\"current_values_are_shift\":0,";
+   payload += "\"timeframes\":{";
+   for(int i = 0; i < MIRSAD_TIMEFRAME_COUNT; i++)
+   {
+      if(i > 0) payload += ",";
+      payload += BuildIndicatorFrameJson(symbol, i, server_utc_offset_seconds);
+   }
+   payload += "}}";
+   return payload;
+}
+
+string MarketBookTypeLabel(const ENUM_BOOK_TYPE book_type)
+{
+   if(book_type == BOOK_TYPE_BUY) return "BUY";
+   if(book_type == BOOK_TYPE_SELL) return "SELL";
+   if(book_type == BOOK_TYPE_BUY_MARKET) return "BUY_MARKET";
+   if(book_type == BOOK_TYPE_SELL_MARKET) return "SELL_MARKET";
+   return "UNKNOWN";
+}
+
+string BuildMarketDepthJson(const string symbol, const int digits)
+{
+   if(!InpPublishMarketDepth)
+      return "\"depth_of_market\":{\"status\":\"DISABLED\",\"source\":\"MT5_MARKET_BOOK\",\"levels\":[]}";
+   if(!g_book_subscribed)
+   {
+      ResetLastError();
+      g_book_subscribed = MarketBookAdd(symbol);
+   }
+   MqlBookInfo book[];
+   ResetLastError();
+   bool available = MarketBookGet(symbol, book);
+   int error_code = GetLastError();
+   if(!available)
+      return StringFormat(
+         "\"depth_of_market\":{\"status\":\"UNAVAILABLE\",\"source\":\"MT5_MARKET_BOOK\",\"subscribed\":%s,\"error_code\":%d,\"levels\":[]}",
+         JsonBool(g_book_subscribed), error_code
+      );
+   int count = MathMin(ArraySize(book), 40);
+   string levels = "[";
+   int emitted = 0;
+   for(int i = 0; i < count; i++)
+   {
+      if(book[i].price <= 0 || book[i].volume < 0 || !MathIsValidNumber(book[i].price))
+         continue;
+      if(emitted > 0) levels += ",";
+      levels += StringFormat(
+         "{\"side\":\"%s\",\"price\":%s,\"volume\":%I64d,\"volume_real\":%s}",
+         MarketBookTypeLabel(book[i].type),
+         DoubleToString(book[i].price, digits),
+         book[i].volume,
+         DoubleToString(book[i].volume_real, 8)
+      );
+      emitted++;
+   }
+   levels += "]";
+   return StringFormat(
+      "\"depth_of_market\":{\"status\":\"AVAILABLE\",\"source\":\"MT5_MARKET_BOOK\",\"subscribed\":%s,\"captured_at_utc_ms\":%I64d,\"level_count\":%d,\"levels\":%s}",
+      JsonBool(g_book_subscribed), UtcNowMs(), emitted, levels
+   );
+}
 
 long UtcNowMs()
 {
@@ -292,7 +516,7 @@ string BuildTickHistoryJson(const string symbol,
    ulong from_msc = (ulong)MathMax(0, server_now_ms - 30000);
    MqlTick ticks[];
    ResetLastError();
-   int copied = CopyTicksRange(symbol, ticks, COPY_TICKS_INFO, from_msc, to_msc);
+   int copied = CopyTicksRange(symbol, ticks, COPY_TICKS_ALL, from_msc, to_msc);
    int error_code = 0;
    if(copied < 0)
    {
@@ -313,10 +537,15 @@ string BuildTickHistoryJson(const string symbol,
          output += ",";
       long tick_utc_ms = ticks[i].time_msc - (long)server_utc_offset_seconds * 1000;
       output += StringFormat(
-         "{\"time_utc_ms\":%I64d,\"bid\":%s,\"ask\":%s}",
+         "{\"time_utc_ms\":%I64d,\"bid\":%s,\"ask\":%s,"
+         "\"last\":%s,\"volume\":%I64u,\"volume_real\":%s,\"flags\":%u}",
          tick_utc_ms,
          DoubleToString(ticks[i].bid, digits),
-         DoubleToString(ticks[i].ask, digits)
+         DoubleToString(ticks[i].ask, digits),
+         DoubleToString(ticks[i].last, digits),
+         ticks[i].volume,
+         DoubleToString(ticks[i].volume_real, 8),
+         ticks[i].flags
       );
       emitted++;
    }
@@ -359,6 +588,7 @@ string BuildMarketSnapshotPayload(const string broker_symbol,
    payload += "},";
    payload += "\"time_basis\":\"UTC_NORMALIZED_FROM_MT5_SERVER_TIME\",";
    payload += BuildTickHistoryJson(broker_symbol, digits, server_utc_offset_seconds) + ",";
+   payload += BuildMarketDepthJson(broker_symbol, digits) + ",";
    payload += economic_calendar_json;
    payload += "}";
    return payload;
@@ -417,6 +647,16 @@ bool PublishMarketSnapshot()
    {
       PrintFormat("Mirsad Observer: could not publish Engine 2 candle history. Error=%d", GetLastError());
       return false;
+   }
+
+   if(InpPublishNativeIndicators)
+   {
+      string indicator_payload = BuildNativeIndicatorSnapshotPayload(symbol);
+      if(!WriteCommonManifest("MirsadBTC\\observer\\indicators.json", indicator_payload))
+      {
+         PrintFormat("Mirsad Observer: could not publish native MT5 indicators. Error=%d", GetLastError());
+         return false;
+      }
    }
    return true;
 }
@@ -701,6 +941,16 @@ int OnInit()
    FolderCreate(g_observer_root, FILE_COMMON);
    FolderCreate(g_image_root, FILE_COMMON);
 
+   if(InpPublishNativeIndicators)
+      InitializeIndicatorHandles(ChartSymbol(g_chart_id));
+   if(InpPublishMarketDepth)
+   {
+      ResetLastError();
+      g_book_subscribed = MarketBookAdd(ChartSymbol(g_chart_id));
+      if(!g_book_subscribed)
+         PrintFormat("Mirsad Observer: broker market book unavailable or subscription failed. Error=%d", GetLastError());
+   }
+
    MathSrand((int)GetTickCount());
    if(!EventSetTimer(1))
    {
@@ -725,6 +975,9 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   ReleaseIndicatorHandles();
+   if(g_book_subscribed)
+      MarketBookRelease(ChartSymbol(g_chart_id));
    PublishObserverStatus("STOPPED", g_pending_id,
                          StringFormat("Observer stopped. Reason=%d", reason));
 }
