@@ -532,7 +532,11 @@ string BuildTickHistoryJson(const string symbol,
    int emitted = 0;
    for(int i = start_index; i < copied; i++)
    {
-      if(ticks[i].bid <= 0 || ticks[i].ask < ticks[i].bid || ticks[i].time_msc <= 0)
+      bool quote_update_valid = (ticks[i].bid > 0 && ticks[i].ask >= ticks[i].bid);
+      bool last_update_valid = ((ticks[i].flags & TICK_FLAG_LAST) == TICK_FLAG_LAST && ticks[i].last > 0);
+      bool volume_update_valid = ((ticks[i].flags & TICK_FLAG_VOLUME) == TICK_FLAG_VOLUME &&
+                                  (ticks[i].volume > 0 || ticks[i].volume_real > 0));
+      if(ticks[i].time_msc <= 0 || (!quote_update_valid && !last_update_valid && !volume_update_valid))
          continue;
       if(emitted > 0)
          output += ",";
