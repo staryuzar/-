@@ -86,6 +86,10 @@ class MultiReferenceCalibrationTests(unittest.TestCase):
             pair["bar"]["x_px"] = 100.0 + index * 5.0
         result = self.calibrate(pairs)
         self.assertEqual(result["status"], "REFERENCE_SPATIAL_COVERAGE_LOW")
+        self.assertEqual(result["matched_candles"], 24)
+        self.assertEqual(result["fit_candles"], 18)
+        self.assertEqual(result["validation_candles"], 6)
+        self.assertEqual(result["fit_x_coverage"], 0.0245)
 
 
 if __name__ == "__main__":
