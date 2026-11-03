@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from mirsad.engines.mt5_price_action import analyze_mt5_native_price_action
+from mirsad.engines.mt5_price_action import analyze_mt5_native_price_action, _summarize_latest_pattern_alignment
 
 
 DURATIONS = {
@@ -57,6 +57,29 @@ def make_history(
         "captured_at_ms": as_of_ms,
         "candles_by_tf": frames,
     }
+
+
+class LatestCandlePatternAlignmentTests(unittest.TestCase):
+    def test_mixed_patterns_within_one_timeframe_are_not_misclassified_as_no_pattern(self) -> None:
+        alignment, bullish, bearish, mixed = _summarize_latest_pattern_alignment({
+            "1m": "MIXED",
+            "5m": "NONE",
+        })
+        self.assertEqual(alignment, "MIXED_CANDLE_PATTERN_EVIDENCE")
+        self.assertEqual(bullish, [])
+        self.assertEqual(bearish, [])
+        self.assertEqual(mixed, ["1m"])
+
+    def test_opposing_timeframe_patterns_are_mixed(self) -> None:
+        alignment, bullish, bearish, mixed = _summarize_latest_pattern_alignment({
+            "1m": "BULLISH",
+            "5m": "BEARISH",
+            "15m": "NONE",
+        })
+        self.assertEqual(alignment, "MIXED_CANDLE_PATTERN_EVIDENCE")
+        self.assertEqual(bullish, ["1m"])
+        self.assertEqual(bearish, ["5m"])
+        self.assertEqual(mixed, [])
 
 
 class MT5NativePriceActionTests(unittest.TestCase):
