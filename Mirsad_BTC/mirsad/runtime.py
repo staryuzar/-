@@ -153,7 +153,6 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  if age>MARKET_MAX_AGE_SECONDS: market_status="STALE"
  readiness={
   "engine_1_market":market_status=="LIVE",
-  "engine_2_chart":bool(chart.get("decision_eligible")),
   "engine_2_candles":candle_history.get("status")=="READY",
   "engine_2_multi_timeframe_structure":engine2_multitimeframe.get("status")=="READY",
   "engine_2_native_analysis":engine2_native_analysis.get("status")=="READY",
@@ -189,12 +188,19 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "closed_candles":candle_history.get("closed_candles",{}),"reason":candle_history.get("reason")},
   "engine_2_multi_timeframe_structure":engine2_multitimeframe,
   "engine_2_native_analysis":engine2_native_analysis,
+  "engine_2_visual_analysis":{
+   "status":chart.get("status","NOT_STARTED"),
+   "decision_eligible":bool(chart.get("decision_eligible")),
+   "scope":"DEFERRED_UNTIL_CHART_AND_DRAWING_PHASE",
+   "required_for_native_direction_analysis":False,
+  },
   "indicators":indicators,
   "mt5_native_indicators":native_indicators,
   "bridge":bridge,"decision":decision,"command_publish":command_publish,
   "wiring":{"engine_1_market_to_engine_4":True,"engine_2_chart_to_engine_4":True,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
    "engine_2_native_analysis_to_engine_4":"descriptive_only_not_connected_to_trade_vote",
+   "engine_2_native_analysis_requires_chart_image":False,
    "mt5_native_indicator_buffers_to_engine_3_report":True,
    "engine_4_to_engine_5_command_envelope":"implemented_idempotent_user_authorized",
    "engine_5_to_engine_4_ack_and_positions":"read_from_common_files",
@@ -202,6 +208,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "notices":[
    "Engine 1: MT5 quote pulse, spread/activity context and broker economic-calendar events. It does not read chart images or candles.",
    "Engine 2 native analysis: determines descriptive BTC direction, trend strength, market regime, candle patterns and price structure directly from six MT5 OHLC timeframes; it does not require a chart image.",
+   "Engine 2 visual chart extraction and drawings are deferred and are not a readiness dependency for the native OHLC direction report.",
    "Engine 2 direction analysis uses only completed native MT5 OHLC bars at a common snapshot cutoff; stale frames, gaps and forming bars cannot create direction evidence.",
    "Engine 3: EMA/RSI/ATR and multi-timeframe technical measures calculated exclusively from Engine 2 completed candles. Native MT5 CopyBuffer indicator values are separately attached for comparison and validation.",
    "Native MT5 indicator snapshots are read independently from chart images every market-feed cycle; closed-bar and forming-bar values remain separate and are not decision-eligible until independently validated.",
