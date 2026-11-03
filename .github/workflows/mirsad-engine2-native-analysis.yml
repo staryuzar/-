@@ -4,6 +4,10 @@ on:
   push:
     branches: [mirsad-engine2-native-analysis]
     paths:
+      - 'Mirsad_BTC/mirsad/engines/chart*.py'
+      - 'Mirsad_BTC/mirsad/engines/visual_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_observer.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_chart_pipeline.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
       - 'Mirsad_BTC/mirsad/engines/indicators.py'
@@ -56,6 +60,20 @@ jobs:
         env:
           PYTHONPATH: Mirsad_BTC
         run: |
+          # Engine 2 visual chart pipeline: image loading, layout, OCR, extraction,
+          # calibration, candle geometry, multi-timeframe handling and visual knowledge.
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_engine.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_extraction.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_header_ocr.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_multi_timeframe.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_multi_timeframe_storage.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_ocr.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pixel_metrics.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pattern_reference.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_pipeline.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_observer_engine2_integration.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_visual_knowledge.py' -v
+          # Native OHLC price-action and market structure.
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_price_action.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_candles.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine2_public_btc_validation.py' -v
