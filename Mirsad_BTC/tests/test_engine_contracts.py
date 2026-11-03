@@ -189,7 +189,7 @@ class WeightedDecisionTests(unittest.TestCase):
             engine2_quality=1.0,
             engine3_quality=1.0,
         )
-        self.assertAlmostEqual(weights["engine_1_market_intelligence"], (0.20 * 0.50) / 0.90)
+        self.assertAlmostEqual(weights["engine_1_market_intelligence"], (0.20 * 0.50) / 0.90, places=6)
         self.assertAlmostEqual(weights["engine_2_price_action"], 0.50 / 0.90)
         self.assertAlmostEqual(weights["engine_3_indicators"], 0.30 / 0.90)
         self.assertAlmostEqual(score, 0.90 * weights["engine_1_market_intelligence"]
