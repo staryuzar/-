@@ -299,6 +299,191 @@ def validate_mt5_chart_geometry(
     }
 
 
+def validate_mt5_geometry_overlay(
+    geometry_validation: dict[str, Any],
+    *,
+    native_bars: list[dict[str, Any]],
+    extracted_bars: list[dict[str, Any]],
+    visible_bars: int,
+    first_visible_bar_shift: int,
+    residual_limit_px: float = 13.5,
+    minimum_validation_pass_ratio: float = 0.80,
+) -> dict[str, Any]:
+    """Validate the affine mapping from native MT5 coordinates to detected PNG candles.
+
+    Fit candles determine the coordinate transform; interleaved hold-out candles
+    independently verify it. This function never authorizes a trading decision.
+    """
+    def fail(status: str, reason: str, **extra: Any) -> dict[str, Any]:
+        return {"status": status, "mapping_verified": False, "decision_eligible": False,
+                "reason": reason, **extra}
+
+    if geometry_validation.get("status") not in {"READY_FOR_PIXEL_ALIGNMENT", "PARTIAL"}:
+        return fail("GEOMETRY_NOT_READY", "Native MT5 geometry did not pass structural validation.")
+    if visible_bars < 8 or not native_bars or not extracted_bars:
+        return fail("INSUFFICIENT_INPUT", "Visible native bars and extracted image candles are required.")
+    if not math.isfinite(residual_limit_px) or residual_limit_px <= 0:
+        return fail("INVALID_THRESHOLD", "Overlay residual threshold must be positive and finite.")
+
+    geometry_items = geometry_validation.get("bars")
+    if not isinstance(geometry_items, list) or len(geometry_items) != len(native_bars):
+        return fail("GEOMETRY_BAR_COUNT_MISMATCH", "Validated geometry does not cover the native OHLC array.")
+
+    extracted_by_slot: dict[int, dict[str, Any]] = {}
+    for item in extracted_bars:
+        if not isinstance(item, dict):
+            continue
+        try:
+            slot = int(item["slot_index"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if slot in extracted_by_slot:
+            return fail("DUPLICATE_IMAGE_SLOT", "More than one extracted candle occupies the same image slot.")
+        extracted_by_slot[slot] = item
+
+    rightmost_visible_offset = max(0, int(first_visible_bar_shift) - int(visible_bars) + 1)
+    matched: list[dict[str, Any]] = []
+    for index, (geometry, native) in enumerate(zip(geometry_items, native_bars)):
+        if not isinstance(geometry, dict) or geometry.get("valid") is not True or geometry.get("visible") is not True:
+            continue
+        offset = len(native_bars) - 1 - index
+        relative_offset = offset - rightmost_visible_offset
+        if not 0 <= relative_offset < visible_bars:
+            continue
+        slot = visible_bars - 1 - relative_offset
+        extracted = extracted_by_slot.get(slot)
+        if extracted is None:
+            continue
+        if int(geometry.get("time_server_ms", -1)) != int(native.get("time_server_ms", -2)):
+            return fail("NATIVE_BAR_IDENTITY_MISMATCH", "Geometry timestamp does not match its OHLC source bar.")
+        points = geometry.get("points_source_px")
+        if not isinstance(points, dict) or any(not isinstance(points.get(name), dict) for name in _POINT_FIELDS):
+            continue
+        try:
+            x_source = float(geometry["x_source_px"])
+            x_image = float(extracted["x_px"])
+            y_source = {name: float(points[name]["y"]) for name in _POINT_FIELDS}
+            y_image = {
+                "high": float(extracted["high_y_px"]),
+                "low": float(extracted["low_y_px"]),
+            }
+            open_price, close_price = float(native["open"]), float(native["close"])
+            if close_price > open_price:
+                y_image["open"] = float(extracted["body_bottom_y_px"])
+                y_image["close"] = float(extracted["body_top_y_px"])
+            elif close_price < open_price:
+                y_image["open"] = float(extracted["body_top_y_px"])
+                y_image["close"] = float(extracted["body_bottom_y_px"])
+            else:
+                midpoint = (float(extracted["body_top_y_px"]) + float(extracted["body_bottom_y_px"])) / 2.0
+                y_image["open"] = midpoint
+                y_image["close"] = midpoint
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        coordinates = [x_source, x_image, *y_source.values(), *y_image.values()]
+        if not all(math.isfinite(value) for value in coordinates):
+            continue
+        matched.append({
+            "slot_index": slot,
+            "x_source": x_source,
+            "x_image": x_image,
+            "y_source": y_source,
+            "y_image": y_image,
+        })
+
+    matched.sort(key=lambda row: row["slot_index"])
+    if len(matched) < 8:
+        return fail("INSUFFICIENT_MATCHED_CANDLES",
+                    "At least eight exact-slot native/image candle pairs are required.",
+                    matched_candles=len(matched))
+
+    fit_rows = [row for row in matched if row["slot_index"] % 4 != 0]
+    holdout_rows = [row for row in matched if row["slot_index"] % 4 == 0]
+    if len(fit_rows) < 5 or len(holdout_rows) < 3:
+        return fail("INSUFFICIENT_HOLDOUT", "Affine fit and independent hold-out samples are too small.",
+                    matched_candles=len(matched), fit_candles=len(fit_rows),
+                    validation_candles=len(holdout_rows))
+
+    def robust_affine(pairs: list[tuple[float, float]]) -> tuple[float, float] | None:
+        slopes = [
+            (y2 - y1) / (x2 - x1)
+            for i, (x1, y1) in enumerate(pairs)
+            for x2, y2 in pairs[i + 1:]
+            if abs(x2 - x1) >= 2.0
+        ]
+        if not slopes:
+            return None
+        slope = float(median(slopes))
+        intercept = float(median(y - slope * x for x, y in pairs))
+        if not math.isfinite(slope) or not math.isfinite(intercept) or slope <= 0:
+            return None
+        return slope, intercept
+
+    x_fit = robust_affine([(row["x_source"], row["x_image"]) for row in fit_rows])
+    y_fit = robust_affine([
+        (row["y_source"][name], row["y_image"][name])
+        for row in fit_rows for name in _POINT_FIELDS
+    ])
+    if x_fit is None or y_fit is None:
+        return fail("AFFINE_FIT_FAILED", "Native-to-image coordinates do not produce positive affine transforms.")
+
+    x_scale, x_offset = x_fit
+    y_scale, y_offset = y_fit
+    validation_rows = []
+    for row in holdout_rows:
+        x_error = abs(x_scale * row["x_source"] + x_offset - row["x_image"])
+        y_errors = {
+            name: abs(y_scale * row["y_source"][name] + y_offset - row["y_image"][name])
+            for name in _POINT_FIELDS
+        }
+        maximum = max([x_error, *y_errors.values()])
+        validation_rows.append({
+            "slot_index": row["slot_index"],
+            "x_residual_px": round(x_error, 3),
+            "y_residual_px_by_point": {key: round(value, 3) for key, value in y_errors.items()},
+            "maximum_residual_px": round(maximum, 3),
+            "passed": maximum <= residual_limit_px,
+        })
+
+    passed = [row for row in validation_rows if row["passed"]]
+    ratio = len(passed) / len(validation_rows)
+    median_error = float(median(row["maximum_residual_px"] for row in validation_rows))
+    required = max(3, math.ceil(len(validation_rows) * minimum_validation_pass_ratio))
+    if len(passed) < required or median_error > residual_limit_px * 0.5:
+        return fail(
+            "OVERLAY_HOLDOUT_FAILED",
+            "Independent native-to-image candle overlay does not meet residual and pass-ratio limits.",
+            matched_candles=len(matched), fit_candles=len(fit_rows),
+            validation_candles=len(holdout_rows), validation_passed_candles=len(passed),
+            validation_pass_ratio=round(ratio, 4),
+            validation_median_max_residual_px=round(median_error, 3),
+            validation_max_residual_px=max(row["maximum_residual_px"] for row in validation_rows),
+            residual_limit_px=residual_limit_px, validation_rows=validation_rows,
+            x_scale=round(x_scale, 8), x_offset=round(x_offset, 4),
+            y_scale=round(y_scale, 8), y_offset=round(y_offset, 4),
+        )
+
+    return {
+        "status": "READY",
+        "mapping_verified": True,
+        "decision_eligible": False,
+        "method": "native_mt5_geometry_affine_fit_with_interleaved_image_holdout",
+        "matched_candles": len(matched),
+        "fit_candles": len(fit_rows),
+        "validation_candles": len(holdout_rows),
+        "validation_passed_candles": len(passed),
+        "validation_pass_ratio": round(ratio, 4),
+        "validation_median_max_residual_px": round(median_error, 3),
+        "validation_max_residual_px": max(row["maximum_residual_px"] for row in validation_rows),
+        "residual_limit_px": residual_limit_px,
+        "x_scale": round(x_scale, 8),
+        "x_offset": round(x_offset, 4),
+        "y_scale": round(y_scale, 8),
+        "y_offset": round(y_offset, 4),
+        "validation_rows": validation_rows,
+    }
+
+
 def analyze_native_mt5_ohlc(
     bars: list[dict[str, Any]],
     *,
