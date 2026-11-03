@@ -644,6 +644,9 @@ public static class MirsadNativeWindow {
         visible_bars = [int]$manifest.chart.visible_bars
         windows_total = [int]$manifest.chart.windows_total
         chart_autoscroll = [bool]$manifest.chart.chart_autoscroll
+        price_scale_visible = [bool]$manifest.chart.price_scale_visible
+        date_scale_visible = [bool]$manifest.chart.date_scale_visible
+        one_click_panel_visible = [bool]$manifest.chart.one_click_visible
         source_dimensions_usable = [bool]$manifest.chart.source_dimensions_usable
         bars_copied = @($manifest.bars).Count
         rates_status = $manifest.rates_status
@@ -654,6 +657,7 @@ public static class MirsadNativeWindow {
         trading_permission_enabled = $false
     }
     $safe | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'observer-live-capture-summary.json') -Encoding utf8
+    Add-Report ("Chart layout: price scale visible={0}; date scale visible={1}; one-click panel visible={2}." -f $safe.price_scale_visible,$safe.date_scale_visible,$safe.one_click_panel_visible)
  
     # Run Engine 2 on the just-captured MT5 image before cleaning the temporary terminal.
     # The chart image and raw OHLC remain on this runner; only a sanitized result is uploaded.

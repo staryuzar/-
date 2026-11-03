@@ -874,6 +874,7 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"chart_autoscroll\":" + JsonBool(chart_autoscroll) + ",";
    payload += "\"price_scale_visible\":" + JsonBool((bool)ChartGetInteger(g_chart_id, CHART_SHOW_PRICE_SCALE)) + ",";
    payload += "\"date_scale_visible\":" + JsonBool((bool)ChartGetInteger(g_chart_id, CHART_SHOW_DATE_SCALE)) + ",";
+   payload += "\"one_click_visible\":" + JsonBool((bool)ChartGetInteger(g_chart_id, CHART_SHOW_ONE_CLICK)) + ",";
    payload += "\"price_min\":" + DoubleToString(price_min, digits) + ",";
    payload += "\"price_max\":" + DoubleToString(price_max, digits) + ",";
    payload += "\"background_color\":" + (string)background_color + ",";
