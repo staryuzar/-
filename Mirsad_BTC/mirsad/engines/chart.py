@@ -70,6 +70,23 @@ MIN_CALIBRATED_BARS = 20
 MIN_LAST_BAR_X_RATIO = 0.68
 MIN_MEAN_COLOUR_PURITY = 0.72
 
+def _visible_slot_for_reference_offset(
+    offset_from_right: int,
+    expected_count: int,
+    first_visible_bar_shift: int = 0,
+) -> int | None:
+    """Map a native series offset to a visible image slot, including chart-shift margin."""
+    if expected_count <= 0 or offset_from_right < 0:
+        return None
+    rightmost_visible_offset = max(
+        0, int(first_visible_bar_shift) - int(expected_count) + 1
+    )
+    relative_offset = int(offset_from_right) - rightmost_visible_offset
+    if not 0 <= relative_offset < expected_count:
+        return None
+    return expected_count - 1 - relative_offset
+
+
 
 
 def _persist_visual_observations(
@@ -337,8 +354,10 @@ def analyze_chart_image(
 
         try:
             expected_count = int(meta.get("expected_candle_count", 0) or 0)
+            first_visible_bar_shift = int(meta.get("first_visible_bar_shift", 0) or 0)
         except (TypeError, ValueError, OverflowError):
             expected_count = 0
+            first_visible_bar_shift = 0
         has_slot_indices = any(
             isinstance(item, dict) and "slot_index" in item for item in bars
         )
@@ -349,8 +368,10 @@ def analyze_chart_image(
                 return None
             if expected_count > 0:
                 if has_slot_indices:
-                    target_slot = expected_count - 1 - offset_from_right
-                    if target_slot < 0:
+                    target_slot = _visible_slot_for_reference_offset(
+                        offset_from_right, expected_count, first_visible_bar_shift
+                    )
+                    if target_slot is None:
                         return None
                     matches = [
                         item for item in bars
@@ -377,13 +398,19 @@ def analyze_chart_image(
                     "status": "REFERENCE_BAR_NOT_DETECTED",
                     "reason": "The extracted chart image has no candle in the exact MT5 reference slot.",
                     "offset_from_right": offset,
-                    "target_slot_index": expected_count - 1 - offset if expected_count > 0 else None,
+                    "target_slot_index": (
+                        _visible_slot_for_reference_offset(
+                            offset, expected_count, first_visible_bar_shift
+                        ) if expected_count > 0 else None
+                    ),
                 }
                 continue
 
             reference_ohlc_candidate = candidate["ohlc"]
             target_slot = (
-                expected_count - 1 - offset
+                _visible_slot_for_reference_offset(
+                    offset, expected_count, first_visible_bar_shift
+                )
                 if expected_count > 0
                 else int(reference_bar.get("slot_index", len(bars) - 1 - offset))
             )

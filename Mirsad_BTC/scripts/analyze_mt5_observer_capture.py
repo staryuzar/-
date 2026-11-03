@@ -157,6 +157,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         "symbol": market_symbol, "timeframe": timeframe,
         "price_scale_type": str(chart.get("price_scale_type", "linear")).lower(),
         "expected_candle_count": int(chart.get("visible_bars", 0) or 0),
+        "first_visible_bar_shift": int(chart.get("first_visible_bar_shift", 0) or 0),
         "allow_reference_anchor_override": True,
         "require_multi_reference_validation": True,
         "last_candle_closed": False, "auto_axis_ocr": True,

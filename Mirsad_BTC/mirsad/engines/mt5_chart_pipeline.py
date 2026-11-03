@@ -132,6 +132,7 @@ def analyze_mt5_observer_chart(
   "timeframe":timeframe,
   "price_scale_type":str(chart_meta.get("price_scale_type","linear")).strip().lower(),
   "expected_candle_count":int(chart_meta.get("visible_bars",0) or 0),
+  "first_visible_bar_shift":int(chart_meta.get("first_visible_bar_shift",0) or 0),
   "allow_reference_anchor_override":True,
   "require_multi_reference_validation":True,
   "last_candle_closed":False,
