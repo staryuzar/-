@@ -99,10 +99,32 @@ class MT5MarketDataEngine:
             stamp = self._finite(raw.get("time_utc_ms"))
             bid = self._finite(raw.get("bid"))
             ask = self._finite(raw.get("ask"))
+            last = self._finite(raw.get("last"))
+            volume = self._finite(raw.get("volume"))
+            volume_real = self._finite(raw.get("volume_real"))
+            flags_raw = raw.get("flags", 0)
+            try:
+                flags = int(flags_raw)
+            except (TypeError, ValueError, OverflowError):
+                return [], "INVALID"
             if (
-                stamp is None or bid is None or ask is None
-                or stamp <= 0 or bid <= 0 or ask < bid
+                stamp is None or stamp <= 0 or flags < 0
+                or (bid is not None and bid < 0)
+                or (ask is not None and ask < 0)
+                or (last is not None and last < 0)
+                or (volume is not None and volume < 0)
+                or (volume_real is not None and volume_real < 0)
             ):
+                return [], "INVALID"
+            bid_value = bid or 0.0
+            ask_value = ask or 0.0
+            last_value = last or 0.0
+            volume_value = volume or 0.0
+            volume_real_value = volume_real or 0.0
+            quote_valid = bid_value > 0 and ask_value >= bid_value
+            last_valid = bool(flags & 8) and last_value > 0
+            volume_valid = bool(flags & 16) and (volume_value > 0 or volume_real_value > 0)
+            if not (quote_valid or last_valid or volume_valid):
                 return [], "INVALID"
             time_ms = int(stamp)
             if (
@@ -113,35 +135,20 @@ class MT5MarketDataEngine:
                 return [], "INVALID"
             item: dict[str, Any] = {
                 "time_utc_ms": float(time_ms),
-                "bid": bid,
-                "ask": ask,
+                "bid": bid_value,
+                "ask": ask_value,
+                "last": last_value,
+                "volume": volume_value,
+                "volume_real": volume_real_value,
+                "flags": flags,
+                "quote_valid": quote_valid,
+                "last_valid": last_valid,
+                "volume_valid": volume_valid,
             }
-            last = self._finite(raw.get("last"))
-            volume = self._finite(raw.get("volume"))
-            volume_real = self._finite(raw.get("volume_real"))
-            flags_raw = raw.get("flags", 0)
-            try:
-                flags = int(flags_raw)
-            except (TypeError, ValueError, OverflowError):
-                return [], "INVALID"
-            if flags < 0:
-                return [], "INVALID"
-            if last is not None:
-                if last < 0:
-                    return [], "INVALID"
-                item["last"] = last
-            if volume is not None:
-                if volume < 0:
-                    return [], "INVALID"
-                item["volume"] = volume
-            if volume_real is not None:
-                if volume_real < 0:
-                    return [], "INVALID"
-                item["volume_real"] = volume_real
-            item["flags"] = flags
             ticks.append(item)
             previous_time = time_ms
-        return ticks, "READY" if len(ticks) >= 2 else "INSUFFICIENT"
+        quote_count = sum(1 for tick in ticks if tick["quote_valid"])
+        return ticks, "READY" if quote_count >= 2 else "INSUFFICIENT"
 
     def _microstructure(
         self,
@@ -154,10 +161,15 @@ class MT5MarketDataEngine:
         midpoint = (bid + ask) / 2.0
         spread = ask - bid
         spread_pct = spread / midpoint if midpoint > 0 else None
-        mids = [(row["bid"] + row["ask"]) / 2.0 for row in ticks]
+        quote_ticks = [
+            row for row in ticks
+            if bool(row.get("quote_valid", float(row.get("bid", 0.0)) > 0
+                          and float(row.get("ask", 0.0)) >= float(row.get("bid", 0.0))))
+        ]
+        mids = [(row["bid"] + row["ask"]) / 2.0 for row in quote_ticks]
         spreads = [
             (row["ask"] - row["bid"]) / ((row["ask"] + row["bid"]) / 2.0)
-            for row in ticks if row["bid"] > 0
+            for row in quote_ticks if row["bid"] > 0
         ]
         changes = [right - left for left, right in zip(mids[:-1], mids[1:])]
         upticks = sum(1 for value in changes if value > 0)
@@ -201,7 +213,9 @@ class MT5MarketDataEngine:
             "reported_sell_flag_count": sell_updates,
             "window_seconds": window,
             "tick_count": len(ticks),
+            "quote_tick_count": len(quote_ticks),
             "tick_rate_per_minute": round(len(ticks) * 60.0 / window, 3),
+            "quote_tick_rate_per_minute": round(len(quote_ticks) * 60.0 / window, 3),
             "upticks": upticks,
             "downticks": downticks,
             "unchanged_mid_updates": unchanged,
