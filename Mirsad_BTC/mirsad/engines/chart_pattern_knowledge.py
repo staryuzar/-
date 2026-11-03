@@ -94,8 +94,23 @@ def analyze_candle_patterns(
         br = float(cur["body_ratio"])
         bull, bear = bool(cur["bullish"]), bool(cur["bearish"])
         trend = _prior_trend(features, i)
+        prior_ten = features[max(0, i - 10):i]
+        prior_ten_ranges = [float(item["range"]) for item in prior_ten]
+        prior_ten_bodies = [float(item["body"]) for item in prior_ten]
+        doji_threshold = (
+            0.10 * (sum(prior_ten_ranges) / 10.0)
+            if len(prior_ten_ranges) == 10 else None
+        )
+        short_body_threshold = (
+            sum(prior_ten_bodies) / 10.0
+            if len(prior_ten_bodies) == 10 else None
+        )
+        very_short_shadow_threshold = (
+            0.10 * (sum(prior_ten_ranges) / 10.0)
+            if len(prior_ten_ranges) == 10 else None
+        )
 
-        if br <= 0.10:
+        if doji_threshold is not None and body <= doji_threshold:
             add("doji", i, i, "NEUTRAL")
             if lower / span >= 0.60 and upper / span <= 0.12:
                 add("dragonfly_doji", i, i, "CONTEXTUAL")
@@ -115,12 +130,21 @@ def analyze_candle_patterns(
 
         body_near_high = float(cur["close_location"]) >= 0.62
         body_near_low = float(cur["close_location"]) <= 0.38
-        if body > 0 and lower >= max(body * 2.0, span * 0.42) and upper <= max(body * 0.35, span * 0.08) and body_near_high:
+        short_body = short_body_threshold is not None and body < short_body_threshold
+        very_short_upper = (
+            very_short_shadow_threshold is not None
+            and upper < very_short_shadow_threshold
+        )
+        very_short_lower = (
+            very_short_shadow_threshold is not None
+            and lower < very_short_shadow_threshold
+        )
+        if body > 0 and short_body and lower > body and very_short_upper and body_near_high:
             if trend == "DOWN":
                 add("hammer", i, i, "BULLISH", "DOWN")
             elif trend == "UP":
                 add("hanging_man", i, i, "BEARISH", "UP")
-        if body > 0 and upper >= max(body * 2.0, span * 0.42) and lower <= max(body * 0.35, span * 0.08) and body_near_low:
+        if body > 0 and short_body and upper > body and very_short_lower and body_near_low:
             if trend == "DOWN":
                 add("inverted_hammer", i, i, "BULLISH", "DOWN")
             elif trend == "UP":
