@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from mirsad.engines.indicators import IndicatorsEngine, _adx, _atr, _rsi, _stochastic, _timeframe_trend
+from mirsad.engines.indicators import IndicatorsEngine, _adx, _atr, _ema_series, _macd, _rsi, _stochastic, _timeframe_trend
 
 
 def make_chart_candles(count: int = 90, direction: str = "up", include_forming: bool = False) -> dict:
@@ -77,6 +77,30 @@ class IndicatorsEngineTests(unittest.TestCase):
         value = _atr(candles, period=14)
         self.assertIsNotNone(value)
         self.assertGreater(value, 2.0)
+
+    def test_mt5_atr_uses_simple_moving_average_of_true_range(self) -> None:
+        candles = [
+            {"high": 101.0, "low": 99.0, "close": 100.0},
+            {"high": 103.0, "low": 101.0, "close": 102.0},
+            {"high": 101.0, "low": 99.0, "close": 100.0},
+            {"high": 105.0, "low": 103.0, "close": 104.0},
+            {"high": 104.0, "low": 102.0, "close": 103.0},
+        ]
+        self.assertAlmostEqual(_atr(candles, period=3), (3.0 + 5.0 + 2.0) / 3.0)
+
+    def test_mt5_macd_signal_is_simple_average_of_macd_line(self) -> None:
+        closes = [100.0 + index * 0.7 + (index % 4) * 0.2 for index in range(80)]
+        main, signal, osma = _macd(closes, fast=12, slow=26, signal=9)
+        fast = _ema_series(closes, 12)
+        slow = _ema_series(closes, 26)
+        macd_values = [
+            fast_value - slow_value
+            for fast_value, slow_value in zip(fast, slow)
+            if fast_value is not None and slow_value is not None
+        ]
+        expected_signal = sum(macd_values[-9:]) / 9
+        self.assertAlmostEqual(signal, expected_signal)
+        self.assertAlmostEqual(osma, main - signal)
 
     def test_stochastic_matches_mt5_slowing_and_signal_smoothing(self) -> None:
         closes = [10.0, 90.0, 30.0, 70.0, 50.0, 80.0, 20.0, 60.0, 40.0, 100.0, 0.0]
