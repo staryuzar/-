@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from scripts.validate_engine2_public_btc import (
+    hourly_history_start_time,
     longest_contiguous_segment,
     normalise_kline_rows,
 )
@@ -51,6 +52,19 @@ class PublicBtcValidationTests(unittest.TestCase):
         rows = self._rows()
         with self.assertRaisesRegex(ValueError, "no current forming candle"):
             normalise_kline_rows(rows, "1m", as_of_ms=int(rows[-1][0]) + 60_000)
+
+    def test_hourly_history_window_ends_at_latest_closed_hour(self) -> None:
+        duration = 3_600_000
+        as_of = 1_800_000_000_000 + 1_234_000
+        limit = 3_000
+        start = hourly_history_start_time(as_of, limit)
+        self.assertEqual(start % duration, 0)
+        self.assertEqual(start, (as_of // duration - limit) * duration)
+        self.assertEqual(as_of // duration * duration - start, limit * duration)
+
+    def test_hourly_history_window_rejects_invalid_size(self) -> None:
+        with self.assertRaisesRegex(ValueError, "between 300 and 5000"):
+            hourly_history_start_time(1_800_000_000_000, 200)
 
     def test_longest_contiguous_segment_does_not_bridge_a_gap(self) -> None:
         bars = [

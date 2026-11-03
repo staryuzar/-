@@ -129,16 +129,29 @@ def normalise_kline_rows(
 def fetch_latest_bars(timeframe: str, *, as_of_ms: int, limit: int) -> list[dict[str, Any]]:
     rows = get_json(
         "/api/v3/klines",
-        {"symbol": "BTCUSDT", "interval": timeframe, "limit": limit},
+        {
+            "symbol": "BTCUSDT",
+            "interval": timeframe,
+            "endTime": as_of_ms,
+            "limit": limit,
+        },
     )
     return normalise_kline_rows(rows, timeframe, as_of_ms=as_of_ms)
+
+
+def hourly_history_start_time(as_of_ms: int, limit: int) -> int:
+    if not 300 <= limit <= 5000:
+        raise ValueError("history-bars must be between 300 and 5000")
+    duration = TIMEFRAME_MS["1h"]
+    # Align to the current hour, then request the latest N closed-hour slots.
+    return (as_of_ms // duration - limit) * duration
 
 
 def fetch_closed_hourly_history(*, as_of_ms: int, limit: int) -> list[dict[str, Any]]:
     if not 300 <= limit <= 5000:
         raise ValueError("history-bars must be between 300 and 5000")
     duration = TIMEFRAME_MS["1h"]
-    cursor = (as_of_ms // duration - limit - 2) * duration
+    cursor = hourly_history_start_time(as_of_ms, limit)
     collected: dict[int, dict[str, Any]] = {}
     while len(collected) < limit:
         page_limit = min(MAX_PAGE, limit - len(collected) + 2)
