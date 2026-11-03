@@ -325,6 +325,25 @@ class NativeGeometrySlotAssignmentTests(unittest.TestCase):
         self.assertFalse(diagnostics["decision_eligible"])
         self.assertFalse(diagnostics["mapping_verified"])
 
+    def test_native_assignment_clears_unmatched_legacy_slots_to_avoid_duplicates(self) -> None:
+        native_slots = [
+            {"slot_index": index, "x_px": 20.0 + index * 12.0}
+            for index in range(10)
+        ]
+        extracted = [
+            {"x_px": 20.4 + index * 12.0, "slot_index": 99, "colour": "GREEN"}
+            for index in range(9)
+        ]
+        extracted.append({"x_px": 999.0, "slot_index": 2, "colour": "RED"})
+        assigned, diagnostics = assign_native_geometry_slots(extracted, native_slots)
+        self.assertEqual(diagnostics["status"], "PROVISIONAL_ASSIGNMENT")
+        self.assertEqual(diagnostics["matched_candles"], 9)
+        self.assertEqual(diagnostics["cleared_existing_slot_count"], 10)
+        self.assertEqual(diagnostics["preexisting_slot_conflicts"], 9)
+        self.assertEqual([item["slot_index"] for item in assigned[:9]], list(range(9)))
+        self.assertNotIn("slot_index", assigned[-1])
+        self.assertEqual(len({item["slot_index"] for item in assigned[:9]}), 9)
+
     def test_native_slot_assignment_refuses_unverified_horizontal_offset(self) -> None:
         native_slots = [
             {"slot_index": index, "x_px": 30.0 + index * 12.0}
