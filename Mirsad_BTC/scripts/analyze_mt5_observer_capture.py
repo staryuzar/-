@@ -265,7 +265,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
                     "validation_candles", "validation_passed_candles",
                     "validation_pass_ratio", "validation_median_max_residual_px",
                     "validation_max_residual_px", "x_scale", "x_offset",
-                    "y_scale", "y_offset", "reason"
+                    "y_scale", "y_offset", "reason", "coordinate_diagnostics"
                 )
             },
             "multi_reference_validation": {
