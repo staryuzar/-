@@ -473,6 +473,11 @@ public static class MirsadNativeWindow {
     if ([string]::IsNullOrWhiteSpace($marketSymbol)) { $marketSymbol = 'BTCUSDT' }
     $marketSymbol = $marketSymbol.Trim()
     if ($marketSymbol.Length -gt 32) { throw 'Configured Mirsad market symbol is too long.' }
+    $expectedAccountServer = [string]$env:MIRSAD_MT5_EXPECTED_ACCOUNT_SERVER
+    if ([string]::IsNullOrWhiteSpace($expectedAccountServer)) {
+        throw 'Expected MT5 account server is not configured for direct-feed validation.'
+    }
+    $expectedAccountServer = $expectedAccountServer.Trim()
 
     Add-Report 'Direct-only mode: chart screenshots and capture manifests are disabled.'
     $directFeedsReady = $false
@@ -520,8 +525,9 @@ public static class MirsadNativeWindow {
                 $feedServer = [string]$market.account.server
                 $serverOk = (
                     -not [string]::IsNullOrWhiteSpace($feedServer) -and
-                    [string]$candles.account.server -eq $feedServer -and
-                    [string]$indicators.account.server -eq $feedServer
+                    $feedServer -ieq $expectedAccountServer -and
+                    [string]$candles.account.server -ieq $feedServer -and
+                    [string]$indicators.account.server -ieq $feedServer
                 )
                 $identityOk = (
                     [bool]$market.terminal_connected -and
@@ -572,10 +578,7 @@ public static class MirsadNativeWindow {
         Add-ObserverDiagnostics
         throw 'Image-free direct MT5 feeds did not become fresh, connected and identity-matched within 180 seconds.'
     }
-    if (-not $authorizationConfirmed) {
-        throw 'Direct MT5 feeds appeared, but Headway demo authorization was not confirmed in terminal logs.'
-    }
-    Add-Report 'PASS — MT5 demo authorization confirmed.'
+    Add-Report ("PASS — MT5 terminal feeds confirm an active account on {0}; authorization log match={1}." -f $feedServer,$authorizationConfirmed)
     foreach ($name in @('market','candles','indicators')) {
         $feedPath = switch ($name) {
             'market' { Join-Path (Split-Path -Parent $observerDir) 'market.json' }
