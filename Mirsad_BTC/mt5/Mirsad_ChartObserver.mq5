@@ -4,12 +4,13 @@
 //| No trade functions. Does not publish MIR1 commands.               |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.001"
+#property version   "1.002"
 #property description "Mirsad read-only MT5 chart screenshot and OHLC observer"
 
 #define MIRSAD_OBSERVER_MIN_SOURCE_WIDTH 640
 #define MIRSAD_OBSERVER_MIN_SOURCE_HEIGHT 360
 
+input bool InpEnableImageCapture = true; // Disable image capture while keeping direct MT5 data feeds active
 input int  InpCaptureIntervalSeconds = 60;   // Screenshot cadence (5..3600 seconds)
 input int  InpMarketSnapshotIntervalSeconds = 2; // MT5 market-feed cadence (1..30 seconds)
 input string InpMarketSymbol = "BTCUSDT"; // Stable Mirsad symbol mapped to this broker symbol
@@ -922,8 +923,8 @@ bool TryFinalizePendingCapture()
 int OnInit()
 {
    if(InpCaptureIntervalSeconds < 1 || InpMarketSnapshotIntervalSeconds < 1 || InpMarketSnapshotIntervalSeconds > 30 || InpMarketSymbol == "" || InpHistoryBars < 1 ||
-      InpScreenshotWidth < 320 || InpScreenshotHeight < 180 ||
-      InpInitialCaptureDelaySeconds < 0 || InpInitialCaptureDelaySeconds > 60)
+      (InpEnableImageCapture && (InpScreenshotWidth < 320 || InpScreenshotHeight < 180 ||
+       InpInitialCaptureDelaySeconds < 0 || InpInitialCaptureDelaySeconds > 60)))
       return INIT_PARAMETERS_INCORRECT;
 
    g_chart_id = ChartID();
@@ -941,6 +942,7 @@ int OnInit()
    FolderCreate(g_observer_root, FILE_COMMON);
    FolderCreate(g_image_root, FILE_COMMON);
 
+   ResetIndicatorHandles();
    if(InpPublishNativeIndicators)
       InitializeIndicatorHandles(ChartSymbol(g_chart_id));
    if(InpPublishMarketDepth)
@@ -959,9 +961,11 @@ int OnInit()
    }
 
    g_next_market_snapshot_at_ms = GetTickCount64();
-   g_next_capture_at_ms = InpCaptureImmediately
-      ? GetTickCount64() + (ulong)InpInitialCaptureDelaySeconds * 1000
-      : GetTickCount64() + (ulong)InpCaptureIntervalSeconds * 1000;
+   g_next_capture_at_ms = InpEnableImageCapture
+      ? (InpCaptureImmediately
+         ? GetTickCount64() + (ulong)InpInitialCaptureDelaySeconds * 1000
+         : GetTickCount64() + (ulong)InpCaptureIntervalSeconds * 1000)
+      : 0;
 
    PublishObserverStatus("STARTED", "",
                          "Read-only MT5 chart observer started on the attached chart.");
@@ -990,6 +994,11 @@ void OnTimer()
       PublishMarketSnapshot();
       g_next_market_snapshot_at_ms = now_tick + (ulong)InpMarketSnapshotIntervalSeconds * 1000;
    }
+
+   // Direct market, candles and native indicator feeds run independently
+   // from the optional chart-image capture path.
+   if(!InpEnableImageCapture)
+      return;
 
    if(g_pending)
    {
