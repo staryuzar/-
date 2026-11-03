@@ -86,12 +86,12 @@ class MT5MarketDataEngine:
 
     def _parse_ticks(
         self, raw_ticks: Any, *, captured_at_ms: int
-    ) -> tuple[list[dict[str, float]], str]:
+    ) -> tuple[list[dict[str, Any]], str]:
         if not isinstance(raw_ticks, list):
             return [], "UNAVAILABLE"
         if len(raw_ticks) > MAX_TICK_ROWS:
             return [], "INVALID"
-        ticks: list[dict[str, float]] = []
+        ticks: list[dict[str, Any]] = []
         previous_time = 0
         for index, raw in enumerate(raw_ticks):
             if not isinstance(raw, dict):
@@ -111,7 +111,35 @@ class MT5MarketDataEngine:
                 or time_ms < captured_at_ms - 120_000
             ):
                 return [], "INVALID"
-            ticks.append({"time_utc_ms": float(time_ms), "bid": bid, "ask": ask})
+            item: dict[str, Any] = {
+                "time_utc_ms": float(time_ms),
+                "bid": bid,
+                "ask": ask,
+            }
+            last = self._finite(raw.get("last"))
+            volume = self._finite(raw.get("volume"))
+            volume_real = self._finite(raw.get("volume_real"))
+            flags_raw = raw.get("flags", 0)
+            try:
+                flags = int(flags_raw)
+            except (TypeError, ValueError, OverflowError):
+                return [], "INVALID"
+            if flags < 0:
+                return [], "INVALID"
+            if last is not None:
+                if last < 0:
+                    return [], "INVALID"
+                item["last"] = last
+            if volume is not None:
+                if volume < 0:
+                    return [], "INVALID"
+                item["volume"] = volume
+            if volume_real is not None:
+                if volume_real < 0:
+                    return [], "INVALID"
+                item["volume_real"] = volume_real
+            item["flags"] = flags
+            ticks.append(item)
             previous_time = time_ms
         return ticks, "READY" if len(ticks) >= 2 else "INSUFFICIENT"
 
@@ -143,10 +171,34 @@ class MT5MarketDataEngine:
             (mids[-1] - mids[0]) / mids[0] * 100.0
             if len(mids) >= 2 and mids[0] > 0 else None
         )
+        # MT5 trade-related tick fields are broker supplied and flagged
+        # separately from ordinary Bid/Ask quote updates (LAST=8,VOLUME=16,
+        # BUY=32,SELL=64). They are not a consolidated exchange tape.
+        last_updates = [
+            row for row in ticks
+            if int(row.get("flags", 0)) & 8 and float(row.get("last", 0.0)) > 0
+        ]
+        volume_updates = [
+            row for row in ticks
+            if int(row.get("flags", 0)) & 16
+            and (float(row.get("volume_real", 0.0)) > 0 or float(row.get("volume", 0.0)) > 0)
+        ]
+        buy_updates = sum(1 for row in ticks if int(row.get("flags", 0)) & 32)
+        sell_updates = sum(1 for row in ticks if int(row.get("flags", 0)) & 64)
+        reported_volume = sum(
+            float(row.get("volume_real", 0.0) or row.get("volume", 0.0) or 0.0)
+            for row in volume_updates
+        )
         window = max(1.0, min(120.0, tick_window_seconds))
         return {
             "status": tick_status,
-            "scope": "MT5 quote updates; not executed trades or order-book depth",
+            "scope": "MT5 broker quote updates; Last/Volume and Buy/Sell flags are exposed separately when supplied and are not a consolidated exchange tape.",
+            "reported_last_price_tick_count": len(last_updates),
+            "latest_reported_last_price": last_updates[-1].get("last") if last_updates else None,
+            "reported_volume_update_count": len(volume_updates),
+            "reported_volume_sum": round(reported_volume, 8) if volume_updates else None,
+            "reported_buy_flag_count": buy_updates,
+            "reported_sell_flag_count": sell_updates,
             "window_seconds": window,
             "tick_count": len(ticks),
             "tick_rate_per_minute": round(len(ticks) * 60.0 / window, 3),
@@ -159,6 +211,65 @@ class MT5MarketDataEngine:
             "current_spread_pct": round(spread_pct * 100.0, 6) if spread_pct is not None else None,
             "mean_observed_spread_pct": round(sum(spreads) / len(spreads) * 100.0, 6) if spreads else None,
             "max_observed_spread_pct": round(max(spreads) * 100.0, 6) if spreads else None,
+        }
+
+    def _market_depth(self, raw: Any) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            return {
+                "status": "NOT_AVAILABLE",
+                "source": "MT5_MARKET_BOOK",
+                "levels": [],
+                "reason": "The MT5 observer did not publish a market-book snapshot.",
+            }
+        status = str(raw.get("status", "UNAVAILABLE")).upper()
+        if status != "AVAILABLE":
+            return {
+                "status": "NOT_AVAILABLE" if status in {"UNAVAILABLE", "DISABLED"} else status,
+                "source": "MT5_MARKET_BOOK",
+                "subscribed": bool(raw.get("subscribed", False)),
+                "error_code": raw.get("error_code"),
+                "levels": [],
+                "reason": (
+                    "The broker/MT5 symbol does not expose Depth of Market, or the subscription is unavailable."
+                    if status != "DISABLED" else "Depth of Market collection is disabled."
+                ),
+            }
+        raw_levels = raw.get("levels")
+        if not isinstance(raw_levels, list) or len(raw_levels) > 200:
+            return {"status": "INVALID", "source": "MT5_MARKET_BOOK", "levels": []}
+        levels: list[dict[str, Any]] = []
+        for item in raw_levels:
+            if not isinstance(item, dict):
+                return {"status": "INVALID", "source": "MT5_MARKET_BOOK", "levels": []}
+            side = str(item.get("side", "")).upper()
+            price = self._finite(item.get("price"))
+            volume = self._finite(item.get("volume"))
+            volume_real = self._finite(item.get("volume_real"))
+            if (
+                side not in {"BUY", "SELL", "BUY_MARKET", "SELL_MARKET"}
+                or price is None or volume is None or price <= 0 or volume < 0
+                or (volume_real is not None and volume_real < 0)
+            ):
+                return {"status": "INVALID", "source": "MT5_MARKET_BOOK", "levels": []}
+            levels.append({
+                "side": side,
+                "price": price,
+                "volume": volume,
+                "volume_real": volume_real,
+            })
+        bids = [item for item in levels if item["side"] in {"BUY", "BUY_MARKET"}]
+        asks = [item for item in levels if item["side"] in {"SELL", "SELL_MARKET"}]
+        return {
+            "status": "AVAILABLE" if levels else "EMPTY",
+            "source": "MT5_MARKET_BOOK",
+            "scope": "Broker-provided MT5 Depth of Market; not guaranteed to represent a consolidated multi-venue book.",
+            "captured_at_ms": raw.get("captured_at_utc_ms"),
+            "level_count": len(levels),
+            "bid_level_count": len(bids),
+            "ask_level_count": len(asks),
+            "bid_volume": round(sum(item["volume_real"] or item["volume"] for item in bids), 8),
+            "ask_volume": round(sum(item["volume_real"] or item["volume"] for item in asks), 8),
+            "levels": levels,
         }
 
     def _economic_calendar(self, raw: Any) -> dict[str, Any]:
@@ -310,6 +421,7 @@ class MT5MarketDataEngine:
         tick_window = self._finite(payload.get("tick_window_seconds")) or 30.0
         microstructure = self._microstructure(ticks, bid, ask, tick_window, tick_status)
         calendar = self._economic_calendar(payload.get("economic_calendar"))
+        order_book = self._market_depth(payload.get("depth_of_market"))
         price = (bid + ask) / 2.0
         venue = {
             "status": "LIVE",
@@ -322,6 +434,7 @@ class MT5MarketDataEngine:
             "tick_age_seconds": tick_age,
             "microstructure": microstructure,
             "economic_calendar": calendar,
+            "order_book": order_book,
             "error": None,
         }
         return {
@@ -337,6 +450,7 @@ class MT5MarketDataEngine:
             "market_context": {
                 "microstructure": microstructure,
                 "economic_calendar": calendar,
+                "order_book": order_book,
             },
             "feed_health": {
                 "terminal_connected": True,
