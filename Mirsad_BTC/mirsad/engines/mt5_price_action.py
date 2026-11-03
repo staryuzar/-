@@ -365,11 +365,31 @@ def _analyze_timeframe(
     else:
         strength = "MIXED_OR_UNCONFIRMED_SWINGS"
 
+    structure_status = structure.get("status", "UNKNOWN")
+    timeframe_status = (
+        "READY"
+        if health.get("status") == "READY" and structure_status == "READY"
+        else "PARTIAL"
+    )
+    readiness_reasons: list[str] = []
+    if health.get("status") != "READY":
+        readiness_reasons.append(str(health.get("reason") or "OHLC quality is not READY."))
+    if structure_status != "READY":
+        readiness_reasons.append(
+            "Confirmed swing structure is incomplete; at least two confirmed swing highs "
+            "and two confirmed swing lows are required."
+        )
+
     return {
-        "status": health["status"],
+        "status": timeframe_status,
         "timeframe": timeframe,
         "direction": direction,
         "structure_strength": strength,
+        "readiness": {
+            "ohlc": health.get("status"),
+            "confirmed_swing_structure": structure_status,
+        },
+        "reason": " ".join(readiness_reasons) if readiness_reasons else None,
         "closed_bars": len(bars),
         "last_closed_bar_open_time_ms": health["last_closed_bar_open_time_ms"],
         "last_closed_bar_close_time_ms": health["last_closed_bar_close_time_ms"],
@@ -488,7 +508,9 @@ def analyze_mt5_native_price_action(
             continue
         reports[timeframe] = report
         if report["status"] != "READY":
-            timeframe_errors[timeframe] = str(health.get("reason") or "Data quality is partial.")
+            timeframe_errors[timeframe] = str(
+                report.get("reason") or health.get("reason") or "Timeframe analysis is partial."
+            )
 
     eligible = [
         timeframe for timeframe, report in reports.items()

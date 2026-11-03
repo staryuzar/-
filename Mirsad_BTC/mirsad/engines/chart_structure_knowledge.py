@@ -135,6 +135,7 @@ def analyze_chart_structure_knowledge(
     for pivot in swing_highs:
         pivot_index = int(pivot["index"])
         level = float(pivot["price"])
+        sweep_recorded = False
         for index in range(int(pivot["confirmation_index"]) + 1, len(confirmed)):
             previous_close = previous_close_by_index.get(index)
             close = confirmed[index]["close"]
@@ -148,17 +149,20 @@ def analyze_chart_structure_knowledge(
                     "prior_structure": prior_direction,
                 })
                 break
-            if high > level and close <= level:
+            if not sweep_recorded and high > level and close <= level:
                 sweeps.append({
                     "event": "HIGH_LIQUIDITY_SWEEP", "side": "BEARISH_REJECTION",
                     "level": level, "pivot_index": pivot_index, "confirmation_index": index,
                     "confirmation": "wick_above_confirmed_high_then_close_back_below",
                 })
-                break
+                # A sweep does not consume the level: a later close-break may
+                # still establish BOS/CHOCH against this same confirmed pivot.
+                sweep_recorded = True
 
     for pivot in swing_lows:
         pivot_index = int(pivot["index"])
         level = float(pivot["price"])
+        sweep_recorded = False
         for index in range(int(pivot["confirmation_index"]) + 1, len(confirmed)):
             previous_close = previous_close_by_index.get(index)
             close = confirmed[index]["close"]
@@ -172,13 +176,13 @@ def analyze_chart_structure_knowledge(
                     "prior_structure": prior_direction,
                 })
                 break
-            if low < level and close >= level:
+            if not sweep_recorded and low < level and close >= level:
                 sweeps.append({
                     "event": "LOW_LIQUIDITY_SWEEP", "side": "BULLISH_REJECTION",
                     "level": level, "pivot_index": pivot_index, "confirmation_index": index,
                     "confirmation": "wick_below_confirmed_low_then_close_back_above",
                 })
-                break
+                sweep_recorded = True
 
     # Order-block candidates are anchored only to an already confirmed BOS/CHOCH.
     # They are price zones derived from the last opposing candle, not proof of institutional orders.

@@ -85,6 +85,47 @@ class ChartStructureKnowledgeTests(unittest.TestCase):
             "ORDER_BLOCK_CANDIDATE_NOT_INSTITUTIONAL_ORDER_EVIDENCE",
         )
 
+    def test_liquidity_sweep_does_not_hide_a_later_confirmed_structure_break(self) -> None:
+        bullish_closes = [
+            100, 103, 105, 103, 101, 102, 107, 104, 100, 103, 108,
+            104, 98, 102, 109, 104, 97, 101, 110, 104, 96, 100,
+        ]
+        bullish_bars = make_bars(bullish_closes)
+        bullish_bars[5] = {
+            "open": 101.5, "high": 106.0, "low": 101.0, "close": 102.0,
+        }
+        bullish = analyze_chart_structure_knowledge(bullish_bars)
+        bullish_sweeps = [
+            item for item in bullish["liquidity_sweeps"]
+            if item["pivot_index"] == 2 and item["event"] == "HIGH_LIQUIDITY_SWEEP"
+        ]
+        bullish_breaks = [
+            item for item in bullish["bos_choch_events"]
+            if item["pivot_index"] == 2 and item["event"] == "BOS_BULLISH"
+        ]
+        self.assertTrue(bullish_sweeps, "The first wick rejection must be retained.")
+        self.assertTrue(bullish_breaks, "A later close above the same pivot must still be detected.")
+
+        bearish_closes = [
+            100, 97, 95, 97, 99, 98, 93, 96, 100, 97, 92,
+            96, 101, 97, 91, 96, 102, 98, 90, 96, 103, 99,
+        ]
+        bearish_bars = make_bars(bearish_closes)
+        bearish_bars[5] = {
+            "open": 98.5, "high": 99.0, "low": 94.0, "close": 98.0,
+        }
+        bearish = analyze_chart_structure_knowledge(bearish_bars)
+        bearish_sweeps = [
+            item for item in bearish["liquidity_sweeps"]
+            if item["pivot_index"] == 2 and item["event"] == "LOW_LIQUIDITY_SWEEP"
+        ]
+        bearish_breaks = [
+            item for item in bearish["bos_choch_events"]
+            if item["pivot_index"] == 2 and item["event"] == "BOS_BEARISH"
+        ]
+        self.assertTrue(bearish_sweeps, "The first wick rejection must be retained.")
+        self.assertTrue(bearish_breaks, "A later close below the same pivot must still be detected.")
+
     def test_insufficient_history_does_not_infer_structure(self) -> None:
         result = analyze_chart_structure_knowledge(make_bars([100, 101, 102, 103, 102]))
         self.assertEqual(result["status"], "INSUFFICIENT")

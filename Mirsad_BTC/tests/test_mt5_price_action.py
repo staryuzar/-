@@ -155,6 +155,32 @@ class MT5NativePriceActionTests(unittest.TestCase):
         self.assertEqual(result["timeframes"]["1h"]["status"], "STALE")
         self.assertNotIn("1h", result["summary"]["eligible_timeframes"])
 
+    def test_timeframe_needs_confirmed_swing_evidence_before_eligibility(self) -> None:
+        history = make_history()
+        for bars in history["candles_by_tf"].values():
+            for index, bar in enumerate(bars[:-1]):
+                price = 50_000.0 + index * 4.0
+                bar.update({
+                    "open": price + 1.0,
+                    "high": price + 3.0,
+                    "low": price,
+                    "close": price + 2.0,
+                    "closed": True,
+                })
+            bars[-1]["closed"] = False
+
+        result = analyze_mt5_native_price_action(history)
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertEqual(result["direction"], "INSUFFICIENT_CONTEXT")
+        self.assertEqual(result["summary"]["eligible_timeframes"], [])
+        for report in result["timeframes"].values():
+            self.assertEqual(report["data_quality"]["status"], "READY")
+            self.assertEqual(report["structure"]["status"], "PARTIAL")
+            self.assertEqual(report["status"], "PARTIAL")
+            self.assertEqual(
+                report["readiness"]["confirmed_swing_structure"], "PARTIAL"
+            )
+
     def test_invalid_ohlc_fails_closed(self) -> None:
         history = make_history()
         history["candles_by_tf"]["15m"][10]["high"] = 1.0
