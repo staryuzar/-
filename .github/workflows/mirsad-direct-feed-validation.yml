@@ -19,8 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: mirsad-direct-feed-validation-v2
-  cancel-in-progress: false
+  group: mirsad-direct-feed-validation-final
+  cancel-in-progress: true
 
 jobs:
   direct-mt5-feed-without-images:
