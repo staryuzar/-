@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import unittest
 
 from mirsad.engines.indicators import IndicatorsEngine, _atr, _rsi, _timeframe_trend
@@ -76,6 +77,30 @@ class IndicatorsEngineTests(unittest.TestCase):
         value = _atr(candles, period=14)
         self.assertIsNotNone(value)
         self.assertGreater(value, 2.0)
+
+    def test_full_twenty_indicator_catalog_is_calculated_for_each_timeframe(self) -> None:
+        result = IndicatorsEngine().analyze(make_chart_candles(count=90))
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(len(result["indicator_catalog"]), 20)
+        self.assertEqual(set(result["indicators_by_timeframe"]), {"1m", "5m", "15m", "1h", "4h", "1d"})
+        for timeframe, indicators in result["indicators_by_timeframe"].items():
+            self.assertEqual(len(indicators), 20, timeframe)
+            for name, value in indicators.items():
+                self.assertIsNotNone(value, f"{timeframe}.{name}")
+                self.assertTrue(math.isfinite(value), f"{timeframe}.{name}")
+
+    def test_forming_bar_is_excluded_from_every_technical_indicator(self) -> None:
+        base = IndicatorsEngine().analyze(make_chart_candles(count=90))
+        with_forming = IndicatorsEngine().analyze(make_chart_candles(count=90, include_forming=True))
+        self.assertEqual(base["indicators_by_timeframe"], with_forming["indicators_by_timeframe"])
+
+    def test_higher_timeframe_short_history_is_reported_without_faking_values(self) -> None:
+        candles = make_chart_candles(count=90)
+        candles["candles_by_tf"]["1d"] = candles["candles_by_tf"]["1d"][:24]
+        result = IndicatorsEngine().analyze(candles)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["timeframes"]["1d"]["status"], "INSUFFICIENT")
+        self.assertIsNone(result["indicators_by_timeframe"]["1d"]["ema50"])
 
     def test_engine1_market_quote_without_engine2_candles_is_not_ready(self) -> None:
         result = IndicatorsEngine().analyze({
