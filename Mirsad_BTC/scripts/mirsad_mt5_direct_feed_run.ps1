@@ -555,7 +555,23 @@ public static class MirsadNativeWindow {
                     ($nowMs - [int64]$candles.captured_at_utc_ms) -le 15000 -and
                     ($nowMs - [int64]$indicators.captured_at_utc_ms) -le 15000
                 )
-                if ($serverOk -and $identityOk -and $schemaOk -and $timeframesOk -and $fresh) {
+                $requiredIndicatorFrames = @('1m','5m','15m')
+                $requiredIndicatorNames = @('ema20','ema50','rsi14','atr14')
+                $indicatorBuffersReady = $true
+                foreach ($timeframe in $requiredIndicatorFrames) {
+                    $frame = $indicators.timeframes.$timeframe
+                    if ($null -eq $frame) { $indicatorBuffersReady = $false; break }
+                    foreach ($indicatorName in $requiredIndicatorNames) {
+                        $item = $frame.values.$indicatorName
+                        if ($null -eq $item -or [string]$item.status -ne 'READY' -or
+                            $null -eq $item.closed -or $null -eq $item.current) {
+                            $indicatorBuffersReady = $false
+                            break
+                        }
+                    }
+                    if (!$indicatorBuffersReady) { break }
+                }
+                if ($serverOk -and $identityOk -and $schemaOk -and $timeframesOk -and $fresh -and $indicatorBuffersReady) {
                     $directFeedData = $loaded
                     $directFeedsReady = $true
                     break
@@ -628,8 +644,9 @@ public static class MirsadNativeWindow {
     Add-Report ("PASS — Engine 2 feed: market={0}; native OHLC candles={1}." -f $directSummary.market.status,$directSummary.candles.status)
     Add-Report ("Engine 3 native indicator feed: {0}; ready timeframes={1}." -f $directSummary.engine3.status,$directSummary.native_indicators.ready_timeframe_count)
     if ([string]$directSummary.engine3.status -ne 'READY') {
-        Add-Report 'WARN — Engine 3 indicator feed is partial; Engine 2 price-action analysis continues independently.'
+        throw 'Engine 3 required native indicator buffers are not READY on 1m, 5m and 15m; refusing to mark the integrated direct-feed check complete.'
     }
+    Add-Report 'PASS — Engine 3 core native indicator buffers are READY on 1m, 5m and 15m; optional higher-timeframe gaps are reported separately.'
     Add-Report ("Direct movement: quote ticks={0}; Last ticks={1}; volume updates={2}; depth={3}." -f $directSummary.market.quote_tick_count,$directSummary.market.last_price_tick_count,$directSummary.market.volume_update_count,$directSummary.market.depth_of_market_status)
     $priceActionAnalyzer = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\\scripts\\analyze_mt5_native_price_action.py'
     $priceActionOutput = Join-Path $evidence 'engine2-price-action-analysis.json'
