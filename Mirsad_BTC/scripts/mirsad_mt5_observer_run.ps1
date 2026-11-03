@@ -434,7 +434,7 @@ public static class MirsadNativeWindow {
         }
 
         # Wait for the Observer EA to publish the HWND of its exact BTC chart.
-        $chartHandleDeadline = [DateTime]::UtcNow.AddSeconds(25)
+        $chartHandleDeadline = [DateTime]::UtcNow.AddSeconds(5)
         $observerChartStatus = $null
         do {
             $observerDir = Get-CommonObserverDirectory
@@ -531,6 +531,60 @@ public static class MirsadNativeWindow {
         }
         throw ("Headway authorization was detected, but Observer did not publish a connected capture. Last state={0}. Review the status message and sanitized log diagnostics above." -f $lastObserverStatus.state)
     }
+    # The Observer status file may publish its HWND later than the first
+    # capture. Use the HWND embedded in the actual manifest, maximize that
+    # exact MDI chart, and require a NEW post-maximize capture before analysis.
+    if (-not [bool]$manifest.chart.source_dimensions_usable -or
+        -not [bool]$manifest.chart.chart_is_maximized) {
+        $initialCaptureId = [string]$manifest.capture_id
+        $manifestChartHwnd = [IntPtr]([long]$manifest.chart.chart_window_handle)
+        if ($manifestChartHwnd -ne [IntPtr]::Zero) {
+            $manifestMdiChild = [MirsadNativeWindow]::GetMdiChildWindow($manifestChartHwnd)
+            $manifestTargetedMaximize = [MirsadNativeWindow]::MaximizeMdiChartWindow(
+                $terminalWindow.MainWindowHandle, $manifestChartHwnd
+            )
+            $manifestDirectMaximize = $false
+            if ($manifestMdiChild -ne [IntPtr]::Zero) {
+                $manifestDirectMaximize = [MirsadNativeWindow]::ShowWindowAsync($manifestMdiChild,3)
+                [MirsadNativeWindow]::SetForegroundWindow($manifestMdiChild) | Out-Null
+            }
+            Add-Report ("WARN — First capture viewport is small; targeted exact-chart maximize requested. HWND={0}; MDI child={1}; targeted={2}; direct={3}." -f $manifestChartHwnd,$manifestMdiChild,$manifestTargetedMaximize,$manifestDirectMaximize)
+        } else {
+            [MirsadNativeWindow]::MaximizeMdiChildren($terminalWindow.MainWindowHandle) | Out-Null
+            Add-Report 'WARN — First manifest has no chart HWND; repeated MDI maximize requested before recapture.'
+        }
+
+        $recaptureDeadline = [DateTime]::UtcNow.AddSeconds(55)
+        $recapturedUsableViewport = $false
+        do {
+            Start-Sleep -Seconds 2
+            $recaptureCandidates = Get-ChildItem -LiteralPath $observerDir -Filter 'capture_*.json' -File -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTimeUtc -Descending
+            foreach ($recaptureCandidate in $recaptureCandidates) {
+                try {
+                    $recaptureManifest = Get-Content -LiteralPath $recaptureCandidate.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
+                } catch {
+                    continue
+                }
+                if ([string]$recaptureManifest.capture_id -eq $initialCaptureId) { continue }
+                if (-not $recaptureManifest.account -or -not [bool]$recaptureManifest.account.terminal_connected) { continue }
+                if (-not [bool]$recaptureManifest.chart.chart_is_maximized -or
+                    -not [bool]$recaptureManifest.chart.source_dimensions_usable) { continue }
+                $manifestFile = $recaptureCandidate
+                $manifest = $recaptureManifest
+                $recapturedUsableViewport = $true
+                break
+            }
+            if ($recapturedUsableViewport -or $terminalProcess.HasExited) { break }
+        } while ([DateTime]::UtcNow -lt $recaptureDeadline)
+
+        if (-not $recapturedUsableViewport) {
+            Add-Report 'FAIL — Exact chart maximize did not produce a fresh usable viewport capture within 55 seconds.'
+            throw 'MT5 chart viewport remained below the visual calibration threshold after exact-window maximize and recapture.'
+        }
+        Add-Report ("PASS — Fresh post-maximize capture accepted. Source viewport={0}x{1}; visible bars={2}; chart maximized={3}." -f $manifest.chart.source_width_px,$manifest.chart.source_main_window_height_px,$manifest.chart.visible_bars,$manifest.chart.chart_is_maximized)
+    }
+
     if (!$manifest.account -or -not [bool]$manifest.account.terminal_connected) {
         throw 'MT5 terminal did not report a connected account.'
     }
