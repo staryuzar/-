@@ -81,6 +81,33 @@ class MT5ChartGeometryTests(unittest.TestCase):
         self.assertFalse(result["decision_eligible"])
         self.assertEqual(result["bars"][0]["x_image_px_provisional"], 40.0)
 
+    def test_off_chart_invalid_points_are_skipped_without_poisoning_visible_geometry(self) -> None:
+        bars = make_bars()
+        geometry = make_geometry(bars)
+        geometry["bars"][0]["valid"] = False
+        geometry["bars"][0]["visible"] = False
+        geometry["bars"][0]["x_px"] = -1.0
+        for field in ("open", "high", "low", "close"):
+            geometry["bars"][0][field] = None
+        geometry["bars_valid"] -= 1
+        geometry["bars_visible"] -= 1
+        result = validate_mt5_chart_geometry(
+            geometry,
+            bars=bars,
+            chart={
+                "source_width_px": 600,
+                "source_main_window_height_px": 500,
+                "visible_bars": len(bars),
+            },
+            image_width=1200,
+            image_height=1000,
+        )
+        self.assertEqual(result["status"], "READY_FOR_PIXEL_ALIGNMENT")
+        self.assertEqual(result["validated_bars"], len(bars) - 1)
+        self.assertEqual(result["visible_bars"], len(bars) - 1)
+        self.assertFalse(result["bars"][0]["valid"])
+        self.assertIsNone(result["bars"][0]["points_source_px"])
+
     def test_geometry_must_match_exact_native_bar_timestamps(self) -> None:
         bars = make_bars()
         geometry = make_geometry(bars)
