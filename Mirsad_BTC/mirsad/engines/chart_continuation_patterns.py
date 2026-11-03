@@ -29,7 +29,7 @@ def _best_impulse(
     consolidation_start: int,
     *,
     direction: str,
-    atr: float,
+    range_reference: float,
     price: float,
 ) -> dict[str, Any] | None:
     """Find a directional pole ending before the consolidation begins."""
@@ -60,7 +60,7 @@ def _best_impulse(
                         "end_price": float(bars[right]["low"]), "size": move,
                     }
 
-    minimum_pole = max(max(0.0, atr) * 2.5, price * 0.012)
+    minimum_pole = max(max(0.0, range_reference) * 2.5, price * 0.012)
     if best is None or best["size"] < minimum_pole:
         return None
 
@@ -82,7 +82,7 @@ def _best_impulse(
 
     best["consolidation_range"] = consolidation_range
     best["retracement_ratio"] = retracement
-    best["size_atr"] = best["size"] / atr if atr > 0 else None
+    best["size_to_range_reference"] = best["size"] / range_reference if range_reference > 0 else None
     return best
 
 
@@ -164,7 +164,7 @@ def detect_classical_continuation_patterns(
     swing_highs: list[dict[str, Any]],
     swing_lows: list[dict[str, Any]],
     *,
-    atr: float,
+    range_reference: float,
 ) -> list[dict[str, Any]]:
     """Detect triangles, wedges, channels, flags and pennants from confirmed pivots.
 
@@ -198,9 +198,9 @@ def detect_classical_continuation_patterns(
         return []
 
     price = float(bars[-1]["close"])
-    atr = max(float(atr), 0.0)
-    tolerance = max(atr * 0.65, price * 0.0015)
-    residual_limit = max(atr * 1.25, price * 0.003)
+    range_reference = max(float(range_reference), 0.0)
+    tolerance = max(range_reference * 0.65, price * 0.0015)
+    residual_limit = max(range_reference * 1.25, price * 0.003)
     if max(high_line[2], low_line[2]) > residual_limit:
         return []
 
@@ -215,7 +215,7 @@ def detect_classical_continuation_patterns(
 
     upper_delta = upper_end - upper_start
     lower_delta = lower_end - lower_start
-    horizontal_limit = max(atr * 0.60, price * 0.0015)
+    horizontal_limit = max(range_reference * 0.60, price * 0.0015)
     upper_flat = abs(upper_delta) <= horizontal_limit
     lower_flat = abs(lower_delta) <= horizontal_limit
     upper_rising = upper_delta > horizontal_limit
@@ -265,7 +265,7 @@ def detect_classical_continuation_patterns(
                 tolerance=tolerance, geometry="both_boundaries_falling_and_converging",
             ))
 
-    parallel_limit = max(atr * 0.60, price * 0.0015)
+    parallel_limit = max(range_reference * 0.60, price * 0.0015)
     width_change = abs(width_end - width_start)
     if (
         width_start > tolerance
@@ -287,8 +287,8 @@ def detect_classical_continuation_patterns(
             geometry="approximately_parallel_boundaries",
         ))
 
-    pole_up = _best_impulse(bars, start_index, direction="BULLISH", atr=atr, price=price)
-    pole_down = _best_impulse(bars, start_index, direction="BEARISH", atr=atr, price=price)
+    pole_up = _best_impulse(bars, start_index, direction="BULLISH", range_reference=range_reference, price=price)
+    pole_down = _best_impulse(bars, start_index, direction="BEARISH", range_reference=range_reference, price=price)
     poles = [pole for pole in (pole_up, pole_down) if pole is not None]
     best_pole = max(poles, key=lambda pole: float(pole["size"])) if poles else None
 
