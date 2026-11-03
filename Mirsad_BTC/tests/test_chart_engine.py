@@ -19,6 +19,27 @@ from mirsad.engines.chart_metrics import analyze_calibrated_bars
 from mirsad.engines.chart_pattern_reference import analyze_talib_pattern_reference
 
 
+
+class NativeSlotBoundsDiagnosticTests(unittest.TestCase):
+    def test_native_slots_outside_ocr_bounds_are_measured_without_rewriting(self) -> None:
+        slots = [
+            {"slot_index": index, "x_px": value}
+            for index, value in enumerate([10.0, 30.0, 50.0, 70.0, 90.0, 110.0, 130.0, 150.0])
+        ]
+        before = [dict(item) for item in slots]
+        native_x = sorted(float(item["x_px"]) for item in slots)
+        left, right, tolerance = 20.0, 110.0, 3.0
+        left_outside = [x for x in native_x if x < left - tolerance]
+        right_outside = [x for x in native_x if x > right + tolerance]
+        inside = [
+            x for x in native_x if left - tolerance <= x <= right + tolerance
+        ]
+        self.assertEqual(len(inside), 5)
+        self.assertEqual(len(left_outside), 1)
+        self.assertEqual(len(right_outside), 2)
+        self.assertEqual(slots, before)
+
+
 class VisibleReferenceSlotTests(unittest.TestCase):
     def test_native_offsets_map_to_visible_slots_without_chart_shift(self) -> None:
         self.assertEqual(_visible_slot_for_reference_offset(0, 93, 92), 92)
