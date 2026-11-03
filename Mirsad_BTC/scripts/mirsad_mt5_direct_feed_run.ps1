@@ -640,13 +640,13 @@ public static class MirsadNativeWindow {
         '--expected-server', $feedServer,
         '--output', $priceActionOutput
     )
-    $priceActionLines = & python @trendArgs 2>&1
+    $priceActionLines = & python @priceActionArgs 2>&1
     $priceActionExitCode = $LASTEXITCODE
     foreach ($line in $priceActionLines) {
         Add-Report ("Engine 2 price action: {0}" -f [string]$line)
     }
     if ($priceActionExitCode -ne 0 -or !(Test-Path -LiteralPath $priceActionOutput)) {
-        throw 'Engine 2 native MT5 multi-timeframe trend analysis did not reach READY.'
+        throw 'Engine 2 native MT5 multi-timeframe price-action analysis did not reach READY.'
     }
     $priceActionSummary = Get-Content -LiteralPath $priceActionOutput -Raw | ConvertFrom-Json
     Add-Report ("PASS — Engine 2 price-action direction={0}; structure score={1}; alignment={2}; eligible frames={3}." -f $priceActionSummary.direction,$priceActionSummary.summary.structure_score,$priceActionSummary.summary.timeframe_alignment,($priceActionSummary.summary.eligible_timeframes -join ','))
