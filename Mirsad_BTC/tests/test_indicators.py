@@ -112,6 +112,36 @@ class IndicatorsEngineTests(unittest.TestCase):
         self.assertAlmostEqual(slow_k, 46.6666666667, places=8)
         self.assertAlmostEqual(slow_d, 51.1111111111, places=8)
 
+    def test_stochastic_slows_by_summing_range_weighted_components(self) -> None:
+        candles = [
+            {"high": 10.0, "low": 0.0, "close": 5.0},
+            {"high": 12.0, "low": 1.0, "close": 9.0},
+            {"high": 11.0, "low": 2.0, "close": 8.0},
+            {"high": 15.0, "low": 3.0, "close": 10.0},
+            {"high": 14.0, "low": 4.0, "close": 13.0},
+            {"high": 16.0, "low": 2.0, "close": 12.0},
+            {"high": 18.0, "low": 5.0, "close": 16.0},
+            {"high": 17.0, "low": 6.0, "close": 8.0},
+            {"high": 20.0, "low": 7.0, "close": 19.0},
+        ]
+        raw_numerators = []
+        raw_ranges = []
+        for end in range(5, len(candles) + 1):
+            window = candles[end - 5:end]
+            lowest = min(row["low"] for row in window)
+            highest = max(row["high"] for row in window)
+            raw_numerators.append(candles[end - 1]["close"] - lowest)
+            raw_ranges.append(highest - lowest)
+        slow_k_values = [
+            100.0 * sum(raw_numerators[i - 2:i + 1]) / sum(raw_ranges[i - 2:i + 1])
+            for i in range(2, len(raw_numerators))
+        ]
+        expected_k = slow_k_values[-1]
+        expected_d = sum(slow_k_values[-3:]) / 3.0
+        actual_k, actual_d = _stochastic(candles, k_period=5, d_period=3, slowing=3)
+        self.assertAlmostEqual(actual_k, expected_k, places=8)
+        self.assertAlmostEqual(actual_d, expected_d, places=8)
+
     def test_adx_uses_initial_dx_and_wilder_smoothing_window(self) -> None:
         candles = []
         for index in range(28):
