@@ -82,8 +82,8 @@ class MT5BridgeEngine:
     @staticmethod
     def _validate_decision(decision: dict[str, Any]) -> dict[str, Any]:
         action = str(decision.get("action", "WAIT")).upper()
-        if action not in {"BUY", "SELL", "CLOSE"}:
-            raise ValueError("Only BUY, SELL or CLOSE commands can be published.")
+        if action not in {"BUY", "SELL", "CLOSE", "MODIFY"}:
+            raise ValueError("Only BUY, SELL, CLOSE or MODIFY commands can be published.")
         if decision.get("status") != "READY" or not decision.get("command_ready"):
             raise ValueError("Engine 4 has not marked this command ready.")
         symbol = str(decision.get("symbol", ""))
@@ -125,6 +125,26 @@ class MT5BridgeEngine:
             if action == "SELL" and not tp < entry < sl:
                 raise ValueError("SELL stop-loss/entry/take-profit levels are inconsistent.")
             envelope.update({"entry_reference": entry, "stop_loss": sl, "take_profit": tp})
+        elif action == "MODIFY":
+            if risk.get("status") != "READY":
+                raise ValueError("Engine 4 has not completed the protective-stop management plan.")
+            try:
+                position_ticket = int(decision.get("position_ticket", 0))
+                stop_loss = float(decision.get("stop_loss", 0))
+                take_profit = float(decision.get("take_profit", 0))
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("MODIFY ticket or protective price fields are invalid.")
+            if position_ticket <= 0:
+                raise ValueError("MODIFY requires a valid position ticket.")
+            if not math.isfinite(stop_loss) or stop_loss <= 0:
+                raise ValueError("MODIFY stop-loss must be finite and positive.")
+            if not math.isfinite(take_profit) or take_profit < 0:
+                raise ValueError("MODIFY take-profit must be finite and non-negative.")
+            envelope.update({
+                "position_ticket": position_ticket,
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+            })
         else:
             try:
                 position_ticket = int(decision.get("position_ticket", 0))

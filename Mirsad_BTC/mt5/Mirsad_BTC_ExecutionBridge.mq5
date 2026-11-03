@@ -423,9 +423,9 @@ void ProcessCommand()
    double stop_loss = JsonNumber(json, "stop_loss");
    double take_profit = JsonNumber(json, "take_profit");
 
-   if(action != "BUY" && action != "SELL" && action != "CLOSE")
+   if(action != "BUY" && action != "SELL" && action != "CLOSE" && action != "MODIFY")
    {
-      RejectAndRemember(command_id, "Unsupported MIR1 action. Expected BUY, SELL or CLOSE.");
+      RejectAndRemember(command_id, "Unsupported MIR1 action. Expected BUY, SELL, CLOSE or MODIFY.");
       g_processing = false;
       return;
    }
@@ -461,44 +461,106 @@ void ProcessCommand()
 
    ulong position_ticket = 0;
    ENUM_POSITION_TYPE existing_position_type = POSITION_TYPE_BUY;
-   if(action == "CLOSE")
+   if(action == "CLOSE" || action == "MODIFY")
    {
       long ticket_value = JsonLong(json, "position_ticket");
       if(ticket_value <= 0)
       {
-         RejectAndRemember(command_id, "CLOSE requires a positive position_ticket.");
+         RejectAndRemember(command_id, "CLOSE/MODIFY requires a positive position_ticket.");
          g_processing = false;
          return;
       }
       position_ticket = (ulong)ticket_value;
       if(!PositionSelectByTicket(position_ticket))
       {
-         RejectAndRemember(command_id, "Position ticket is no longer open; no close request was sent.");
+         RejectAndRemember(command_id, "Position ticket is no longer open; no request was sent.");
          g_processing = false;
          return;
       }
       if(PositionGetString(POSITION_SYMBOL) != command_symbol)
       {
-         RejectAndRemember(command_id, "Position symbol does not match the requested close symbol.");
+         RejectAndRemember(command_id, "Position symbol does not match the requested command symbol.");
          g_processing = false;
          return;
       }
       long position_magic = PositionGetInteger(POSITION_MAGIC);
       if((ulong)position_magic != InpMagicNumber)
       {
-         RejectAndRemember(command_id, "CLOSE is restricted to positions owned by this Mirsad EA magic number.");
+         RejectAndRemember(command_id, "CLOSE/MODIFY is restricted to positions owned by this Mirsad EA magic number.");
          g_processing = false;
          return;
       }
       existing_position_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
       double current_volume = PositionGetDouble(POSITION_VOLUME);
-      if(!MathIsValidNumber(volume) || volume <= 0.0 ||
-         volume > current_volume + 1e-8 ||
-         !IsVolumeOnBrokerStep(command_symbol, volume))
+      if(action == "CLOSE")
       {
-         RejectAndRemember(command_id, "Close volume is invalid or exceeds the current position volume.");
-         g_processing = false;
-         return;
+         if(!MathIsValidNumber(volume) || volume <= 0.0 ||
+            volume > current_volume + 1e-8 ||
+            !IsVolumeOnBrokerStep(command_symbol, volume))
+         {
+            RejectAndRemember(command_id, "Close volume is invalid or exceeds the current position volume.");
+            g_processing = false;
+            return;
+         }
+      }
+      else
+      {
+         double current_sl = PositionGetDouble(POSITION_SL);
+         double current_tp = PositionGetDouble(POSITION_TP);
+         double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+         double tick_size = SymbolInfoDouble(command_symbol, SYMBOL_TRADE_TICK_SIZE);
+         double point_size = SymbolInfoDouble(command_symbol, SYMBOL_POINT);
+         long stops_points = SymbolInfoInteger(command_symbol, SYMBOL_TRADE_STOPS_LEVEL);
+         long freeze_points = SymbolInfoInteger(command_symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+         double minimum_distance = MathMax(stops_points, freeze_points) * point_size + tick_size;
+         double price_tolerance = MathMax(tick_size * 0.5, point_size * 0.5);
+
+         if(!MathIsValidNumber(stop_loss) || stop_loss <= 0.0 ||
+            !MathIsValidNumber(take_profit) || take_profit < 0.0 ||
+            tick_size <= 0.0 || point_size <= 0.0 ||
+            !MathIsValidNumber(current_sl) || !MathIsValidNumber(current_tp) ||
+            !MathIsValidNumber(open_price) || open_price <= 0.0)
+         {
+            RejectAndRemember(command_id, "MODIFY contains invalid protective prices or broker symbol specifications.");
+            g_processing = false;
+            return;
+         }
+         if(MathAbs(take_profit - current_tp) > price_tolerance)
+         {
+            RejectAndRemember(command_id, "MODIFY may not change the position's existing take-profit.");
+            g_processing = false;
+            return;
+         }
+         if(MathAbs(stop_loss / tick_size - MathRound(stop_loss / tick_size)) > 1e-6)
+         {
+            RejectAndRemember(command_id, "MODIFY stop-loss is not aligned to the broker tick size.");
+            g_processing = false;
+            return;
+         }
+         if(existing_position_type == POSITION_TYPE_BUY)
+         {
+            if(stop_loss < open_price - price_tolerance ||
+               (current_sl > 0.0 && stop_loss <= current_sl + price_tolerance) ||
+               stop_loss >= tick.bid || (tick.bid - stop_loss) < minimum_distance ||
+               (take_profit > 0.0 && stop_loss >= take_profit))
+            {
+               RejectAndRemember(command_id, "BUY MODIFY must tighten at/above entry and remain outside broker stop/freeze distances.");
+               g_processing = false;
+               return;
+            }
+         }
+         else
+         {
+            if(stop_loss > open_price + price_tolerance ||
+               (current_sl > 0.0 && stop_loss >= current_sl - price_tolerance) ||
+               stop_loss <= tick.ask || (stop_loss - tick.ask) < minimum_distance ||
+               (take_profit > 0.0 && stop_loss <= take_profit))
+            {
+               RejectAndRemember(command_id, "SELL MODIFY must tighten at/below entry and remain outside broker stop/freeze distances.");
+               g_processing = false;
+               return;
+            }
+         }
       }
    }
    else
@@ -551,35 +613,44 @@ void ProcessCommand()
    MqlTradeCheckResult check = {};
    MqlTradeResult result = {};
 
-   request.action = TRADE_ACTION_DEAL;
    request.magic = InpMagicNumber;
    request.symbol = command_symbol;
-   request.volume = volume;
-   request.deviation = (ulong)MathMax(0, InpDeviationPoints);
-   if(!ResolveBrokerFillingMode(command_symbol, request.type_filling))
-   {
-      PublishAck(command_id, "REJECTED", 0, 0, 0, 0.0, 0.0,
-                 "No broker-supported filling policy is available for this execution mode.");
-      g_processing = false;
-      return;
-   }
-   request.type_time = ORDER_TIME_GTC;
    request.comment = command_id;
-
-   if(action == "CLOSE")
+   if(action == "MODIFY")
    {
+      request.action = TRADE_ACTION_SLTP;
       request.position = position_ticket;
-      request.type = (existing_position_type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
-      request.price = (existing_position_type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
-      request.sl = 0.0;
-      request.tp = 0.0;
+      request.sl = stop_loss;
+      request.tp = take_profit;
    }
    else
    {
-      request.type = (action == "BUY") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-      request.price = entry_reference;
-      request.sl = stop_loss;
-      request.tp = take_profit;
+      request.action = TRADE_ACTION_DEAL;
+      request.volume = volume;
+      request.deviation = (ulong)MathMax(0, InpDeviationPoints);
+      if(!ResolveBrokerFillingMode(command_symbol, request.type_filling))
+      {
+         PublishAck(command_id, "REJECTED", 0, 0, 0, 0.0, 0.0,
+                    "No broker-supported filling policy is available for this execution mode.");
+         g_processing = false;
+         return;
+      }
+      request.type_time = ORDER_TIME_GTC;
+      if(action == "CLOSE")
+      {
+         request.position = position_ticket;
+         request.type = (existing_position_type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+         request.price = (existing_position_type == POSITION_TYPE_BUY) ? tick.bid : tick.ask;
+         request.sl = 0.0;
+         request.tp = 0.0;
+      }
+      else
+      {
+         request.type = (action == "BUY") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+         request.price = entry_reference;
+         request.sl = stop_loss;
+         request.tp = take_profit;
+      }
    }
 
    ResetLastError();

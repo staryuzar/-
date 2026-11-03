@@ -79,6 +79,15 @@ def make_close_decision(command_id: str = "MIR-" + "b" * 24) -> dict:
     }
 
 
+def make_modify_decision(command_id: str = "MIR-" + "d" * 24) -> dict:
+    return {
+        "status": "READY", "command_ready": True, "action": "MODIFY",
+        "signal_id": command_id, "symbol": "BTC", "market_symbol": "BTCUSDT",
+        "position_ticket": 123456, "stop_loss": 101.0, "take_profit": 110.0,
+        "risk_plan": {"status": "READY", "volume": 0.1, "purpose": "protective_stop_update"},
+    }
+
+
 class RiskSizingTests(unittest.TestCase):
     def test_volume_is_floored_to_allowed_step_from_minimum(self) -> None:
         # risk cash = 9.7; loss per lot = 10; raw volume = 0.97.
@@ -231,6 +240,35 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["engine_inputs"]["indicators_from_engine_3"], "READY")
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertFalse(result["command_ready"])
+
+    def test_engine4_protective_stop_management_has_priority_over_visual_chart_gate(self) -> None:
+        chart = self._chart()
+        chart["status"] = "WAITING_FOR_IMAGE"
+        chart["decision_eligible"] = False
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        now = int(time.time() * 1000)
+        market = self._market()
+        market["price"] = 200.05
+        bridge = {
+            "status": "CONNECTED", "symbol": "BTC", "market_symbol": "BTCUSDT",
+            "magic_number": 26110201, "quote_age_seconds": 1.0,
+            "quote": {"bid": 200.0, "ask": 200.1, "time_ms": now, "tick_age_seconds": 1.0},
+            "account": {"equity": 1000.0},
+            "symbol_spec": {"tick_size": 0.1, "point": 0.1, "digits": 1,
+                            "stops_level_points": 0, "freeze_level_points": 0},
+            "positions": [{
+                "ticket": 123456, "symbol": "BTC", "type": 0, "magic": 26110201,
+                "volume": 0.1, "price_open": 100.0, "stop_loss": 90.0, "take_profit": 220.0,
+            }],
+        }
+        result = DecisionEngine().analyze(market, chart, bridge, indicators)
+        self.assertEqual(result["action"], "MODIFY")
+        self.assertTrue(result["command_ready"])
+        self.assertEqual(result["position_ticket"], 123456)
+        self.assertEqual(result["position_management"]["action"], "MODIFY")
+        self.assertEqual(result["chart_gate"], "POSITION_MANAGEMENT_PRIORITY")
+        self.assertFalse(result["management_plan"]["decision_eligible"])
+        self.assertGreater(result["stop_loss"], 100.0)
 
     def test_engine4_rejects_ready_indicator_payload_with_wrong_provenance(self) -> None:
         chart = self._chart()
@@ -534,6 +572,25 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertEqual(open_envelope["schema"], "MIR1")
         self.assertEqual(close_envelope["action"], "CLOSE")
         self.assertEqual(close_envelope["position_ticket"], 123456)
+        modify_envelope = MT5BridgeEngine._validate_decision(make_modify_decision())
+        self.assertEqual(modify_envelope["action"], "MODIFY")
+        self.assertEqual(modify_envelope["position_ticket"], 123456)
+        self.assertEqual(modify_envelope["stop_loss"], 101.0)
+        self.assertEqual(modify_envelope["take_profit"], 110.0)
+
+    def test_modify_requires_ticket_and_valid_protective_prices(self) -> None:
+        decision = make_modify_decision()
+        decision["position_ticket"] = 0
+        with self.assertRaises(ValueError):
+            MT5BridgeEngine._validate_decision(decision)
+        decision = make_modify_decision()
+        decision["stop_loss"] = 0
+        with self.assertRaises(ValueError):
+            MT5BridgeEngine._validate_decision(decision)
+        decision = make_modify_decision()
+        decision["take_profit"] = -1
+        with self.assertRaises(ValueError):
+            MT5BridgeEngine._validate_decision(decision)
 
     def test_close_without_ticket_is_rejected(self) -> None:
         decision = make_close_decision()

@@ -7,6 +7,7 @@ from typing import Any
 from ..config import (RISK_PER_TRADE, MT5_QUOTE_MAX_AGE_SECONDS, MT5_MARKET_DIVERGENCE_MAX_PCT, MT5_MAX_SPREAD_PCT)
 
 from .indicators import IndicatorsEngine, TIMEFRAME_WEIGHTS, _ema, _rsi, _atr, _timeframe_trend
+from .position_management import plan_atr_stop_update
 
 
 def _aggregate_orderflow(venues: dict[str, Any]) -> dict[str, Any]:
@@ -426,6 +427,79 @@ class DecisionEngine:
             quote_ok = False
             bid = ask = 0.0
             price_divergence = spread_pct = None
+
+        # Protect existing positions before evaluating any new entry. This
+        # path needs a fresh broker quote and Engine 3 closed-candle ATR, but
+        # deliberately does not wait for Engine 2 visual chart calibration.
+        positions = _matching_positions(bridge, broker_symbol)
+        if quote_ok and positions:
+            try:
+                management_tick_size = float(specs.get("tick_size", 0) or 0)
+                management_point = float(specs.get("point", management_tick_size) or management_tick_size)
+                management_digits = int(specs.get("digits", 2) or 2)
+                management_stops = int(specs.get("stops_level_points", 0) or 0)
+                management_freeze = int(specs.get("freeze_level_points", 0) or 0)
+                management_plan = plan_atr_stop_update(
+                    positions, broker_symbol=broker_symbol, bid=bid, ask=ask, atr=atr5,
+                    tick_size=management_tick_size, point=management_point,
+                    digits=management_digits, stops_level_points=management_stops,
+                    freeze_level_points=management_freeze,
+                )
+            except (TypeError, ValueError, OverflowError):
+                management_plan = {"status": "NOT_REQUIRED", "reason": "Broker management inputs are invalid."}
+            if management_plan.get("status") == "READY":
+                managed_ticket = int(management_plan["ticket"])
+                managed_sl = float(management_plan["stop_loss"])
+                managed_tp = float(management_plan["take_profit"])
+                management_id = _signal_id(
+                    "MODIFY", market_symbol, managed_ticket,
+                    round(managed_sl, management_digits), round(managed_tp, management_digits),
+                )
+                return {
+                    **base, "status": "READY", "action": "MODIFY",
+                    "candidate_action": "WAIT", "aligned_signal": "WAIT",
+                    "signal_id": management_id, "command_ready": True,
+                    "position_ticket": managed_ticket,
+                    "chart_gate": "POSITION_MANAGEMENT_PRIORITY",
+                    "chart_visual_bias": visual_bias,
+                    "open_block_reason": "New entries are deferred while a protective stop update is pending.",
+                    "as_of_ms": market.get("captured_at_ms"),
+                    "market_symbol": market_symbol, "symbol": broker_symbol,
+                    "market_price_reference": market.get("price"),
+                    "broker_quote": quote,
+                    "broker_market_price_divergence_pct": round(price_divergence * 100, 4),
+                    "broker_spread_pct": round(spread_pct * 100, 4),
+                    "entry_reference": 0.0, "stop_loss": managed_sl, "take_profit": managed_tp,
+                    "trend_score": round(trend_score, 4), "timeframes": timeframe_data,
+                    "decision_scores": {
+                        "chart_score": round(chart_score, 4),
+                        "chart_confidence": round(chart_confidence, 4),
+                        "market_score": round(market_score, 4),
+                        "market_components": market_score_parts,
+                        "combined_score": round(combined_score, 4),
+                        "threshold": DIRECTIONAL_SCORE_THRESHOLD,
+                    },
+                    "indicators": indicator_values,
+                    "engine_3_indicator_status": indicator_data.get("status"),
+                    "risk_plan": {
+                        "status": "READY", "volume": float(management_plan["volume"]),
+                        "purpose": "protective_stop_update",
+                    },
+                    "position_management": {
+                        "action": "MODIFY", "ticket": managed_ticket,
+                        "stage": management_plan.get("management_stage"),
+                        "protective_stop_only": True,
+                    },
+                    "management_plan": management_plan,
+                    "engine_inputs": {
+                        "market_context_from_engine_1": market.get("status"),
+                        "chart_and_candles_from_engine_2": chart.get("status", "NOT_READY"),
+                        "indicators_from_engine_3": indicator_data.get("status"),
+                        "engine_5_bridge_for_quote_account_specs_and_transport": bridge.get("status"),
+                        "protective_management_does_not_require_visual_chart": True,
+                    },
+                    "reason": management_plan.get("reason"),
+                }
 
         entry = ask if aligned_signal == "BUY" and quote_ok else (
             bid if aligned_signal == "SELL" and quote_ok else float(market["price"])
