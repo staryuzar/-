@@ -20,16 +20,6 @@ def _validate_bars(bars: list[dict[str, Any]]) -> list[dict[str, float]]:
         normalized.append(item)
     return normalized
 
-def _true_ranges(bars: list[dict[str, float]]) -> list[float]:
-    values: list[float] = []
-    previous_close: float | None = None
-    for bar in bars:
-        high, low = bar["high"], bar["low"]
-        tr = high - low if previous_close is None else max(high - low, abs(high - previous_close), abs(low - previous_close))
-        values.append(tr)
-        previous_close = bar["close"]
-    return values
-
 def _pivots(bars: list[dict[str, float]], left: int, right: int, kind: str) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     key = "high" if kind == "high" else "low"
@@ -105,7 +95,7 @@ def analyze_chart_structure_knowledge(
 
     recent_ranges = [bar["high"] - bar["low"] for bar in confirmed[-14:]]
     # Local price-range tolerance for clustering equal highs/lows. This is a
-    # structural price-distance rule, not an ATR indicator output.
+    # structural price-distance tolerance derived from the recent candle ranges.
     median_recent_range = median(recent_ranges) if recent_ranges else 0.0
     current = confirmed[-1]["close"]
     tolerance = max(median_recent_range * 0.15, current * 0.0001)
