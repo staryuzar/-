@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - name: Checkout native-analysis branch
+      - name: Checkout main branch
         uses: actions/checkout@v4
         with:
           ref: main
@@ -64,6 +64,8 @@ jobs:
           # Engine 2 visual chart pipeline: image loading, layout, OCR, extraction,
           # calibration, candle geometry, multi-timeframe handling and visual knowledge.
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_engine.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_multireference_calibration.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_geometry.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_extraction.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_header_ocr.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_multi_timeframe.py' -v
