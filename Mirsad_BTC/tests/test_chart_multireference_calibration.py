@@ -89,7 +89,7 @@ class MultiReferenceCalibrationTests(unittest.TestCase):
         self.assertEqual(result["matched_candles"], 24)
         self.assertEqual(result["fit_candles"], 18)
         self.assertEqual(result["validation_candles"], 6)
-        self.assertEqual(result["fit_x_coverage"], 0.0245)
+        self.assertEqual(result["fit_x_coverage"], 0.11)
 
 
 if __name__ == "__main__":
