@@ -128,10 +128,11 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                 "status": "READY",
                 "decision_eligible": True,
                 "calibration": {
-                    "source": "reference_last_candle_ohlc",
+                    "source": "reference_multi_candle_ohlc",
                     "price_scale_valid": True,
                 },
-                "reference_calibration": {"status": "READY"},
+                "reference_multi_calibration": {"status": "READY"},
+                "reference_axis_validation": {"status": "READY"},
                 "reference_ohlc_override_applied": True,
                 "visual_bias": "NEUTRAL",
                 "analysis_score": 0.0,
