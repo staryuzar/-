@@ -664,7 +664,7 @@ class BridgeProtocolTests(unittest.TestCase):
             (root / "ack.json").write_text(json.dumps(ack), encoding="utf-8")
             (root / "positions.json").write_text("[]", encoding="utf-8")
             (root / "events.jsonl").write_text(
-                json.dumps({"time_ms": now, "event": "COMMAND_REJECTED", "command_id": command["command_id"]}) + "\\n",
+                json.dumps({"time_ms": now, "event": "COMMAND_REJECTED", "command_id": command["command_id"]}) + "\n",
                 encoding="utf-8",
             )
 
