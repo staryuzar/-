@@ -160,7 +160,7 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(result["direction"], "BULLISH")
         self.assertEqual(result["source_statuses"]["news"], "READY")
         self.assertIn("confidence_basis", result)
-        self.assertTrue(any("does not read" in item for item in result["boundaries"]))
+        self.assertTrue(any("chart images" in item and "EMA" in item for item in result["boundaries"]))
 
 
 if __name__ == "__main__":
