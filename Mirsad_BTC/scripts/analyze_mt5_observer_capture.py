@@ -8,6 +8,7 @@ from mirsad.engines.chart import analyze_chart_image
 from mirsad.engines.mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candidates
 from mirsad.engines.mt5_market import MT5MarketDataEngine
 from mirsad.engines.mt5_chart_candles import MT5ChartCandleHistory
+from mirsad.engines.mt5_native_indicators import MT5NativeIndicatorHistory
 
 SUPPORTED = {"1m", "5m", "15m", "1h", "4h", "1d", "1w"}
 
@@ -19,6 +20,9 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
     common_files = observer_root.parent.parent
     market_result = MT5MarketDataEngine(common_files=str(common_files), symbol=market_symbol).collect()
     candle_result = MT5ChartCandleHistory(common_files=str(common_files), symbol=market_symbol).collect(market=market_result)
+    native_indicators = MT5NativeIndicatorHistory(
+        common_files=str(common_files), symbol=market_symbol,
+    ).collect(candle_history=candle_result)
     market_context = market_result.get("market_context") if isinstance(market_result.get("market_context"), dict) else {}
     microstructure = market_context.get("microstructure") if isinstance(market_context.get("microstructure"), dict) else {}
     calendar = market_context.get("economic_calendar") if isinstance(market_context.get("economic_calendar"), dict) else {}
@@ -30,7 +34,14 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         "feed_health": {key: (market_result.get("feed_health") or {}).get(key) for key in
                         ("terminal_connected", "quote_fresh", "snapshot_age_seconds", "tick_age_seconds", "tick_history_status", "broker_symbol")},
         "microstructure": {key: microstructure.get(key) for key in
-                            ("status", "tick_count", "tick_rate_per_minute", "upticks", "downticks", "quote_direction_balance", "midpoint_change_pct", "current_spread_pct", "mean_observed_spread_pct")},
+                            ("status", "tick_count", "tick_rate_per_minute", "upticks", "downticks", "quote_direction_balance", "midpoint_change_pct", "current_spread_pct", "mean_observed_spread_pct", "reported_last_price_tick_count", "latest_reported_last_price", "reported_volume_update_count", "reported_volume_sum", "reported_buy_flag_count", "reported_sell_flag_count")},
+        "order_book": {
+            "status": (market_context.get("order_book") or {}).get("status"),
+            "level_count": (market_context.get("order_book") or {}).get("level_count"),
+            "bid_level_count": (market_context.get("order_book") or {}).get("bid_level_count"),
+            "ask_level_count": (market_context.get("order_book") or {}).get("ask_level_count"),
+            "reason": (market_context.get("order_book") or {}).get("reason"),
+        },
         "economic_calendar": {
             "status": calendar.get("status", "NOT_AVAILABLE"),
             "source": calendar.get("source"),
@@ -43,9 +54,29 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         "status": candle_result.get("status"),
         "source": candle_result.get("source"),
         "captured_at_ms": candle_result.get("captured_at_ms"),
+        "broker_symbol": candle_result.get("broker_symbol"),
+        "account_server": candle_result.get("account_server"),
+        "source_terminal_connected": candle_result.get("source_terminal_connected"),
+        "source_account_server_present": candle_result.get("source_account_server_present"),
+        "source_broker_symbol_present": candle_result.get("source_broker_symbol_present"),
         "timeframes": candle_result.get("timeframes", {}),
         "closed_candles": candle_result.get("closed_candles", {}),
         "reason": candle_result.get("reason"),
+    }
+    native_indicator_summary = {
+        "status": native_indicators.get("status"),
+        "source": native_indicators.get("source"),
+        "ready_timeframe_count": native_indicators.get("ready_timeframe_count"),
+        "missing_required_timeframes": native_indicators.get("missing_required_timeframes", []),
+        "reason": native_indicators.get("reason"),
+        "timeframes": {
+            name: {
+                "status": frame.get("status"),
+                "ready_indicator_count": frame.get("ready_indicator_count", 0),
+                "missing_required_indicators": frame.get("missing_required_indicators", []),
+            }
+            for name, frame in (native_indicators.get("timeframes") or {}).items()
+        },
     }
 
     def blocked(code: str, reason: str) -> dict:
@@ -62,6 +93,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             },
             "engine1_market": engine1_summary,
             "engine2_candle_history": engine2_candles_summary,
+            "engine2_native_indicators": native_indicator_summary,
             "decision_eligible": False,
             "engine2": {"status": code, "visual_eligible": False, "reason": reason,
                         "detected_bars": 0, "confirmed_bars": 0,
@@ -209,6 +241,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         },
         "engine1_market": engine1_summary,
         "engine2_candle_history": engine2_candles_summary,
+        "engine2_native_indicators": native_indicator_summary,
         "decision_eligible": False,
         "safety": {"read_only": True, "decision_eligible": False,
                    "reason": "Actual MT5 diagnostics only. No order is created or authorized."}
