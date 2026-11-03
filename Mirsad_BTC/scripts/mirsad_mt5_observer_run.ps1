@@ -820,7 +820,7 @@ public static class MirsadNativeWindow {
         decision_eligible = $false
     }
     $safeParity | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $parityOutput -Encoding utf8
-    Add-Report ("Engine 3 actual MT5 parity: status={0}; passed metrics={1}/{2}; timeframe states={3}." -f $parityRaw.status,$parityRaw.passed_metrics,$parityRaw.total_metrics,($parityFrames.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value.status)" } -join ','))
+    Add-Report ("Engine 3 actual MT5 parity: status={0}; passed metrics={1}/{2}; timeframe states={3}." -f $parityRaw.status,$parityRaw.passed_metrics,$parityRaw.total_metrics,(($parityFrames.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value.status)" }) -join ','))
     if ($parityExitCode -ne 0 -or [string]$parityRaw.status -ne 'PASS') {
         Add-Report 'FAIL — Engine 3 calculations do not yet match native MT5 CopyBuffer values on the same closed bars.'
         throw 'Engine 3 actual MT5 indicator parity failed; decision eligibility remains disabled.'
