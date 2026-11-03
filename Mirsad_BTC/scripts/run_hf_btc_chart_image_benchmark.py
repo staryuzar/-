@@ -204,6 +204,10 @@ def run_benchmark(
     reference_ohlc_override_images = 0
     slot_guided_adopted_images = 0
     slot_geometry_improved_images = 0
+    regular_grid_inferred_images = 0
+    regular_grid_assigned_images = 0
+    regular_grid_matched_candles_total = 0
+    regular_grid_inference_status_counts: Counter[str] = Counter()
     slot_shadow_separated_total = 0
     legacy_shadow_separated_total = 0
     images_with_20plus_bars = 0
@@ -267,6 +271,12 @@ def run_benchmark(
                     "plot_top_px": 0,
                     "plot_bottom_px": image.height,
                     "expected_candle_count": 30,
+                    # This dataset's 20-image pilot consistently placed the
+                    # final candle near 0.89 of image width due to a fixed
+                    # right-shift margin. The opt-in grid remains benchmark-only.
+                    "infer_regular_chart_slots": True,
+                    "reference_last_candle_x_ratio": 0.89,
+                    "reference_last_candle_x_ratio_tolerance": 0.025,
                     "auto_axis_ocr": bool(use_ocr),
                     "reference_last_candle_ohlc": reference.get("ohlc"),
                     "last_candle_closed": True,
@@ -329,6 +339,17 @@ def run_benchmark(
                 slot_diagnostics = extraction_diagnostics.get("slot_guided_extraction") or {}
                 slot_guided_adopted_images += int(bool(slot_diagnostics.get("adopted")))
                 slot_geometry_improved_images += int(bool(slot_diagnostics.get("body_geometry_improves")))
+                regular_grid_inference = result.get("regular_grid_slot_inference") or {}
+                regular_grid_assignment = result.get("regular_grid_slot_assignment") or {}
+                regular_grid_inference_status = str(regular_grid_inference.get("status", "NOT_REPORTED"))
+                regular_grid_inference_status_counts[regular_grid_inference_status] += 1
+                regular_grid_inferred_images += int(regular_grid_inference_status == "READY_PROVISIONAL")
+                regular_grid_assigned_images += int(
+                    regular_grid_assignment.get("status") == "PROVISIONAL_ASSIGNMENT"
+                )
+                regular_grid_matched_candles_total += int(
+                    regular_grid_assignment.get("matched_candles", 0) or 0
+                )
                 slot_shadow_separated_total += int(slot_diagnostics.get("bars_with_both_wicks_separated", 0) or 0)
                 legacy_shadow_separated_total += int(slot_diagnostics.get("legacy_bars_with_both_wicks_separated", 0) or 0)
                 if detected >= 20:
@@ -393,6 +414,8 @@ def run_benchmark(
                         "reference_ohlc_override_applied": bool(result.get("reference_ohlc_override_applied")),
                         "segmentation_mode": extraction_diagnostics.get("segmentation_mode"),
                         "slot_guided_extraction": slot_diagnostics,
+                        "regular_grid_slot_inference": result.get("regular_grid_slot_inference", {}),
+                        "regular_grid_slot_assignment": result.get("regular_grid_slot_assignment", {}),
                         "latest_bar_pixel_geometry": (
                             {
                                 "high_y_px": bars[-1].get("high_y_px"),
@@ -480,6 +503,10 @@ def run_benchmark(
             "reference_ohlc_override_images": reference_ohlc_override_images,
             "slot_guided_adopted_images": slot_guided_adopted_images,
             "slot_geometry_improved_images": slot_geometry_improved_images,
+            "regular_grid_inferred_images": regular_grid_inferred_images,
+            "regular_grid_assigned_images": regular_grid_assigned_images,
+            "regular_grid_matched_candles_total": regular_grid_matched_candles_total,
+            "regular_grid_inference_status_counts": dict(regular_grid_inference_status_counts),
             "slot_shadow_separated_candles_total": slot_shadow_separated_total,
             "legacy_shadow_separated_candles_total": legacy_shadow_separated_total,
             "calibration_source_counts": dict(calibration_source_counts),
