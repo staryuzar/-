@@ -1020,12 +1020,33 @@ def render_engine_dashboard():
   d4.metric("جاهزية أمر الخبير","جاهز" if decision.get("command_ready") else "غير جاهز")
   scores=decision.get("decision_scores",{})
   weights=decision.get("decision_weights",{})
-  s1,s2,s3=st.columns(3)
-  s1.metric("المحلل — 80%",f"{scores.get('chart_score',0)*100:.1f} / 100",
-   help=f"ثقة القراءة: {scores.get('chart_confidence',0)*100:.1f}%")
-  s2.metric("السوق — 20%",f"{scores.get('market_score',0)*100:.1f} / 100")
-  s3.metric("النتيجة المركبة",f"{scores.get('combined_score',0)*100:.1f} / 100")
-  st.caption(f"توزيع القرار: المحلل {weights.get('engine_2_chart',0.8)*100:.0f}% + السوق {weights.get('engine_1_market',0.2)*100:.0f}%.")
+  configured=weights.get("configured",{})
+  def _score_label(value):
+   return f"{float(value)*100:.1f} / 100" if isinstance(value,(int,float)) else "غير متاح"
+  def _weight_label(name):
+   return f"أساس {float(configured.get(name,0))*100:.0f}% · فعال {float(weights.get(name,0))*100:.0f}%"
+  s1,s2,s3,s4=st.columns(4)
+  s1.metric(f"المحرك 1 · {_weight_label('engine_1_market_intelligence')}",
+   _score_label(scores.get("engine_1_market_intelligence")),
+   help="الأخبار والتقويم والمشتقات والخوف والطمع والسياق الكلي. لا يقرأ الشموع أو الصور.")
+  s2.metric(f"المحرك 2 · {_weight_label('engine_2_price_action')}",
+   _score_label(scores.get("engine_2_score")),
+   help="درجة بنية OHLC متعددة الأطر، مع إضافة الصورة فقط عندما تجتاز المعايرة والتحقق.")
+  s3.metric(f"المحرك 3 · {_weight_label('engine_3_indicators')}",
+   _score_label(scores.get("engine_3_indicators")),
+   help="المؤشرات المحسوبة من سجل الشموع المغلقة الذي يملكه المحرك الثاني.")
+  s4.metric("النتيجة المركبة",_score_label(scores.get("combined_score")))
+  engine2_internal=weights.get("engine_2_internal",{})
+  e2_configured=engine2_internal.get("configured",{})
+  e2_applied=engine2_internal.get("applied",{})
+  st.caption(
+   "النسب الأساسية: المحرك 1 = 20%، المحرك 2 = 50%، المحرك 3 = 30%. "
+   "الأوزان الفعالة تتغير بحسب جودة وتغطية الدليل وتُعاد معايرتها إلى 100%. "
+   f"داخل المحرك 2: التوزيع المطبق OHLC {float(e2_applied.get('native_ohlc_price_action',1.0))*100:.0f}% "
+   f"/ الصورة المعايرة {float(e2_applied.get('calibrated_visual_chart',0.0))*100:.0f}% "
+   f"(الأساس {float(e2_configured.get('native_ohlc_price_action',0.70))*100:.0f}% / "
+   f"{float(e2_configured.get('calibrated_visual_chart',0.30))*100:.0f}%)."
+  )
   e1,e2,e3,e4=st.columns(4)
   e1.metric("دخول مرجعي",f"{decision.get('entry_reference'):,.2f}" if decision.get("entry_reference") else "—")
   e2.metric("وقف الخسارة",f"{decision.get('stop_loss'):,.2f}" if decision.get("stop_loss") else "—")

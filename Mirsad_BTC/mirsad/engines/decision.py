@@ -122,215 +122,113 @@ def _matching_positions(bridge: dict[str, Any], broker_symbol: str) -> list[dict
     return result
 
 
-CHART_DECISION_WEIGHT = 0.80
+# Engine 4's fixed baseline decision mix. Evidence quality may reduce a
+# component's effective contribution; the remaining valid weights are
+# re-normalized to 100% rather than silently filling missing evidence with zero.
+ENGINE1_DECISION_WEIGHT = 0.20
+ENGINE2_DECISION_WEIGHT = 0.50
+ENGINE3_DECISION_WEIGHT = 0.30
 
+# Engine 2 owns both native OHLC price structure and calibrated image analysis.
+# Native OHLC is the primary sub-input; image analysis is supporting evidence.
+ENGINE2_NATIVE_OHLC_WEIGHT = 0.70
+ENGINE2_VISUAL_WEIGHT = 0.30
 
-def _protective_position_management_decision(
-    bridge: dict[str, Any],
-    indicator_data: dict[str, Any],
-    market: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Build one protective MODIFY command from Engine 3 ATR and fresh Engine 5 facts.
-
-    This safety path is deliberately independent of Engine 1's external/market
-    reference price and Engine 2's visual image eligibility. It cannot create
-    BUY/SELL commands; it only tightens the stop of an existing Mirsad-owned
-    position using the broker's own fresh quote.
-    """
-    if bridge.get("status") != "CONNECTED":
-        return None
-    if (
-        indicator_data.get("status") != "READY"
-        or indicator_data.get("engine") != "engine_3_indicators"
-        or indicator_data.get("source") != "engine_2_chart_candles"
-    ):
-        return None
-
-    values = indicator_data.get("values")
-    if not isinstance(values, dict):
-        return None
-    try:
-        atr5 = float(values["atr14_5m"])
-        closed_at = int(indicator_data["last_closed_candle_time_ms"])
-        capture_at = int(indicator_data["source_capture_at_ms"])
-        capture_age = (time.time() * 1000.0 - capture_at) / 1000.0
-    except (KeyError, TypeError, ValueError, OverflowError):
-        return None
-    if (
-        not math.isfinite(atr5) or atr5 <= 0
-        or closed_at <= 0
-        or not math.isfinite(capture_age)
-        or capture_age < 0
-        or capture_age > MT5_MARKET_DATA_MAX_AGE_SECONDS
-    ):
-        return None
-
-    broker_symbol = str(bridge.get("symbol", "")).strip()
-    market_symbol = str(bridge.get("market_symbol", "")).strip()
-    if not broker_symbol or not market_symbol:
-        return None
-
-    quote = bridge.get("quote") if isinstance(bridge.get("quote"), dict) else {}
-    specs = bridge.get("symbol_spec") if isinstance(bridge.get("symbol_spec"), dict) else {}
-    try:
-        bid = float(quote["bid"])
-        ask = float(quote["ask"])
-        quote_age = float(bridge["quote_age_seconds"])
-        tick_age = float(quote["tick_age_seconds"])
-        midpoint = (bid + ask) / 2.0
-        spread_pct = (ask - bid) / midpoint if midpoint > 0 else float("inf")
-    except (KeyError, TypeError, ValueError, OverflowError):
-        return None
-    if (
-        not all(math.isfinite(value) for value in (bid, ask, quote_age, tick_age, spread_pct))
-        or bid <= 0 or ask < bid
-        or quote_age < 0 or quote_age > MT5_QUOTE_MAX_AGE_SECONDS
-        or tick_age < 0 or tick_age > MT5_QUOTE_MAX_AGE_SECONDS
-        or midpoint <= 0
-        or spread_pct > MT5_MAX_SPREAD_PCT
-    ):
-        return None
-
-    positions = _matching_positions(bridge, broker_symbol)
-    if not positions:
-        return None
-    try:
-        tick_size = float(specs.get("tick_size", 0) or 0)
-        point = float(specs.get("point", tick_size) or tick_size)
-        digits = int(specs.get("digits", 2) or 2)
-        stops_level = int(specs.get("stops_level_points", 0) or 0)
-        freeze_level = int(specs.get("freeze_level_points", 0) or 0)
-        plan = plan_atr_stop_update(
-            positions,
-            broker_symbol=broker_symbol,
-            bid=bid,
-            ask=ask,
-            atr=atr5,
-            tick_size=tick_size,
-            point=point,
-            digits=digits,
-            stops_level_points=stops_level,
-            freeze_level_points=freeze_level,
-        )
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if plan.get("status") != "READY":
-        return None
-
-    ticket = int(plan["ticket"])
-    stop_loss = float(plan["stop_loss"])
-    take_profit = float(plan["take_profit"])
-    command_id = _signal_id(
-        "MODIFY", market_symbol, ticket,
-        round(stop_loss, digits), round(take_profit, digits),
-    )
-    return {
-        "status": "READY",
-        "action": "MODIFY",
-        "candidate_action": "WAIT",
-        "aligned_signal": "WAIT",
-        "signal_id": command_id,
-        "command_ready": True,
-        "position_ticket": ticket,
-        "symbol": broker_symbol,
-        "market_symbol": market_symbol,
-        "entry_reference": 0.0,
-        "stop_loss": stop_loss,
-        "take_profit": take_profit,
-        "chart_gate": "POSITION_MANAGEMENT_PRIORITY",
-        "open_block_reason": "New entries are deferred while a protective stop update is pending.",
-        "risk_plan": {
-            "status": "READY",
-            "volume": float(plan["volume"]),
-            "purpose": "protective_stop_update",
-        },
-        "position_management": {
-            "action": "MODIFY",
-            "ticket": ticket,
-            "stage": plan.get("management_stage"),
-            "protective_stop_only": True,
-            "market_feed_independent": True,
-        },
-        "management_plan": plan,
-        "broker_quote": quote,
-        "broker_spread_pct": round(spread_pct * 100.0, 4),
-        "engine_inputs": {
-            "engine_1_market": market.get("status", "UNAVAILABLE"),
-            "engine_1_required_for_protective_management": False,
-            "engine_2_chart": "NOT_REQUIRED_FOR_PROTECTIVE_MANAGEMENT",
-            "engine_3_indicators": "READY",
-            "engine_5_bridge": "CONNECTED",
-            "protective_management_quote_source": "MT5_BROKER_BID_ASK",
-        },
-        "reason": plan.get("reason"),
-    }
-
-MARKET_CONFIRMATION_WEIGHT = 0.20
 DIRECTIONAL_SCORE_THRESHOLD = 0.40
-MIN_CHART_SCORE = 0.30
+MIN_ENGINE2_DIRECTION_SCORE = 0.20
+MIN_ENGINE2_TIMEFRAME_COVERAGE = 0.65
+MIN_ENGINE2_DIRECTIONAL_AGREEMENT = 0.60
 MIN_CHART_CONFIDENCE = 0.55
 
 
-def _weighted_direction_score(chart_score: float, market_score: float) -> float:
-    """Engine 2 owns 80% of direction; Engine 1 contributes 20% confirmation."""
-    chart_value = float(chart_score)
-    market_value = float(market_score)
-    if not math.isfinite(chart_value) or not math.isfinite(market_value):
-        raise ValueError("Directional scores must be finite.")
-    if not -1.0 <= chart_value <= 1.0 or not -1.0 <= market_value <= 1.0:
-        raise ValueError("Directional scores must be between -1 and 1.")
-    return max(-1.0, min(1.0,
-        CHART_DECISION_WEIGHT * chart_value
-        + MARKET_CONFIRMATION_WEIGHT * market_value
-    ))
-
-
-def _market_confirmation_score(indicator_trend_score: float, market: dict[str, Any]) -> tuple[float, dict[str, Any]]:
-    """Blend Engine 3 technical trend with Engine 1 non-chart intelligence."""
-    trend = float(indicator_trend_score)
-    if not math.isfinite(trend) or not -1.0 <= trend <= 1.0:
-        raise ValueError("Indicator trend score must be finite and normalized.")
+def _market_intelligence_signal(market: dict[str, Any]) -> tuple[float | None, float, dict[str, Any]]:
+    """Return Engine 1's contextual score and evidence quality, without chart data."""
     context = market.get("market_context") if isinstance(market.get("market_context"), dict) else {}
     pulse = context.get("microstructure") if isinstance(context.get("microstructure"), dict) else {}
-    quote_balance = None
-    if pulse.get("status") == "READY":
-        try:
-            value = float(pulse.get("quote_direction_balance"))
-        except (TypeError, ValueError, OverflowError):
-            value = float("nan")
-        if math.isfinite(value) and -1.0 <= value <= 1.0:
-            quote_balance = value
+    quote_balance = _finite_value(pulse.get("quote_direction_balance")) if pulse.get("status") == "READY" else None
+    if quote_balance is not None and not -1.0 <= quote_balance <= 1.0:
+        quote_balance = None
+
     intelligence = market.get("market_intelligence") if isinstance(market.get("market_intelligence"), dict) else {}
     intelligence_score = _finite_intelligence_score(intelligence)
+    confidence = _finite_value(intelligence.get("confidence"))
+    coverage = _finite_value(intelligence.get("evidence_coverage"))
+
     if intelligence_score is not None:
-        engine1_score = (
+        score = (
             0.90 * intelligence_score + 0.10 * quote_balance
             if quote_balance is not None else intelligence_score
         )
-        engine1_source = "market_intelligence_plus_quote_pulse" if quote_balance is not None else "market_intelligence"
+        quality = min(
+            confidence if confidence is not None else 0.0,
+            coverage if coverage is not None else 0.0,
+        )
+        source = "MARKET_INTELLIGENCE"
+        if quote_balance is not None:
+            source = "MARKET_INTELLIGENCE_PLUS_MINOR_QUOTE_CONTEXT"
     elif quote_balance is not None:
-        engine1_score = quote_balance
-        engine1_source = "quote_pulse_fallback_only"
+        # Quote updates are only a low-quality fallback: they are not trades,
+        # taker flow or independent market-wide order flow.
+        score = quote_balance
+        quality = 0.20
+        source = "QUOTE_PULSE_FALLBACK_ONLY"
     else:
-        engine1_score = None
-        engine1_source = "unavailable"
-    confirmation_split = (
-        {"engine_3": 1.0, "engine_1": 0.0}
-        if engine1_score is None
-        else {"engine_3": 0.50, "engine_1": 0.50}
-    )
-    score = trend if engine1_score is None else 0.50 * trend + 0.50 * engine1_score
-    return max(-1.0, min(1.0, score)), {
-        "engine_3_indicator_trend": round(trend, 4),
-        "engine_1_market_intelligence_score": round(intelligence_score, 4) if intelligence_score is not None else None,
-        "engine_1_score": round(engine1_score, 4) if engine1_score is not None else None,
-        "engine_1_source": engine1_source,
-        "engine_1_intelligence_status": intelligence.get("status", "NOT_AVAILABLE"),
-        "engine_1_intelligence_confidence": intelligence.get("confidence"),
-        "engine_1_quote_update_balance": round(quote_balance, 4) if quote_balance is not None else None,
+        score = None
+        quality = 0.0
+        source = "UNAVAILABLE"
+
+    return score, max(0.0, min(1.0, quality)), {
+        "score": round(score, 4) if score is not None else None,
+        "quality": round(quality, 4),
+        "source": source,
+        "intelligence_status": intelligence.get("status", "NOT_AVAILABLE"),
+        "intelligence_confidence": confidence,
+        "evidence_coverage": coverage,
         "quote_pulse_status": pulse.get("status", "NOT_AVAILABLE"),
-        "quote_pulse_scope": "bid/ask quote updates, not executed trades",
-        "confirmation_split": confirmation_split,
+        "quote_direction_balance": round(quote_balance, 4) if quote_balance is not None else None,
+        "quote_pulse_scope": "Bid/Ask quote updates only; not executed trades, taker flow or order-book depth.",
+    }
+
+
+def _weighted_three_engine_score(
+    *,
+    engine1_score: float | None,
+    engine2_score: float | None,
+    engine3_score: float | None,
+    engine1_quality: float,
+    engine2_quality: float,
+    engine3_quality: float,
+) -> tuple[float | None, dict[str, float]]:
+    """Quality-adjust the 20/50/30 baseline and normalize the active weights."""
+    configured = {
+        "engine_1_market_intelligence": ENGINE1_DECISION_WEIGHT,
+        "engine_2_price_action": ENGINE2_DECISION_WEIGHT,
+        "engine_3_indicators": ENGINE3_DECISION_WEIGHT,
+    }
+    supplied = {
+        "engine_1_market_intelligence": (engine1_score, engine1_quality),
+        "engine_2_price_action": (engine2_score, engine2_quality),
+        "engine_3_indicators": (engine3_score, engine3_quality),
+    }
+    effective: dict[str, float] = {}
+    valid_scores: dict[str, float] = {}
+    for name, (raw_score, raw_quality) in supplied.items():
+        score = _finite_value(raw_score)
+        quality = _finite_value(raw_quality)
+        quality = max(0.0, min(1.0, quality if quality is not None else 0.0))
+        if score is None or not -1.0 <= score <= 1.0 or quality <= 0.0:
+            effective[name] = 0.0
+            continue
+        valid_scores[name] = score
+        effective[name] = configured[name] * quality
+
+    total = sum(effective.values())
+    if total <= 0.0:
+        return None, {name: 0.0 for name in configured}
+    normalized = {name: value / total for name, value in effective.items()}
+    combined = sum(valid_scores[name] * normalized[name] for name in valid_scores)
+    return max(-1.0, min(1.0, combined)), {
+        name: round(weight, 6) for name, weight in normalized.items()
     }
 
 
@@ -343,7 +241,7 @@ def _finite_intelligence_score(intelligence: dict[str, Any]) -> float | None:
     coverage = _finite_value(intelligence.get("evidence_coverage"))
     if (
         not 0.0 <= confidence <= 1.0 or confidence < 0.25
-        or coverage is None or coverage < 0.55
+        or coverage is None or not 0.55 <= coverage <= 1.0
         or not -1.0 <= score <= 1.0
     ):
         return None
@@ -370,8 +268,8 @@ class DecisionEngine:
     ) -> dict[str, Any]:
         base = {
             "engine": "engine_4_decision_trade_monitor", "method": "rules_only",
-            "direction_inputs": ["engine_1_market_intelligence", "engine_2_chart", "engine_3_indicators"],
-            "calculation_inputs": ["engine_1_market_intelligence", "engine_3_indicators"],
+            "direction_inputs": ["engine_1_market_intelligence", "engine_2_price_action_and_calibrated_visual", "engine_3_indicators"],
+            "calculation_inputs": ["engine_1_market_intelligence", "engine_2_native_ohlc_price_action", "engine_3_indicators"],
             "bridge_role": "engine_5 transports commands and supplies live quote/account/specifications only",
             "risk_owner": "Mirsad_BTC_program",
         }
@@ -397,7 +295,7 @@ class DecisionEngine:
             "mixed_pattern_timeframes": price_action_summary.get("mixed_pattern_timeframes", []),
             "decision_eligible": False,
             "gate": "NOT_EVALUATED",
-            "role": "NON_DIRECTIONAL_SAFETY_GATE_ONLY",
+            "role": "PRIMARY_ENGINE_2_DIRECTIONAL_INPUT_WITH_OPTIONAL_CALIBRATED_VISUAL_CONFIRMATION",
         }
         base["engine_2_native_price_action_context"] = price_action_context
         indicator_data = indicators if isinstance(indicators, dict) else IndicatorsEngine().analyze(
@@ -485,8 +383,9 @@ class DecisionEngine:
         market_context = market.get("market_context") if isinstance(market.get("market_context"), dict) else {}
         microstructure = market_context.get("microstructure") if isinstance(market_context.get("microstructure"), dict) else {}
         orderflow = {"status": "NOT_PROVIDED", "reason": "Engine 1 quote updates are not treated as executed trade flow or taker volume."}
+
         chart_eligible = bool(chart.get("decision_eligible")) and chart.get("status") == "READY"
-        visual_bias = chart.get("visual_bias", "NEUTRAL")
+        visual_bias = str(chart.get("visual_bias", "NEUTRAL")).upper()
         try:
             chart_score = float(chart.get("analysis_score", 0.0))
             chart_confidence = float(chart.get("analysis_confidence", 0.0))
@@ -496,60 +395,59 @@ class DecisionEngine:
             chart_score = chart_confidence = 0.0
         chart_score = max(-1.0, min(1.0, chart_score))
         chart_confidence = max(0.0, min(1.0, chart_confidence))
-        market_score, market_score_parts = _market_confirmation_score(trend_score, market)
-        combined_score = _weighted_direction_score(chart_score, market_score)
+        visual_evidence_usable = chart_eligible and chart_confidence >= MIN_CHART_CONFIDENCE
 
-        candidate = "WAIT"
-        chart_quality_ok = chart_eligible and chart_confidence >= MIN_CHART_CONFIDENCE
-        if chart_quality_ok:
-            if (
-                chart_score >= MIN_CHART_SCORE
-                and combined_score >= DIRECTIONAL_SCORE_THRESHOLD
-                and visual_bias == "BULLISH"
-            ):
-                candidate = "BUY"
-            elif (
-                chart_score <= -MIN_CHART_SCORE
-                and combined_score <= -DIRECTIONAL_SCORE_THRESHOLD
-                and visual_bias == "BEARISH"
-            ):
-                candidate = "SELL"
+        # Engine 1 is contextual intelligence (news, macro events, sentiment,
+        # derivatives and global market context). Quote pulse is only a minor
+        # corroborator or low-quality fallback.
+        engine1_score, engine1_quality, engine1_parts = _market_intelligence_signal(market)
+        market_score = engine1_score
+        market_score_parts = engine1_parts
 
-        # Native OHLC price action is not a separate directional vote. It is a
-        # fail-closed confluence gate: when runtime supplies it, Engine 4 only
-        # keeps a visual BUY/SELL candidate if the independently analysed
-        # closed-candle structure is READY and aligned in the same direction.
+        # Engine 2: native multi-timeframe OHLC structure is the primary vote.
+        # A calibrated image contributes only as supporting evidence; an
+        # uncalibrated/mismatched image is omitted, never used as a fake score.
         native_pa_gate = "NOT_PROVIDED"
         native_pa_allows_candidate = True
+        engine2_direction = "UNKNOWN"
+        engine2_structure_score = None
+        engine2_visual_used = False
+        engine2_visual_weight = 0.0
+        engine2_score = None
+        engine2_quality = 0.0
+        engine2_decision_eligible = False
+        engine2_source = "NOT_READY"
         if engine2_price_action is not None:
-            native_pa_status = str(price_action.get("status", "NOT_READY"))
-            native_pa_direction = str(price_action.get("direction", "UNKNOWN"))
-            native_pa_alignment = str(price_action_summary.get("timeframe_alignment", "NOT_AVAILABLE"))
-            candle_pattern_alignment = str(
-                price_action_summary.get(
-                    "latest_candle_pattern_alignment", "NO_DIRECTIONAL_CANDLE_PATTERN"
-                )
-            )
-            if native_pa_status != "READY":
-                native_pa_gate = "NOT_READY"
-                native_pa_allows_candidate = False
-            elif (
-                native_pa_direction == "BULLISH"
+            native_pa_status = str(price_action.get("status", "NOT_READY")).upper()
+            native_pa_direction = str(price_action.get("direction", "UNKNOWN")).upper()
+            native_pa_alignment = str(price_action_summary.get("timeframe_alignment", "NOT_AVAILABLE")).upper()
+            engine2_structure_score = _finite_value(price_action.get("structure_score"))
+            timeframe_coverage = _finite_value(price_action_summary.get("timeframe_weight_coverage"))
+            directional_agreement = _finite_value(price_action_summary.get("directional_structure_agreement"))
+            if (
+                native_pa_status == "READY"
+                and native_pa_direction == "BULLISH"
                 and native_pa_alignment == "BULLISH_STRUCTURE_CONFLUENCE"
             ):
                 native_pa_gate = "BULLISH_CONFLUENCE"
             elif (
-                native_pa_direction == "BEARISH"
+                native_pa_status == "READY"
+                and native_pa_direction == "BEARISH"
                 and native_pa_alignment == "BEARISH_STRUCTURE_CONFLUENCE"
             ):
                 native_pa_gate = "BEARISH_CONFLUENCE"
+            elif native_pa_status != "READY":
+                native_pa_gate = "NOT_READY"
+                native_pa_allows_candidate = False
             else:
                 native_pa_gate = "MIXED_OR_NO_CONFLUENCE"
                 native_pa_allows_candidate = False
 
-            # Directional candle patterns are a veto-only confirmation layer:
-            # mixed or opposite latest-pattern evidence cannot overturn the
-            # multi-timeframe OHLC structure or become a standalone vote.
+            candle_pattern_alignment = str(
+                price_action_summary.get(
+                    "latest_candle_pattern_alignment", "NO_DIRECTIONAL_CANDLE_PATTERN"
+                )
+            ).upper()
             if native_pa_allows_candidate:
                 if candle_pattern_alignment == "MIXED_CANDLE_PATTERN_EVIDENCE":
                     native_pa_gate = "MIXED_CANDLE_PATTERN_EVIDENCE"
@@ -564,38 +462,119 @@ class DecisionEngine:
                     native_pa_gate = "CANDLE_PATTERN_DIRECTION_CONFLICT"
                     native_pa_allows_candidate = False
 
-            if candidate in {"BUY", "SELL"}:
-                expected_native_direction = "BULLISH" if candidate == "BUY" else "BEARISH"
-                if not native_pa_allows_candidate or native_pa_direction != expected_native_direction:
-                    native_pa_gate = (
-                        "DIRECTION_CONFLICT"
-                        if native_pa_status == "READY" and native_pa_allows_candidate
-                        else native_pa_gate
+            structure_valid = (
+                engine2_structure_score is not None
+                and -1.0 <= engine2_structure_score <= 1.0
+                and timeframe_coverage is not None
+                and MIN_ENGINE2_TIMEFRAME_COVERAGE <= timeframe_coverage <= 1.0
+                and directional_agreement is not None
+                and MIN_ENGINE2_DIRECTIONAL_AGREEMENT <= directional_agreement <= 1.0
+                and (
+                    (native_pa_direction == "BULLISH" and engine2_structure_score >= MIN_ENGINE2_DIRECTION_SCORE)
+                    or (native_pa_direction == "BEARISH" and engine2_structure_score <= -MIN_ENGINE2_DIRECTION_SCORE)
+                )
+            )
+            engine2_decision_eligible = bool(
+                native_pa_status == "READY"
+                and native_pa_allows_candidate
+                and structure_valid
+            )
+            if engine2_decision_eligible:
+                engine2_direction = native_pa_direction
+                engine2_visual_used = visual_evidence_usable
+                if engine2_visual_used:
+                    engine2_visual_weight = ENGINE2_VISUAL_WEIGHT
+                    engine2_score = (
+                        ENGINE2_NATIVE_OHLC_WEIGHT * float(engine2_structure_score)
+                        + ENGINE2_VISUAL_WEIGHT * chart_score
                     )
-                    candidate = "WAIT"
+                    engine2_quality = (
+                        ENGINE2_NATIVE_OHLC_WEIGHT * min(float(timeframe_coverage), float(directional_agreement))
+                        + ENGINE2_VISUAL_WEIGHT * chart_confidence
+                    )
+                    engine2_source = "NATIVE_OHLC_PLUS_CALIBRATED_VISUAL"
+                else:
+                    engine2_score = float(engine2_structure_score)
+                    engine2_quality = min(float(timeframe_coverage), float(directional_agreement))
+                    engine2_source = "NATIVE_OHLC_ONLY_VISUAL_NOT_ELIGIBLE"
+            price_action_context["decision_eligible"] = engine2_decision_eligible
             price_action_context["gate"] = native_pa_gate
+            price_action_context["timeframe_weight_coverage"] = timeframe_coverage
+            price_action_context["directional_structure_agreement"] = directional_agreement
+            price_action_context["visual_evidence_used"] = engine2_visual_used
+            price_action_context["visual_evidence_weight_inside_engine_2"] = engine2_visual_weight
+        else:
+            # Backwards-compatible isolated visual contract for callers that do
+            # not yet provide the native Engine 2 price-action report. Runtime
+            # always supplies the native report and therefore never takes this
+            # fallback in normal operation.
+            engine2_direction = (
+                "BULLISH" if visual_bias == "BULLISH"
+                else "BEARISH" if visual_bias == "BEARISH"
+                else "UNKNOWN"
+            )
+            engine2_decision_eligible = bool(visual_evidence_usable and engine2_direction != "UNKNOWN")
+            if engine2_decision_eligible:
+                engine2_score = chart_score
+                engine2_quality = chart_confidence
+                engine2_source = "CALIBRATED_VISUAL_ONLY_COMPATIBILITY"
+            price_action_context["gate"] = "NOT_PROVIDED_VISUAL_COMPATIBILITY"
+
+        engine2_score = (
+            max(-1.0, min(1.0, float(engine2_score)))
+            if engine2_score is not None and math.isfinite(float(engine2_score))
+            else None
+        )
+        engine3_score = trend_score
+        engine3_quality = 1.0  # Engine 3 is accepted only after its strict READY/provenance/value checks above.
+        weighted_score, effective_weights = _weighted_three_engine_score(
+            engine1_score=engine1_score,
+            engine2_score=engine2_score,
+            engine3_score=engine3_score,
+            engine1_quality=engine1_quality,
+            engine2_quality=engine2_quality,
+            engine3_quality=engine3_quality,
+        )
+        # A composite directional score is not actionable without a valid
+        # Engine 2 multi-timeframe directional structure.
+        combined_score = weighted_score if engine2_decision_eligible else None
+
+        candidate = "WAIT"
+        if (
+            engine2_decision_eligible
+            and engine2_direction == "BULLISH"
+            and engine2_score is not None
+            and engine2_score >= MIN_ENGINE2_DIRECTION_SCORE
+            and combined_score is not None
+            and combined_score >= DIRECTIONAL_SCORE_THRESHOLD
+        ):
+            candidate = "BUY"
+        elif (
+            engine2_decision_eligible
+            and engine2_direction == "BEARISH"
+            and engine2_score is not None
+            and engine2_score <= -MIN_ENGINE2_DIRECTION_SCORE
+            and combined_score is not None
+            and combined_score <= -DIRECTIONAL_SCORE_THRESHOLD
+        ):
+            candidate = "SELL"
 
         aligned_signal = candidate
-        chart_gate = "NOT_CALIBRATED"
-        if not chart_eligible:
-            aligned_signal = "WAIT"
-            chart_gate = "WAITING_FOR_ENGINE_2_CALIBRATION"
-        elif chart_confidence < MIN_CHART_CONFIDENCE:
-            aligned_signal = "WAIT"
-            chart_gate = "INSUFFICIENT_ANALYSIS_CONFIDENCE"
-        elif candidate == "WAIT" and native_pa_gate in {
-            "MIXED_CANDLE_PATTERN_EVIDENCE", "CANDLE_PATTERN_DIRECTION_CONFLICT"
-        }:
+        if native_pa_gate in {"CANDLE_PATTERN_DIRECTION_CONFLICT", "MIXED_CANDLE_PATTERN_EVIDENCE"}:
             chart_gate = "WAITING_FOR_ENGINE_2_CANDLE_PATTERN_CONFLUENCE"
-        elif candidate == "WAIT" and native_pa_gate not in {
-            "NOT_PROVIDED", "BULLISH_CONFLUENCE", "BEARISH_CONFLUENCE"
-        }:
+        elif engine2_price_action is not None and not engine2_decision_eligible:
             chart_gate = "WAITING_FOR_ENGINE_2_PRICE_ACTION_CONFLUENCE"
+        elif engine2_price_action is None and not engine2_decision_eligible:
+            chart_gate = (
+                "WAITING_FOR_ENGINE_2_CALIBRATION"
+                if not chart_eligible else "INSUFFICIENT_ANALYSIS_CONFIDENCE"
+            )
         elif candidate == "WAIT":
-            chart_gate = "80_20_SCORE_BELOW_THRESHOLD_OR_CONFLICT"
+            chart_gate = "20_50_30_SCORE_BELOW_THRESHOLD_OR_CONFLICT"
+        elif engine2_visual_used:
+            chart_gate = "20_50_30_NATIVE_OHLC_AND_VISUAL_CONFIRMED"
         else:
-            chart_gate = "80_20_ANALYSIS_CONFIRMED"
-
+            chart_gate = "20_50_30_NATIVE_OHLC_CONFIRMED_VISUAL_NOT_USED"
         market_entry = float(market["price"])
         broker_symbol = str(bridge.get("symbol", ""))
         market_symbol = str(market.get("symbol", ""))
@@ -746,11 +725,13 @@ class DecisionEngine:
 
         return {
             **base,
-            "status": "READY" if chart_eligible else "WAITING_FOR_ENGINE_2",
+            "status": "READY" if engine2_decision_eligible else "WAITING_FOR_ENGINE_2",
             "action": action, "candidate_action": candidate, "aligned_signal": aligned_signal,
             "signal_id": signal_id, "command_ready": command_ready,
             "position_ticket": close_ticket, "chart_gate": chart_gate,
-            "chart_visual_bias": visual_bias, "open_block_reason": open_block_reason,
+            "chart_visual_bias": visual_bias, "engine_2_direction": engine2_direction,
+            "engine_2_score_source": engine2_source, "engine_2_visual_evidence_used": engine2_visual_used,
+            "open_block_reason": open_block_reason,
             "as_of_ms": market.get("captured_at_ms"),
             "market_symbol": market_symbol, "symbol": broker_symbol if quote_ok else market_symbol,
             "market_price_reference": market.get("price"),
@@ -762,17 +743,41 @@ class DecisionEngine:
             "take_profit": take_profit if action in {"BUY", "SELL"} else 0.0,
             "trend_score": round(trend_score, 4), "timeframes": timeframe_data,
             "decision_weights": {
-                "engine_2_chart": CHART_DECISION_WEIGHT,
-                "engine_3_indicators": round(MARKET_CONFIRMATION_WEIGHT * 0.50, 4),
-                "engine_1_market_intelligence": round(MARKET_CONFIRMATION_WEIGHT * 0.50, 4),
+                **effective_weights,
+                "configured": {
+                    "engine_1_market_intelligence": ENGINE1_DECISION_WEIGHT,
+                    "engine_2_price_action": ENGINE2_DECISION_WEIGHT,
+                    "engine_3_indicators": ENGINE3_DECISION_WEIGHT,
+                },
+                "engine_2_internal": {
+                    "configured": {
+                        "native_ohlc_price_action": ENGINE2_NATIVE_OHLC_WEIGHT,
+                        "calibrated_visual_chart": ENGINE2_VISUAL_WEIGHT,
+                    },
+                    "applied": {
+                        "native_ohlc_price_action": ENGINE2_NATIVE_OHLC_WEIGHT if engine2_visual_used else 1.0,
+                        "calibrated_visual_chart": ENGINE2_VISUAL_WEIGHT if engine2_visual_used else 0.0,
+                    },
+                },
+                "normalization": "configured base weight multiplied by evidence quality, then active weights normalized to 100 percent",
             },
             "decision_scores": {
+                "engine_1_market_intelligence": round(engine1_score, 4) if engine1_score is not None else None,
+                "engine_1_quality": round(engine1_quality, 4),
+                "engine_2_score": round(engine2_score, 4) if engine2_score is not None else None,
+                "engine_2_native_ohlc_score": round(float(engine2_structure_score), 4) if engine2_structure_score is not None else None,
+                "engine_2_visual_score": round(chart_score, 4) if engine2_visual_used else None,
+                "engine_2_quality": round(engine2_quality, 4),
+                "engine_3_indicators": round(trend_score, 4),
+                "engine_3_quality": round(engine3_quality, 4),
                 "chart_score": round(chart_score, 4),
                 "chart_confidence": round(chart_confidence, 4),
-                "market_score": round(market_score, 4),
+                "market_score": round(market_score, 4) if market_score is not None else None,
                 "market_components": market_score_parts,
-                "combined_score": round(combined_score, 4),
+                "effective_weights": effective_weights,
+                "combined_score": round(combined_score, 4) if combined_score is not None else None,
                 "threshold": DIRECTIONAL_SCORE_THRESHOLD,
+                "minimum_engine_2_direction_score": MIN_ENGINE2_DIRECTION_SCORE,
             },
             "indicators": indicator_values,
             "engine_3_indicator_status": indicator_data.get("status"),
@@ -804,14 +809,15 @@ class DecisionEngine:
             },
             "engine_inputs": {
                 "market_context_from_engine_1": market.get("status"),
-                "chart_and_candles_from_engine_2": "READY" if chart_eligible else chart.get("status", "NOT_READY"),
+                "chart_and_candles_from_engine_2": "READY" if engine2_decision_eligible else price_action.get("status", chart.get("status", "NOT_READY")) ,
                 "indicators_from_engine_3": indicator_data.get("status"),
                 "engine_5_bridge_for_quote_account_specs_and_transport": bridge.get("status", "NOT_CONFIGURED"),
                 "broker_market_price_divergence_pct": round(price_divergence * 100, 4) if price_divergence is not None else None,
                 "broker_spread_pct": round(spread_pct * 100, 4) if spread_pct is not None else None,
             },
             "reason": (
-                "BUY/SELL combines Engine 2 calibrated chart analysis, Engine 3 indicators calculated from Engine 2 candle history, and Engine 1 quote-update context. "
-                "Engine 1 does not read or analyze candles; quote updates are not represented as executed trade flow. Engine 5 supplies execution and account facts only."
+                "BUY/SELL combines Engine 1 market intelligence (20%), Engine 2 native multi-timeframe OHLC price action (50%), and Engine 3 indicators (30%). "
+                "Inside Engine 2, native OHLC structure carries 70% and calibrated image analysis may add 30%; when the image is uncalibrated, only native OHLC is used. "
+                "Evidence-quality weighting re-normalizes available contributions; the resulting score is not a calibrated probability of profit. Engine 5 supplies execution and account facts only."
             ),
         }

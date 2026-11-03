@@ -10,13 +10,16 @@ from unittest.mock import patch
 
 from mirsad.engines.indicators import IndicatorsEngine
 from mirsad.engines.decision import (
-    CHART_DECISION_WEIGHT,
-    MARKET_CONFIRMATION_WEIGHT,
+    ENGINE1_DECISION_WEIGHT,
+    ENGINE2_DECISION_WEIGHT,
+    ENGINE3_DECISION_WEIGHT,
+    ENGINE2_NATIVE_OHLC_WEIGHT,
+    ENGINE2_VISUAL_WEIGHT,
     DecisionEngine,
-    _market_confirmation_score,
+    _market_intelligence_signal,
     _matching_positions,
     _price_to_tick,
-    _weighted_direction_score,
+    _weighted_three_engine_score,
     calculate_volume,
     _ema,
 )
@@ -135,51 +138,98 @@ class RiskSizingTests(unittest.TestCase):
 
 
 class WeightedDecisionTests(unittest.TestCase):
-    def test_chart_analysis_has_eighty_percent_of_directional_score(self) -> None:
-        self.assertAlmostEqual(CHART_DECISION_WEIGHT, 0.80)
-        self.assertAlmostEqual(MARKET_CONFIRMATION_WEIGHT, 0.20)
-        self.assertAlmostEqual(_weighted_direction_score(0.8, -0.5), 0.54)
+    def test_engine_decision_weights_are_20_50_30_and_total_one_hundred_percent(self) -> None:
+        self.assertAlmostEqual(ENGINE1_DECISION_WEIGHT, 0.20)
+        self.assertAlmostEqual(ENGINE2_DECISION_WEIGHT, 0.50)
+        self.assertAlmostEqual(ENGINE3_DECISION_WEIGHT, 0.30)
+        self.assertAlmostEqual(
+            ENGINE1_DECISION_WEIGHT + ENGINE2_DECISION_WEIGHT + ENGINE3_DECISION_WEIGHT,
+            1.0,
+        )
+        self.assertAlmostEqual(ENGINE2_NATIVE_OHLC_WEIGHT, 0.70)
+        self.assertAlmostEqual(ENGINE2_VISUAL_WEIGHT, 0.30)
+        self.assertAlmostEqual(ENGINE2_NATIVE_OHLC_WEIGHT + ENGINE2_VISUAL_WEIGHT, 1.0)
 
-    def test_market_signal_cannot_override_a_neutral_or_weak_chart_analysis(self) -> None:
-        score = _weighted_direction_score(0.1, 1.0)
-        self.assertAlmostEqual(score, 0.28)
-        self.assertLess(score, 0.40)
+    def test_all_three_engines_are_combined_using_the_configured_baseline(self) -> None:
+        score, weights = _weighted_three_engine_score(
+            engine1_score=-0.50,
+            engine2_score=0.80,
+            engine3_score=-0.20,
+            engine1_quality=1.0,
+            engine2_quality=1.0,
+            engine3_quality=1.0,
+        )
+        self.assertAlmostEqual(score, 0.24)
+        self.assertAlmostEqual(weights["engine_1_market_intelligence"], 0.20)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.50)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.30)
+        self.assertAlmostEqual(sum(weights.values()), 1.0)
 
-    def test_market_confirmation_uses_engine1_intelligence_with_quote_pulse_as_minor_context(self) -> None:
-        market = {
-            "market_context": {"microstructure": {"status": "READY", "quote_direction_balance": 0.65}},
-            "market_intelligence": {"status": "READY", "directional_score": -0.40, "confidence": 0.80, "evidence_coverage": 0.80},
-        }
-        score, parts = _market_confirmation_score(0.20, market)
-        self.assertAlmostEqual(score, 0.50 * 0.20 + 0.50 * (-0.36 + 0.065), places=4)
-        self.assertEqual(parts["engine_1_source"], "market_intelligence_plus_quote_pulse")
-        self.assertEqual(parts["confirmation_split"], {"engine_3": 0.50, "engine_1": 0.50})
+    def test_missing_engine1_evidence_is_redistributed_between_engines2_and3(self) -> None:
+        score, weights = _weighted_three_engine_score(
+            engine1_score=None,
+            engine2_score=0.80,
+            engine3_score=-0.20,
+            engine1_quality=0.0,
+            engine2_quality=1.0,
+            engine3_quality=1.0,
+        )
+        self.assertAlmostEqual(score, 0.425)
+        self.assertEqual(weights["engine_1_market_intelligence"], 0.0)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.625)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.375)
+        self.assertAlmostEqual(sum(weights.values()), 1.0)
 
-    def test_market_confirmation_falls_back_to_quote_pulse_only_when_intelligence_is_unavailable(self) -> None:
-        market = {"market_context": {"microstructure": {
-            "status": "READY", "quote_direction_balance": 0.65,
-        }}}
-        score, parts = _market_confirmation_score(0.0, market)
-        self.assertAlmostEqual(score, 0.325, places=4)
-        self.assertEqual(parts["engine_1_source"], "quote_pulse_fallback_only")
-        self.assertEqual(parts["quote_pulse_scope"], "bid/ask quote updates, not executed trades")
+    def test_low_quality_engine1_evidence_receives_less_than_its_baseline_weight(self) -> None:
+        score, weights = _weighted_three_engine_score(
+            engine1_score=0.90,
+            engine2_score=0.50,
+            engine3_score=0.10,
+            engine1_quality=0.50,
+            engine2_quality=1.0,
+            engine3_quality=1.0,
+        )
+        self.assertAlmostEqual(weights["engine_1_market_intelligence"], 0.20 / 0.90)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.50 / 0.90)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.30 / 0.90)
+        self.assertAlmostEqual(score, 0.90 * weights["engine_1_market_intelligence"]
+                               + 0.50 * weights["engine_2_price_action"]
+                               + 0.10 * weights["engine_3_indicators"])
 
-    def test_unavailable_or_single_source_intelligence_does_not_create_an_extra_directional_vote(self) -> None:
-        market = {
+    def test_engine1_intelligence_score_uses_quote_pulse_only_as_minor_context(self) -> None:
+        score, quality, parts = _market_intelligence_signal({
+            "market_context": {"microstructure": {
+                "status": "READY", "quote_direction_balance": 0.65,
+            }},
+            "market_intelligence": {
+                "status": "READY", "directional_score": -0.40,
+                "confidence": 0.80, "evidence_coverage": 0.80,
+            },
+        })
+        self.assertAlmostEqual(score, -0.295)
+        self.assertAlmostEqual(quality, 0.80)
+        self.assertEqual(parts["source"], "MARKET_INTELLIGENCE_PLUS_MINOR_QUOTE_CONTEXT")
+
+    def test_engine1_quote_only_fallback_is_low_quality_and_cannot_take_full_weight(self) -> None:
+        score, quality, parts = _market_intelligence_signal({
+            "market_context": {"microstructure": {
+                "status": "READY", "quote_direction_balance": 0.65,
+            }},
+        })
+        self.assertAlmostEqual(score, 0.65)
+        self.assertAlmostEqual(quality, 0.20)
+        self.assertEqual(parts["source"], "QUOTE_PULSE_FALLBACK_ONLY")
+
+    def test_single_category_or_low_coverage_intelligence_is_excluded(self) -> None:
+        score, quality, parts = _market_intelligence_signal({
             "market_intelligence": {
                 "status": "PARTIAL", "directional_score": 0.95,
                 "confidence": 0.90, "evidence_coverage": 0.45,
             },
-        }
-        score, parts = _market_confirmation_score(0.20, market)
-        self.assertAlmostEqual(score, 0.20)
-        self.assertEqual(parts["engine_1_source"], "unavailable")
-        self.assertEqual(parts["confirmation_split"], {"engine_3": 1.0, "engine_1": 0.0})
-
-    def test_non_finite_directional_scores_are_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            _weighted_direction_score(float("nan"), 0.0)
-
+        })
+        self.assertIsNone(score)
+        self.assertEqual(quality, 0.0)
+        self.assertEqual(parts["source"], "UNAVAILABLE")
 
 class ChartDominantDecisionIntegrationTests(unittest.TestCase):
     def _market(self, direction: str) -> dict:
@@ -195,7 +245,7 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
             "venues": {"MT5 Broker": {"status": "LIVE", "price": 100.0}},
         }
 
-    def test_eighty_percent_chart_analyst_can_overrule_opposite_market_vote(self) -> None:
+    def test_conflicting_engine1_and_engine3_evidence_can_veto_a_visual_only_candidate(self) -> None:
         result = DecisionEngine().analyze(
             self._market("down"),
             {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
@@ -203,13 +253,24 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
              "candle_history": make_engine2_candle_history("down")},
             {},
         )
-        self.assertEqual(result["direction_inputs"], ["engine_1_market_intelligence", "engine_2_chart", "engine_3_indicators"])
-        self.assertEqual(result["calculation_inputs"], ["engine_1_market_intelligence", "engine_3_indicators"])
-        self.assertEqual(result["candidate_action"], "BUY")
-        self.assertAlmostEqual(result["decision_weights"]["engine_2_chart"], 0.80)
-        self.assertAlmostEqual(result["decision_weights"]["engine_3_indicators"], 0.10)
-        self.assertAlmostEqual(result["decision_weights"]["engine_1_market_intelligence"], 0.10)
+        self.assertEqual(
+            result["direction_inputs"],
+            ["engine_1_market_intelligence", "engine_2_price_action_and_calibrated_visual", "engine_3_indicators"],
+        )
+        self.assertEqual(
+            result["calculation_inputs"],
+            ["engine_1_market_intelligence", "engine_2_native_ohlc_price_action", "engine_3_indicators"],
+        )
+        self.assertEqual(result["candidate_action"], "WAIT")
+        configured = result["decision_weights"]["configured"]
+        self.assertEqual(configured, {
+            "engine_1_market_intelligence": 0.20,
+            "engine_2_price_action": 0.50,
+            "engine_3_indicators": 0.30,
+        })
+        self.assertAlmostEqual(sum(result["decision_weights"][key] for key in configured), 1.0)
         self.assertLess(result["decision_scores"]["market_score"], 0)
+        self.assertGreater(result["decision_scores"]["engine_2_score"], 0)
 
     def test_high_impact_macro_window_pauses_new_entries_but_not_position_close(self) -> None:
         now = int(time.time() * 1000)
@@ -278,7 +339,10 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
             {},
         )
         self.assertEqual(result["candidate_action"], "WAIT")
-        self.assertLess(result["decision_scores"]["combined_score"], 0.40)
+        self.assertLess(
+            result["decision_scores"]["engine_2_score"],
+            result["decision_scores"]["minimum_engine_2_direction_score"],
+        )
 
     def test_low_confidence_chart_never_creates_direction_even_with_extreme_market(self) -> None:
         result = DecisionEngine().analyze(
@@ -290,6 +354,7 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(result["candidate_action"], "WAIT")
         self.assertEqual(result["chart_gate"], "INSUFFICIENT_ANALYSIS_CONFIDENCE")
+        self.assertIsNone(result["decision_scores"]["combined_score"])
 
 
 class Engine2Engine3Engine4ContractTests(unittest.TestCase):
@@ -453,6 +518,40 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["action"], "WAIT")
         self.assertEqual(result["engine_3_indicator_status"], "INVALID_PROVENANCE")
 
+    def test_native_ohlc_price_action_can_drive_engine2_when_chart_image_is_not_eligible(self) -> None:
+        market = self._market()
+        chart = self._chart()
+        chart["status"] = "REFERENCE_NOT_VERIFIED"
+        chart["decision_eligible"] = False
+        chart["visual_bias"] = "BEARISH"
+        chart["analysis_score"] = -0.99
+        chart["analysis_confidence"] = 0.99
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = {
+            "engine": "engine_2_native_price_action",
+            "source": "MT5_COPYRATES_CLOSED_BARS",
+            "status": "READY",
+            "direction": "BULLISH",
+            "structure_score": 0.80,
+            "summary": {
+                "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h"],
+                "timeframe_alignment": "BULLISH_STRUCTURE_CONFLUENCE",
+                "timeframe_weight_coverage": 0.90,
+                "directional_structure_agreement": 0.80,
+                "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
+            },
+        }
+
+        result = DecisionEngine().analyze(
+            market, chart, {}, indicators, engine2_price_action=price_action
+        )
+        self.assertEqual(result["candidate_action"], "BUY")
+        self.assertEqual(result["status"], "READY")
+        self.assertFalse(result["engine_2_visual_evidence_used"])
+        self.assertEqual(result["engine_2_score_source"], "NATIVE_OHLC_ONLY_VISUAL_NOT_ELIGIBLE")
+        self.assertAlmostEqual(result["decision_scores"]["engine_2_score"], 0.80)
+        self.assertIn("NATIVE_OHLC_CONFIRMED", result["chart_gate"])
+
     def test_engine4_rejects_missing_or_nonfinite_required_indicator_values(self) -> None:
         chart = self._chart()
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
@@ -477,8 +576,11 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             "structure_score": 0.25,
             "as_of_utc_ms": int(time.time() * 1000),
             "summary": {
-                "eligible_timeframes": ["1m", "5m", "15m", "1h"],
+                "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h"],
                 "timeframe_alignment": "MIXED_TIMEFRAME_DIRECTIONS",
+                "timeframe_weight_coverage": 0.90,
+                "directional_structure_agreement": 0.80,
+                "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
             },
             "decision_eligible": False,
         }
@@ -488,23 +590,24 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         )
 
         self.assertEqual(with_context["action"], "WAIT")
-        self.assertEqual(with_context["status"], "READY")
+        self.assertEqual(with_context["status"], "WAITING_FOR_ENGINE_2")
         self.assertEqual(
             with_context["engine_2_native_price_action_context"]["direction"],
             "MIXED_TIMEFRAME_DIRECTIONS",
         )
         self.assertEqual(
             with_context["engine_2_native_price_action_context"]["role"],
-            "NON_DIRECTIONAL_SAFETY_GATE_ONLY",
+            "PRIMARY_ENGINE_2_DIRECTIONAL_INPUT_WITH_OPTIONAL_CALIBRATED_VISUAL_CONFIRMATION",
         )
         self.assertEqual(without_context["candidate_action"], "BUY")
         self.assertEqual(with_context["candidate_action"], "WAIT")
+        self.assertIsNone(with_context["decision_scores"]["combined_score"])
         self.assertEqual(with_context["chart_gate"], "WAITING_FOR_ENGINE_2_PRICE_ACTION_CONFLUENCE")
         self.assertEqual(
             with_context["engine_2_native_price_action_context"]["gate"],
             "MIXED_OR_NO_CONFLUENCE",
         )
-        self.assertEqual(with_context["decision_scores"], without_context["decision_scores"])
+        self.assertNotEqual(with_context["decision_scores"]["engine_2_score"], without_context["decision_scores"]["engine_2_score"])
 
         aligned_price_action = {
             **price_action,
@@ -512,12 +615,17 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             "summary": {
                 **price_action["summary"],
                 "timeframe_alignment": "BULLISH_STRUCTURE_CONFLUENCE",
+                "directional_structure_agreement": 0.80,
+                "timeframe_weight_coverage": 0.90,
             },
         }
         aligned = DecisionEngine().analyze(
             self._market(), chart, {}, indicators, engine2_price_action=aligned_price_action
         )
         self.assertEqual(aligned["candidate_action"], "BUY")
+        self.assertTrue(aligned["engine_2_visual_evidence_used"])
+        self.assertEqual(aligned["engine_2_score_source"], "NATIVE_OHLC_PLUS_CALIBRATED_VISUAL")
+        self.assertAlmostEqual(aligned["decision_scores"]["engine_2_score"], 0.70 * 0.25 + 0.30 * 0.95)
         self.assertEqual(
             aligned["engine_2_native_price_action_context"]["gate"],
             "BULLISH_CONFLUENCE",
