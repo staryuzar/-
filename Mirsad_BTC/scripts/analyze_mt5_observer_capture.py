@@ -260,13 +260,15 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
                 )
             },
             "native_geometry_overlay": {
-                key: native_geometry_overlay.get(key) for key in (
-                    "status", "mapping_verified", "matched_candles", "fit_candles",
-                    "validation_candles", "validation_passed_candles",
-                    "validation_pass_ratio", "validation_median_max_residual_px",
-                    "validation_max_residual_px", "x_scale", "x_offset",
-                    "y_scale", "y_offset", "reason", "coordinate_diagnostics"
-                ),
+                **{
+                    key: native_geometry_overlay.get(key) for key in (
+                        "status", "mapping_verified", "matched_candles", "fit_candles",
+                        "validation_candles", "validation_passed_candles",
+                        "validation_pass_ratio", "validation_median_max_residual_px",
+                        "validation_max_residual_px", "x_scale", "x_offset",
+                        "y_scale", "y_offset", "reason", "coordinate_diagnostics"
+                    )
+                },
                 "worst_validation_rows": sorted(
                     [row for row in native_geometry_overlay.get("validation_rows", [])
                      if isinstance(row, dict)],
