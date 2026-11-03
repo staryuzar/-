@@ -681,34 +681,78 @@ public static class MirsadNativeWindow {
     if ($null -eq $directSummary -or $validatorExitCode -ne 0) {
         throw 'Image-free direct MT5 feed reader validation remained blocked after 20 fresh-snapshot attempts.'
     }
-    # Preserve the exact sanitized source snapshots used for validation so
-    # indicator parity can be measured against the same closed-bar timestamps.
+    # Preserve the market snapshot, then pair candle and CopyBuffer snapshots.
+    # The Observer publishes them sequentially. If an M1 bar closes between the
+    # two writes, their timestamps can differ for one timer cycle; never compare
+    # those different bars and never weaken numeric tolerances to hide the race.
     Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $observerDir) 'market.json') -Destination (Join-Path $evidence 'market-snapshot.json') -Force
-    Copy-Item -LiteralPath (Join-Path $observerDir 'candles.json') -Destination (Join-Path $evidence 'candles-snapshot.json') -Force
-    Copy-Item -LiteralPath (Join-Path $observerDir 'indicators.json') -Destination (Join-Path $evidence 'indicators-snapshot.json') -Force
 
-    # Compare Engine 3's independent calculations with native MT5 CopyBuffer
-    # on the exact same closed-bar timestamps and tick-volume history.
     $parityValidator = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\\scripts\\validate_engine3_mt5_indicator_parity.py'
     $parityOutput = Join-Path $evidence 'engine3-indicator-parity.json'
+    $candlesSnapshot = Join-Path $evidence 'candles-snapshot.json'
+    $indicatorsSnapshot = Join-Path $evidence 'indicators-snapshot.json'
     if (!(Test-Path -LiteralPath $parityValidator)) {
         throw 'Engine 3 MT5 indicator parity validator is missing.'
     }
     $parityArgs = @(
         $parityValidator,
-        '--candles', (Join-Path $evidence 'candles-snapshot.json'),
-        '--native-indicators', (Join-Path $evidence 'indicators-snapshot.json'),
+        '--candles', $candlesSnapshot,
+        '--native-indicators', $indicatorsSnapshot,
         '--output', $parityOutput
     )
-    $parityLines = & python @parityArgs 2>&1
-    $parityExitCode = $LASTEXITCODE
-    foreach ($line in $parityLines) {
-        Add-Report ("Engine 3 MT5 parity: {0}" -f [string]$line)
+    $parityDeadline = [DateTime]::UtcNow.AddSeconds(30)
+    $parityAttempt = 0
+    $parityExitCode = 1
+    $paritySummary = $null
+    do {
+        $parityAttempt++
+        Copy-Item -LiteralPath (Join-Path $observerDir 'candles.json') -Destination $candlesSnapshot -Force
+        Copy-Item -LiteralPath (Join-Path $observerDir 'indicators.json') -Destination $indicatorsSnapshot -Force
+        $parityLines = & python @parityArgs 2>&1
+        $parityExitCode = $LASTEXITCODE
+        foreach ($line in $parityLines) {
+            Add-Report ("Engine 3 MT5 parity attempt {0}: {1}" -f $parityAttempt,[string]$line)
+        }
+        if ($parityExitCode -eq 0 -and (Test-Path -LiteralPath $parityOutput)) {
+            $paritySummary = Get-Content -LiteralPath $parityOutput -Raw | ConvertFrom-Json
+            break
+        }
+        if (!(Test-Path -LiteralPath $parityOutput)) { break }
+        $paritySummary = Get-Content -LiteralPath $parityOutput -Raw | ConvertFrom-Json
+
+        # Retry only when every failed timeframe has a timestamp mismatch and
+        # all remaining failures are numeric deltas caused by comparing those
+        # mismatched bars. Schema, identity, missing-buffer and history errors
+        # remain hard failures and are not retried away.
+        $transientTimestampRace = @($paritySummary.failures).Count -gt 0
+        foreach ($failure in @($paritySummary.failures)) {
+            if ([string]$failure -notmatch '^[^:]+: ') {
+                $transientTimestampRace = $false
+                break
+            }
+        }
+        foreach ($frameProperty in @($paritySummary.timeframes.PSObject.Properties)) {
+            if ([string]$frameProperty.Value.status -eq 'FAIL') {
+                $frameFailures = @($frameProperty.Value.failures)
+                $hasTimestampMismatch = @($frameFailures | Where-Object { [string]$_ -match 'timestamp mismatch' }).Count -gt 0
+                $hasHardFailure = @($frameFailures | Where-Object {
+                    [string]$_ -notmatch 'timestamp mismatch' -and
+                    [string]$_ -notmatch 'absolute error .* exceeds tolerance'
+                }).Count -gt 0
+                if (!$hasTimestampMismatch -or $hasHardFailure) {
+                    $transientTimestampRace = $false
+                    break
+                }
+            }
+        }
+        if (!$transientTimestampRace -or [DateTime]::UtcNow -ge $parityDeadline) { break }
+        Start-Sleep -Seconds 1
+    } while ([DateTime]::UtcNow -lt $parityDeadline)
+
+    if ($parityExitCode -ne 0 -or $null -eq $paritySummary) {
+        throw 'Engine 3 indicator parity against native MT5 CopyBuffer did not pass on identical closed bars; see timestamp and metric diagnostics.'
     }
-    if ($parityExitCode -ne 0 -or !(Test-Path -LiteralPath $parityOutput)) {
-        throw 'Engine 3 indicator parity against native MT5 CopyBuffer did not pass on identical closed bars.'
-    }
-    $paritySummary = Get-Content -LiteralPath $parityOutput -Raw | ConvertFrom-Json
+    Add-Report ("PASS — Engine 3 versus MT5 parity: {0}/{1} indicator checks passed across six timeframes." -f $paritySummary.passed_metrics,$paritySummary.total_metrics)
     Add-Report ("PASS — Engine 3 versus MT5 parity: {0}/{1} indicator checks passed across six timeframes." -f $paritySummary.passed_metrics,$paritySummary.total_metrics)
     if ([string]$directSummary.engine2.status -ne 'READY') {
         throw 'Engine 2 native MT5 market/OHLC feed is not READY.'
