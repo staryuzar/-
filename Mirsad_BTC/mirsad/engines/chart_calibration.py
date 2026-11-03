@@ -177,9 +177,16 @@ def calibrate_from_reference_candles(
         return (max(xs)-min(xs))/width if len(xs)>1 else 0.0
     fit_x, val_x = coverage(fit), coverage(holdout)
     if fit_x < 0.25 or val_x < 0.25:
+        fit_xs = [float(x["x_px"]) for x in fit]
+        val_xs = [float(x["x_px"]) for x in holdout]
         return fail("REFERENCE_SPATIAL_COVERAGE_LOW",
                     "Fit and hold-out candles must each span at least 25% of the plot.",
-                    fit_x_coverage=round(fit_x,4),validation_x_coverage=round(val_x,4))
+                    matched_candles=len(clean), fit_candles=len(fit),
+                    validation_candles=len(holdout),
+                    fit_x_coverage=round(fit_x,4),validation_x_coverage=round(val_x,4),
+                    fit_x_min_px=round(min(fit_xs),2),fit_x_max_px=round(max(fit_xs),2),
+                    validation_x_min_px=round(min(val_xs),2),validation_x_max_px=round(max(val_xs),2),
+                    plot_width_px=width)
 
     points=[]
     for item in fit:
