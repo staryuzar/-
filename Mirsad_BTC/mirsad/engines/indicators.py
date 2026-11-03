@@ -168,7 +168,7 @@ def _adx(candles: list[dict[str, Any]], period: int = 14) -> tuple[float | None,
             down = float(previous["low"]) - float(current["low"])
             plus_dm.append(up if up > down and up > 0 else 0.0)
             minus_dm.append(down if down > up and down > 0 else 0.0)
-            high, low, previous_close = float(current["high"]), float(current["low"]), float(current["close"])
+            high, low, previous_close = float(current["high"]), float(current["low"]), float(previous["close"])
             true_ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
         if not _finite_values(plus_dm + minus_dm + true_ranges) or len(true_ranges) < period * 2 - 1:
             return None, None, None
