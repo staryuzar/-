@@ -299,7 +299,20 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
                 "status": axis_ocr.get("status", "NOT_RUN"),
                 "tick_count": len(axis_ocr.get("ticks", [])),
                 "fit_status": axis_fit.get("status", "NOT_RUN"),
-                "fit_residual_fraction": axis_fit.get("maximum_residual_fraction"),
+                "fit_inlier_ratio": axis_fit.get("inlier_ratio"),
+                "fit_rms_residual_px": axis_fit.get("rms_residual_px"),
+                "tick_y_min_px": min(
+                    (float(tick["y_px"]) for tick in axis_fit.get("ticks", [])
+                     if isinstance(tick, dict) and tick.get("inlier", True)),
+                    default=None,
+                ),
+                "tick_y_max_px": max(
+                    (float(tick["y_px"]) for tick in axis_fit.get("ticks", [])
+                     if isinstance(tick, dict) and tick.get("inlier", True)),
+                    default=None,
+                ),
+                "plot_bottom_px": calibration.get("plot_bottom_px"),
+                "plot_bounds_refinement": axis_ocr.get("plot_bounds_refinement"),
                 "candidate_plot_right_px": axis_ocr.get("candidate_plot_right_px"),
                 "reason": axis_ocr.get("reason"),
             },
