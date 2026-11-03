@@ -110,6 +110,24 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         return blocked("TIMEFRAME_UNSUPPORTED", "Observer timeframe is unsupported.")
     if not capture.get("visual_calibration_eligible") or not chart.get("source_dimensions_usable"):
         return blocked("VIEWPORT_UNSUITABLE", "Original MT5 viewport is below the calibration threshold.")
+    try:
+        visible_bars = int(chart.get("visible_bars", 0) or 0)
+        first_visible_bar_shift = int(chart.get("first_visible_bar_shift", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        return blocked("VIEWPORT_METADATA_INVALID", "MT5 visible-bar position metadata is invalid.")
+    if visible_bars <= 0 or first_visible_bar_shift < 0:
+        return blocked("VIEWPORT_METADATA_INVALID", "MT5 visible-bar count or first-visible shift is missing.")
+    rightmost_visible_offset = max(0, first_visible_bar_shift - visible_bars + 1)
+    maximum_allowed_rightmost_offset = max(2, int(math.ceil(visible_bars * 0.20)))
+    if rightmost_visible_offset > maximum_allowed_rightmost_offset:
+        return blocked(
+            "CHART_VIEWPORT_NOT_CURRENT",
+            "The rightmost visible candle is too far behind the latest MT5 candle; navigate to CHART_END before image analysis.",
+            visible_bars=visible_bars,
+            first_visible_bar_shift=first_visible_bar_shift,
+            rightmost_visible_offset=rightmost_visible_offset,
+            maximum_allowed_rightmost_offset=maximum_allowed_rightmost_offset,
+        )
     if int(chart.get("source_width_px", 0)) < 320 or int(chart.get("source_main_window_height_px", 0)) < 160:
         return blocked("VIEWPORT_UNSUITABLE", "Original MT5 viewport is too small.")
     if chart.get("chart_autoscroll") is not True or int(chart.get("windows_total", 0)) != 1:
@@ -194,7 +212,11 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         "capture": {"age_seconds": round(age, 2), "capture_data_skew_ms": skew,
                     "image_sha256": digest, "native_ohlc_bars": len(bars),
                     "source_width_px": int(chart["source_width_px"]),
-                    "source_height_px": int(chart["source_main_window_height_px"])},
+                    "source_height_px": int(chart["source_main_window_height_px"]),
+                    "visible_bars": visible_bars,
+                    "first_visible_bar_shift": first_visible_bar_shift,
+                    "rightmost_visible_offset": rightmost_visible_offset,
+                    "maximum_allowed_rightmost_offset": maximum_allowed_rightmost_offset},
         "engine2": {
             "status": result.get("status") if anchor else "REFERENCE_NOT_VERIFIED",
             "visual_eligible": eligible, "visual_bias": result.get("visual_bias", "NEUTRAL"),
