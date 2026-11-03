@@ -509,22 +509,28 @@ def analyze_chart_image(
                         }
                         continue
 
-            reference_calibration = candidate_calibration
-            reference_axis_validation = {
-                **candidate_axis_validation,
-                "offset_from_right": offset,
-                "slot_index": reference_bar.get("slot_index"),
-                "reference_time_server_ms": candidate.get("time_server_ms"),
-                "reference_candle_closed": candidate.get("closed"),
-            }
-            selected_reference_bar = reference_bar
-            selected_reference_ohlc = reference_ohlc_candidate
-            selected_reference_candidate = candidate
-            reference_anchor_verified = True
-            if not calibration["price_scale_valid"] or replace_ocr_axis:
-                calibration = candidate_calibration_map
-                calibration_source = "reference_last_candle_ohlc"
-            break
+            if not reference_anchor_verified:
+                # Keep the first independently verified anchor for fallback
+                # diagnostics, but continue collecting every exact-slot pair.
+                # The multi-reference fit must see the full visible sample;
+                # breaking here silently reduced it to a single candle.
+                reference_calibration = candidate_calibration
+                reference_axis_validation = {
+                    **candidate_axis_validation,
+                    "offset_from_right": offset,
+                    "slot_index": reference_bar.get("slot_index"),
+                    "reference_time_server_ms": candidate.get("time_server_ms"),
+                    "reference_candle_closed": candidate.get("closed"),
+                }
+                selected_reference_bar = reference_bar
+                selected_reference_ohlc = reference_ohlc_candidate
+                selected_reference_candidate = candidate
+                reference_anchor_verified = True
+                if not calibration["price_scale_valid"] or replace_ocr_axis:
+                    calibration = candidate_calibration_map
+                    calibration_source = "reference_last_candle_ohlc"
+            # Deliberately do not break: all visible closed-candle references
+            # must reach calibrate_from_reference_candles().
 
         if not reference_anchor_verified and reference_candidates:
             reference_axis_validation = last_reference_failure or {
