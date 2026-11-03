@@ -345,6 +345,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             pattern_veto["engine_2_native_price_action_context"]["gate"],
             "CANDLE_PATTERN_DIRECTION_CONFLICT",
         )
+        self.assertEqual(pattern_veto["chart_gate"], "WAITING_FOR_ENGINE_2_CANDLE_PATTERN_CONFLUENCE")
         self.assertEqual(
             pattern_veto["engine_2_native_price_action_context"]["latest_candle_pattern_alignment"],
             "BEARISH_CANDLE_PATTERN_EVIDENCE",
@@ -365,6 +366,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             mixed_pattern_veto["engine_2_native_price_action_context"]["gate"],
             "MIXED_CANDLE_PATTERN_EVIDENCE",
         )
+        self.assertEqual(mixed_pattern_veto["chart_gate"], "WAITING_FOR_ENGINE_2_CANDLE_PATTERN_CONFLUENCE")
 
 
 class DecisionBoundaryTests(unittest.TestCase):
