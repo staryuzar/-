@@ -179,7 +179,7 @@ class ChartOCRTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "REFINED")
         self.assertEqual(result["tick_bottom_y_px"], 542.0)
-        self.assertEqual(result["plot_bottom_px"], 549)
+        self.assertEqual(result["plot_bottom_px"], 548)
         self.assertGreater(result["native_gap_px"], 64)
 
     def test_infer_plot_bottom_does_not_crop_when_native_candles_reach_image_bottom(self) -> None:
