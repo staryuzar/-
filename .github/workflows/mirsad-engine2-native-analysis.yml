@@ -4,12 +4,14 @@ on:
   push:
     branches: [mirsad-engine2-native-analysis]
     paths:
-      - 'Mirsad_BTC/mirsad/engines/mt5_trend_analysis.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
       - 'Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py'
       - 'Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py'
       - 'Mirsad_BTC/mirsad/runtime.py'
+      - 'Mirsad_BTC/scripts/analyze_mt5_native_price_action.py'
       - 'Mirsad_BTC/tests/**'
       - 'Mirsad_BTC/requirements.txt'
       - '.github/workflows/mirsad-engine2-native-analysis.yml'
@@ -47,11 +49,11 @@ jobs:
       - name: Compile Engine 2 and runtime modules
         run: python -m compileall -q Mirsad_BTC/mirsad Mirsad_BTC/tests
 
-      - name: Run native OHLC direction, candle, structure and indicator tests
+      - name: Run native OHLC price-action and separate Engine 3 indicator tests
         env:
           PYTHONPATH: Mirsad_BTC
         run: |
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_trend_analysis.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_price_action.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_candles.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_native_indicators.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_structure_knowledge.py' -v
@@ -68,7 +70,7 @@ jobs:
           Path('engine2-native-analysis-test-summary.json').write_text(
               json.dumps({
                   'workflow': 'mirsad-engine2-native-analysis',
-                  'test_scope': 'native MT5 OHLC direction and read-only analysis',
+                  'test_scope': 'native MT5 candle patterns and price structure; Engine 3 indicators tested separately',
                   'decision_eligible': False,
                   'order_execution_enabled': False
               }, indent=2) + '\n',
