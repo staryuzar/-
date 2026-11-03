@@ -175,7 +175,7 @@ class ChartOCRTests(unittest.TestCase):
                 "score": 0.95,
                 "inlier": True,
             }
-            for index in range(26)
+            for index in range(27)
         ]
         result = infer_plot_bottom_from_axis_ticks(
             ticks,
