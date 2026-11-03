@@ -56,6 +56,7 @@ jobs:
         run: |
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_price_action.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_candles.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine2_public_btc_validation.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_native_indicators.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_structure_knowledge.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pattern_knowledge.py' -v
