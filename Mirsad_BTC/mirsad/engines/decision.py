@@ -173,6 +173,7 @@ class DecisionEngine:
     def analyze(
         self, market: dict[str, Any], chart: dict[str, Any] | None,
         bridge: dict[str, Any] | None, indicators: dict[str, Any] | None = None,
+        engine2_price_action: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         base = {
             "engine": "engine_4_decision_trade_monitor", "method": "rules_only",
@@ -183,6 +184,18 @@ class DecisionEngine:
         }
         bridge = bridge or {}
         chart = chart if isinstance(chart, dict) else {}
+        price_action = engine2_price_action if isinstance(engine2_price_action, dict) else {}
+        price_action_context = {
+            "status": price_action.get("status", "NOT_PROVIDED"),
+            "direction": price_action.get("direction", "UNKNOWN"),
+            "structure_score": price_action.get("structure_score"),
+            "as_of_utc_ms": price_action.get("as_of_utc_ms"),
+            "eligible_timeframes": (price_action.get("summary") or {}).get("eligible_timeframes", []),
+            "timeframe_alignment": (price_action.get("summary") or {}).get("timeframe_alignment", "NOT_AVAILABLE"),
+            "decision_eligible": False,
+            "role": "DESCRIPTIVE_ONLY_NOT_USED_AS_A_DIRECTIONAL_VOTE",
+        }
+        base["engine_2_native_price_action_context"] = price_action_context
         source = str(market.get("source", "")).upper()
         mt5_native_source = source == "MT5_TERMINAL"
         minimum_venues = 1 if mt5_native_source else 2
