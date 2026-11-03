@@ -1,0 +1,64 @@
+name: Mirsad Engine 2 — Public BTC OHLC Validation
+
+on:
+  push:
+    branches: [mirsad-engine2-native-analysis]
+    paths:
+      - 'Mirsad_BTC/scripts/validate_engine2_public_btc.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_classical_patterns.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_structure_evaluation.py'
+      - 'Mirsad_BTC/tests/test_engine2_public_btc_validation.py'
+      - '.github/workflows/mirsad-engine2-public-btc-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-engine2-public-btc-validation
+  cancel-in-progress: false
+
+jobs:
+  public-btc-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout native Engine 2 branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Compile public validation modules
+        run: python -m compileall -q Mirsad_BTC/mirsad/engines/mt5_price_action.py Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py Mirsad_BTC/mirsad/engines/chart_classical_patterns.py Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py Mirsad_BTC/mirsad/engines/chart_structure_evaluation.py Mirsad_BTC/scripts/validate_engine2_public_btc.py
+
+      - name: Test public OHLC parser and gap handling
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine2_public_btc_validation.py' -v
+
+      - name: Fetch independent BTC Spot OHLC and run multi-timeframe analysis plus historical event study
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: |
+          python Mirsad_BTC/scripts/validate_engine2_public_btc.py \
+            --timeframe-limit 1000 \
+            --history-bars 3000 \
+            --output-json "$RUNNER_TEMP/engine2-public-btc-validation.json"
+
+      - name: Upload public BTC validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-engine2-public-btc-validation
+          path: ${{ runner.temp }}/engine2-public-btc-validation.json
+          if-no-files-found: warn
+          retention-days: 30

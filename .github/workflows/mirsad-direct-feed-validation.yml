@@ -1,0 +1,98 @@
+name: Mirsad BTC — MT5 direct feed (images disabled)
+
+on:
+  push:
+    branches: [mirsad-mt5-demo, mirsad-engine2-native-analysis]
+    paths:
+      - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
+      - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
+      - 'Mirsad_BTC/scripts/mirsad_mt5_direct_feed_run.ps1'
+      - 'Mirsad_BTC/scripts/validate_mt5_direct_feed.py'
+      - 'Mirsad_BTC/scripts/analyze_mt5_native_price_action.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_classical_patterns.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py'
+      - 'Mirsad_BTC/tests/test_mt5_price_action.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
+      - 'Mirsad_BTC/mirsad/engines/indicators.py'
+      - 'Mirsad_BTC/scripts/validate_engine3_mt5_indicator_parity.py'
+      - 'Mirsad_BTC/tests/test_mt5_native_indicators.py'
+      - 'Mirsad_BTC/tests/test_indicators.py'
+      - 'Mirsad_BTC/tests/test_direct_feed_validator.py'
+      - '.github/workflows/mirsad-direct-feed-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-direct-feed-validation-installer-bounded
+  cancel-in-progress: true
+
+jobs:
+  direct-mt5-feed-without-images:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Mirsad branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python for direct MT5 feed readers
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: Mirsad_BTC/requirements.txt
+
+      # The direct-feed readers and their focused tests use Python's standard
+      # library only. Installing the full application stack here (OCR, OpenCV,
+      # ONNX Runtime and TA-Lib) delays the MT5 live-feed gate without adding
+      # coverage. Keep this workflow isolated and fast; full dependencies are
+      # exercised by the application CI workflow.
+
+      - name: Test direct feed reader and contract code
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: |
+          python -m compileall -q Mirsad_BTC/mirsad/engines/mt5_market.py Mirsad_BTC/mirsad/engines/mt5_chart_candles.py Mirsad_BTC/mirsad/engines/mt5_native_indicators.py Mirsad_BTC/mirsad/engines/mt5_price_action.py Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py Mirsad_BTC/mirsad/engines/chart_classical_patterns.py Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py Mirsad_BTC/scripts/validate_mt5_direct_feed.py Mirsad_BTC/scripts/analyze_mt5_native_price_action.py
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_price_action.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_direct_feed_validator.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_market.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_chart_candles.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_native_indicators.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_engine3_mt5_indicator_parity.py" -v
+
+      - name: Connect to MT5 demo and verify direct feeds with images disabled
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+          MIRSAD_MT5_SERVER: 'mt5.demo.trade-hw.online'
+          MIRSAD_MT5_EXPECTED_ACCOUNT_SERVER: 'Headway-Demo'
+          MIRSAD_MT5_OBSERVER_SYMBOL: 'BTC'
+          MIRSAD_MT5_OBSERVER_TIMEFRAME: 'M1'
+          MIRSAD_MT5_MARKET_SYMBOL: 'BTCUSDT'
+        shell: pwsh
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_direct_feed_run.ps1
+
+      - name: Upload sanitized image-free direct feed evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-mt5-direct-feed-images-disabled
+          path: |
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/direct-feed-validation.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/market-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/candles-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/indicators-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/engine3-indicator-parity.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/engine2-price-action-analysis.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
+          if-no-files-found: warn
+          retention-days: 14

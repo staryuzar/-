@@ -1,0 +1,107 @@
+[
+  {
+    "id": "itb_btcusdt_daily_2025_08_18",
+    "title": "Bitcoin Analysis Aug 18 2025",
+    "image_url": "https://itbfx.com/wp-content/uploads/2025/08/Bitcoin-Analysis-1.png",
+    "source_url": "https://itbfx.com/analysis/bitcoin-analysis-aug-18-2025/",
+    "symbol": "BTCUSDT",
+    "timeframe": "1d",
+    "snapshot_date": "2025-08-18",
+    "price_top": 127500,
+    "price_bottom": 70000,
+    "crop": [
+      0,
+      0.07,
+      0.92,
+      0.96
+    ],
+    "reference_bias": "BULLISH",
+    "reference_note": "Source describes a broader uptrend, with rejection near 122k-125k and conditional support at 110k-107k. This is analyst context, not ground truth.",
+    "expected_last_candle_direction": "BEARISH",
+    "expected_last_candle_ohlc": {
+      "open": 117405,
+      "high": 117543,
+      "low": 115000,
+      "close": 115351
+    },
+    "price_scale_type": "linear",
+    "last_candle_closed": false
+  },
+  {
+    "id": "bitget_btcusdt_daily_2025_04_28",
+    "title": "BTCUSDT daily chart on Binance",
+    "image_url": "https://img.bgstatic.com/multiLang/image/social/3e0381d03240493d0e5ffe751ef931ea1745841610746.png",
+    "source_url": "https://www.bitget.com/news/detail/12560604726387",
+    "symbol": "BTCUSDT",
+    "timeframe": "1d",
+    "snapshot_date": "2025-04-28",
+    "price_top": 100000,
+    "price_bottom": 85000,
+    "crop": [
+      0,
+      0.25,
+      0.98,
+      0.88
+    ],
+    "reference_bias": "BULLISH",
+    "reference_note": "Published OHLC reports O 93,749.29 and C 94,401.65 (+0.70%) with a highlighted recent rally.",
+    "expected_last_candle_direction": "BULLISH",
+    "expected_last_candle_ohlc": {
+      "open": 93749.29,
+      "high": 94426.92,
+      "low": 92800.01,
+      "close": 94401.65
+    },
+    "price_scale_type": "linear",
+    "last_candle_closed": false
+  },
+  {
+    "id": "bybit_btcusdt_weekly_2026_01_30",
+    "title": "BTCUSDT weekly support and higher-lows chart",
+    "image_url": "https://s3.tradingview.com/news/image/invezz%3A24bb7b0c3094b-fd2a87d507293b72ecd83dbf29f4c8b1-resized.webp",
+    "source_url": "https://www.tradingview.com/news/invezz%3A24bb7b0c3094b%3A0-crypto-market-sheds-150b-as-bitcoin-drops-to-81k-and-long-liquidations-top-1-7b/",
+    "symbol": "BTCUSDT",
+    "timeframe": "1w",
+    "snapshot_date": "2026-01-30T08:05:00Z",
+    "price_top": 110000,
+    "price_bottom": 60000,
+    "crop": [
+      0,
+      0.03,
+      0.98,
+      0.76
+    ],
+    "reference_bias": "NEUTRAL",
+    "reference_note": "The source highlights a longer sequence of higher lows but a sharp latest weekly decline. Mixed context.",
+    "expected_last_candle_direction": "BEARISH",
+    "expected_last_candle_ohlc": {
+      "open": 86669.9,
+      "high": 90611,
+      "low": 81000,
+      "close": 82241.3
+    },
+    "price_scale_type": "logarithmic",
+    "last_candle_closed": false
+  },
+  {
+    "id": "tradingview_btcusdt_weekly_2025",
+    "title": "BTCUSDT perpetual weekly ascending channel",
+    "image_url": "https://s3.tradingview.com/3/39JQQKsN_mid.webp",
+    "source_url": "https://www.tradingview.com/chart/BTCUSDT.P/39JQQKsN-Bitcoin-vs-Saylor-The-Power-and-Danger-of-fanatical-promotion/",
+    "symbol": "BTCUSDT",
+    "timeframe": "1w",
+    "snapshot_date": null,
+    "price_top": 105000,
+    "price_bottom": 15000,
+    "crop": [
+      0,
+      0.04,
+      0.96,
+      0.78
+    ],
+    "reference_bias": "NEUTRAL",
+    "reference_note": "The annotated chart shows a rising long-term channel with several support/resistance levels; no single short-term direction is asserted.",
+    "price_scale_type": "logarithmic",
+    "last_candle_closed": false
+  }
+]

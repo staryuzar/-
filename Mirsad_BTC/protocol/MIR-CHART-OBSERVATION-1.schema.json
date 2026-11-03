@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/staryuzar/-/blob/mirsad-mt5-demo/Mirsad_BTC/protocol/MIR-CHART-OBSERVATION-1.schema.json",
+  "title": "Mirsad MT5 Chart Observation",
+  "type": "object",
+  "required": [
+    "schema",
+    "capture_id",
+    "capture_at_utc_ms",
+    "rates_snapshot_at_utc_ms",
+    "server_utc_offset_seconds_at_capture",
+    "server_time_seconds",
+    "published_at_utc_ms",
+    "account",
+    "image_file",
+    "image_width_px",
+    "image_height_px",
+    "image_size_bytes",
+    "chart",
+    "bars_time_basis",
+    "bars_requested",
+    "bars_copied",
+    "forming_bar_included",
+    "bars",
+    "rates_status",
+    "rates_error_code"
+  ],
+  "properties": {
+    "schema": {
+      "const": "MIR-CHART-OBSERVATION-1"
+    },
+    "capture_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96
+    },
+    "capture_at_utc_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "published_at_utc_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "server_time_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "server_utc_offset_seconds_at_capture": {
+      "type": "integer"
+    },
+    "image_file": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+\\.png$"
+    },
+    "image_width_px": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "image_height_px": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "image_size_bytes": {
+      "type": "integer",
+      "minimum": 128
+    },
+    "chart": {
+      "type": "object",
+      "required": [
+        "chart_id",
+        "symbol",
+        "timeframe",
+        "digits",
+        "source_width_px",
+        "source_main_window_height_px",
+        "source_dimensions_usable",
+        "source_dimensions_status",
+        "windows_total",
+        "first_visible_bar_shift",
+        "visible_bars",
+        "chart_scale",
+        "chart_mode",
+        "chart_shift",
+        "chart_autoscroll",
+        "price_min",
+        "price_max",
+        "price_scale_type",
+        "plot_bounds_status"
+      ],
+      "properties": {
+        "chart_id": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeframe": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "source_width_px": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_main_window_height_px": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_dimensions_usable": {
+          "type": "boolean"
+        },
+        "source_dimensions_status": {
+          "type": "string",
+          "enum": [
+            "USABLE",
+            "BELOW_VISUAL_CALIBRATION_THRESHOLD"
+          ]
+        },
+        "windows_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "first_visible_bar_shift": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visible_bars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chart_scale": {
+          "type": "integer"
+        },
+        "chart_mode": {
+          "type": "integer"
+        },
+        "chart_shift": {
+          "type": "boolean"
+        },
+        "chart_autoscroll": {
+          "type": "boolean"
+        },
+        "price_min": {
+          "type": "number"
+        },
+        "price_max": {
+          "type": "number"
+        },
+        "background_color": {
+          "type": "integer"
+        },
+        "foreground_color": {
+          "type": "integer"
+        },
+        "bull_color": {
+          "type": "integer"
+        },
+        "bear_color": {
+          "type": "integer"
+        },
+        "price_scale_type": {
+          "const": "linear"
+        },
+        "plot_bounds_status": {
+          "const": "NOT_CALIBRATED_FROM_PIXELS"
+        }
+      },
+      "additionalProperties": true
+    },
+    "bars_time_basis": {
+      "const": "MT5_SERVER_TIME"
+    },
+    "bars_requested": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "bars_copied": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "forming_bar_included": {
+      "const": true
+    },
+    "bars": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "required": [
+          "time_server_ms",
+          "open",
+          "high",
+          "low",
+          "close",
+          "tick_volume",
+          "real_volume",
+          "spread_points",
+          "is_closed"
+        ],
+        "properties": {
+          "time_server_ms": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "open": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "high": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "low": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "close": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "tick_volume": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "real_volume": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "spread_points": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "is_closed": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "rates_snapshot_at_utc_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "rates_status": {
+      "type": "string",
+      "enum": [
+        "AVAILABLE",
+        "UNAVAILABLE"
+      ]
+    },
+    "rates_error_code": {
+      "type": "integer"
+    },
+    "account": {
+      "type": "object",
+      "required": [
+        "terminal_connected",
+        "server",
+        "trade_mode",
+        "trade_mode_label"
+      ],
+      "properties": {
+        "terminal_connected": {
+          "type": "boolean"
+        },
+        "server": {
+          "type": "string"
+        },
+        "trade_mode": {
+          "type": "integer"
+        },
+        "trade_mode_label": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

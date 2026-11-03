@@ -1,0 +1,45 @@
+name: Mirsad BTC — LEGACY read-only bridge check (manual only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-mt5-demo-validation
+  cancel-in-progress: false
+
+jobs:
+  compile-and-demo-login:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Mirsad project source
+        uses: actions/checkout@v4
+
+      - name: Verify Windows and PowerShell environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Output "OS: $([System.Environment]::OSVersion.VersionString)"
+          Write-Output "PowerShell: $($PSVersionTable.PSVersion)"
+          if ($env:RUNNER_OS -ne 'Windows') { throw 'A Windows runner is required for MetaTrader 5.' }
+
+      - name: LEGACY — compile the old read-only EA and verify demo login (no trading)
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+        shell: pwsh
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_demo_compile.ps1
+
+      - name: Upload sanitized compile and demo-login evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-mt5-demo-validation
+          path: |
+            ${{ runner.temp }}/mirsad-mt5-demo-check/evidence/mirsad-mt5-report.txt
+            ${{ runner.temp }}/mirsad-mt5-demo-check/evidence/mirsad-ea-compile.log
+            ${{ runner.temp }}/mirsad-mt5-demo-check/evidence/Mirsad_BTC_ReadOnlyBridge.ex5
+          if-no-files-found: warn
+          retention-days: 14

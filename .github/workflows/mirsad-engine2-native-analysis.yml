@@ -1,0 +1,126 @@
+name: Mirsad Engine 2 — Native OHLC Direction Analysis
+
+on:
+  push:
+    branches: [mirsad-engine2-native-analysis]
+    paths:
+      - 'Mirsad_BTC/mirsad/engines/chart*.py'
+      - 'Mirsad_BTC/mirsad/engines/visual_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_observer.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_chart_pipeline.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
+      - 'Mirsad_BTC/mirsad/engines/indicators.py'
+      - 'Mirsad_BTC/mirsad/engines/decision.py'
+      - 'Mirsad_BTC/tests/test_indicators.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_classical_patterns.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py'
+      - 'Mirsad_BTC/mirsad/runtime.py'
+      - 'Mirsad_BTC/scripts/analyze_mt5_native_price_action.py'
+      - 'Mirsad_BTC/tests/**'
+      - 'Mirsad_BTC/requirements.txt'
+      - '.github/workflows/mirsad-engine2-native-analysis.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-engine2-native-analysis
+  cancel-in-progress: false
+
+jobs:
+  native-analysis-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout native-analysis branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: Mirsad_BTC/requirements.txt
+
+      - name: Install analysis dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r Mirsad_BTC/requirements.txt
+
+      - name: Compile Engine 2 and runtime modules
+        run: python -m compileall -q Mirsad_BTC/mirsad Mirsad_BTC/tests
+
+      - name: Run native OHLC price-action and separate Engine 3 indicator tests
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: |
+          # Engine 2 visual chart pipeline: image loading, layout, OCR, extraction,
+          # calibration, candle geometry, multi-timeframe handling and visual knowledge.
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_engine.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_extraction.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_header_ocr.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_multi_timeframe.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_multi_timeframe_storage.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_ocr.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pixel_metrics.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pattern_reference.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_pipeline.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_observer_engine2_integration.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_visual_knowledge.py' -v
+          # Native OHLC price-action and market structure.
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_price_action.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_candles.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine2_public_btc_validation.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_native_indicators.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_structure_knowledge.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pattern_knowledge.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_classical_patterns.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_continuation_patterns.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pattern_evaluation.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_structure_evaluation.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_indicators.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine3_mt5_indicator_parity.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_runtime_observer_flow.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_observer.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_hf_btc_chart_image_benchmark.py' -v
+          # PyArrow fixture assertions pass, but the hosted runner aborts during
+          # interpreter shutdown (exit 134); keep this external dataset adapter out
+          # of the required Engine 2 gate until the upstream native shutdown issue is isolated.
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_public_chart_image_benchmark.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_candlestick_pattern_benchmark.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine_contracts.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_market_candle_timezones.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_run_structure_study.py' -v
+
+      - name: Upload safe test summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          Path('engine2-native-analysis-test-summary.json').write_text(
+              json.dumps({
+                  'workflow': 'mirsad-engine2-native-analysis',
+                  'test_scope': 'native MT5 candle patterns and price structure; Engine 3 indicators tested separately',
+                  'decision_eligible': False,
+                  'order_execution_enabled': False
+              }, indent=2) + '\n',
+              encoding='utf-8'
+          )
+          PY
+
+      - name: Upload native-analysis test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-engine2-native-analysis-test-summary
+          path: engine2-native-analysis-test-summary.json
+          if-no-files-found: warn
+          retention-days: 14
