@@ -48,6 +48,17 @@ def validate(
     if indicators.get("status") != "READY":
         failures.append(f"native indicator feed: {indicators.get('status')} — {indicators.get('reason')}")
 
+    broker_symbols = {
+        "market": str((market.get("feed_health") or {}).get("broker_symbol", "")).strip(),
+        "candles": str(candles.get("broker_symbol", "")).strip(),
+        "native indicators": str(indicators.get("broker_symbol", "")).strip(),
+    }
+    for feed_name, actual_symbol in broker_symbols.items():
+        if actual_symbol != broker_symbol:
+            failures.append(
+                f"{feed_name}: broker symbol mismatch (expected {broker_symbol}, got {actual_symbol or 'missing'})"
+            )
+
     for feed_name, feed in (
         ("market", market),
         ("candles", candles),
