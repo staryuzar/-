@@ -147,3 +147,8 @@ python scripts/run_hf_btc_chart_image_benchmark.py --max-images 13081 --min-imag
 
 [تقرير التطوير والنتائج التفصيلي](reports/MIRSAD_PROGRESS_REPORT_AR_20261102.md) · [تشغيل Pilot 20](https://github.com/staryuzar/-/actions/runs/41393588694) · [Artifact JSON](https://github.com/staryuzar/-/actions/runs/41393588694/artifacts/13118282509)
 
+
+
+## أمان تنفيذ الأوامر
+
+نشر أوامر MIR1 **معطّل افتراضياً** في البرنامج (MIRSAD_ENABLE_ORDER_PUBLISH=0). يستمر مرصاد في جمع البيانات والتحليل وإظهار قرارات المحرك الرابع، لكن لا يكتب command.json ولا يرسل أوامر إلى خبير التنفيذ ما لم يفعّل المشغّل هذا الخيار صراحةً بعد مراجعة اختبارات القبول ومخاطر الحساب. اختبارات التطوير والتحقق الحي للقراءة فقط لا تفعّل هذا الخيار.
