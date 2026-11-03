@@ -34,27 +34,45 @@ class MT5BridgeEngine:
         payload = _read_object(self.root / "status.json")
         if not payload:
             return {**base, "status": "WAITING_FOR_EXPERT", "message": "No EA heartbeat file received yet."}
-        heartbeat = int(payload.get("heartbeat_at_ms", 0) or 0)
-        age = (int(time.time() * 1000) - heartbeat) / 1000 if heartbeat else None
-        quote = payload.get("quote", {})
-        quote_time = int(quote.get("time_ms", 0) or 0)
-        quote_age = (int(time.time() * 1000) - quote_time) / 1000 if quote_time else None
+        # Telemetry is an external file boundary. Malformed fields must make
+        # Engine 5 stale rather than raising and aborting the entire runtime cycle.
+        now_ms = int(time.time() * 1000)
+        try:
+            heartbeat = int(payload.get("heartbeat_at_ms", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            heartbeat = 0
+        age = (now_ms - heartbeat) / 1000 if heartbeat > 0 else None
+
+        quote_value = payload.get("quote")
+        quote = quote_value if isinstance(quote_value, dict) else {}
+        try:
+            quote_time = int(quote.get("time_ms", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            quote_time = 0
+        quote_age = (now_ms - quote_time) / 1000 if quote_time > 0 else None
+
+        account_value = payload.get("account")
+        account = account_value if isinstance(account_value, dict) else {}
+        spec_value = payload.get("symbol_spec")
+        symbol_spec = spec_value if isinstance(spec_value, dict) else {}
+        positions_value = payload.get("positions")
+        positions = positions_value if isinstance(positions_value, list) else []
         schema_ok = payload.get("schema") == "MIR1"
         alive = (
-            bool(payload.get("terminal_connected")) and schema_ok
+            payload.get("terminal_connected") is True and schema_ok
             and age is not None and 0 <= age <= MT5_HEARTBEAT_MAX_AGE_SECONDS
         )
         return {
             **base, "status": "CONNECTED" if alive else "STALE",
             "heartbeat_age_seconds": round(age, 2) if age is not None else None,
             "quote_age_seconds": round(quote_age, 2) if quote_age is not None else None,
-            "account": payload.get("account", {}),
+            "account": account,
             "symbol": payload.get("symbol"),
             "market_symbol": payload.get("market_symbol"),
             "magic_number": payload.get("magic_number"),
             "quote": quote,
-            "symbol_spec": payload.get("symbol_spec", {}),
-            "positions": payload.get("positions", []),
+            "symbol_spec": symbol_spec,
+            "positions": positions,
             "last_order_ack": _read_object(self.root / "ack.json"),
             "message": "Fresh EA telemetry received." if alive else "EA heartbeat missing, stale or protocol schema mismatch.",
             "account_type_classification": "NOT_PERFORMED",
