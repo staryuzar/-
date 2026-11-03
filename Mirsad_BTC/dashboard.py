@@ -286,17 +286,32 @@ def render_execution_console(state:dict)->None:
    publish_enabled and bridge_connected and terminal_connected
    and expert_execution is True and command_ready and command_preview is not None
   )
-  publish_clicked=st.button(
-   "إرسال أمر المحرك الرابع المعتمد عبر MIR1",
-   key=publish_button_key,
-   use_container_width=True,
-   disabled=not (gates_ok and confirmation),
-  )
-  if publish_clicked:
+  action_columns=st.columns(5)
+  publish_clicked_action=None
+  for col,target in zip(action_columns[:4],("BUY","SELL","CLOSE","MODIFY")):
+   with col:
+    clicked=st.button(
+     "تمرير "+target,
+     key=publish_button_key+"_"+target,
+     use_container_width=True,
+     disabled=not (gates_ok and confirmation and active_action==target),
+     help=("لا يُفعّل إلا عندما يكون هذا النوع هو قرار المحرك الرابع الحالي واجتاز كل البوابات."),
+    )
+   if clicked:
+    publish_clicked_action=target
+  with action_columns[4]:
+   st.button(
+    "CANCEL · غير مدعوم",
+    key=publish_button_key+"_CANCEL",
+    use_container_width=True,
+    disabled=True,
+    help="بروتوكول MIR1 الحالي لا يعرّف أمر إلغاء.",
+   )
+  if publish_clicked_action:
    result=MT5BridgeEngine().publish_decision(decision,bridge)
    status=str(result.get("status","UNKNOWN"))
    if status=="PUBLISHED":
-    st.success(f"تمت كتابة ظرف MIR1 للخبير، والانتظار لإقرار MT5: {result.get('command_id','—')}")
+    st.success(f"تمت كتابة أمر {publish_clicked_action} إلى الخبير، والانتظار لإقرار MT5: {result.get('command_id','—')}")
    elif status in {"ALREADY_PUBLISHED","ALREADY_ACKNOWLEDGED"}:
     st.info(ar(status)+" — لم يُنشأ أمر مكرر.")
    else:
