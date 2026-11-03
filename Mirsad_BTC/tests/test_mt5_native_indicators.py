@@ -138,6 +138,25 @@ class MT5NativeIndicatorHistoryTests(unittest.TestCase):
         self.assertEqual(result["status"], "PARTIAL")
         self.assertEqual(result["missing_required_timeframes"], ["1m", "5m", "15m"])
 
+    def test_copybuffer_warming_up_status_and_diagnostics_are_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            payload = make_payload()
+            payload["timeframes"]["1m"]["values"]["ema20"] = {
+                "status": "WARMING_UP",
+                "closed": None,
+                "current": None,
+                "copied": -1,
+                "bars_calculated": 0,
+                "error_code": 4806,
+            }
+            self._write(directory, payload)
+            result = self._engine(directory).collect()
+        ema = result["timeframes"]["1m"]["values"]["ema20"]
+        self.assertEqual(ema["status"], "WARMING_UP")
+        self.assertEqual(ema["bars_calculated"], 0)
+        self.assertEqual(ema["copied"], -1)
+        self.assertEqual(result["status"], "PARTIAL")
+
     def test_invalid_numeric_indicator_is_not_passed_through(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             payload = make_payload()
