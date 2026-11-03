@@ -60,6 +60,7 @@ jobs:
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
           MIRSAD_MT5_SERVER: 'mt5.demo.trade-hw.online'
+          MIRSAD_MT5_EXPECTED_ACCOUNT_SERVER: 'Headway-Demo'
           MIRSAD_MT5_OBSERVER_SYMBOL: 'BTC'
           MIRSAD_MT5_OBSERVER_TIMEFRAME: 'M1'
           MIRSAD_MT5_MARKET_SYMBOL: 'BTCUSDT'
