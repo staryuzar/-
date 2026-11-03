@@ -424,6 +424,113 @@ string BuildRatesJson(const MqlRates &rates[],
    return output;
 }
 
+string ChartPixelPointJson(const bool valid, const int x, const int y)
+{
+   if(!valid)
+      return "null";
+   return StringFormat("{\"x_px\":%d,\"y_px\":%d}", x, y);
+}
+
+string BuildChartPixelGeometryJson(const MqlRates &rates[],
+                                   const int copied,
+                                   const int source_width,
+                                   const int source_height,
+                                   const int image_width,
+                                   const int image_height)
+{
+   string bars_json = "[";
+   int valid_count = 0;
+   int visible_count = 0;
+
+   for(int i = 0; i < copied; i++)
+   {
+      int open_x = -1, open_y = -1;
+      int high_x = -1, high_y = -1;
+      int low_x = -1, low_y = -1;
+      int close_x = -1, close_y = -1;
+
+      bool open_ok = ChartTimePriceToXY(g_chart_id, 0, rates[i].time, rates[i].open, open_x, open_y);
+      bool high_ok = ChartTimePriceToXY(g_chart_id, 0, rates[i].time, rates[i].high, high_x, high_y);
+      bool low_ok = ChartTimePriceToXY(g_chart_id, 0, rates[i].time, rates[i].low, low_x, low_y);
+      bool close_ok = ChartTimePriceToXY(g_chart_id, 0, rates[i].time, rates[i].close, close_x, close_y);
+
+      bool all_points_ok = open_ok && high_ok && low_ok && close_ok;
+      int min_x = open_x;
+      int max_x = open_x;
+      if(high_x < min_x) min_x = high_x;
+      if(low_x < min_x) min_x = low_x;
+      if(close_x < min_x) min_x = close_x;
+      if(high_x > max_x) max_x = high_x;
+      if(low_x > max_x) max_x = low_x;
+      if(close_x > max_x) max_x = close_x;
+      bool x_aligned = all_points_ok && (max_x - min_x <= 1);
+      bool visible = (
+         x_aligned
+         && source_width > 0 && source_height > 0
+         && open_x >= 0 && open_x < source_width
+         && high_y >= 0 && high_y < source_height
+         && low_y >= 0 && low_y < source_height
+         && open_y >= 0 && open_y < source_height
+         && close_y >= 0 && close_y < source_height
+      );
+      bool y_order_valid = (
+         all_points_ok
+         && high_y <= MathMin(open_y, close_y)
+         && low_y >= MathMax(open_y, close_y)
+      );
+      bool point_set_valid = all_points_ok && x_aligned && y_order_valid;
+      double x_center = point_set_valid
+         ? ((double)open_x + (double)high_x + (double)low_x + (double)close_x) / 4.0
+         : -1.0;
+
+      if(i > 0)
+         bars_json += ",";
+      bars_json += StringFormat(
+         "{\"time_server_ms\":%I64d,"
+         "\"is_closed\":%s,"
+         "\"valid\":%s,"
+         "\"visible\":%s,"
+         "\"x_px\":%s,"
+         "\"x_alignment_error_px\":%d,"
+         "\"open\":%s,"
+         "\"high\":%s,"
+         "\"low\":%s,"
+         "\"close\":%s}",
+         (long)rates[i].time * 1000,
+         JsonBool(i < copied - 1),
+         JsonBool(point_set_valid),
+         JsonBool(visible),
+         DoubleToString(x_center, 3),
+         (x_aligned ? max_x - min_x : -1),
+         ChartPixelPointJson(open_ok, open_x, open_y),
+         ChartPixelPointJson(high_ok, high_x, high_y),
+         ChartPixelPointJson(low_ok, low_x, low_y),
+         ChartPixelPointJson(close_ok, close_x, close_y)
+      );
+      if(point_set_valid) valid_count++;
+      if(visible && point_set_valid) visible_count++;
+   }
+   bars_json += "]";
+
+   double scale_x = source_width > 0 ? (double)image_width / (double)source_width : 0.0;
+   double scale_y = source_height > 0 ? (double)image_height / (double)source_height : 0.0;
+   return StringFormat(
+      "{\"schema\":\"MIR-MT5-CHART-GEOMETRY-1\","
+      "\"coordinate_source\":\"MQL5_CHART_TIME_PRICE_TO_XY\","
+      "\"coordinate_origin\":\"MAIN_CHART_WINDOW_TOP_LEFT\","
+      "\"source_width_px\":%d,\"source_height_px\":%d,"
+      "\"image_width_px\":%d,\"image_height_px\":%d,"
+      "\"provisional_x_scale_to_image\":%s,"
+      "\"provisional_y_scale_to_image\":%s,"
+      "\"bars_total\":%d,\"bars_valid\":%d,\"bars_visible\":%d,"
+      "\"bars\":%s}",
+      source_width, source_height, image_width, image_height,
+      DoubleToString(scale_x, 8), DoubleToString(scale_y, 8),
+      copied, valid_count, visible_count, bars_json
+   );
+}
+
+
 string BuildMarketRatesJson(const MqlRates &rates[],
                             const int copied,
                             const int digits,
@@ -721,7 +828,8 @@ string BuildCapturePayload(const string capture_id,
                            const long capture_at_utc_ms,
                            const long rates_snapshot_at_utc_ms,
                            const long server_time_seconds,
-                           const int server_utc_offset_seconds)
+                           const int server_utc_offset_seconds,
+                           const string pixel_geometry_json)
 {
    string symbol = ChartSymbol(g_chart_id);
    ENUM_TIMEFRAMES timeframe = (ENUM_TIMEFRAMES)ChartPeriod(g_chart_id);
@@ -771,7 +879,8 @@ string BuildCapturePayload(const string capture_id,
    payload += "\"bull_color\":" + (string)bull_color + ",";
    payload += "\"bear_color\":" + (string)bear_color + ",";
    payload += "\"price_scale_type\":\"linear\",";
-   payload += "\"plot_bounds_status\":\"NOT_CALIBRATED_FROM_PIXELS\"";
+   payload += "\"plot_bounds_status\":\"NOT_CALIBRATED_FROM_PIXELS\",";
+   payload += "\"pixel_geometry\":" + pixel_geometry_json;
    payload += "},";
    payload += "\"bars_time_basis\":\"MT5_SERVER_TIME\",";
    payload += "\"bars_requested\":" + (string)InpHistoryBars + ",";
@@ -851,6 +960,10 @@ bool BeginCapture()
    string common_image = g_image_root + "\\" + image_name;
 
    ChartRedraw(g_chart_id);
+   string pixel_geometry_json = BuildChartPixelGeometryJson(
+      rates, copied, source_width, source_main_height,
+      InpScreenshotWidth, InpScreenshotHeight
+   );
    ResetLastError();
    bool screenshot_requested = ChartScreenShot(
       g_chart_id, local_image,
@@ -877,7 +990,8 @@ bool BeginCapture()
       background_color, foreground_color, bull_color, bear_color,
       rates, copied, rates_error_code, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS),
       capture_at_utc_ms, rates_snapshot_at_utc_ms,
-      server_time_seconds, server_utc_offset_seconds
+      server_time_seconds, server_utc_offset_seconds,
+      pixel_geometry_json
    );
    g_pending = true;
    g_pending_started_tick = GetTickCount64();
