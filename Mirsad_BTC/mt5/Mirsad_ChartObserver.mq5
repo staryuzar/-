@@ -659,6 +659,11 @@ bool PublishMarketSnapshot()
          return false;
       }
    }
+   PrintFormat(
+      "Mirsad Observer direct feeds published. Market=MirsadBTC\\market.json; Candles=MirsadBTC\\observer\\candles.json; NativeIndicators=%s; ImageCapture=%s.",
+      (InpPublishNativeIndicators ? "enabled" : "disabled"),
+      (InpEnableImageCapture ? "enabled" : "disabled")
+   );
    return true;
 }
 
@@ -969,6 +974,12 @@ int OnInit()
 
    PublishObserverStatus("STARTED", "",
                          "Read-only MT5 chart observer started on the attached chart.");
+   PrintFormat(
+      "Mirsad Chart Observer mode. Direct MT5 data enabled; native indicators=%s; market depth=%s; chart images=%s.",
+      (InpPublishNativeIndicators ? "enabled" : "disabled"),
+      (InpPublishMarketDepth ? "enabled" : "disabled"),
+      (InpEnableImageCapture ? "enabled" : "disabled")
+   );
    PrintFormat("Mirsad Chart Observer started. Chart=%I64d Symbol=%s Timeframe=%s Interval=%d sec. No trading functions.",
                g_chart_id, ChartSymbol(g_chart_id),
                TimeframeLabel((ENUM_TIMEFRAMES)ChartPeriod(g_chart_id)),
