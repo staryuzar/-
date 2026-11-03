@@ -277,6 +277,7 @@ if __name__ == "__main__":
 class NativeGeometryExtentTests(unittest.TestCase):
     def test_native_geometry_visible_y_max_ignores_invalid_and_invisible_bars(self) -> None:
         geometry = {
+            "status": "READY_FOR_PIXEL_ALIGNMENT",
             "bars": [
                 {
                     "valid": True,
@@ -301,4 +302,15 @@ class NativeGeometryExtentTests(unittest.TestCase):
             ]
         }
         self.assertEqual(native_geometry_visible_y_max(geometry), 44.0)
-        self.assertIsNone(native_geometry_visible_y_max({"bars": []}))
+        self.assertIsNone(native_geometry_visible_y_max({"status": "READY_FOR_PIXEL_ALIGNMENT", "bars": []}))
+
+    def test_native_geometry_visible_y_max_rejects_partial_or_unverified_payloads(self) -> None:
+        valid_bar = {
+            "valid": True,
+            "visible": True,
+            "points_image_px_provisional": {"low": {"x": 10, "y": 44}},
+        }
+        for status in ("PARTIAL", "VISIBLE_POINT_INVALID", "SCHEMA_MISMATCH", "NOT_AVAILABLE"):
+            with self.subTest(status=status):
+                self.assertIsNone(native_geometry_visible_y_max({"status": status, "bars": [valid_bar]}))
+        self.assertIsNone(native_geometry_visible_y_max({"bars": [valid_bar]}))
