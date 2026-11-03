@@ -585,6 +585,30 @@ public static class MirsadNativeWindow {
  
     # Run Engine 2 on the just-captured MT5 image before cleaning the temporary terminal.
     # The chart image and raw OHLC remain on this runner; only a sanitized result is uploaded.
+    # Report the real direct-feed files before image analysis. This distinguishes
+    # a missing publication from invalid/stale data without exposing raw prices.
+    $candleFeedPath = Join-Path $observerDir 'candles.json'
+    $indicatorFeedPath = Join-Path $observerDir 'indicators.json'
+    $marketFeedPath = Join-Path (Split-Path -Parent $observerDir) 'market.json'
+    foreach ($feedPath in @($marketFeedPath,$candleFeedPath,$indicatorFeedPath)) {
+        if (!(Test-Path -LiteralPath $feedPath)) {
+            Add-Report ("Direct MT5 feed file missing: {0}" -f [IO.Path]::GetFileName($feedPath))
+            continue
+        }
+        try {
+            $feed = Get-Content -LiteralPath $feedPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            $schema = [string]$feed.schema
+            $connected = [bool]$feed.terminal_connected
+            $accountServerPresent = -not [string]::IsNullOrWhiteSpace([string]$feed.account.server)
+            $frameCount = 0
+            if ($feed.timeframes) { $frameCount = @($feed.timeframes.PSObject.Properties).Count }
+            Add-Report ("Direct MT5 feed file: {0}; schema={1}; connected={2}; account_server_present={3}; timeframes={4}; bytes={5}." -f [IO.Path]::GetFileName($feedPath),$schema,$connected,$accountServerPresent,$frameCount,(Get-Item -LiteralPath $feedPath).Length)
+        }
+        catch {
+            Add-Report ("Direct MT5 feed file invalid: {0}; reason={1}" -f [IO.Path]::GetFileName($feedPath),$_.Exception.Message)
+        }
+    }
+
     $marketSymbol = [string]$env:MIRSAD_MT5_MARKET_SYMBOL
     if ([string]::IsNullOrWhiteSpace($marketSymbol)) { $marketSymbol = 'BTCUSDT' }
     $marketSymbol = $marketSymbol.Trim()
@@ -609,6 +633,7 @@ public static class MirsadNativeWindow {
     $engine2CandleStatus = [string]$engine2Summary.engine2_candle_history.status
     Add-Report ("Engine 1 actual MT5 market result: status={0}; price={1}; tick status={2}; tick count={3}; economic calendar={4}; events={5}." -f $engine1Status,$engine2Summary.engine1_market.price,$engine2Summary.engine1_market.microstructure.status,$engine2Summary.engine1_market.microstructure.tick_count,$engine2Summary.engine1_market.economic_calendar.status,$engine2Summary.engine1_market.economic_calendar.event_count)
     Add-Report ("Engine 2 actual MT5 candle result: status={0}; timeframes={1}; closed 1m={2}; 5m={3}; 15m={4}." -f $engine2CandleStatus,($engine2Summary.engine2_candle_history.timeframes | ConvertTo-Json -Compress),$engine2Summary.engine2_candle_history.closed_candles.'1m',$engine2Summary.engine2_candle_history.closed_candles.'5m',$engine2Summary.engine2_candle_history.closed_candles.'15m')
+    Add-Report ("Engine 2 native MT5 indicators: status={0}; ready timeframes={1}; missing required={2}." -f $engine2Summary.engine2_native_indicators.status,$engine2Summary.engine2_native_indicators.ready_timeframe_count,($engine2Summary.engine2_native_indicators.missing_required_timeframes -join ','))
     Add-Report ("Engine 2 MT5 image result: status={0}; visual eligible={1}; reference calibration={2}; detected bars={3}." -f $engine2Summary.engine2.status,$engine2Summary.engine2.visual_eligible,$engine2Summary.engine2.reference_calibration_status,$engine2Summary.engine2.detected_bars)
 
     $engine2VisualStatus = [string]$engine2Summary.engine2.status
