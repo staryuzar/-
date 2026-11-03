@@ -2,7 +2,7 @@ from __future__ import annotations
 import argparse, hashlib, json, math, sys
 from typing import Any
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageDraw
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -20,7 +20,101 @@ from mirsad.engines.mt5_chart_geometry import (
 
 SUPPORTED = {"1m", "5m", "15m", "1h", "4h", "1d", "1w"}
 
-def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict:
+
+
+def _write_plot_debug_overlay(image_path: Path, analysis: dict[str, Any],
+                              native_geometry: dict[str, Any], native_bars: list[dict[str, Any]],
+                              chart: dict[str, Any], destination: Path) -> dict[str, Any]:
+    """Save only the calibrated plot crop with native and extracted OHLC pixel marks."""
+    calibration = analysis.get("calibration") if isinstance(analysis.get("calibration"), dict) else {}
+    try:
+        left, top = int(calibration["plot_left_px"]), int(calibration["plot_top_px"])
+        right, bottom = int(calibration["plot_right_px"]), int(calibration["plot_bottom_px"])
+        visible, first_shift = int(chart["visible_bars"]), int(chart["first_visible_bar_shift"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {"status": "NOT_CREATED", "reason": "Plot bounds or viewport metadata unavailable."}
+    if right <= left or bottom <= top or visible < 1 or first_shift < 0:
+        return {"status": "NOT_CREATED", "reason": "Invalid plot bounds or viewport metadata."}
+    with Image.open(image_path) as source:
+        rgb = source.convert("RGB")
+        bounds = (max(0, left), max(0, top), min(rgb.width, right), min(rgb.height, bottom))
+        if bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+            return {"status": "NOT_CREATED", "reason": "Plot crop lies outside the PNG."}
+        crop = rgb.crop(bounds)
+    crop_left, crop_top, crop_right, crop_bottom = bounds
+    header = 30
+    canvas = Image.new("RGB", (crop.width, crop.height + header), (248, 248, 248))
+    canvas.paste(crop, (0, header))
+    draw = ImageDraw.Draw(canvas)
+    rows = analysis.get("bars") if isinstance(analysis.get("bars"), list) else []
+    by_slot = {}
+    for row in rows:
+        if isinstance(row, dict):
+            try:
+                by_slot.setdefault(int(row["slot_index"]), row)
+            except (KeyError, TypeError, ValueError, OverflowError):
+                pass
+    geometry_rows = native_geometry.get("bars") if isinstance(native_geometry, dict) else None
+    if not isinstance(geometry_rows, list) or len(geometry_rows) != len(native_bars):
+        return {"status": "NOT_CREATED", "reason": "Native geometry/history length mismatch."}
+    rightmost = max(0, first_shift - visible + 1)
+    matched = native_drawn = 0
+    for i, geom in enumerate(geometry_rows):
+        if not isinstance(geom, dict) or geom.get("valid") is not True or geom.get("visible") is not True:
+            continue
+        points = geom.get("points_image_px_provisional")
+        if not isinstance(points, dict):
+            continue
+        try:
+            xs = [float(points[k]["x"]) for k in ("open", "high", "low", "close")]
+            ys = {k: float(points[k]["y"]) for k in ("open", "high", "low", "close")}
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if not all(math.isfinite(v) for v in xs + list(ys.values())):
+            continue
+        x = sum(xs) / 4.0
+        if not left <= x <= right:
+            continue
+        offset = len(native_bars) - 1 - i
+        rel = offset - rightmost
+        if not 0 <= rel < visible:
+            continue
+        slot = visible - 1 - rel
+        xx = int(round(x - crop_left))
+        def yy(v): return int(round(v - crop_top + header))
+        draw.line((xx, yy(ys["high"]), xx, yy(ys["low"])), fill=(225, 72, 42), width=2)
+        for key in ("open", "high", "low", "close"):
+            y = yy(ys[key]); draw.ellipse((xx-2, y-2, xx+2, y+2), fill=(225, 72, 42))
+        native_drawn += 1
+        row = by_slot.get(slot)
+        if row is None:
+            continue
+        try:
+            ex = float(row["x_px"])
+            ey = [float(row[k]) for k in ("high_y_px", "low_y_px", "body_top_y_px", "body_bottom_y_px")]
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(ex) or not all(math.isfinite(v) for v in ey):
+            continue
+        if not crop_left <= ex <= crop_right or not all(crop_top <= v <= crop_bottom for v in ey):
+            continue
+        ix = int(round(ex - crop_left)); yh, yl, yt, yb = [yy(v) for v in ey]
+        draw.line((ix, yh, ix, yl), fill=(42, 180, 92), width=2)
+        draw.line((ix-3, yt, ix+3, yt), fill=(42, 180, 92), width=2)
+        draw.line((ix-3, yb, ix+3, yb), fill=(42, 180, 92), width=2)
+        matched += 1
+    outside = int(((analysis.get("native_geometry_slot_assignment") or {})
+                   .get("plot_bounds_diagnostics", {})
+                   .get("native_slots_beyond_ocr_plot_right", 0) or 0))
+    draw.rectangle((0, 0, canvas.width, header), fill=(248, 248, 248))
+    draw.text((6, 8), f"MT5 native RED | extracted GREEN | exact-slot matches {matched} | outside right {outside}", fill=(20, 20, 20))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(destination, format="PNG", optimize=True)
+    return {"status": "CREATED", "file": destination.name, "matched_exact_slots": matched,
+            "native_marks": native_drawn, "native_slots_beyond_ocr_right": outside,
+            "plot_width_px": crop.width, "plot_height_px": crop.height}
+
+def analyze(observer_root: Path, market_symbol: str, broker_symbol: str, *, debug_overlay: Path | None = None) -> dict:
     capture = MT5ChartObserverInbox(observer_root, max_age_seconds=120).inspect_latest()
     chart = capture.get("chart") if isinstance(capture.get("chart"), dict) else {}
 
@@ -244,7 +338,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
               and axis_validation.get("status") == "READY")
     eligible = bool(result.get("decision_eligible")) and anchor
     selected_reference_anchor = result.get("reference_anchor") or {}
-    return {
+    summary = {
         "schema": "MIR-ENGINE2-OBSERVER-SMOKE-1",
         "capture_id": capture.get("capture_id"),
         "broker_symbol": broker_symbol, "market_symbol": market_symbol, "timeframe": timeframe,
@@ -380,6 +474,11 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         "safety": {"read_only": True, "decision_eligible": False,
                    "reason": "Actual MT5 diagnostics only. No order is created or authorized."}
     }
+    if debug_overlay is not None:
+        summary["plot_debug_overlay"] = _write_plot_debug_overlay(
+            image, result, native_pixel_geometry, bars, chart, debug_overlay
+        )
+    return summary
 
 def main() -> int:
     p = argparse.ArgumentParser()
@@ -387,8 +486,9 @@ def main() -> int:
     p.add_argument("--market-symbol", required=True)
     p.add_argument("--expected-broker-symbol", required=True)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--debug-overlay", type=Path, default=None)
     a = p.parse_args()
-    result = analyze(a.observer_root, a.market_symbol.strip().upper(), a.expected_broker_symbol.strip())
+    result = analyze(a.observer_root, a.market_symbol.strip().upper(), a.expected_broker_symbol.strip(), debug_overlay=a.debug_overlay)
     a.output.parent.mkdir(parents=True, exist_ok=True)
     a.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": result["engine2"]["status"],
