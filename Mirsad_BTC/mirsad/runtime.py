@@ -9,6 +9,7 @@ from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPS
 from .engines.market import MarketEngine  # Research/benchmark adapter; not used for live runtime.
 from .engines.mt5_market import MT5MarketDataEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
+from .engines.mt5_native_indicators import MT5NativeIndicatorHistory
 from .engines.chart import analyze_chart_image
 from .engines.chart_multi_timeframe import analyze_multi_timeframe_structure
 from .engines.indicators import IndicatorsEngine
@@ -122,7 +123,11 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  # scoring, market-source quorum, position management and all risk gates.
  candle_history=MT5ChartCandleHistory().collect(bridge=bridge,market=market)
  engine2_multitimeframe=_analyze_engine2_multi_timeframe_structure(candle_history)
+ native_indicators=MT5NativeIndicatorHistory().collect(
+  bridge=bridge,candle_history=candle_history,
+ )
  indicators=IndicatorsEngine().analyze(candle_history)
+ indicators["mt5_native"]=native_indicators
  chart["engine_2_candle_history"]={
   "status":candle_history.get("status"),
   "source":candle_history.get("source"),
@@ -147,6 +152,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "engine_2_candles":candle_history.get("status")=="READY",
   "engine_2_multi_timeframe_structure":engine2_multitimeframe.get("status")=="READY",
   "engine_3_indicators":indicators.get("status")=="READY",
+  "mt5_native_indicator_feed":native_indicators.get("status")=="READY",
   "engine_4_decision":decision.get("status")=="READY",
   "engine_5_communication_bridge":bridge.get("status")=="CONNECTED",
  }
@@ -173,9 +179,11 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "closed_candles":candle_history.get("closed_candles",{}),"reason":candle_history.get("reason")},
   "engine_2_multi_timeframe_structure":engine2_multitimeframe,
   "indicators":indicators,
+  "mt5_native_indicators":native_indicators,
   "bridge":bridge,"decision":decision,"command_publish":command_publish,
   "wiring":{"engine_1_market_to_engine_4":True,"engine_2_chart_to_engine_4":True,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
+   "mt5_native_indicator_buffers_to_engine_3_report":True,
    "engine_4_to_engine_5_command_envelope":"implemented_idempotent_user_authorized",
    "engine_5_to_engine_4_ack_and_positions":"read_from_common_files",
    "expert_connection":bridge.get("status","NOT_CONFIGURED")},
@@ -183,7 +191,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "Engine 1: MT5 quote pulse, spread/activity context and broker economic-calendar events. It does not read chart images or candles.",
    "Engine 2: real chart screenshots, candle extraction/validation, price structure, visible patterns and timestamp-aligned multi-timeframe structure. Its native MT5 candle inbox is the only OHLC source for Engine 3.",
    "Engine 2 multi-timeframe structure uses only its own six MT5 candle frames at one UTC cutoff; stale frames, missing intervals and forming candles are not allowed to create confluence.",
-   "Engine 3: EMA/RSI/ATR and multi-timeframe technical measures calculated exclusively from Engine 2 completed candles.",
+   "Engine 3: EMA/RSI/ATR and multi-timeframe technical measures calculated exclusively from Engine 2 completed candles. Native MT5 CopyBuffer indicator values are separately attached for comparison and validation.",
+   "Native MT5 indicator snapshots are read independently from chart images every market-feed cycle; closed-bar and forming-bar values remain separate and are not decision-eligible until independently validated.",
    "Engine 4: central synthesis, decision, position monitoring and risk ownership. Engine 5: MT5 communication bridge.",
    "Engine 1 quote updates describe quote movement only; they are not represented as executed trades, taker flow or order-book depth.",
    "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
