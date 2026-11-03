@@ -406,7 +406,7 @@ string ChartPixelPointJson(const bool valid, const int x, const int y)
 {
    if(!valid)
       return "null";
-   return StringFormat("{\\"x_px\\":%d,\\"y_px\\":%d}", x, y);
+   return StringFormat("{\"x_px\":%d,\"y_px\":%d}", x, y);
 }
 
 string BuildChartPixelGeometryJson(const MqlRates &rates[],
@@ -433,8 +433,14 @@ string BuildChartPixelGeometryJson(const MqlRates &rates[],
       bool close_ok = ChartTimePriceToXY(g_chart_id, 0, rates[i].time, rates[i].close, close_x, close_y);
 
       bool all_points_ok = open_ok && high_ok && low_ok && close_ok;
-      int min_x = MathMin(MathMin(open_x, high_x), MathMin(low_x, close_x));
-      int max_x = MathMax(MathMax(open_x, high_x), MathMax(low_x, close_x));
+      int min_x = open_x;
+      int max_x = open_x;
+      if(high_x < min_x) min_x = high_x;
+      if(low_x < min_x) min_x = low_x;
+      if(close_x < min_x) min_x = close_x;
+      if(high_x > max_x) max_x = high_x;
+      if(low_x > max_x) max_x = low_x;
+      if(close_x > max_x) max_x = close_x;
       bool x_aligned = all_points_ok && (max_x - min_x <= 1);
       bool visible = (
          x_aligned
@@ -458,16 +464,16 @@ string BuildChartPixelGeometryJson(const MqlRates &rates[],
       if(i > 0)
          bars_json += ",";
       bars_json += StringFormat(
-         "{\\"time_server_ms\\":%I64d,"
-         "\\"is_closed\\":%s,"
-         "\\"valid\\":%s,"
-         "\\"visible\\":%s,"
-         "\\"x_px\\":%s,"
-         "\\"x_alignment_error_px\\":%d,"
-         "\\"open\\":%s,"
-         "\\"high\\":%s,"
-         "\\"low\\":%s,"
-         "\\"close\\":%s}",
+         "{\"time_server_ms\":%I64d,"
+         "\"is_closed\":%s,"
+         "\"valid\":%s,"
+         "\"visible\":%s,"
+         "\"x_px\":%s,"
+         "\"x_alignment_error_px\":%d,"
+         "\"open\":%s,"
+         "\"high\":%s,"
+         "\"low\":%s,"
+         "\"close\":%s}",
          (long)rates[i].time * 1000,
          JsonBool(i < copied - 1),
          JsonBool(point_set_valid),
@@ -487,15 +493,15 @@ string BuildChartPixelGeometryJson(const MqlRates &rates[],
    double scale_x = source_width > 0 ? (double)image_width / (double)source_width : 0.0;
    double scale_y = source_height > 0 ? (double)image_height / (double)source_height : 0.0;
    return StringFormat(
-      "{\\"schema\\":\\"MIR-MT5-CHART-GEOMETRY-1\\","
-      "\\"coordinate_source\\":\\"MQL5_CHART_TIME_PRICE_TO_XY\\","
-      "\\"coordinate_origin\\":\\"MAIN_CHART_WINDOW_TOP_LEFT\\","
-      "\\"source_width_px\\":%d,\\"source_height_px\\":%d,"
-      "\\"image_width_px\\":%d,\\"image_height_px\\":%d,"
-      "\\"provisional_x_scale_to_image\\":%s,"
-      "\\"provisional_y_scale_to_image\\":%s,"
-      "\\"bars_total\\":%d,\\"bars_valid\\":%d,\\"bars_visible\\":%d,"
-      "\\"bars\\":%s}",
+      "{\"schema\":\"MIR-MT5-CHART-GEOMETRY-1\","
+      "\"coordinate_source\":\"MQL5_CHART_TIME_PRICE_TO_XY\","
+      "\"coordinate_origin\":\"MAIN_CHART_WINDOW_TOP_LEFT\","
+      "\"source_width_px\":%d,\"source_height_px\":%d,"
+      "\"image_width_px\":%d,\"image_height_px\":%d,"
+      "\"provisional_x_scale_to_image\":%s,"
+      "\"provisional_y_scale_to_image\":%s,"
+      "\"bars_total\":%d,\"bars_valid\":%d,\"bars_visible\":%d,"
+      "\"bars\":%s}",
       source_width, source_height, image_width, image_height,
       DoubleToString(scale_x, 8), DoubleToString(scale_y, 8),
       copied, valid_count, visible_count, bars_json
