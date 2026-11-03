@@ -140,6 +140,7 @@ Period=M1
    try{
     $telemetry=Get-Content -LiteralPath (Join-Path $folder 'status.json') -Raw|ConvertFrom-Json -ErrorAction Stop
     $heartbeat=($telemetry.schema -eq 'MIR1' -and [bool]$telemetry.terminal_connected -and
+      -not [bool]$telemetry.execution_enabled -and
       [int64]$telemetry.heartbeat_at_ms -gt 0 -and $telemetry.symbol -eq 'BTC')
    }catch{$heartbeat=$false}
   }
@@ -149,8 +150,8 @@ Period=M1
  }
  if(!$authorized){throw 'Headway demo authorization was not confirmed.'}
  Add-Report 'PASS — MT5 authorized on the Headway demo server.'
- if(!$heartbeat){throw 'MT5 logged in but the Mirsad EA heartbeat was not observed.'}
- Add-Report 'PASS — Mirsad EA loaded and produced MIR1 Common Files telemetry.'
+ if(!$heartbeat){throw 'MT5 logged in but the Mirsad EA heartbeat was not observed with execution disabled.'}
+ Add-Report 'PASS — Mirsad EA heartbeat is live and its internal execution switch is OFF.'
  Add-Report ("Broker symbol: {0}; market mapping: {1}; account currency: {2}" -f $telemetry.symbol,$telemetry.market_symbol,$telemetry.account.currency)
  Add-Report ("Current Ask quote available: {0}" -f ([double]$telemetry.quote.ask -gt 0))
  Add-Report ("Broker tick age (seconds): {0}" -f $telemetry.quote.tick_age_seconds)
