@@ -145,6 +145,23 @@ class MT5NativePriceActionTests(unittest.TestCase):
         self.assertEqual(result["timeframes"]["1h"]["status"], "PARTIAL")
         self.assertNotIn("1h", result["summary"]["eligible_timeframes"])
 
+    def test_one_missing_candle_blocks_timeframe_consensus(self) -> None:
+        history = make_history()
+        bars = history["candles_by_tf"]["1h"]
+        bars[60:] = bars[61:]
+        result = analyze_mt5_native_price_action(history)
+        self.assertEqual(result["timeframes"]["1h"]["status"], "PARTIAL")
+        self.assertEqual(result["timeframes"]["1h"]["data_quality"]["gap_count"], 1)
+        self.assertNotIn("1h", result["summary"]["eligible_timeframes"])
+
+    def test_forming_candle_must_immediately_follow_latest_closed_candle(self) -> None:
+        history = make_history()
+        bars = history["candles_by_tf"]["15m"]
+        bars[-1]["open_time_ms"] += DURATIONS["15m"]
+        result = analyze_mt5_native_price_action(history)
+        self.assertEqual(result["timeframes"]["15m"]["status"], "INVALID_SEQUENCE")
+        self.assertNotIn("15m", result["summary"]["eligible_timeframes"])
+
     def test_stale_timeframe_is_not_used_for_consensus(self) -> None:
         history = make_history()
         history["candles_by_tf"]["1h"] = [

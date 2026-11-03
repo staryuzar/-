@@ -68,11 +68,27 @@ class ContinuationPatternTests(unittest.TestCase):
     def test_breakout_is_only_confirmed_after_all_boundary_pivots(self) -> None:
         data = base_bars(46)
         data[40].update({"open": 125.0, "high": 132.0, "low": 119.0, "close": 130.0})
+        for index in range(41, len(data)):
+            data[index].update({"open": 129.0, "high": 132.0, "low": 128.0, "close": 130.0})
         found = detect([120, 120, 120], [90, 95, 100], data=data)
         triangle = next(item for item in found if item["pattern_id"] == "ascending_triangle")
         self.assertEqual(triangle["status"], "BREAKOUT_UP")
         self.assertEqual(triangle["breakout_index"], 40)
         self.assertEqual(triangle["formation_confirmed_at"], 37)
+
+    def test_breakout_is_marked_failed_after_closed_candle_reenters_pattern(self) -> None:
+        data = base_bars(46)
+        data[40].update({"open": 125.0, "high": 132.0, "low": 119.0, "close": 130.0})
+        data[41].update({"open": 112.0, "high": 114.0, "low": 108.0, "close": 110.0})
+        found = detect([120, 120, 120], [90, 95, 100], data=data)
+        triangle = next(item for item in found if item["pattern_id"] == "ascending_triangle")
+        self.assertEqual(triangle["status"], "FAILED_BREAKOUT_UP")
+        self.assertEqual(triangle["breakout_index"], 40)
+        self.assertEqual(triangle["breakout_failure_index"], 41)
+        self.assertEqual(
+            triangle["breakout_lifecycle"],
+            "FAILED_AFTER_CLOSED_CANDLE_REENTRY",
+        )
 
     def test_breakout_before_last_pivot_confirmation_is_ignored(self) -> None:
         data = base_bars(46)

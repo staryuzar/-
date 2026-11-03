@@ -68,14 +68,32 @@ class MT5ChartCandleHistoryTests(unittest.TestCase):
         self.assertEqual(result["closed_candles"]["1m"], 69)
         self.assertEqual(set(result["candles_by_tf"]), {"1m", "5m", "15m", "1h", "4h", "1d"})
 
-    def test_engine2_candle_feed_is_blocked_when_required_history_is_short(self) -> None:
+    def test_engine2_is_ready_with_24_closed_bars_while_engine3_history_is_partial(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             payload = make_payload()
-            payload["timeframes"]["5m"]["bars"] = payload["timeframes"]["5m"]["bars"][-20:]
-            payload["timeframes"]["5m"]["copied"] = 20
+            for timeframe in ("1m", "5m", "15m"):
+                bars = payload["timeframes"][timeframe]["bars"][-30:]
+                payload["timeframes"][timeframe]["bars"] = bars
+                payload["timeframes"][timeframe]["copied"] = len(bars)
+            self._write(directory, payload)
+            result = self._engine(directory).collect(bridge=self._bridge(), market=self._market())
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["engine2_status"], "READY")
+        self.assertEqual(result["engine3_history_status"], "INSUFFICIENT")
+        self.assertEqual(result["engine3_missing_timeframes"], ["1m", "5m", "15m"])
+        self.assertTrue(result["analysis_eligible"])
+        self.assertFalse(result["decision_eligible"])
+        self.assertEqual(result["closed_candles"]["1m"], 29)
+
+    def test_engine2_is_blocked_when_any_frame_has_fewer_than_24_closed_bars(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            payload = make_payload()
+            payload["timeframes"]["1d"]["bars"] = payload["timeframes"]["1d"]["bars"][-20:]
+            payload["timeframes"]["1d"]["copied"] = 20
             self._write(directory, payload)
             result = self._engine(directory).collect()
         self.assertEqual(result["status"], "INSUFFICIENT_HISTORY")
+        self.assertIn("1d", result["missing_engine2_timeframes"])
 
     def test_engine2_rejects_bad_candle_geometry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

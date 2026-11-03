@@ -23,8 +23,7 @@ TIMEFRAME_WEIGHTS = {
     "1d": 5.0,
 }
 MIN_CLOSED_BARS = 24
-MAX_STALENESS_INTERVALS = 2
-MAX_MISSING_INTERVAL_FRACTION = 0.03
+MAX_STALENESS_INTERVALS = 1
 DIRECTION_THRESHOLD = 0.20
 
 
@@ -102,6 +101,15 @@ def _validate_frame(
         }, forming_bar
 
     last_close_ms = closed_bars[-1]["open_time_ms"] + duration
+    expected_forming_open_ms = last_close_ms
+    if forming_bar["open_time_ms"] != expected_forming_open_ms:
+        return None, {
+            "status": "INVALID_SEQUENCE",
+            "last_closed_bar_close_time_ms": last_close_ms,
+            "forming_bar_open_time_ms": forming_bar["open_time_ms"],
+            "expected_forming_bar_open_time_ms": expected_forming_open_ms,
+            "reason": "The forming candle does not immediately follow the latest completed candle.",
+        }, forming_bar
     staleness_ms = as_of_ms - last_close_ms
     if staleness_ms < -2_000:
         return None, {
@@ -115,7 +123,7 @@ def _validate_frame(
             "status": "STALE",
             "last_closed_bar_close_time_ms": last_close_ms,
             "staleness_ms": staleness_ms,
-            "reason": "The latest completed candle is older than the allowed timeframe freshness window.",
+            "reason": "The forming candle is older than the allowed timeframe freshness window.",
         }, forming_bar
 
     gaps: list[dict[str, int]] = []
@@ -133,7 +141,9 @@ def _validate_frame(
 
     interval_count = max(1, len(closed_bars) - 1)
     gap_fraction = missing_intervals / (interval_count + missing_intervals)
-    status = "PARTIAL" if gap_fraction > MAX_MISSING_INTERVAL_FRACTION else "READY"
+    # Never build a pattern or direction across a missing candle. Even one
+    # missing interval makes the timeframe visible but ineligible for consensus.
+    status = "PARTIAL" if gaps else "READY"
     health = {
         "status": status,
         "closed_bars": len(closed_bars),
@@ -146,7 +156,7 @@ def _validate_frame(
         "gap_fraction": round(gap_fraction, 5),
         "gaps": gaps[-10:],
         "reason": (
-            "Missing candle intervals exceed the allowed continuity threshold."
+            "One or more candle intervals are missing; this timeframe is excluded from direction consensus."
             if status == "PARTIAL" else None
         ),
     }

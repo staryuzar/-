@@ -9,7 +9,10 @@ from typing import Any
 from ..config import MT5_COMMON_FILES, MT5_MARKET_DATA_MAX_AGE_SECONDS
 
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
-REQUIRED_TIMEFRAMES = ("1m", "5m", "15m")
+ENGINE3_REQUIRED_TIMEFRAMES = ("1m", "5m", "15m")
+ENGINE2_MIN_CLOSED_BARS = 24
+ENGINE3_MIN_CLOSED_BARS = 50
+REQUIRED_TIMEFRAMES = ENGINE3_REQUIRED_TIMEFRAMES
 CANDLE_SCHEMA = "MIR-ENGINE2-CANDLES-1"
 
 
@@ -190,22 +193,38 @@ class MT5ChartCandleHistory:
             assert bars is not None
             candles_by_tf[timeframe] = bars
 
-        missing = [
-            timeframe for timeframe in REQUIRED_TIMEFRAMES
-            if sum(1 for candle in candles_by_tf[timeframe] if candle["closed"]) < 50
+        closed_counts = {
+            timeframe: sum(1 for candle in candles_by_tf[timeframe] if candle["closed"])
+            for timeframe in TIMEFRAMES
+        }
+        engine2_missing = [
+            timeframe for timeframe in TIMEFRAMES
+            if closed_counts[timeframe] < ENGINE2_MIN_CLOSED_BARS
         ]
-        if missing:
+        if engine2_missing:
             return self._blocked(
                 "INSUFFICIENT_HISTORY",
-                "Engine 2 completed candle history is insufficient for Engine 3 in: " + ", ".join(missing),
-                missing_required_timeframes=missing,
+                "Engine 2 requires at least 24 completed native OHLC candles in every timeframe: "
+                + ", ".join(engine2_missing),
+                missing_engine2_timeframes=engine2_missing,
+                engine2_min_closed_bars=ENGINE2_MIN_CLOSED_BARS,
             )
+        engine3_missing = [
+            timeframe for timeframe in ENGINE3_REQUIRED_TIMEFRAMES
+            if closed_counts[timeframe] < ENGINE3_MIN_CLOSED_BARS
+        ]
 
         return {
             "engine": "engine_2_chart_candles",
             "source": "MT5_CHART_OBSERVER",
             "status": "READY",
-            "decision_eligible": True,
+            "engine2_status": "READY",
+            "engine3_history_status": "INSUFFICIENT" if engine3_missing else "READY",
+            "engine3_missing_timeframes": engine3_missing,
+            "engine2_min_closed_bars": ENGINE2_MIN_CLOSED_BARS,
+            "engine3_min_closed_bars": ENGINE3_MIN_CLOSED_BARS,
+            "analysis_eligible": True,
+            "decision_eligible": False,
             "symbol": market_symbol,
             "broker_symbol": broker_symbol,
             "account_server": server,
@@ -213,10 +232,7 @@ class MT5ChartCandleHistory:
             "age_seconds": round(age_seconds, 3),
             "candles_by_tf": candles_by_tf,
             "timeframes": {name: len(rows) for name, rows in candles_by_tf.items()},
-            "closed_candles": {
-                name: sum(1 for row in rows if row["closed"])
-                for name, rows in candles_by_tf.items()
-            },
+            "closed_candles": closed_counts,
             "feed_health": {
                 "terminal_connected": True,
                 "snapshot_fresh": True,

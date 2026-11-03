@@ -83,9 +83,13 @@ def validate(
         )
 
     candle_frames = candles.get("timeframes") or {}
+    closed_frames = candles.get("closed_candles") or {}
     for timeframe in TIMEFRAMES:
-        if int(candle_frames.get(timeframe, 0) or 0) < 2:
-            engine2_failures.append(f"candles: {timeframe} timeframe is missing or too short")
+        closed_count = int(closed_frames.get(timeframe, 0) or 0)
+        if closed_count < 24:
+            engine2_failures.append(
+                f"candles: {timeframe} has {closed_count} closed bars; Engine 2 requires at least 24"
+            )
 
     native_frames = indicators.get("timeframes") or {}
     ready_indicator_counts: dict[str, int] = {}

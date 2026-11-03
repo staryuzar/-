@@ -112,21 +112,32 @@ def _pattern_result(
     breakout_direction = None
     breakout_index = None
     breakout_level = None
+    breakout_failure_index = None
+    breakout_failure_level = None
     for index in range(formation_confirmed_at + 1, len(bars)):
         upper = _line_value(high_line, index)
         lower = _line_value(low_line, index)
         close = float(bars[index]["close"])
-        if close > upper + tolerance * 0.20:
-            status = "BREAKOUT_UP"
-            breakout_direction = "UP"
-            breakout_index = index
-            breakout_level = upper
+        if status == "CANDIDATE":
+            if close > upper + tolerance * 0.20:
+                status = "BREAKOUT_UP"
+                breakout_direction = "UP"
+                breakout_index = index
+                breakout_level = upper
+            elif close < lower - tolerance * 0.20:
+                status = "BREAKOUT_DOWN"
+                breakout_direction = "DOWN"
+                breakout_index = index
+                breakout_level = lower
+        elif status == "BREAKOUT_UP" and close < upper - tolerance * 0.20:
+            status = "FAILED_BREAKOUT_UP"
+            breakout_failure_index = index
+            breakout_failure_level = upper
             break
-        if close < lower - tolerance * 0.20:
-            status = "BREAKOUT_DOWN"
-            breakout_direction = "DOWN"
-            breakout_index = index
-            breakout_level = lower
+        elif status == "BREAKOUT_DOWN" and close > lower + tolerance * 0.20:
+            status = "FAILED_BREAKOUT_DOWN"
+            breakout_failure_index = index
+            breakout_failure_level = lower
             break
 
     result: dict[str, Any] = {
@@ -150,6 +161,17 @@ def _pattern_result(
         "breakout_direction": breakout_direction,
         "breakout_index": breakout_index,
         "breakout_level": round(breakout_level, 8) if breakout_level is not None else None,
+        "breakout_failure_index": breakout_failure_index,
+        "breakout_failure_level": (
+            round(breakout_failure_level, 8)
+            if breakout_failure_level is not None else None
+        ),
+        "breakout_lifecycle": (
+            "FAILED_AFTER_CLOSED_CANDLE_REENTRY"
+            if breakout_failure_index is not None
+            else "NO_BREAKOUT" if breakout_index is None
+            else "BREAKOUT_ACTIVE_AT_SAMPLE_END"
+        ),
         "tolerance": round(tolerance, 8),
         "confirmation_rule": "closed_candle_break_after_all_boundary_pivots_confirmed",
         "empirical_status": "UNVALIDATED",
