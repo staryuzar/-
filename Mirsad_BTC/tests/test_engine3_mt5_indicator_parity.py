@@ -14,7 +14,7 @@ def make_snapshots() -> tuple[dict, dict]:
     native_frames = {}
     for frame_index, timeframe in enumerate(TIMEFRAMES):
         bars = []
-        for index in range(70):
+        for index in range(600):
             close = 100.0 + frame_index * 10 + index * 0.37 + (index % 5) * 0.11
             bars.append({
                 "open_time_ms": 1_700_000_000_000 + index * 60_000,
