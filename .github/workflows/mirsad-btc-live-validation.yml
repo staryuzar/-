@@ -2,12 +2,28 @@ name: Mirsad BTC — Live Data Validation
 on:
   push:
     branches: [main]
+    # Documentation and report-only commits must not launch the 60-minute
+    # external chart benchmark. Source, tests, scripts, protocol and MT5 changes
+    # still run the integrated validation.
     paths:
-      - 'Mirsad_BTC/**'
       - '.github/workflows/mirsad-btc-live-validation.yml'
+      - 'Mirsad_BTC/mirsad/**'
+      - 'Mirsad_BTC/tests/**'
+      - 'Mirsad_BTC/scripts/**'
+      - 'Mirsad_BTC/requirements*.txt'
+      - 'Mirsad_BTC/dashboard.py'
+      - 'Mirsad_BTC/run_mirsad.py'
+      - 'Mirsad_BTC/mt5/**'
+      - 'Mirsad_BTC/protocol/**'
   workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: mirsad-btc-live-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   live-market-check:
     runs-on: ubuntu-latest
