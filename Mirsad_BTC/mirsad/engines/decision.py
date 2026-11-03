@@ -201,6 +201,7 @@ class DecisionEngine:
             ),
             "bullish_pattern_timeframes": price_action_summary.get("bullish_pattern_timeframes", []),
             "bearish_pattern_timeframes": price_action_summary.get("bearish_pattern_timeframes", []),
+            "mixed_pattern_timeframes": price_action_summary.get("mixed_pattern_timeframes", []),
             "decision_eligible": False,
             "gate": "NOT_EVALUATED",
             "role": "NON_DIRECTIONAL_SAFETY_GATE_ONLY",
