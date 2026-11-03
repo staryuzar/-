@@ -15,6 +15,8 @@ on:
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_pipeline.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_geometry.py'
       - 'Mirsad_BTC/mirsad/engines/chart.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_extraction.py'
+      - 'Mirsad_BTC/mirsad/engines/native_chart_extraction.py'
       - 'Mirsad_BTC/mirsad/runtime.py'
       - '.github/workflows/mirsad-chart-observer-compile.yml'
   workflow_dispatch:
