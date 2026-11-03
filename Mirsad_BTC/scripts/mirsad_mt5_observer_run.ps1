@@ -592,6 +592,9 @@ public static class MirsadNativeWindow {
     $marketSymbol = $marketSymbol.Trim()
     if ($marketSymbol.Length -gt 32) { throw 'Configured Mirsad market symbol is too long.' }
 
+    $candleFeedPath = Join-Path $observerDir 'candles.json'
+    $indicatorFeedPath = Join-Path $observerDir 'indicators.json'
+    $marketFeedPath = Join-Path (Split-Path -Parent $observerDir) 'market.json'
     # The first screenshot manifest can appear just before the periodic direct
     # feed files refresh their terminal_connected flag. Wait for a matching,
     # fresh set of all three snapshots instead of reading a startup snapshot.
@@ -655,9 +658,6 @@ public static class MirsadNativeWindow {
     }
     Add-Report 'PASS — Direct MT5 market, candle and native indicator snapshots are fresh, connected and identity-matched to the captured chart.'
 
-    $candleFeedPath = Join-Path $observerDir 'candles.json'
-    $indicatorFeedPath = Join-Path $observerDir 'indicators.json'
-    $marketFeedPath = Join-Path (Split-Path -Parent $observerDir) 'market.json'
     foreach ($feedPath in @($marketFeedPath,$candleFeedPath,$indicatorFeedPath)) {
         if (!(Test-Path -LiteralPath $feedPath)) {
             Add-Report ("Direct MT5 feed file missing: {0}" -f [IO.Path]::GetFileName($feedPath))
