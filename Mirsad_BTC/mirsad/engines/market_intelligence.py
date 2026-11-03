@@ -454,42 +454,67 @@ class MarketIntelligenceEngine:
         interest_url = base + "/open-interest?" + urllib.parse.urlencode({
             "category": "linear", "symbol": self.symbol, "intervalTime": "5min", "limit": 8,
         })
-        ticker_payload = interest_payload = None
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        ratio_url = base + "/account-ratio?" + urllib.parse.urlencode({
+            "category": "linear", "symbol": self.symbol, "period": "5min", "limit": 8,
+        })
+        payloads: dict[str, Any] = {}
+        requests = {
+            ticker_url: ("ticker", 30),
+            interest_url: ("interest", 120),
+            ratio_url: ("account_ratio", 120),
+        }
+        with ThreadPoolExecutor(max_workers=3) as pool:
             futures = {
-                pool.submit(self._json, ticker_url, ttl_seconds=30): "ticker",
-                pool.submit(self._json, interest_url, ttl_seconds=120): "interest",
+                pool.submit(self._json, url, ttl_seconds=ttl): key
+                for url, (key, ttl) in requests.items()
             }
             for future in as_completed(futures):
+                key = futures[future]
                 try:
-                    if futures[future] == "ticker":
-                        ticker_payload = future.result()
-                    else:
-                        interest_payload = future.result()
+                    payloads[key] = future.result()
                 except Exception:
-                    pass
-        ticker_rows = ((ticker_payload or {}).get("result") or {}).get("list") or []
-        if (ticker_payload or {}).get("retCode") != 0 or not ticker_rows:
-            raise ValueError("Bybit linear BTC ticker is unavailable.")
-        row = ticker_rows[0]
-        interest_rows = ((interest_payload or {}).get("result") or {}).get("list") or []
+                    payloads[key] = None
+
+        ticker_payload = payloads.get("ticker") if isinstance(payloads.get("ticker"), dict) else {}
+        ticker_rows = ((ticker_payload.get("result") or {}).get("list") or [])
+        row = ticker_rows[0] if ticker_payload.get("retCode") == 0 and ticker_rows else {}
+        interest_payload = payloads.get("interest") if isinstance(payloads.get("interest"), dict) else {}
+        interest_rows = ((interest_payload.get("result") or {}).get("list") or []) if interest_payload.get("retCode") == 0 else []
+        ratio_payload = payloads.get("account_ratio") if isinstance(payloads.get("account_ratio"), dict) else {}
+        ratio_rows = ((ratio_payload.get("result") or {}).get("list") or []) if ratio_payload.get("retCode") == 0 else []
+
         current_oi = _finite(row.get("openInterest"))
+        if current_oi is None and interest_rows and isinstance(interest_rows[0], dict):
+            current_oi = _finite(interest_rows[0].get("openInterest"))
         oi_change = None
         if len(interest_rows) >= 2:
             first = _finite(interest_rows[-1].get("openInterest"))
             last = _finite(interest_rows[0].get("openInterest"))
             if first is not None and last is not None and first > 0:
                 oi_change = (last - first) / first * 100.0
+
+        long_short_ratio = None
+        if ratio_rows and isinstance(ratio_rows[0], dict):
+            buy_ratio = _finite(ratio_rows[0].get("buyRatio"))
+            sell_ratio = _finite(ratio_rows[0].get("sellRatio"))
+            if buy_ratio is not None and sell_ratio is not None and sell_ratio > 0:
+                long_short_ratio = buy_ratio / sell_ratio
+
+        funding_rate = _finite(row.get("fundingRate"))
+        status = "READY" if funding_rate is not None or current_oi is not None or long_short_ratio is not None else "OFFLINE"
         return {
-            "status": "READY" if _finite(row.get("fundingRate")) is not None or current_oi is not None else "PARTIAL",
+            "status": status,
             "source": "Bybit linear perpetual futures",
-            "funding_rate": _finite(row.get("fundingRate")),
+            "funding_rate": funding_rate,
             "next_funding_time_ms": _parse_time(row.get("nextFundingTime")),
             "mark_price": _finite(row.get("markPrice")),
             "index_price": _finite(row.get("indexPrice")),
             "open_interest": current_oi,
             "open_interest_value": _finite(row.get("openInterestValue")),
             "open_interest_change_pct_35m": round(oi_change, 5) if oi_change is not None else None,
+            "long_short_ratio": round(long_short_ratio, 6) if long_short_ratio is not None else None,
+            "long_short_sample_count": len(ratio_rows),
+            "open_interest_sample_count": len(interest_rows),
             "turnover_24h": _finite(row.get("turnover24h")),
             "volume_24h": _finite(row.get("volume24h")),
             "timestamp_ms": int(time.time() * 1000),

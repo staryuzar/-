@@ -148,7 +148,7 @@ class WeightedDecisionTests(unittest.TestCase):
     def test_market_confirmation_uses_engine1_intelligence_with_quote_pulse_as_minor_context(self) -> None:
         market = {
             "market_context": {"microstructure": {"status": "READY", "quote_direction_balance": 0.65}},
-            "market_intelligence": {"status": "READY", "directional_score": -0.40, "confidence": 0.80},
+            "market_intelligence": {"status": "READY", "directional_score": -0.40, "confidence": 0.80, "evidence_coverage": 0.80},
         }
         score, parts = _market_confirmation_score(0.20, market)
         self.assertAlmostEqual(score, 0.50 * 0.20 + 0.50 * (-0.36 + 0.065), places=4)

@@ -56,6 +56,35 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertLess(result["score"], 0)
         self.assertIn("open-interest change is context", result["scope"])
 
+    def test_bybit_derivatives_include_account_long_short_ratio(self) -> None:
+        engine = MarketIntelligenceEngine()
+
+        def fake_json(url: str, *, ttl_seconds: int = 30):
+            if "/tickers?" in url:
+                return {"retCode": 0, "result": {"list": [{
+                    "fundingRate": "0.0001", "nextFundingTime": "1794000000000",
+                    "markPrice": "90000", "indexPrice": "89990",
+                    "openInterest": "2100", "openInterestValue": "189000000",
+                    "turnover24h": "1000000000", "volume24h": "12000",
+                }]}}
+            if "/open-interest?" in url:
+                return {"retCode": 0, "result": {"list": [
+                    {"openInterest": "2100", "timestamp": "1794000000000"},
+                    {"openInterest": "2000", "timestamp": "1793999700000"},
+                ]}}
+            if "/account-ratio?" in url:
+                return {"retCode": 0, "result": {"list": [
+                    {"buyRatio": "0.6", "sellRatio": "0.4", "timestamp": "1794000000000"},
+                ]}}
+            raise AssertionError("Unexpected Bybit endpoint.")
+
+        engine._json = fake_json
+        result = engine._collect_bybit_derivatives()
+        self.assertEqual(result["status"], "READY")
+        self.assertAlmostEqual(result["long_short_ratio"], 1.5)
+        self.assertAlmostEqual(result["open_interest_change_pct_35m"], 5.0)
+        self.assertEqual(result["long_short_sample_count"], 1)
+
     def test_context_requires_two_independent_evidence_categories_for_ready(self) -> None:
         result = compose_directional_context(
             news={"status": "READY", "score": 0.5, "confidence": 0.8},
