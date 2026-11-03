@@ -12,7 +12,7 @@ from PIL import Image, UnidentifiedImageError
 ROOT=Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
-from mirsad.config import (CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,COLLECT_INTERVAL_SECONDS,RISK_PER_TRADE,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,MARKET_MAX_AGE_SECONDS,MT5_HEARTBEAT_MAX_AGE_SECONDS,MT5_QUOTE_MAX_AGE_SECONDS,MT5_MARKET_DATA_MAX_AGE_SECONDS,MT5_MARKET_DIVERGENCE_MAX_PCT,MT5_MAX_SPREAD_PCT,CHART_MAX_AGE_SECONDS)
+from mirsad.config import (ROOT,DATA_DIR,DB_PATH,CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH,RISK_STATE_PATH,SYMBOL,PROVIDERS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,COLLECT_INTERVAL_SECONDS,RISK_PER_TRADE,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,MARKET_MAX_AGE_SECONDS,MT5_HEARTBEAT_MAX_AGE_SECONDS,MT5_QUOTE_MAX_AGE_SECONDS,MT5_MARKET_DATA_MAX_AGE_SECONDS,MT5_MARKET_DIVERGENCE_MAX_PCT,MT5_MAX_SPREAD_PCT,CHART_MAX_AGE_SECONDS)
 from mirsad.storage import read_json,write_json_atomic
 from mirsad.engines.visual_knowledge import visual_knowledge_summary
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
@@ -403,6 +403,14 @@ def render_execution_console(state:dict)->None:
 
  with tabs[6]:
   settings_rows=[
+   {"الإعداد":"MIRSAD_SYMBOL","القيمة":SYMBOL,"المعنى":"الرمز المنطقي الذي يعمل عليه محرك السوق داخل البرنامج."},
+   {"الإعداد":"MIRSAD_DATA_DIR","القيمة":str(DATA_DIR),"المعنى":"مجلد البيانات المحلية وقاعدة البيانات واللقطات والتقارير التشغيلية."},
+   {"الإعداد":"SQLite database","القيمة":str(DB_PATH),"المعنى":"قاعدة بيانات السوق والتاريخ والأرشفة."},
+   {"الإعداد":"system_status.json","القيمة":str(STATUS_PATH),"المعنى":"ملف الحالة الموحد الذي تقرأ منه لوحة القيادة."},
+   {"الإعداد":"latest_market.json","القيمة":str(SNAPSHOT_PATH),"المعنى":"آخر لقطة سوق كتبها runtime."},
+   {"الإعداد":"chart images directory","القيمة":str(CHART_DIR),"المعنى":"مجلد صور الرسوم المرفقة أو الملتقطة للمحرك الثاني."},
+   {"الإعداد":"chart_metadata.json","القيمة":str(CHART_METADATA_PATH),"المعنى":"إعدادات الصورة ومعايرة محور السعر وبصمة ملف الصورة."},
+   {"الإعداد":"daily_risk_state.json","القيمة":str(RISK_STATE_PATH),"المعنى":"خط أساس حد الخسارة اليومية وحالته المستمرة."},
    {"الإعداد":"MIRSAD_ENABLE_ORDER_PUBLISH","القيمة":"1" if publish_enabled else "0","المعنى":"يسمح للبرنامج بكتابة command.json عند اكتمال القرار."},
    {"الإعداد":"InpAllowExecution داخل الخبير","القيمة":"TRUE" if expert_execution is True else "FALSE" if expert_execution is False else "غير معروف","المعنى":"يسمح للخبير بإرسال طلب الوسيط بعد فحوصه الداخلية."},
    {"الإعداد":"MIRSAD_DAILY_LOSS_LIMIT_ENABLED","القيمة":"1" if DAILY_LOSS_LIMIT_ENABLED else "0","المعنى":"حاجز الخسارة اليومية؛ معطل للتطوير حالياً."},
@@ -416,8 +424,8 @@ def render_execution_console(state:dict)->None:
    {"الإعداد":"MIRSAD_MARKET_MAX_AGE","القيمة":MARKET_MAX_AGE_SECONDS,"المعنى":"أقصى عمر للبيانات السوقية."},
    {"الإعداد":"MIRSAD_CHART_MAX_AGE","القيمة":CHART_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لصورة الشارت."},
    {"الإعداد":"MIRSAD_COLLECT_SECONDS","القيمة":COLLECT_INTERVAL_SECONDS,"المعنى":"الفاصل بين دورات runtime بالثانية."},
-   {"الإعداد":"MIRSAD_MT5_COMMON_FILES","القيمة":MT5_COMMON_FILES or "غير مضبوط","المعنى":"مجلد Common Files الذي يتبادل فيه البرنامج والخبير ملفات MIR1."},
    {"الإعداد":"InpMagicNumber","القيمة":bridge.get("magic_number","—"),"المعنى":"معرّف المراكز والأوامر التي يملكها خبير مرصاد."},
+   {"الإعداد":"مصادر البحث والمقارنة","القيمة":"، ".join(PROVIDERS.keys()),"المعنى":"مصادر بحث/تقييم مهيأة في الكود؛ مصدر القرار والتشغيل الحي يبقى MT5 وفق عقود المحركات."},
   ]
   st.dataframe(pd.DataFrame(settings_rows),use_container_width=True,hide_index=True)
   daily_cols=st.columns(4)

@@ -196,7 +196,13 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "execution_controls":{
    "order_publish_enabled":bool(ENABLE_ORDER_PUBLISH),
    "daily_loss_limit_enabled":bool(DAILY_LOSS_LIMIT_ENABLED),
-   "expert_execution_telemetry":"NOT_REPORTED_BY_CURRENT_MIR1_STATUS_SCHEMA",
+   "terminal_connected":bridge.get("terminal_connected"),
+   "expert_execution_enabled":bridge.get("execution_enabled"),
+   "expert_execution_telemetry":(
+    "REPORTED_ENABLED" if bridge.get("execution_enabled") is True
+    else "REPORTED_DISABLED" if bridge.get("execution_enabled") is False
+    else "NOT_REPORTED_BY_CURRENT_MIR1_STATUS"
+   ),
   },
   "market":{"symbol":market.get("symbol"),"price":market.get("price"),
    "primary_venue":market.get("primary_venue"),"venue_count":market.get("venue_count"),

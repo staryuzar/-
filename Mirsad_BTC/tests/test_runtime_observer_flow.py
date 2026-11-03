@@ -121,6 +121,8 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             bridge_snapshot = {
                 "engine": "engine_5_communication_bridge",
                 "status": "CONNECTED",
+                "terminal_connected": True,
+                "execution_enabled": False,
                 "symbol": "BTC",
                 "market_symbol": "BTCUSDT",
                 "account": {"server": "Headway-Demo"},
@@ -191,6 +193,9 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             self.assertTrue(passed_chart["decision_eligible"])
             self.assertEqual(report["decision"]["action"], "WAIT")
             self.assertEqual(report["command_publish"]["status"], "NOT_READY")
+            self.assertTrue(report["execution_controls"]["terminal_connected"])
+            self.assertIs(report["execution_controls"]["expert_execution_enabled"], False)
+            self.assertEqual(report["execution_controls"]["expert_execution_telemetry"], "REPORTED_DISABLED")
             candle_history_engine.collect.assert_called_once_with(
                 bridge=bridge_snapshot, market=market
             )
