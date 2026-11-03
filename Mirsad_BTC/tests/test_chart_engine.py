@@ -310,6 +310,52 @@ class ChartEngineTests(unittest.TestCase):
         self.assertAlmostEqual(result["bars"][-2]["open"], 106_933.333333, places=3)
         self.assertEqual(result["bars"][-1]["candle_state"], "FORMING_OR_UNVERIFIED")
 
+    def test_multi_reference_loop_collects_all_exact_slots_after_first_anchor(self) -> None:
+        def price_at(y: int) -> float:
+            return 120000.0 - ((y - 10) / 300.0) * 40000.0
+
+        candidates = [{
+            "offset_from_right": 0,
+            "closed": False,
+            "ohlc": {
+                "open": 108000.0, "high": 108000.0,
+                "low": 108000.0, "close": 108000.0,
+            },
+        }]
+        for offset in range(1, 24):
+            index = 23 - offset
+            close_y = 210 - index * 5
+            open_y = close_y + 8
+            high_y = close_y - 5
+            low_y = open_y + 5
+            candidates.append({
+                "offset_from_right": offset,
+                "closed": True,
+                "time_server_ms": 1_700_000_000_000 - offset * 60_000,
+                "ohlc": {
+                    "open": price_at(open_y),
+                    "high": price_at(high_y),
+                    "low": price_at(low_y),
+                    "close": price_at(close_y),
+                },
+            })
+
+        result = self._analyze(metadata={
+            "price_top": None,
+            "price_bottom": None,
+            "expected_candle_count": 24,
+            "first_visible_bar_shift": 23,
+            "last_candle_closed": False,
+            "require_multi_reference_validation": True,
+            "reference_candle_candidates": candidates,
+        })
+
+        self.assertEqual(result["reference_slot_diagnostics"]["exact_slot_match_count"], 23)
+        self.assertEqual(result["reference_multi_calibration"]["status"], "READY")
+        self.assertGreaterEqual(result["reference_multi_calibration"]["matched_candles"], 8)
+        self.assertTrue(result["quality_gates"]["native_reference_candle_verified"])
+        self.assertTrue(result["decision_eligible"])
+
     def test_reference_candidate_is_rejected_when_its_exact_visual_slot_is_missing(self) -> None:
         result = self._analyze(metadata={
             "price_top": None,
