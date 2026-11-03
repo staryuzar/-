@@ -392,15 +392,28 @@ def assign_native_geometry_slots(
         )
 
     assigned = [dict(item) if isinstance(item, dict) else item for item in extracted_bars]
+    previous_slot_values = [
+        item.get("slot_index") if isinstance(item, dict) else None
+        for item in extracted_bars
+    ]
+    cleared_existing_slot_count = sum(value is not None for value in previous_slot_values)
+    # Native X anchors supersede any earlier uniform-grid/slot-guided IDs.
+    # Clear every old ID first so unmatched bars cannot leave duplicate slots.
+    for item in assigned:
+        if isinstance(item, dict):
+            item.pop("slot_index", None)
+            item.pop("slot_assignment_source", None)
+            item.pop("native_geometry_x_residual_px", None)
     residuals: list[float] = []
     conflicts = 0
     sample: list[dict[str, Any]] = []
     for native_index, extracted_index in pairs:
         native = native_slots[native_index]
         extracted = extracted_rows[extracted_index]
-        target = assigned[int(extracted["original_index"])]
+        original_index = int(extracted["original_index"])
+        target = assigned[original_index]
         slot = int(native["slot_index"])
-        previous = target.get("slot_index")
+        previous = previous_slot_values[original_index]
         if previous is not None:
             try:
                 if int(previous) != slot:
@@ -433,6 +446,7 @@ def assign_native_geometry_slots(
         "median_residual_px": round(float(median(residuals)), 3),
         "maximum_residual_px": round(max(residuals), 3),
         "preexisting_slot_conflicts": conflicts,
+        "cleared_existing_slot_count": cleared_existing_slot_count,
         "sample_matches": sample,
         "reason": "Slot IDs are provisional X matches only; exact OHLC fit and independent overlay hold-out remain required.",
     }
