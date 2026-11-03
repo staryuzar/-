@@ -12,6 +12,7 @@ input string InpMarketSymbol       = "BTCUSDT";   // Engine 1 market symbol mapp
 input int    InpTimerSeconds       = 1;
 input ulong  InpMagicNumber        = 26110201;
 input int    InpDeviationPoints    = 20;
+input bool   InpAllowExecution     = false;        // Explicitly enable only after all Mirsad acceptance gates pass
 
 string g_broker_symbol = "";
 bool   g_processing = false;
@@ -284,9 +285,9 @@ void PublishTelemetry()
    );
 
    string payload = StringFormat(
-      "{\"schema\":\"MIR1\",\"terminal_connected\":%s,\"heartbeat_at_ms\":%I64d,"
+      "{\"schema\":\"MIR1\",\"terminal_connected\":%s,\"execution_enabled\":%s,\"heartbeat_at_ms\":%I64d,"
       "\"symbol\":\"%s\",\"market_symbol\":\"%s\",\"magic_number\":%I64u,%s,%s,%s,\"positions\":%s}",
-      connected ? "true" : "false", NowUtcMs(),
+      connected ? "true" : "false", InpAllowExecution ? "true" : "false", NowUtcMs(),
       JsonEscape(g_broker_symbol), JsonEscape(InpMarketSymbol), InpMagicNumber,
       account, quote, spec, BuildPositionsJson()
    );
@@ -392,6 +393,14 @@ void ProcessCommand()
    {
       PublishAck(command_id, "UNKNOWN", 0, 0, 0, 0.0, 0.0,
                  "This command ID exists in the persistent ledger. It will not be resent to avoid a duplicate trade.");
+      g_processing = false;
+      return;
+   }
+
+   if(!InpAllowExecution)
+   {
+      RejectAndRemember(command_id,
+                        "Execution is disabled in the MT5 EA input; no broker request was sent.");
       g_processing = false;
       return;
    }
