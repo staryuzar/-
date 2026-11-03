@@ -5,6 +5,8 @@ import unittest
 from mirsad.engines.mt5_chart_geometry import (
     analyze_native_mt5_ohlc,
     native_geometry_visible_y_max,
+    native_geometry_slot_centers,
+    assign_native_geometry_slots,
     validate_mt5_chart_geometry,
     validate_mt5_geometry_overlay,
 )
@@ -268,6 +270,74 @@ class MT5ChartGeometryTests(unittest.TestCase):
             or item.get("end_index", -1) < len(bars) - 1
             for item in result["patterns"].get("detected", [])
         ))
+
+
+class NativeGeometrySlotAssignmentTests(unittest.TestCase):
+    def test_native_slot_centers_account_for_chart_shift_blank_margin(self) -> None:
+        geometry_bars = []
+        for index in range(10):
+            offset = 9 - index
+            visible = 2 <= offset <= 9
+            geometry_bars.append({
+                "valid": visible,
+                "visible": visible,
+                "x_image_px_provisional": 30.0 + index * 12.0,
+            })
+        result = native_geometry_slot_centers(
+            {"status": "READY_FOR_PIXEL_ALIGNMENT", "bars": geometry_bars},
+            native_bar_count=10,
+            visible_bars=8,
+            first_visible_bar_shift=9,
+        )
+        self.assertEqual(result["status"], "READY_PROVISIONAL")
+        self.assertEqual(
+            [item["slot_index"] for item in result["slots"]],
+            list(range(8)),
+        )
+        self.assertEqual(
+            [item["x_px"] for item in result["slots"]],
+            [30.0 + index * 12.0 for index in range(8)],
+        )
+        self.assertFalse(result["decision_eligible"])
+        self.assertFalse(result["mapping_verified"])
+
+    def test_missing_image_candles_receive_native_slots_without_ordinal_guessing(self) -> None:
+        native_slots = [
+            {"slot_index": index, "x_px": 30.0 + index * 12.0}
+            for index in range(10)
+        ]
+        extracted = [
+            {"x_px": 30.4 + index * 12.0, "colour": "GREEN"}
+            for index in range(10)
+            if index != 4
+        ]
+        extracted[2]["slot_index"] = 99
+        assigned, diagnostics = assign_native_geometry_slots(extracted, native_slots)
+        self.assertEqual(diagnostics["status"], "PROVISIONAL_ASSIGNMENT")
+        self.assertEqual(
+            [item["slot_index"] for item in assigned],
+            [0, 1, 2, 3, 5, 6, 7, 8, 9],
+        )
+        self.assertEqual(diagnostics["matched_candles"], 9)
+        self.assertEqual(diagnostics["preexisting_slot_conflicts"], 1)
+        self.assertLessEqual(diagnostics["maximum_residual_px"], diagnostics["tolerance_px"])
+        self.assertFalse(diagnostics["decision_eligible"])
+        self.assertFalse(diagnostics["mapping_verified"])
+
+    def test_native_slot_assignment_refuses_unverified_horizontal_offset(self) -> None:
+        native_slots = [
+            {"slot_index": index, "x_px": 30.0 + index * 12.0}
+            for index in range(10)
+        ]
+        extracted = [
+            {"x_px": 36.0 + index * 12.0, "colour": "RED"}
+            for index in range(10)
+        ]
+        assigned, diagnostics = assign_native_geometry_slots(extracted, native_slots)
+        self.assertEqual(diagnostics["status"], "INSUFFICIENT_X_MATCHES")
+        self.assertNotIn("slot_index", assigned[0])
+        self.assertFalse(diagnostics["mapping_verified"])
+
 
 
 if __name__ == "__main__":
