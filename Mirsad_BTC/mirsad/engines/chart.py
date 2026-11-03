@@ -147,6 +147,98 @@ def _native_slot_plot_bounds_diagnostics(
     }
 
 
+def _refine_ocr_plot_right_with_native_slots(
+    ocr_plot_right_px: Any,
+    native_slot_centers: Any,
+    *,
+    image_width: int,
+) -> dict[str, Any]:
+    """Extend an OCR right edge only to the independently captured native-slot extent.
+
+    Native X centres are used as a spatial crop hint, never as proof that image
+    pixels contain candles. The later one-to-one X match and independent OHLC
+    high/low/body hold-out remain mandatory before visual eligibility.
+    """
+    try:
+        ocr_right = float(ocr_plot_right_px)
+        width = int(image_width)
+    except (TypeError, ValueError, OverflowError):
+        return {"status": "INVALID_INPUT"}
+    if not math.isfinite(ocr_right) or width < 64 or not 0 < ocr_right <= width:
+        return {"status": "INVALID_INPUT"}
+
+    if not isinstance(native_slot_centers, list):
+        return {"status": "NATIVE_SLOTS_NOT_PROVIDED", "plot_right_px": int(ocr_right)}
+
+    by_slot: dict[int, float] = {}
+    for item in native_slot_centers:
+        if not isinstance(item, dict):
+            continue
+        try:
+            slot = int(item["slot_index"])
+            x_px = float(item["x_px"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if slot < 0 or not math.isfinite(x_px) or slot in by_slot:
+            return {"status": "NATIVE_SLOT_ID_OR_X_INVALID", "plot_right_px": int(ocr_right)}
+        by_slot[slot] = x_px
+
+    if len(by_slot) < 8:
+        return {
+            "status": "NATIVE_SLOTS_INSUFFICIENT",
+            "plot_right_px": int(ocr_right),
+            "native_slot_count": len(by_slot),
+        }
+
+    ordered = sorted(by_slot.items())
+    xs = [value for _, value in ordered]
+    if any(xs[index] <= xs[index - 1] for index in range(1, len(xs))):
+        return {"status": "NATIVE_SLOT_X_NOT_MONOTONIC", "plot_right_px": int(ocr_right)}
+    if xs[0] < 0 or xs[-1] >= width:
+        return {
+            "status": "NATIVE_SLOT_OUTSIDE_IMAGE",
+            "plot_right_px": int(ocr_right),
+            "native_slot_x_max_px": round(xs[-1], 3),
+            "image_width_px": width,
+        }
+
+    gaps = [xs[index] - xs[index - 1] for index in range(1, len(xs))]
+    spacing = float(median(gaps))
+    if not math.isfinite(spacing) or spacing < 2.0:
+        return {"status": "NATIVE_SLOT_SPACING_INVALID", "plot_right_px": int(ocr_right)}
+
+    # Half a native slot beyond the last centre preserves its candle body/wick
+    # while leaving the neighbouring price-scale column outside the plot crop.
+    native_right = int(math.ceil(xs[-1] + spacing * 0.5))
+    if native_right <= ocr_right + max(2.0, spacing * 0.25):
+        return {
+            "status": "OCR_BOUND_COVERS_NATIVE_SLOTS",
+            "plot_right_px": int(ocr_right),
+            "native_slot_x_max_px": round(xs[-1], 3),
+            "native_slot_median_spacing_px": round(spacing, 3),
+        }
+    if native_right > width:
+        return {
+            "status": "NATIVE_RIGHT_BOUND_EXCEEDS_IMAGE",
+            "plot_right_px": int(ocr_right),
+            "proposed_plot_right_px": native_right,
+            "image_width_px": width,
+        }
+
+    return {
+        "status": "EXTENDED_TO_NATIVE_SLOT_EDGE",
+        "ocr_plot_right_px": round(ocr_right, 3),
+        "plot_right_px": native_right,
+        "native_slot_count": len(by_slot),
+        "native_slot_x_max_px": round(xs[-1], 3),
+        "native_slot_median_spacing_px": round(spacing, 3),
+        "right_padding_px": round(native_right - xs[-1], 3),
+        "image_width_px": width,
+        "mapping_verified": False,
+        "decision_eligible": False,
+    }
+
+
 def _visible_slot_for_reference_offset(
     offset_from_right: int,
     expected_count: int,
@@ -407,6 +499,13 @@ def analyze_chart_image(
                     if not explicit_right and proposed_right is not None:
                         proposed_right = int(proposed_right)
                         if calibration["plot_left_px"] + 32 < proposed_right <= image_width:
+                            native_right_refinement = _refine_ocr_plot_right_with_native_slots(
+                                proposed_right,
+                                meta.get("native_geometry_slot_centers"),
+                                image_width=image_width,
+                            )
+                            axis_ocr["native_geometry_plot_right_refinement"] = native_right_refinement
+                            proposed_right = int(native_right_refinement.get("plot_right_px", proposed_right))
                             meta = {**meta, "plot_right_px": proposed_right}
                     meta = {
                         **meta,

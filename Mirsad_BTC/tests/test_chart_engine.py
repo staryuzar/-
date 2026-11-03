@@ -12,6 +12,7 @@ from mirsad.engines.chart import (
     _patterns,
     _visible_slot_for_reference_offset,
     _native_slot_plot_bounds_diagnostics,
+    _refine_ocr_plot_right_with_native_slots,
     analyze_chart_image,
 )
 from mirsad.engines.chart_calibration import price_at_pixel, resolve_chart_calibration
@@ -50,6 +51,63 @@ class NativeSlotBoundsDiagnosticTests(unittest.TestCase):
         )
         self.assertEqual(empty["status"], "NATIVE_SLOT_X_UNAVAILABLE")
         self.assertEqual(invalid["status"], "INVALID_DIAGNOSTIC_INPUT")
+
+
+class NativeGeometryRightBoundRefinementTests(unittest.TestCase):
+    def test_extends_short_ocr_right_edge_to_native_visible_slot_extent(self) -> None:
+        spacing = 16.597
+        slots = [
+            {"slot_index": index, "x_px": index * spacing}
+            for index in range(93)
+        ]
+        before = [dict(item) for item in slots]
+        result = _refine_ocr_plot_right_with_native_slots(
+            1275, slots, image_width=1558
+        )
+        self.assertEqual(result["status"], "EXTENDED_TO_NATIVE_SLOT_EDGE")
+        self.assertEqual(result["plot_right_px"], 1536)
+        self.assertEqual(result["native_slot_count"], 93)
+        self.assertFalse(result["mapping_verified"])
+        self.assertFalse(result["decision_eligible"])
+        self.assertEqual(slots, before)
+
+    def test_does_not_shrink_or_change_ocr_bound_that_already_covers_native_slots(self) -> None:
+        slots = [
+            {"slot_index": index, "x_px": 20.0 + index * 10.0}
+            for index in range(10)
+        ]
+        result = _refine_ocr_plot_right_with_native_slots(
+            200, slots, image_width=240
+        )
+        self.assertEqual(result["status"], "OCR_BOUND_COVERS_NATIVE_SLOTS")
+        self.assertEqual(result["plot_right_px"], 200)
+
+    def test_rejects_duplicate_slot_ids_nonmonotonic_x_and_image_overflow(self) -> None:
+        duplicate = [{"slot_index": i, "x_px": i * 10.0} for i in range(8)]
+        duplicate[-1]["slot_index"] = duplicate[-2]["slot_index"]
+        nonmonotonic = [{"slot_index": i, "x_px": (7 - i) * 10.0} for i in range(8)]
+        outside = [{"slot_index": i, "x_px": 20.0 + i * 20.0} for i in range(8)]
+        self.assertEqual(
+            _refine_ocr_plot_right_with_native_slots(50, duplicate, image_width=200)["status"],
+            "NATIVE_SLOT_ID_OR_X_INVALID",
+        )
+        self.assertEqual(
+            _refine_ocr_plot_right_with_native_slots(50, nonmonotonic, image_width=200)["status"],
+            "NATIVE_SLOT_X_NOT_MONOTONIC",
+        )
+        self.assertEqual(
+            _refine_ocr_plot_right_with_native_slots(50, outside, image_width=150)["status"],
+            "NATIVE_SLOT_OUTSIDE_IMAGE",
+        )
+
+    def test_rejects_too_few_native_slots_and_invalid_image_size(self) -> None:
+        result = _refine_ocr_plot_right_with_native_slots(
+            100, [{"slot_index": i, "x_px": i * 10.0} for i in range(7)],
+            image_width=200,
+        )
+        invalid = _refine_ocr_plot_right_with_native_slots(100, [], image_width=0)
+        self.assertEqual(result["status"], "NATIVE_SLOTS_INSUFFICIENT")
+        self.assertEqual(invalid["status"], "INVALID_INPUT")
 
 
 class VisibleReferenceSlotTests(unittest.TestCase):

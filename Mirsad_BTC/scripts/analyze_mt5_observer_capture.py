@@ -342,6 +342,8 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
                 "plot_bottom_px": calibration.get("plot_bottom_px"),
                 "plot_bounds_refinement": axis_ocr.get("plot_bounds_refinement"),
                 "candidate_plot_right_px": axis_ocr.get("candidate_plot_right_px"),
+                "native_geometry_plot_right_refinement": axis_ocr.get("native_geometry_plot_right_refinement"),
+                "calibrated_plot_right_px": calibration.get("plot_right_px"),
                 "reason": axis_ocr.get("reason"),
             },
             "detected_bar_count": int(result.get("detected_bar_count", 0)),
