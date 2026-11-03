@@ -259,6 +259,99 @@ def fit_price_axis(
     }
 
 
+def infer_plot_bottom_from_axis_ticks(
+    ticks: list[dict[str, Any]],
+    *,
+    plot_top_px: int,
+    current_plot_bottom_px: int,
+    minimum_ticks: int = 8,
+) -> dict[str, Any]:
+    """Exclude an unlabelled bottom overlay band when dense, fitted axis ticks end well above it."""
+    top = int(plot_top_px)
+    current_bottom = int(current_plot_bottom_px)
+    plot_height = current_bottom - top
+    if plot_height < 64:
+        return {
+            "status": "UNCHANGED",
+            "plot_bottom_px": current_bottom,
+            "reason": "Plot height is too small for bottom-band inference.",
+        }
+
+    y_values: list[float] = []
+    for tick in ticks:
+        if not isinstance(tick, dict) or tick.get("inlier") is False:
+            continue
+        try:
+            y = float(tick["y_px"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if math.isfinite(y) and top <= y < current_bottom:
+            y_values.append(y)
+    y_values = sorted(set(round(value, 2) for value in y_values))
+    if len(y_values) < max(8, int(minimum_ticks)):
+        return {
+            "status": "UNCHANGED",
+            "plot_bottom_px": current_bottom,
+            "tick_count": len(y_values),
+            "reason": "Too few inlier axis ticks to infer the price-pane boundary.",
+        }
+
+    spacings = [
+        right - left
+        for left, right in zip(y_values, y_values[1:])
+        if 2.0 <= right - left <= plot_height * 0.20
+    ]
+    if len(spacings) < 5:
+        return {
+            "status": "UNCHANGED",
+            "plot_bottom_px": current_bottom,
+            "tick_count": len(y_values),
+            "reason": "Axis tick spacing is too sparse or irregular for safe bottom-band inference.",
+        }
+
+    median_spacing = float(statistics.median(spacings))
+    tick_bottom = float(y_values[-1])
+    bottom_gap = float(current_bottom) - tick_bottom
+    minimum_gap = max(18.0, median_spacing * 1.25)
+    maximum_gap = plot_height * 0.18
+    if bottom_gap < minimum_gap or bottom_gap > maximum_gap:
+        return {
+            "status": "UNCHANGED",
+            "plot_bottom_px": current_bottom,
+            "tick_count": len(y_values),
+            "tick_bottom_y_px": round(tick_bottom, 2),
+            "median_tick_spacing_px": round(median_spacing, 2),
+            "bottom_gap_px": round(bottom_gap, 2),
+            "reason": "The lowest fitted axis tick is not separated from the image bottom by a reliable overlay-band gap.",
+        }
+
+    padding = int(round(max(4.0, min(12.0, median_spacing * 0.45))))
+    candidate_bottom = min(current_bottom, int(math.ceil(tick_bottom + padding)))
+    if candidate_bottom - top < 32 or candidate_bottom >= current_bottom - 8:
+        return {
+            "status": "UNCHANGED",
+            "plot_bottom_px": current_bottom,
+            "tick_count": len(y_values),
+            "tick_bottom_y_px": round(tick_bottom, 2),
+            "median_tick_spacing_px": round(median_spacing, 2),
+            "bottom_gap_px": round(bottom_gap, 2),
+            "padding_px": padding,
+            "reason": "The inferred crop would be too small to improve the price plot safely.",
+        }
+
+    return {
+        "status": "REFINED",
+        "plot_bottom_px": candidate_bottom,
+        "tick_count": len(y_values),
+        "tick_bottom_y_px": round(tick_bottom, 2),
+        "median_tick_spacing_px": round(median_spacing, 2),
+        "bottom_gap_px": round(bottom_gap, 2),
+        "padding_px": padding,
+        "excluded_bottom_band_px": current_bottom - candidate_bottom,
+        "reason": "A dense, consistent price-axis tick run ends above an unlabelled bottom overlay band.",
+    }
+
+
 def _get_ocr_engine() -> Any:
     global _OCR_ENGINE, _OCR_ERROR
     if _OCR_ENGINE is not None:
