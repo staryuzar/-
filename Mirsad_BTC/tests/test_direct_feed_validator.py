@@ -119,6 +119,39 @@ class DirectFeedValidatorTests(unittest.TestCase):
         self.assertEqual(result["engine2"]["status"], "FAILED")
         self.assertTrue(any("1d has 23 closed bars" in item for item in result["engine2"]["failures"]))
 
+    def test_optional_higher_timeframe_indicator_gaps_do_not_block_engine3(self) -> None:
+        indicators = ready_indicators()
+        for timeframe in ("1h", "4h", "1d"):
+            for name in REQUIRED_INDICATORS:
+                indicators["timeframes"][timeframe]["values"][name] = {
+                    "status": "UNAVAILABLE", "closed": None, "current": None
+                }
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch("scripts.validate_mt5_direct_feed.MT5MarketDataEngine.collect", return_value=ready_market()),
+                patch("scripts.validate_mt5_direct_feed.MT5ChartCandleHistory.collect", return_value=ready_candles()),
+                patch("scripts.validate_mt5_direct_feed.MT5NativeIndicatorHistory.collect", return_value=indicators),
+            ):
+                result = validate(Path(directory), market_symbol="BTCUSDT",
+                    broker_symbol="BTC", expected_server="Headway-Demo")
+        self.assertEqual(result["engine3"]["status"], "READY")
+        self.assertEqual(result["native_indicators"]["optional_timeframe_missing_core_values"]["1h"], list(REQUIRED_INDICATORS))
+
+    def test_missing_core_indicator_on_required_timeframe_keeps_engine3_partial(self) -> None:
+        indicators = ready_indicators()
+        indicators["timeframes"]["5m"]["values"]["rsi14"]["status"] = "WARMING_UP"
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch("scripts.validate_mt5_direct_feed.MT5MarketDataEngine.collect", return_value=ready_market()),
+                patch("scripts.validate_mt5_direct_feed.MT5ChartCandleHistory.collect", return_value=ready_candles()),
+                patch("scripts.validate_mt5_direct_feed.MT5NativeIndicatorHistory.collect", return_value=indicators),
+            ):
+                result = validate(Path(directory), market_symbol="BTCUSDT",
+                    broker_symbol="BTC", expected_server="Headway-Demo")
+        self.assertEqual(result["engine2"]["status"], "READY")
+        self.assertEqual(result["engine3"]["status"], "PARTIAL")
+        self.assertTrue(any("5m missing core values rsi14" in item for item in result["engine3"]["warnings"]))
+
     def test_engine2_feed_remains_ready_when_native_indicators_are_partial(self) -> None:
         partial = ready_indicators()
         partial["status"] = "PARTIAL"
