@@ -11,6 +11,7 @@ import numpy as np
 from mirsad.engines.chart import (
     _patterns,
     _visible_slot_for_reference_offset,
+    _native_slot_plot_bounds_diagnostics,
     analyze_chart_image,
 )
 from mirsad.engines.chart_calibration import price_at_pixel, resolve_chart_calibration
@@ -27,17 +28,28 @@ class NativeSlotBoundsDiagnosticTests(unittest.TestCase):
             for index, value in enumerate([10.0, 30.0, 50.0, 70.0, 90.0, 110.0, 130.0, 150.0])
         ]
         before = [dict(item) for item in slots]
-        native_x = sorted(float(item["x_px"]) for item in slots)
-        left, right, tolerance = 20.0, 110.0, 3.0
-        left_outside = [x for x in native_x if x < left - tolerance]
-        right_outside = [x for x in native_x if x > right + tolerance]
-        inside = [
-            x for x in native_x if left - tolerance <= x <= right + tolerance
-        ]
-        self.assertEqual(len(inside), 5)
-        self.assertEqual(len(left_outside), 1)
-        self.assertEqual(len(right_outside), 2)
+        result = _native_slot_plot_bounds_diagnostics(
+            slots, {"plot_left_px": 20, "plot_right_px": 110}, tolerance_px=3
+        )
+        self.assertEqual(result["status"], "MEASURED")
+        self.assertEqual(result["native_slot_x_min_px"], 10.0)
+        self.assertEqual(result["native_slot_x_max_px"], 150.0)
+        self.assertEqual(result["native_slots_inside_ocr_plot"], 5)
+        self.assertEqual(result["native_slots_before_ocr_plot_left"], 1)
+        self.assertEqual(result["native_slots_beyond_ocr_plot_right"], 2)
+        self.assertEqual(result["native_slots_outside_sample"][0]["side"], "left")
+        self.assertEqual(result["native_slots_outside_sample"][-1]["distance_px"], 40.0)
         self.assertEqual(slots, before)
+
+    def test_invalid_bounds_and_empty_native_slots_are_reported(self) -> None:
+        empty = _native_slot_plot_bounds_diagnostics(
+            [], {"plot_left_px": 0, "plot_right_px": 100}
+        )
+        invalid = _native_slot_plot_bounds_diagnostics(
+            [{"x_px": 10}], {"plot_left_px": 100, "plot_right_px": 0}
+        )
+        self.assertEqual(empty["status"], "NATIVE_SLOT_X_UNAVAILABLE")
+        self.assertEqual(invalid["status"], "INVALID_DIAGNOSTIC_INPUT")
 
 
 class VisibleReferenceSlotTests(unittest.TestCase):
