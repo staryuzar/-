@@ -587,6 +587,74 @@ public static class MirsadNativeWindow {
     # The chart image and raw OHLC remain on this runner; only a sanitized result is uploaded.
     # Report the real direct-feed files before image analysis. This distinguishes
     # a missing publication from invalid/stale data without exposing raw prices.
+    $marketSymbol = [string]$env:MIRSAD_MT5_MARKET_SYMBOL
+    if ([string]::IsNullOrWhiteSpace($marketSymbol)) { $marketSymbol = 'BTCUSDT' }
+    $marketSymbol = $marketSymbol.Trim()
+    if ($marketSymbol.Length -gt 32) { throw 'Configured Mirsad market symbol is too long.' }
+
+    # The first screenshot manifest can appear just before the periodic direct
+    # feed files refresh their terminal_connected flag. Wait for a matching,
+    # fresh set of all three snapshots instead of reading a startup snapshot.
+    $directFeedDeadline = [DateTime]::UtcNow.AddSeconds(45)
+    $directFeedReady = $false
+    $directMarket = $null
+    $directCandles = $null
+    $directIndicators = $null
+    do {
+        try {
+            if ((Test-Path -LiteralPath $marketFeedPath) -and
+                (Test-Path -LiteralPath $candleFeedPath) -and
+                (Test-Path -LiteralPath $indicatorFeedPath)) {
+                $directMarket = Get-Content -LiteralPath $marketFeedPath -Raw | ConvertFrom-Json -ErrorAction Stop
+                $directCandles = Get-Content -LiteralPath $candleFeedPath -Raw | ConvertFrom-Json -ErrorAction Stop
+                $directIndicators = Get-Content -LiteralPath $indicatorFeedPath -Raw | ConvertFrom-Json -ErrorAction Stop
+                $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+                $expectedServer = [string]$manifest.account.server
+                $sameServer = (
+                    -not [string]::IsNullOrWhiteSpace($expectedServer) -and
+                    [string]$directMarket.account.server -ieq $expectedServer -and
+                    [string]$directCandles.account.server -ieq $expectedServer -and
+                    [string]$directIndicators.account.server -ieq $expectedServer
+                )
+                $sameSymbols = (
+                    [string]$directMarket.broker_symbol -eq $observerSymbol -and
+                    [string]$directCandles.broker_symbol -eq $observerSymbol -and
+                    [string]$directIndicators.broker_symbol -eq $observerSymbol -and
+                    [string]$directMarket.market_symbol -eq $marketSymbol -and
+                    [string]$directCandles.market_symbol -eq $marketSymbol -and
+                    [string]$directIndicators.market_symbol -eq $marketSymbol
+                )
+                $freshFeeds = (
+                    ($nowMs - [int64]$directMarket.captured_at_utc_ms) -le 15000 -and
+                    ($nowMs - [int64]$directCandles.captured_at_utc_ms) -le 15000 -and
+                    ($nowMs - [int64]$directIndicators.captured_at_utc_ms) -le 15000
+                )
+                $directFeedReady = (
+                    $directMarket.schema -eq 'MIR-MT5-MARKET-2' -and
+                    $directCandles.schema -eq 'MIR-ENGINE2-CANDLES-1' -and
+                    $directIndicators.schema -eq 'MIR-MT5-INDICATORS-1' -and
+                    [bool]$directMarket.terminal_connected -and
+                    [bool]$directCandles.terminal_connected -and
+                    [bool]$directIndicators.terminal_connected -and
+                    $sameServer -and $sameSymbols -and $freshFeeds
+                )
+            }
+        }
+        catch {
+            $directFeedReady = $false
+        }
+        if (-not $directFeedReady) {
+            if ($terminalProcess.HasExited) { break }
+            Start-Sleep -Seconds 2
+        }
+    } while ([DateTime]::UtcNow -lt $directFeedDeadline)
+
+    if (-not $directFeedReady) {
+        Add-Report 'FAIL — Direct market/candle/indicator snapshots did not refresh to a connected, fresh, identity-matched account.'
+        throw 'MT5 direct feed snapshots were stale or disconnected at image-analysis time.'
+    }
+    Add-Report 'PASS — Direct MT5 market, candle and native indicator snapshots are fresh, connected and identity-matched to the captured chart.'
+
     $candleFeedPath = Join-Path $observerDir 'candles.json'
     $indicatorFeedPath = Join-Path $observerDir 'indicators.json'
     $marketFeedPath = Join-Path (Split-Path -Parent $observerDir) 'market.json'
@@ -609,10 +677,6 @@ public static class MirsadNativeWindow {
         }
     }
 
-    $marketSymbol = [string]$env:MIRSAD_MT5_MARKET_SYMBOL
-    if ([string]::IsNullOrWhiteSpace($marketSymbol)) { $marketSymbol = 'BTCUSDT' }
-    $marketSymbol = $marketSymbol.Trim()
-    if ($marketSymbol.Length -gt 32) { throw 'Configured Mirsad market symbol is too long.' }
     $analysisScript = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\analyze_mt5_observer_capture.py'
     $analysisOutput = Join-Path $evidence 'observer-engine2-analysis.json'
     if (!(Test-Path -LiteralPath $analysisScript)) { throw 'Engine 2 Observer analysis script is missing.' }
