@@ -123,14 +123,12 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  # evidence input. It never authorizes an order by itself: Engine 4 still owns
  # scoring, market-source quorum, position management and all risk gates.
  candle_history=MT5ChartCandleHistory().collect(bridge=bridge,market=market)
- engine2_multitimeframe=_analyze_engine2_multi_timeframe_structure(candle_history)
+ engine2_multitimeframe={}
  native_indicators=MT5NativeIndicatorHistory().collect(
   bridge=bridge,candle_history=candle_history,
  )
  engine2_price_action=analyze_mt5_native_price_action(candle_history)
- engine2_multitimeframe=engine2_price_action.get(
-  "multi_timeframe_structure",engine2_multitimeframe
- )
+ engine2_multitimeframe=engine2_price_action.get("multi_timeframe_structure",{})
  indicators=IndicatorsEngine().analyze(candle_history)
  indicators["mt5_native"]=native_indicators
  chart["engine_2_candle_history"]={
