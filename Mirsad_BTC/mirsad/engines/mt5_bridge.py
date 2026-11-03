@@ -19,6 +19,42 @@ def _read_object(path: Path) -> dict[str, Any]:
         return {}
 
 
+
+def _read_json_array(path: Path) -> list[Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else None
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+
+
+def _read_jsonl_tail(path: Path, *, limit: int = 100, max_bytes: int = 131072) -> list[dict[str, Any]]:
+    """Read a bounded tail of the EA event journal without loading an unbounded file."""
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            size = stream.tell()
+            start = max(0, size - max_bytes)
+            stream.seek(start)
+            payload = stream.read(max_bytes)
+        lines = payload.decode("utf-8", errors="replace").splitlines()
+        if start > 0 and lines:
+            lines = lines[1:]
+        rows: list[dict[str, Any]] = []
+        for line in lines[-max(1, limit):]:
+            if not line.strip():
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict):
+                rows.append(item)
+        return rows
+    except OSError:
+        return []
+
+
 class MT5BridgeEngine:
     """Engine 5: bidirectional program/EA bridge. No direction or risk computation."""
 
@@ -67,8 +103,24 @@ class MT5BridgeEngine:
         reconciliation = self._reconcile_ack_with_positions(
             ack, command, positions, heartbeat
         )
+        execution_value = payload.get("execution_enabled")
+        execution_enabled = execution_value if isinstance(execution_value, bool) else None
+        positions_file = _read_json_array(self.root / "positions.json")
+        positions_file_valid = positions_file is not None and all(isinstance(item, dict) for item in positions_file)
+        event_log = _read_jsonl_tail(self.root / "events.jsonl")
+        files = {
+            "status.json": (self.root / "status.json").is_file(),
+            "command.json": (self.root / "command.json").is_file(),
+            "ack.json": (self.root / "ack.json").is_file(),
+            "positions.json": (self.root / "positions.json").is_file(),
+            "events.jsonl": (self.root / "events.jsonl").is_file(),
+        }
         return {
             **base, "status": "CONNECTED" if alive else "STALE",
+            "schema": payload.get("schema"),
+            "terminal_connected": payload.get("terminal_connected") is True,
+            "execution_enabled": execution_enabled,
+            "heartbeat_at_ms": heartbeat if heartbeat > 0 else None,
             "heartbeat_age_seconds": round(age, 2) if age is not None else None,
             "quote_age_seconds": round(quote_age, 2) if quote_age is not None else None,
             "account": account,
@@ -78,8 +130,13 @@ class MT5BridgeEngine:
             "quote": quote,
             "symbol_spec": symbol_spec,
             "positions": positions,
+            "positions_file_valid": positions_file_valid,
+            "current_command": command,
             "last_order_ack": ack,
             "position_reconciliation": reconciliation,
+            "event_log": event_log,
+            "common_files_directory": str(self.root),
+            "common_files_files": files,
             "message": "Fresh EA telemetry received." if alive else "EA heartbeat missing, stale or protocol schema mismatch.",
             "account_type_classification": "NOT_PERFORMED",
             "risk_calculation": "OWNED_BY_ENGINE_4",
@@ -357,7 +414,20 @@ class MT5BridgeEngine:
                 "message": "Publishing disabled; no command file or broker order was sent.",
             }
         if self.root is None or bridge_state.get("status") != "CONNECTED":
-            return {"status": "BLOCKED", "message": "A fresh Engine 3 bridge heartbeat is required."}
+            return {"status": "BLOCKED", "message": "A fresh Engine 5 bridge heartbeat is required."}
+        if bridge_state.get("terminal_connected") is not True:
+            return {
+                "status": "TERMINAL_NOT_CONNECTED",
+                "message": "The latest MIR1 telemetry does not prove that the MT5 terminal is connected.",
+            }
+        if bridge_state.get("execution_enabled") is not True:
+            status = "EXECUTION_DISABLED" if bridge_state.get("execution_enabled") is False else "EXECUTION_STATE_UNKNOWN"
+            message = (
+                "The MT5 EA InpAllowExecution switch is false; no MIR1 command was written."
+                if status == "EXECUTION_DISABLED"
+                else "The EA execution_enabled telemetry is missing or invalid; no MIR1 command was written."
+            )
+            return {"status": status, "message": message}
 
         self.root.mkdir(parents=True, exist_ok=True)
         ack = _read_object(self.root / "ack.json")
