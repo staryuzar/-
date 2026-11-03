@@ -28,6 +28,7 @@ from .chart_ocr import (
 from .chart_pattern_reference import analyze_talib_pattern_reference
 from .chart_pattern_knowledge import analyze_candle_patterns
 from .chart_structure_knowledge import analyze_chart_structure_knowledge
+from .mt5_chart_geometry import assign_native_geometry_slots
 from .visual_knowledge import (
     seed_visual_knowledge,
     visual_knowledge_summary,
@@ -402,6 +403,16 @@ def analyze_chart_image(
         except (TypeError, ValueError, OverflowError):
             expected_count = 0
             first_visible_bar_shift = 0
+        native_geometry_slot_assignment: dict[str, Any] = {
+            "status": "NOT_PROVIDED",
+            "mapping_verified": False,
+            "decision_eligible": False,
+        }
+        native_slot_centers = meta.get("native_geometry_slot_centers")
+        if isinstance(native_slot_centers, list) and native_slot_centers:
+            bars, native_geometry_slot_assignment = assign_native_geometry_slots(
+                bars, native_slot_centers
+            )
         has_slot_indices = any(
             isinstance(item, dict) and "slot_index" in item for item in bars
         )
@@ -850,6 +861,7 @@ def analyze_chart_image(
             else {"status": "NOT_REQUESTED"}
         ),
         "reference_multi_calibration": reference_multi_calibration,
+        "native_geometry_slot_assignment": native_geometry_slot_assignment,
         "reference_slot_diagnostics": {
             "candidate_count": len(reference_candidates),
             "visible_candidate_count": sum(
