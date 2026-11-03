@@ -4,6 +4,7 @@ import unittest
 
 from mirsad.engines.mt5_chart_geometry import (
     analyze_native_mt5_ohlc,
+    native_geometry_visible_y_max,
     validate_mt5_chart_geometry,
     validate_mt5_geometry_overlay,
 )
@@ -271,3 +272,33 @@ class MT5ChartGeometryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NativeGeometryExtentTests(unittest.TestCase):
+    def test_native_geometry_visible_y_max_ignores_invalid_and_invisible_bars(self) -> None:
+        geometry = {
+            "bars": [
+                {
+                    "valid": True,
+                    "visible": True,
+                    "points_image_px_provisional": {
+                        "open": {"x": 10, "y": 20},
+                        "high": {"x": 10, "y": 12},
+                        "low": {"x": 10, "y": 44},
+                        "close": {"x": 10, "y": 30},
+                    },
+                },
+                {
+                    "valid": True,
+                    "visible": False,
+                    "points_image_px_provisional": {"low": {"x": 12, "y": 580}},
+                },
+                {
+                    "valid": False,
+                    "visible": True,
+                    "points_image_px_provisional": {"low": {"x": 14, "y": 590}},
+                },
+            ]
+        }
+        self.assertEqual(native_geometry_visible_y_max(geometry), 44.0)
+        self.assertIsNone(native_geometry_visible_y_max({"bars": []}))
