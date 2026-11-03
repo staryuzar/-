@@ -772,6 +772,61 @@ public static class MirsadNativeWindow {
     Add-Report ("Engine 2 native MT5 indicators: status={0}; ready timeframes={1}; missing required={2}." -f $engine2Summary.engine2_native_indicators.status,$engine2Summary.engine2_native_indicators.ready_timeframe_count,($engine2Summary.engine2_native_indicators.missing_required_timeframes -join ','))
     Add-Report ("Engine 2 MT5 image result: status={0}; visual eligible={1}; reference calibration={2}; detected bars={3}." -f $engine2Summary.engine2.status,$engine2Summary.engine2.visual_eligible,$engine2Summary.engine2.reference_calibration_status,$engine2Summary.engine2.detected_bars)
 
+    # Engine 3 is independently checked against MT5 CopyBuffer values calculated
+    # from the exact same closed Engine 2 OHLC bars. Upload only sanitized errors
+    # and pass/fail states; never upload raw candle or indicator values.
+    $parityScript = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\\scripts\\validate_engine3_mt5_indicator_parity.py'
+    $parityRawOutput = Join-Path $env:RUNNER_TEMP 'mirsad-engine3-parity-raw.json'
+    $parityOutput = Join-Path $evidence 'observer-engine3-indicator-parity.json'
+    if (!(Test-Path -LiteralPath $parityScript)) { throw 'Engine 3 MT5 parity validator is missing.' }
+    $parityArgs = @($parityScript, '--candles', $candleFeedPath, '--native-indicators', $indicatorFeedPath, '--output', $parityRawOutput)
+    $parityLines = & python @parityArgs 2>&1
+    $parityExitCode = $LASTEXITCODE
+    foreach ($line in $parityLines) { Add-Report ("Engine 3 parity: {0}" -f [string]$line) }
+    if (!(Test-Path -LiteralPath $parityRawOutput)) {
+        throw 'Engine 3 MT5 parity validator did not create its report.'
+    }
+    $parityRaw = Get-Content -LiteralPath $parityRawOutput -Raw | ConvertFrom-Json
+    $parityFrames = [ordered]@{}
+    foreach ($timeframe in @('1m','5m','15m','1h','4h','1d')) {
+        $frame = $parityRaw.timeframes.$timeframe
+        $metricStates = [ordered]@{}
+        if ($null -ne $frame -and $null -ne $frame.metrics) {
+            foreach ($metricProperty in $frame.metrics.PSObject.Properties) {
+                $metric = $metricProperty.Value
+                $metricStates[$metricProperty.Name] = [ordered]@{
+                    status = [string]$metric.status
+                    absolute_error = $metric.absolute_error
+                    tolerance = $metric.tolerance
+                }
+            }
+        }
+        $parityFrames[$timeframe] = [ordered]@{
+            status = if ($null -ne $frame) { [string]$frame.status } else { 'MISSING' }
+            closed_bars = if ($null -ne $frame) { $frame.closed_bars } else { 0 }
+            metrics = $metricStates
+            failures = if ($null -ne $frame) { @($frame.failures) } else { @('Timeframe report missing.') }
+        }
+    }
+    $safeParity = [ordered]@{
+        schema = 'MIR-ENGINE3-MT5-INDICATOR-PARITY-1'
+        status = [string]$parityRaw.status
+        method = [string]$parityRaw.method
+        passed_metrics = $parityRaw.passed_metrics
+        total_metrics = $parityRaw.total_metrics
+        minimum_closed_bars_per_timeframe = $parityRaw.minimum_closed_bars_per_timeframe
+        timeframes = $parityFrames
+        failures = @($parityRaw.failures | Select-Object -First 30)
+        decision_eligible = $false
+    }
+    $safeParity | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $parityOutput -Encoding utf8
+    Add-Report ("Engine 3 actual MT5 parity: status={0}; passed metrics={1}/{2}; timeframe states={3}." -f $parityRaw.status,$parityRaw.passed_metrics,$parityRaw.total_metrics,($parityFrames.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value.status)" } -join ','))
+    if ($parityExitCode -ne 0 -or [string]$parityRaw.status -ne 'PASS') {
+        Add-Report 'FAIL — Engine 3 calculations do not yet match native MT5 CopyBuffer values on the same closed bars.'
+        throw 'Engine 3 actual MT5 indicator parity failed; decision eligibility remains disabled.'
+    }
+    Add-Report 'PASS — Engine 3 indicator calculations match native MT5 values within the configured tolerances on all six timeframes.'
+
     $engine2VisualStatus = [string]$engine2Summary.engine2.status
     $engine2VisualEligible = [bool]$engine2Summary.engine2.visual_eligible
     if ($engine2CandleStatus -ne 'READY') {
