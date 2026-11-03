@@ -171,9 +171,11 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "market":{"symbol":market.get("symbol"),"price":market.get("price"),
    "primary_venue":market.get("primary_venue"),"venue_count":market.get("venue_count"),
    "status":market_status,
+   "order_book":(market.get("market_context") or {}).get("order_book",{}),
    "venues":{n:{"status":v.get("status"),"latency_ms":v.get("latency_ms"),
     "error":v.get("error"),
     "microstructure":v.get("microstructure",{}),
+    "order_book":v.get("order_book",{}),
     "economic_calendar_status":(v.get("economic_calendar") or {}).get("status")} for n,v in market.get("venues",{}).items()}},
   "chart":chart,"chart_observer":chart_observer,"engine_2_candles":{
    "status":candle_history.get("status"),"timeframes":candle_history.get("timeframes",{}),
