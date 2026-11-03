@@ -125,15 +125,18 @@ class MT5NativeTrendAnalysisTests(unittest.TestCase):
 
     def test_insufficient_high_timeframe_history_does_not_claim_full_direction(self) -> None:
         history = make_history()
-        history["candles_by_tf"]["4h"] = history["candles_by_tf"]["4h"][-30:]
-        history["candles_by_tf"]["4h"][-1]["closed"] = False
-        # Restore the single-forming-bar contract for the truncated frame.
-        for bar in history["candles_by_tf"]["4h"][:-1]:
-            bar["closed"] = True
+        # Both eligible slow-context alternatives are deliberately short;
+        # 15m and 1h alone must not satisfy the higher-timeframe context gate.
+        for timeframe in ("4h", "1d"):
+            history["candles_by_tf"][timeframe] = history["candles_by_tf"][timeframe][-30:]
+            for bar in history["candles_by_tf"][timeframe][:-1]:
+                bar["closed"] = True
+            history["candles_by_tf"][timeframe][-1]["closed"] = False
         result = analyze_mt5_native_trend(history)
         self.assertEqual(result["status"], "PARTIAL")
         self.assertEqual(result["direction"], "INSUFFICIENT_CONTEXT")
         self.assertIn("4h", result["timeframe_errors"])
+        self.assertIn("1d", result["timeframe_errors"])
 
     def test_stale_timeframe_is_excluded_from_consensus(self) -> None:
         history = make_history()
