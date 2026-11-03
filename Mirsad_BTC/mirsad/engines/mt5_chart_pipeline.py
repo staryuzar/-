@@ -117,7 +117,7 @@ def analyze_mt5_observer_chart(
   return _blocked_observer_chart(observer,"Engine 2 could not read the validated Observer PNG.","OBSERVER_IMAGE_UNREADABLE")
  if not observer.get("image_sha256") or image_hash.lower()!=str(observer.get("image_sha256")).strip().lower():
   return _blocked_observer_chart(observer,"Observer PNG changed after inbox validation; its verified SHA-256 no longer matches.","OBSERVER_IMAGE_CHANGED")
- reference_candidates=recent_reference_candle_candidates(bars,max_candidates=8,max_lookback=16)
+ reference_candidates=recent_reference_candle_candidates(bars,max_candidates=256,max_lookback=256)
  if not reference_candidates:
   return _blocked_observer_chart(observer,"No recent native MT5 candle has a positive range suitable for visual calibration.","OBSERVER_REFERENCE_CANDLE_UNAVAILABLE")
  reference_candidates_for_chart=[{
@@ -132,6 +132,7 @@ def analyze_mt5_observer_chart(
   "price_scale_type":str(chart_meta.get("price_scale_type","linear")).strip().lower(),
   "expected_candle_count":int(chart_meta.get("visible_bars",0) or 0),
   "allow_reference_anchor_override":True,
+  "require_multi_reference_validation":True,
   "last_candle_closed":False,
   "auto_axis_ocr":False,
   "reference_candle_candidates":reference_candidates_for_chart,
@@ -161,18 +162,19 @@ def analyze_mt5_observer_chart(
    "source_viewport_height_px":int(chart_meta.get("source_main_window_height_px",0) or 0),
   },
  }
- reference=analysis.get("reference_calibration") or {}
+ reference=analysis.get("reference_multi_calibration") or {}
+ axis_validation=analysis.get("reference_axis_validation") or {}
  anchor_verified=(
-  analysis.get("calibration",{}).get("source")=="reference_last_candle_ohlc"
+  analysis.get("calibration",{}).get("source")=="reference_multi_candle_ohlc"
   and reference.get("status")=="READY"
-  and analysis.get("reference_ohlc_override_applied") is True
+  and axis_validation.get("status")=="READY"
  )
  if not anchor_verified:
   analysis["decision_eligible"]=False
   if analysis.get("status")=="READY":
    analysis["status"]="OBSERVER_REFERENCE_NOT_VERIFIED"
   analysis["observer_reference_status"]=reference.get("status","NOT_VERIFIED")
-  analysis["observer_block_reason"]="No recent native MT5 candle passed the exact visible-slot colour/body/wick geometry anchor check."
+  analysis["observer_block_reason"]="The chart did not pass multi-candle native OHLC fit and independent hold-out validation."
  else:
   analysis["observer_reference_status"]="READY"
  return analysis
