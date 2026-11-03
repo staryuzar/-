@@ -312,7 +312,7 @@ def infer_plot_bottom_from_axis_ticks(
     median_spacing = float(statistics.median(spacings))
     tick_bottom = float(y_values[-1])
     bottom_gap = float(current_bottom) - tick_bottom
-    minimum_gap = max(18.0, median_spacing * 1.25)
+    minimum_gap = max(18.0, median_spacing * 2.0)
     maximum_gap = plot_height * 0.18
     if bottom_gap < minimum_gap or bottom_gap > maximum_gap:
         return {
