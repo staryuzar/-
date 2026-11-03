@@ -8,6 +8,7 @@ from typing import Any
 from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,RISK_STATE_PATH
 from .engines.market import MarketEngine  # Research/benchmark adapter; not used for live runtime.
 from .engines.mt5_market import MT5MarketDataEngine
+from .engines.market_intelligence import MarketIntelligenceEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
 from .engines.mt5_native_indicators import MT5NativeIndicatorHistory
 from .engines.mt5_price_action import analyze_mt5_native_price_action
@@ -17,7 +18,7 @@ from .engines.indicators import IndicatorsEngine
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
 from .engines.mt5_chart_pipeline import Engine2MT5ChartImagePipeline
-from .storage import save_market_snapshot,write_json_atomic,read_json
+from .storage import save_market_snapshot,save_market_intelligence_snapshot,write_json_atomic,read_json
 from .engines.daily_risk import evaluate_daily_risk
 from .health import build_component_health,summarize_component_health
 
@@ -96,6 +97,14 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  # public-venue MarketEngine remains available for research, never runtime decisions.
  market=(market_engine.collect() if market_engine is not None
          else MT5MarketDataEngine().collect(bridge=bridge))
+ try:
+  market_intelligence=MarketIntelligenceEngine().collect(market)
+ except Exception as exc:
+  market_intelligence={"engine":"engine_1_market_intelligence","status":"OFFLINE",
+   "direction":"UNKNOWN","directional_score":None,"confidence":0.0,
+   "reason":f"{type(exc).__name__}: {exc}","source_statuses":{}}
+ market["market_intelligence"]=market_intelligence
+ save_market_intelligence_snapshot(market_intelligence)
  save_market_snapshot(market)
  write_json_atomic(SNAPSHOT_PATH,market)
  chart_observer=_inspect_mt5_chart_observer(now_ms=int(time.time()*1000))
@@ -167,6 +176,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  if age>MARKET_MAX_AGE_SECONDS: market_status="STALE"
  readiness={
   "engine_1_market":market_status=="LIVE",
+  "engine_1_market_intelligence":market_intelligence.get("status")=="READY",
   "engine_2_visual_chart":chart.get("status")=="READY" and chart.get("decision_eligible") is True,
   "engine_2_candles":candle_history.get("status")=="READY",
   "engine_2_multi_timeframe_structure":engine2_multitimeframe.get("status")=="READY",
@@ -179,7 +189,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  }
  overall="FULLY_OPERATIONAL" if all(readiness.values()) else "PARTIAL_OR_WAITING"
  engine_states={
-  "engine_1_market":market_status,"engine_2_chart":chart.get("status","NOT_STARTED"),
+  "engine_1_market":market_status,"engine_1_market_intelligence":market_intelligence.get("status","NOT_STARTED"),
+  "engine_2_chart":chart.get("status","NOT_STARTED"),
   "engine_2_visual_chart":chart.get("status","NOT_STARTED"),
   "engine_2_price_action":engine2_price_action.get("status","NOT_STARTED"),
   "engine_3_indicators":indicators.get("status","NOT_STARTED"),
@@ -213,6 +224,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
     "microstructure":v.get("microstructure",{}),
     "order_book":v.get("order_book",{}),
     "economic_calendar_status":(v.get("economic_calendar") or {}).get("status")} for n,v in market.get("venues",{}).items()}},
+  "market_intelligence":market_intelligence,
   "chart":chart,"chart_observer":chart_observer,"engine_2_candles":{
    "status":candle_history.get("status"),"timeframes":candle_history.get("timeframes",{}),
    "closed_candles":candle_history.get("closed_candles",{}),"reason":candle_history.get("reason")},
@@ -227,7 +239,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "indicators":indicators,
   "mt5_native_indicators":native_indicators,
   "bridge":bridge,"daily_risk":bridge.get("daily_risk"),"decision":decision,"command_publish":command_publish,
-  "wiring":{"engine_1_market_to_engine_4":True,"engine_2_chart_to_engine_4":True,
+  "wiring":{"engine_1_market_to_engine_4":True,"engine_1_market_intelligence_to_engine_4":True,
+   "engine_2_chart_to_engine_4":True,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
    "engine_2_price_action_to_engine_4":"fail_closed_confluence_gate_not_an_independent_directional_vote",
    "engine_2_price_action_requires_chart_image":False,
@@ -237,7 +250,9 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "engine_5_to_engine_4_ack_and_positions":"read_from_common_files",
    "expert_connection":bridge.get("status","NOT_CONFIGURED")},
   "notices":[
-   "Engine 1: MT5 quote pulse, spread/activity context and broker economic-calendar events. It does not read chart images or candles.",
+   "Engine 1: independent market intelligence from multi-publisher crypto news, macro calendar, Fear and Greed, global crypto market context and multi-venue perpetual funding/open-interest/long-short positioning. It does not read images, OHLC candles or technical indicators.",
+   "Engine 1 directional context is an explainable evidence score with source coverage, not a calibrated probability or profit forecast. News sentiment is a keyword heuristic; headline risk is exposed for review.",
+   "High-importance macro events create a bounded new-entry WAIT window; CLOSE and protective MODIFY management remain available.",
    "Engine 2 price action: determines BTC direction from candle formations and confirmed peaks/troughs, BOS/CHOCH, liquidity-sweep candidates and multi-timeframe structure. It calculates no technical indicators and requires no chart image.",
    "Engine 2 visual chart extraction and drawings are deferred and are not a readiness dependency for the native OHLC direction report.",
    "Engine 2 price-action analysis uses only completed native MT5 OHLC bars at a common snapshot cutoff; stale frames, gaps and forming bars cannot create direction evidence. In Engine 4 it is a fail-closed confluence gate, not a separate directional vote.",

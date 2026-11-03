@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS feed_health (
  venue TEXT PRIMARY KEY,checked_at_ms INTEGER NOT NULL,status TEXT NOT NULL,
  latency_ms REAL,error TEXT
 );
+CREATE TABLE IF NOT EXISTS market_intelligence_snapshots (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,captured_at_ms INTEGER NOT NULL,
+ symbol TEXT NOT NULL,status TEXT NOT NULL,directional_score REAL,confidence REAL,
+ payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_market_intelligence_time ON market_intelligence_snapshots(captured_at_ms);
 CREATE TABLE IF NOT EXISTS storage_migrations (
  migration_id TEXT PRIMARY KEY,
  applied_at_ms INTEGER NOT NULL
@@ -216,6 +222,27 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
                GROUP BY dataset_id,symbol,venue,timeframe,data_split"""
         )
     return conn
+
+def save_market_intelligence_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) -> None:
+    if not isinstance(snapshot,dict) or not snapshot:
+        return
+    captured=int(snapshot.get("captured_at_ms") or time.time_ns()//1_000_000)
+    symbol=str(snapshot.get("symbol") or "BTCUSDT")
+    score=snapshot.get("directional_score")
+    confidence=snapshot.get("confidence")
+    conn=connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO market_intelligence_snapshots(captured_at_ms,symbol,status,directional_score,confidence,payload_json) VALUES(?,?,?,?,?,?)",
+                (captured,symbol,str(snapshot.get("status","UNKNOWN")),score,confidence,
+                 json.dumps(snapshot,ensure_ascii=False,separators=(",",":"))),
+            )
+            conn.execute("DELETE FROM market_intelligence_snapshots WHERE captured_at_ms < ?",
+                         (captured-30*24*60*60*1000,))
+    finally:
+        conn.close()
+
 
 def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) -> None:
     captured=int(snapshot["captured_at_ms"])

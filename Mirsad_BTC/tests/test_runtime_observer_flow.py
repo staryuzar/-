@@ -169,8 +169,17 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                 "command_ready": False,
             }
 
+            intelligence_engine = Mock()
+            intelligence_engine.collect.return_value = {
+                "engine": "engine_1_market_intelligence", "status": "READY",
+                "direction": "NEUTRAL", "directional_score": 0.0,
+                "confidence": 0.8, "evidence_coverage": 0.8,
+                "economic_calendar": {"status": "EMPTY", "high_impact_window_active": False, "events": []},
+            }
+
             with (
                 patch.object(runtime, "MT5MarketDataEngine", return_value=market_engine),
+                patch.object(runtime, "MarketIntelligenceEngine", return_value=intelligence_engine),
                 patch.object(runtime, "MT5ChartCandleHistory", return_value=candle_history_engine),
                 patch.object(runtime, "MT5BridgeEngine", return_value=bridge_engine),
                 patch.object(runtime, "IndicatorsEngine", return_value=indicators_engine),
@@ -178,6 +187,7 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                 patch.object(runtime, "_inspect_mt5_chart_observer", return_value=observer),
                 patch.object(runtime, "analyze_chart_image", return_value=analysis) as visual_analyzer,
                 patch.object(runtime, "save_market_snapshot"),
+                patch.object(runtime, "save_market_intelligence_snapshot"),
                 patch.object(runtime, "write_json_atomic"),
                 patch.object(runtime, "ENABLE_ORDER_PUBLISH", False),
             ):
@@ -191,6 +201,9 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             passed_chart = decision_engine.analyze.call_args.args[1]
             self.assertEqual(passed_chart["source"], "MT5_OBSERVER")
             self.assertTrue(passed_chart["decision_eligible"])
+            self.assertEqual(report["market_intelligence"]["status"], "READY")
+            self.assertTrue(report["readiness"]["engine_1_market_intelligence"])
+            intelligence_engine.collect.assert_called_once()
             self.assertEqual(report["decision"]["action"], "WAIT")
             self.assertEqual(report["command_publish"]["status"], "NOT_READY")
             self.assertTrue(report["execution_controls"]["terminal_connected"])

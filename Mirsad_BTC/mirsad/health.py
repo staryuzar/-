@@ -79,6 +79,7 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
         return []
 
     market = _dict(state.get("market"))
+    market_intelligence = _dict(state.get("market_intelligence"))
     observer = _dict(state.get("chart_observer"))
     chart = _dict(state.get("chart"))
     candles = _dict(state.get("engine_2_candles"))
@@ -135,6 +136,21 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     )
     add("المحرك الأول — استخبارات السوق", "تقويم MT5 الاقتصادي", calendar_status,
         "مصدره تقويم الوسيط في MT5 وليس موجز أخبار BTC النصي.")
+
+    intel_news = _dict(market_intelligence.get("news"))
+    add("المحرك الأول — استخبارات السوق", "موجز الأخبار متعدد المصادر", intel_news.get("status"),
+        f"العناوين: {intel_news.get('count', 0)} | المصادر الحية: {', '.join(k for k,v in _dict(intel_news.get('sources')).items() if v == 'READY') or 'لا يوجد'}.")
+    fear = _dict(market_intelligence.get("fear_greed"))
+    add("المحرك الأول — استخبارات السوق", "مؤشر الخوف والطمع", fear.get("status"),
+        f"القيمة: {fear.get('value', '—')} | {fear.get('classification', '—')} | مصدر Alternative.me.")
+    derivatives = _dict(market_intelligence.get("derivatives"))
+    add("المحرك الأول — استخبارات السوق", "المشتقات والتمويل والفائدة المفتوحة", derivatives.get("status"),
+        f"المنصات: {derivatives.get('venue_count', 0)} | درجة التموضع: {derivatives.get('score', '—')} | بيانات مشتقات خاصة بكل منصة.")
+    add("المحرك الأول — استخبارات السوق", "السياق الكلي والسيناريو السوقي", market_intelligence.get("status"),
+        f"الميل: {market_intelligence.get('direction', 'UNKNOWN')} | درجة السياق: {market_intelligence.get('directional_score', '—')} | تغطية الأدلة: {market_intelligence.get('evidence_coverage', 0)} | الثقة ليست احتمال ربح.")
+    intel_calendar = _dict(market_intelligence.get("economic_calendar"))
+    add("المحرك الأول — استخبارات السوق", "بوابة الأحداث الاقتصادية عالية الأهمية", "LOCKED" if intel_calendar.get("high_impact_window_active") else intel_calendar.get("status"),
+        f"بوابة المداخل: {intel_calendar.get('new_entry_gate', 'NOT_REPORTED')} | الأحداث النشطة: {len(intel_calendar.get('active_high_impact_events', []))}.")
 
     # Engine 2
     observer_chart = _dict(observer.get("chart"))

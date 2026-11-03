@@ -286,7 +286,7 @@ def _weighted_direction_score(chart_score: float, market_score: float) -> float:
 
 
 def _market_confirmation_score(indicator_trend_score: float, market: dict[str, Any]) -> tuple[float, dict[str, Any]]:
-    """Blend Engine 3 candle indicators with Engine 1 quote-update microstructure."""
+    """Blend Engine 3 technical trend with Engine 1 non-chart intelligence."""
     trend = float(indicator_trend_score)
     if not math.isfinite(trend) or not -1.0 <= trend <= 1.0:
         raise ValueError("Indicator trend score must be finite and normalized.")
@@ -300,13 +300,62 @@ def _market_confirmation_score(indicator_trend_score: float, market: dict[str, A
             value = float("nan")
         if math.isfinite(value) and -1.0 <= value <= 1.0:
             quote_balance = value
-    score = trend if quote_balance is None else 0.80 * trend + 0.20 * quote_balance
+    intelligence = market.get("market_intelligence") if isinstance(market.get("market_intelligence"), dict) else {}
+    intelligence_score = _finite_intelligence_score(intelligence)
+    if intelligence_score is not None:
+        engine1_score = (
+            0.90 * intelligence_score + 0.10 * quote_balance
+            if quote_balance is not None else intelligence_score
+        )
+        engine1_source = "market_intelligence_plus_quote_pulse" if quote_balance is not None else "market_intelligence"
+    elif quote_balance is not None:
+        engine1_score = quote_balance
+        engine1_source = "quote_pulse_fallback_only"
+    else:
+        engine1_score = None
+        engine1_source = "unavailable"
+    confirmation_split = (
+        {"engine_3": 1.0, "engine_1": 0.0}
+        if engine1_score is None
+        else {"engine_3": 0.50, "engine_1": 0.50}
+    )
+    score = trend if engine1_score is None else 0.50 * trend + 0.50 * engine1_score
     return max(-1.0, min(1.0, score)), {
         "engine_3_indicator_trend": round(trend, 4),
+        "engine_1_market_intelligence_score": round(intelligence_score, 4) if intelligence_score is not None else None,
+        "engine_1_score": round(engine1_score, 4) if engine1_score is not None else None,
+        "engine_1_source": engine1_source,
+        "engine_1_intelligence_status": intelligence.get("status", "NOT_AVAILABLE"),
+        "engine_1_intelligence_confidence": intelligence.get("confidence"),
         "engine_1_quote_update_balance": round(quote_balance, 4) if quote_balance is not None else None,
         "quote_pulse_status": pulse.get("status", "NOT_AVAILABLE"),
         "quote_pulse_scope": "bid/ask quote updates, not executed trades",
+        "confirmation_split": confirmation_split,
     }
+
+
+def _finite_intelligence_score(intelligence: dict[str, Any]) -> float | None:
+    status = str(intelligence.get("status", "")).upper()
+    confidence = _finite_value(intelligence.get("confidence"))
+    score = _finite_value(intelligence.get("directional_score"))
+    if status not in {"READY", "PARTIAL"} or score is None or confidence is None:
+        return None
+    coverage = _finite_value(intelligence.get("evidence_coverage"))
+    if (
+        not 0.0 <= confidence <= 1.0 or confidence < 0.25
+        or coverage is None or coverage < 0.55
+        or not -1.0 <= score <= 1.0
+    ):
+        return None
+    return score
+
+
+def _finite_value(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return result if math.isfinite(result) else None
 
 
 class DecisionEngine:
@@ -321,8 +370,8 @@ class DecisionEngine:
     ) -> dict[str, Any]:
         base = {
             "engine": "engine_4_decision_trade_monitor", "method": "rules_only",
-            "direction_inputs": ["engine_1_market", "engine_2_chart", "engine_3_indicators"],
-            "calculation_inputs": ["engine_3_indicators"],
+            "direction_inputs": ["engine_1_market_intelligence", "engine_2_chart", "engine_3_indicators"],
+            "calculation_inputs": ["engine_1_market_intelligence", "engine_3_indicators"],
             "bridge_role": "engine_5 transports commands and supplies live quote/account/specifications only",
             "risk_owner": "Mirsad_BTC_program",
         }
@@ -665,6 +714,16 @@ class DecisionEngine:
             daily_risk_required
             and (daily_risk_status != "READY" or daily_risk_locked)
         )
+        intelligence = market.get("market_intelligence") if isinstance(market.get("market_intelligence"), dict) else {}
+        economic_calendar = intelligence.get("economic_calendar") if isinstance(intelligence.get("economic_calendar"), dict) else {}
+        if not economic_calendar:
+            economic_calendar = market_context.get("economic_calendar") if isinstance(market_context.get("economic_calendar"), dict) else {}
+        macro_event_window_active = economic_calendar.get("high_impact_window_active") is True
+        if action in {"BUY", "SELL"} and quote_ok and macro_event_window_active:
+            action = "WAIT"
+            open_block_reason = "High-importance macro event is inside the configured pre/post-release window; new entry is paused."
+            size = {"status": "BLOCKED", "reason": open_block_reason}
+
         # The daily loss gate applies only to NEW exposure. A protective MODIFY
         # has already returned above; an opposite-position CLOSE is kept intact.
         if action in {"BUY", "SELL"} and quote_ok and daily_risk_blocks_entry:
@@ -704,8 +763,8 @@ class DecisionEngine:
             "trend_score": round(trend_score, 4), "timeframes": timeframe_data,
             "decision_weights": {
                 "engine_2_chart": CHART_DECISION_WEIGHT,
-                "engine_3_indicators": round(MARKET_CONFIRMATION_WEIGHT * 0.80, 4),
-                "engine_1_market_quote_pulse": round(MARKET_CONFIRMATION_WEIGHT * 0.20, 4),
+                "engine_3_indicators": round(MARKET_CONFIRMATION_WEIGHT * 0.50, 4),
+                "engine_1_market_intelligence": round(MARKET_CONFIRMATION_WEIGHT * 0.50, 4),
             },
             "decision_scores": {
                 "chart_score": round(chart_score, 4),
@@ -719,7 +778,14 @@ class DecisionEngine:
             "engine_3_indicator_status": indicator_data.get("status"),
             "orderflow": orderflow,
             "market_microstructure": microstructure,
-            "economic_calendar": market_context.get("economic_calendar", {"status": "NOT_AVAILABLE", "events": []}),
+            "economic_calendar": economic_calendar or market_context.get("economic_calendar", {"status": "NOT_AVAILABLE", "events": []}),
+            "market_intelligence": intelligence,
+            "macro_event_gate": {
+                "status": "ACTIVE" if macro_event_window_active else "CLEAR",
+                "new_entries_paused": macro_event_window_active,
+                "active_events": economic_calendar.get("active_high_impact_events", []),
+                "policy": "pause_new_entries_only_close_and_protective_modify_remain_available",
+            },
             "risk_plan": size,
             "daily_risk_gate": {
                 "required": daily_risk_required,

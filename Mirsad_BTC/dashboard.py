@@ -532,6 +532,61 @@ def render_engine_dashboard():
  else:
   st.info("لم تصل بيانات سوق حقيقية بعد.")
 
+ intel=state.get("market_intelligence",{}) if isinstance(state.get("market_intelligence"),dict) else {}
+ if intel:
+  st.subheader("استخبارات السوق المستقلة — المحرك الأول")
+  score=intel.get("directional_score")
+  score_label=(f"{float(score):+.3f}" if isinstance(score,(int,float)) else "غير كافٍ")
+  scenario=intel.get("scenario",{}) if isinstance(intel.get("scenario"),dict) else {}
+  i1,i2,i3,i4,i5=st.columns(5)
+  i1.metric("حالة الاستخبارات",ar(intel.get("status")))
+  i2.metric("السيناريو السياقي",scenario.get("label",intel.get("direction","UNKNOWN")))
+  i3.metric("درجة السياق",score_label)
+  i4.metric("تغطية الأدلة",f"{float(intel.get('evidence_coverage',0) or 0)*100:.0f}%")
+  i5.metric("الثقة التفسيرية",f"{float(intel.get('confidence',0) or 0)*100:.0f}%")
+  st.caption("درجة السياق والثقة تقيس تغطية الأدلة المتاحة، ولا تمثل احتمال ربح أو توقعاً إحصائياً معايراً.")
+  components=intel.get("components",{}) if isinstance(intel.get("components"),dict) else {}
+  comp_rows=[{"المكوّن":name,"الحالة":ar(value.get("status")),"الدرجة":value.get("score"),"الوزن":value.get("weight"),"الثقة":value.get("confidence"),"يساهم في السياق":("نعم" if value.get("contributes") else "لا")} for name,value in components.items() if isinstance(value,dict)]
+  if comp_rows: st.dataframe(pd.DataFrame(comp_rows),use_container_width=True,hide_index=True)
+  derivatives=intel.get("derivatives",{}) if isinstance(intel.get("derivatives"),dict) else {}
+  derivative_rows=[]
+  for name,row in (derivatives.get("venues",{}) or {}).items():
+   if isinstance(row,dict): derivative_rows.append({"المنصة":name,"الحالة":ar(row.get("status")),"Funding Rate":row.get("funding_rate"),"Open Interest":row.get("open_interest"),"تغير OI %":row.get("open_interest_change_pct_35m"),"Long/Short":row.get("long_short_ratio"),"Mark Price":row.get("mark_price")})
+  if derivative_rows:
+   st.markdown("**المشتقات والتموضع — ليس دفتر أوامر السوق الفوري**")
+   st.dataframe(pd.DataFrame(derivative_rows),use_container_width=True,hide_index=True)
+  sentiment=intel.get("fear_greed",{}) if isinstance(intel.get("fear_greed"),dict) else {}
+  global_metrics=intel.get("global_metrics",{}) if isinstance(intel.get("global_metrics"),dict) else {}
+  metrics=global_metrics.get("metrics",{}) if isinstance(global_metrics.get("metrics"),dict) else {}
+  g1,g2,g3,g4=st.columns(4)
+  g1.metric("الخوف والطمع",f"{sentiment.get('value','—')} · {sentiment.get('classification','—')}")
+  g2.metric("هيمنة BTC %",metrics.get("bitcoin_dominance_pct","—"))
+  g3.metric("القيمة السوقية الكلية $",f"{metrics.get('total_market_cap_usd'):,.0f}" if isinstance(metrics.get("total_market_cap_usd"),(int,float)) else "—")
+  g4.metric("حجم السوق 24h $",f"{metrics.get('total_24h_volume_usd'):,.0f}" if isinstance(metrics.get("total_24h_volume_usd"),(int,float)) else "—")
+  st.caption(sentiment.get("attribution", "") + " | المؤشر يُستخدم كسياق contrarian وليس كإشارة منفردة.")
+  st.markdown("**آخر العناوين ذات الصلة**")
+  headlines=(intel.get("news",{}) or {}).get("items",[]) if isinstance(intel.get("news"),dict) else []
+  news_rows=[]
+  for item in headlines[:15]:
+   if not isinstance(item,dict): continue
+   published=item.get("published_at_ms")
+   published_label=time.strftime("%Y-%m-%d %H:%M UTC",time.gmtime(published/1000)) if isinstance(published,(int,float)) and published>0 else "وقت غير متاح"
+   news_rows.append({"وقت النشر":published_label,"المصدر":item.get("source"),"العنوان":item.get("title"),"قراءة الكلمات":item.get("sentiment_score"),"علامات المخاطر":", ".join(item.get("risk_flags",[])) or "—","الرابط":item.get("url")})
+  if news_rows: st.dataframe(pd.DataFrame(news_rows),use_container_width=True,hide_index=True)
+  else: st.info("لم تصل عناوين أخبار صالحة من المصادر المستقلة بعد.")
+  calendar=intel.get("economic_calendar",{}) if isinstance(intel.get("economic_calendar"),dict) else {}
+  c_events=calendar.get("events",[]) if isinstance(calendar.get("events"),list) else []
+  if c_events:
+   st.markdown("**الأحداث الاقتصادية القادمة والحديثة**")
+   event_rows=[]
+   for event in c_events[:30]:
+    stamp=event.get("event_time_utc_ms")
+    event_rows.append({"الحدث":event.get("name"),"المصدر":event.get("provider"),"الدولة":event.get("country"),"العملة":event.get("currency"),"الأهمية":event.get("importance"),"وقت UTC":time.strftime("%Y-%m-%d %H:%M",time.gmtime(stamp/1000)) if isinstance(stamp,(int,float)) else "—","التوقع":event.get("forecast"),"السابق":event.get("previous")})
+   st.dataframe(pd.DataFrame(event_rows),use_container_width=True,hide_index=True)
+  if calendar.get("high_impact_window_active"):
+   st.error("حاجز الحدث الاقتصادي عالي الأهمية نشط: المحرك الرابع يوقف المداخل الجديدة مؤقتاً، ولا يوقف الإغلاق أو الحماية.")
+  st.caption("حدود الاستخبارات: لا تقرأ شموعاً أو مؤشرات أو صوراً؛ الأخبار تُقيّم بكلمات مفتاحية قابلة للفحص ولا تعني التحقق من صحة الخبر.")
+
  if state:
   chart=state.get("chart",{})
   st.subheader("المحرك الثاني — تحليل الرسوم والصور")

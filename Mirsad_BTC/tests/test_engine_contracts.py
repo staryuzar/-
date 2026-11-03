@@ -145,13 +145,36 @@ class WeightedDecisionTests(unittest.TestCase):
         self.assertAlmostEqual(score, 0.28)
         self.assertLess(score, 0.40)
 
-    def test_market_confirmation_score_uses_only_engine1_quote_update_pulse(self) -> None:
+    def test_market_confirmation_uses_engine1_intelligence_with_quote_pulse_as_minor_context(self) -> None:
+        market = {
+            "market_context": {"microstructure": {"status": "READY", "quote_direction_balance": 0.65}},
+            "market_intelligence": {"status": "READY", "directional_score": -0.40, "confidence": 0.80},
+        }
+        score, parts = _market_confirmation_score(0.20, market)
+        self.assertAlmostEqual(score, 0.50 * 0.20 + 0.50 * (-0.36 + 0.065), places=4)
+        self.assertEqual(parts["engine_1_source"], "market_intelligence_plus_quote_pulse")
+        self.assertEqual(parts["confirmation_split"], {"engine_3": 0.50, "engine_1": 0.50})
+
+    def test_market_confirmation_falls_back_to_quote_pulse_only_when_intelligence_is_unavailable(self) -> None:
         market = {"market_context": {"microstructure": {
             "status": "READY", "quote_direction_balance": 0.65,
         }}}
         score, parts = _market_confirmation_score(0.0, market)
-        self.assertAlmostEqual(score, 0.13, places=4)
+        self.assertAlmostEqual(score, 0.325, places=4)
+        self.assertEqual(parts["engine_1_source"], "quote_pulse_fallback_only")
         self.assertEqual(parts["quote_pulse_scope"], "bid/ask quote updates, not executed trades")
+
+    def test_unavailable_or_single_source_intelligence_does_not_create_an_extra_directional_vote(self) -> None:
+        market = {
+            "market_intelligence": {
+                "status": "PARTIAL", "directional_score": 0.95,
+                "confidence": 0.90, "evidence_coverage": 0.45,
+            },
+        }
+        score, parts = _market_confirmation_score(0.20, market)
+        self.assertAlmostEqual(score, 0.20)
+        self.assertEqual(parts["engine_1_source"], "unavailable")
+        self.assertEqual(parts["confirmation_split"], {"engine_3": 1.0, "engine_1": 0.0})
 
     def test_non_finite_directional_scores_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -180,11 +203,71 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
              "candle_history": make_engine2_candle_history("down")},
             {},
         )
-        self.assertEqual(result["direction_inputs"], ["engine_1_market", "engine_2_chart", "engine_3_indicators"])
-        self.assertEqual(result["calculation_inputs"], ["engine_3_indicators"])
+        self.assertEqual(result["direction_inputs"], ["engine_1_market_intelligence", "engine_2_chart", "engine_3_indicators"])
+        self.assertEqual(result["calculation_inputs"], ["engine_1_market_intelligence", "engine_3_indicators"])
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertAlmostEqual(result["decision_weights"]["engine_2_chart"], 0.80)
+        self.assertAlmostEqual(result["decision_weights"]["engine_3_indicators"], 0.10)
+        self.assertAlmostEqual(result["decision_weights"]["engine_1_market_intelligence"], 0.10)
         self.assertLess(result["decision_scores"]["market_score"], 0)
+
+    def test_high_impact_macro_window_pauses_new_entries_but_not_position_close(self) -> None:
+        now = int(time.time() * 1000)
+        market = self._market("up")
+        market["market_intelligence"] = {
+            "status": "READY",
+            "directional_score": 0.5,
+            "confidence": 0.9,
+            "economic_calendar": {
+                "status": "READY",
+                "high_impact_window_active": True,
+                "active_high_impact_events": [{"name": "US CPI", "minutes_to_event": 5}],
+            },
+        }
+        chart = {
+            "status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
+            "analysis_score": 0.95, "analysis_confidence": 0.90, "image": "chart.png",
+            "candle_history": make_engine2_candle_history("up"),
+        }
+        indicators = {
+            "status": "READY", "engine": "engine_3_indicators",
+            "source": "engine_2_chart_candles",
+            "trend_score": 0.70,
+            "last_closed_candle_time_ms": now - 60_000,
+            "values": {
+                "ema20_1m": 101.0, "ema50_1m": 100.0, "rsi14_1m": 60.0,
+                "atr14_1m": 2.0, "atr14_5m": 2.0,
+            },
+        }
+        bridge = {
+            "status": "CONNECTED", "symbol": "BTCUSDT", "market_symbol": "BTCUSDT",
+            "magic_number": 12345, "quote_age_seconds": 0.1,
+            "quote": {"bid": 100.0, "ask": 100.02, "tick_age_seconds": 0.1},
+            "account": {"equity": 10_000.0},
+            "symbol_spec": {
+                "tick_size": 0.01, "tick_value_loss": 1.0,
+                "volume_min": 0.01, "volume_step": 0.01, "volume_max": 10.0,
+                "point": 0.01, "digits": 2, "stops_level_points": 0,
+            },
+            "positions": [],
+        }
+        paused = DecisionEngine().analyze(market, chart, bridge, indicators)
+        self.assertEqual(paused["candidate_action"], "BUY")
+        self.assertEqual(paused["action"], "WAIT")
+        self.assertTrue(paused["macro_event_gate"]["new_entries_paused"])
+        self.assertFalse(paused["command_ready"])
+
+        bridge_with_short = {
+            **bridge,
+            "positions": [{
+                "ticket": 778899, "symbol": "BTCUSDT", "type": 1,
+                "magic": 12345, "volume": 0.05,
+            }],
+        }
+        close = DecisionEngine().analyze(market, chart, bridge_with_short, indicators)
+        self.assertEqual(close["action"], "CLOSE")
+        self.assertEqual(close["position_ticket"], 778899)
+        self.assertTrue(close["macro_event_gate"]["new_entries_paused"])
 
     def test_market_cannot_create_direction_when_chart_is_weak(self) -> None:
         result = DecisionEngine().analyze(
