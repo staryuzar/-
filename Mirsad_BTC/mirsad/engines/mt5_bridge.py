@@ -62,6 +62,11 @@ class MT5BridgeEngine:
             payload.get("terminal_connected") is True and schema_ok
             and age is not None and 0 <= age <= MT5_HEARTBEAT_MAX_AGE_SECONDS
         )
+        ack = _read_object(self.root / "ack.json")
+        command = _read_object(self.root / "command.json")
+        reconciliation = self._reconcile_ack_with_positions(
+            ack, command, positions, heartbeat
+        )
         return {
             **base, "status": "CONNECTED" if alive else "STALE",
             "heartbeat_age_seconds": round(age, 2) if age is not None else None,
@@ -73,11 +78,194 @@ class MT5BridgeEngine:
             "quote": quote,
             "symbol_spec": symbol_spec,
             "positions": positions,
-            "last_order_ack": _read_object(self.root / "ack.json"),
+            "last_order_ack": ack,
+            "position_reconciliation": reconciliation,
             "message": "Fresh EA telemetry received." if alive else "EA heartbeat missing, stale or protocol schema mismatch.",
             "account_type_classification": "NOT_PERFORMED",
             "risk_calculation": "OWNED_BY_ENGINE_4",
         }
+
+    @staticmethod
+    def _reconcile_ack_with_positions(
+        ack: dict[str, Any],
+        command: dict[str, Any],
+        positions: list[dict[str, Any]],
+        heartbeat_at_ms: int,
+    ) -> dict[str, Any]:
+        """Confirm a FILLED MIR1 acknowledgement against a later MT5 position snapshot.
+
+        A broker return code alone is not treated as proof that the requested
+        exposure/protective change is visible in the terminal's position state.
+        """
+        def outcome(status: str, reason: str, **extra: Any) -> dict[str, Any]:
+            return {
+                "status": status,
+                "decision_eligible": False,
+                "command_id": ack.get("command_id"),
+                "reason": reason,
+                **extra,
+            }
+
+        command_id = str(command.get("command_id", ""))
+        if not command_id:
+            return outcome("NO_PENDING_COMMAND", "No current MIR1 command is available.")
+        if ack.get("command_id") != command_id:
+            return outcome(
+                "ACK_COMMAND_MISMATCH",
+                "The latest ACK does not belong to the current command file.",
+                expected_command_id=command_id,
+            )
+
+        state = str(ack.get("state", "")).upper()
+        if state in {"RECEIVED", "SUBMITTED", "PARTIAL", "UNKNOWN"}:
+            return outcome(
+                "ACK_PENDING",
+                "The broker outcome is not final; retain the command and do not replace it.",
+                ack_state=state,
+            )
+        if state in {"REJECTED", "CANCELLED", "EXPIRED"}:
+            return outcome("TERMINAL_NOT_FILLED", "The EA reported a terminal non-fill state.", ack_state=state)
+        if state != "FILLED":
+            return outcome("ACK_STATE_INVALID", "The ACK state is missing or unsupported.", ack_state=state)
+
+        try:
+            ack_at = int(ack.get("ack_at_ms", 0) or 0)
+            heartbeat = int(heartbeat_at_ms or 0)
+        except (TypeError, ValueError, OverflowError):
+            ack_at = heartbeat = 0
+        if ack_at <= 0 or heartbeat <= 0:
+            return outcome("ACK_TIMESTAMP_INVALID", "ACK and heartbeat timestamps are required for reconciliation.")
+        if heartbeat < ack_at:
+            return outcome(
+                "AWAITING_POST_ACK_TELEMETRY",
+                "The current MT5 heartbeat predates the FILLED ACK; wait for a newer positions snapshot.",
+                ack_at_ms=ack_at,
+                heartbeat_at_ms=heartbeat,
+            )
+
+        try:
+            magic = int(command.get("magic_number", 0) or 0)
+            tick_size = float(command.get("tick_size", 0) or 0)
+            volume_step = float(command.get("volume_step", 0) or 0)
+            action = str(command.get("action", "")).upper()
+            symbol = str(command.get("symbol", "")).upper()
+            ticket = int(command.get("position_ticket", 0) or 0)
+            requested_volume = float(command.get("volume", 0) or 0)
+            filled_volume = float(ack.get("filled_volume", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            return outcome("COMMAND_FIELDS_INVALID", "Command/ACK reconciliation fields are not numeric.")
+        if magic <= 0 or not symbol or action not in {"BUY", "SELL", "CLOSE", "MODIFY"}:
+            return outcome("BASELINE_MISSING", "The command lacks a valid Mirsad magic number, symbol or action.")
+        tolerance = max(1e-8, volume_step * 0.5 if math.isfinite(volume_step) and volume_step > 0 else 1e-8)
+        before_raw = command.get("position_snapshot_before")
+        if not isinstance(before_raw, list):
+            return outcome("BASELINE_MISSING", "The command has no pre-request position snapshot.")
+        def normalise(rows: list[Any]) -> list[dict[str, Any]]:
+            cleaned = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    item = {
+                        "ticket": int(row.get("ticket", 0) or 0),
+                        "symbol": str(row.get("symbol", "")).upper(),
+                        "type": int(row.get("type", -1)),
+                        "magic": int(row.get("magic", -1)),
+                        "volume": float(row.get("volume", 0) or 0),
+                        "stop_loss": float(row.get("stop_loss", 0) or 0),
+                        "take_profit": float(row.get("take_profit", 0) or 0),
+                    }
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if (
+                    item["ticket"] > 0 and item["symbol"] and item["type"] in (0, 1)
+                    and item["magic"] == magic
+                    and all(math.isfinite(item[key]) for key in ("volume", "stop_loss", "take_profit"))
+                    and item["volume"] > 0
+                ):
+                    cleaned.append(item)
+            return cleaned
+
+        before = normalise(before_raw)
+        after = normalise(positions if isinstance(positions, list) else [])
+        if action in {"BUY", "SELL"}:
+            side_type = 0 if action == "BUY" else 1
+            before_volume = sum(
+                item["volume"] for item in before
+                if item["symbol"] == symbol and item["type"] == side_type
+            )
+            after_volume = sum(
+                item["volume"] for item in after
+                if item["symbol"] == symbol and item["type"] == side_type
+            )
+            delta = max(0.0, after_volume - before_volume)
+            expected = filled_volume if math.isfinite(filled_volume) and filled_volume > 0 else requested_volume
+            if expected <= 0 or not math.isfinite(expected):
+                return outcome("COMMAND_FIELDS_INVALID", "A positive requested/filled volume is required.")
+            if delta + tolerance >= expected:
+                return outcome(
+                    "CONFIRMED", "The later MT5 snapshot contains the filled Mirsad position volume.",
+                    action=action, expected_volume=expected, observed_volume_delta=round(delta, 8),
+                )
+            status = "PARTIAL_POSITION_CHANGE" if delta > tolerance else "AWAITING_POSITION_UPDATE"
+            return outcome(
+                status,
+                "The later MT5 snapshot does not yet contain the full acknowledged position volume.",
+                action=action, expected_volume=expected, observed_volume_delta=round(delta, 8),
+            )
+
+        baseline = next(
+            (item for item in before if item["ticket"] == ticket and item["symbol"] == symbol),
+            None,
+        )
+        current = next(
+            (item for item in after if item["ticket"] == ticket and item["symbol"] == symbol),
+            None,
+        )
+        if baseline is None:
+            return outcome("BASELINE_MISSING", "The target Mirsad position was not present in the command's pre-request snapshot.")
+        if action == "CLOSE":
+            current_volume = current["volume"] if current else 0.0
+            reduced = max(0.0, baseline["volume"] - current_volume)
+            expected = filled_volume if math.isfinite(filled_volume) and filled_volume > 0 else requested_volume
+            if expected <= 0 or not math.isfinite(expected):
+                return outcome("COMMAND_FIELDS_INVALID", "A positive close/filled volume is required.")
+            if reduced + tolerance >= expected:
+                return outcome(
+                    "CONFIRMED", "The target position volume has reduced by the acknowledged close amount.",
+                    action=action, position_ticket=ticket, expected_reduction=expected,
+                    observed_reduction=round(reduced, 8),
+                )
+            status = "PARTIAL_POSITION_CHANGE" if reduced > tolerance else "AWAITING_POSITION_UPDATE"
+            return outcome(
+                status, "The target position has not yet reflected the acknowledged close amount.",
+                action=action, position_ticket=ticket, expected_reduction=expected,
+                observed_reduction=round(reduced, 8),
+            )
+
+        if current is None:
+            return outcome("POSITION_MISSING", "The target position disappeared before its protective update could be verified.")
+        try:
+            requested_sl = float(command.get("stop_loss", 0) or 0)
+            requested_tp = float(command.get("take_profit", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            return outcome("COMMAND_FIELDS_INVALID", "MODIFY protective prices are invalid.")
+        price_tolerance = max(1e-8, tick_size * 0.51 if math.isfinite(tick_size) and tick_size > 0 else 1e-8)
+        sl_matches = requested_sl > 0 and abs(current["stop_loss"] - requested_sl) <= price_tolerance
+        tp_matches = abs(current["take_profit"] - requested_tp) <= price_tolerance
+        tp_preserved = abs(current["take_profit"] - baseline["take_profit"]) <= price_tolerance
+        if sl_matches and tp_matches and tp_preserved:
+            return outcome(
+                "CONFIRMED", "The target position shows the requested protective stop and unchanged take-profit.",
+                action=action, position_ticket=ticket,
+                observed_stop_loss=current["stop_loss"], observed_take_profit=current["take_profit"],
+            )
+        return outcome(
+            "AWAITING_POSITION_UPDATE",
+            "The target position does not yet show the requested stop with its original take-profit unchanged.",
+            action=action, position_ticket=ticket,
+            observed_stop_loss=current["stop_loss"], observed_take_profit=current["take_profit"],
+        )
 
     @staticmethod
     def _validate_decision(decision: dict[str, Any]) -> dict[str, Any]:
@@ -170,12 +358,25 @@ class MT5BridgeEngine:
 
         self.root.mkdir(parents=True, exist_ok=True)
         ack = _read_object(self.root / "ack.json")
-        settled_states = {"REJECTED", "FILLED", "CANCELLED", "EXPIRED"}
+        settled_failure_states = {"REJECTED", "CANCELLED", "EXPIRED"}
         active_states = {"RECEIVED", "SUBMITTED", "PARTIAL", "UNKNOWN"}
-        if ack.get("command_id") == envelope["command_id"] and ack.get("state") in (settled_states | active_states):
+        if ack.get("command_id") == envelope["command_id"] and (
+            ack.get("state") in (settled_failure_states | active_states | {"FILLED"})
+        ):
+            reconciliation = bridge_state.get("position_reconciliation")
             return {
-                "status": "ALREADY_ACKNOWLEDGED", "command_id": envelope["command_id"],
+                "status": (
+                    "ALREADY_ACKNOWLEDGED"
+                    if ack.get("state") != "FILLED" or (
+                        isinstance(reconciliation, dict)
+                        and reconciliation.get("command_id") == envelope["command_id"]
+                        and reconciliation.get("status") == "CONFIRMED"
+                    )
+                    else "ACK_POSITION_RECONCILIATION_PENDING"
+                ),
+                "command_id": envelope["command_id"],
                 "ack_state": ack.get("state"),
+                "position_reconciliation": reconciliation if isinstance(reconciliation, dict) else None,
             }
 
         target = self.root / "command.json"
@@ -186,13 +387,51 @@ class MT5BridgeEngine:
         if current_id:
             current_ack = _read_object(self.root / "ack.json")
             ack_matches = current_ack.get("command_id") == current_id
-            settled = ack_matches and current_ack.get("state") in settled_states
+            ack_state = str(current_ack.get("state", "")).upper() if ack_matches else "MISSING"
+            reconciliation = bridge_state.get("position_reconciliation")
+            position_confirmed = (
+                isinstance(reconciliation, dict)
+                and reconciliation.get("command_id") == current_id
+                and reconciliation.get("status") == "CONFIRMED"
+            )
+            settled = ack_matches and (
+                ack_state in settled_failure_states
+                or (ack_state == "FILLED" and position_confirmed)
+            )
             if not settled:
                 return {
-                    "status": "PENDING_COMMAND_BLOCKED", "pending_command_id": current_id,
-                    "ack_state": current_ack.get("state") if ack_matches else "MISSING",
-                    "message": "Existing command must be acknowledged/reconciled before a new command can replace it.",
+                    "status": "PENDING_COMMAND_BLOCKED",
+                    "pending_command_id": current_id,
+                    "ack_state": ack_state,
+                    "position_reconciliation": (
+                        reconciliation if isinstance(reconciliation, dict) else None
+                    ),
+                    "message": "Existing command must reach a terminal ACK and, when FILLED, match the later MT5 position snapshot before replacement.",
                 }
+
+        # Preserve the exact pre-request exposure so a later FILLED ACK can be
+        # reconciled against an MT5 heartbeat written after that ACK.
+        positions_before = []
+        raw_positions = bridge_state.get("positions")
+        for item in raw_positions if isinstance(raw_positions, list) else []:
+            if not isinstance(item, dict):
+                continue
+            snapshot = {}
+            for key in ("ticket", "symbol", "type", "magic", "volume", "price_open", "stop_loss", "take_profit"):
+                if key in item:
+                    snapshot[key] = item[key]
+            if snapshot:
+                positions_before.append(snapshot)
+        symbol_spec = bridge_state.get("symbol_spec") if isinstance(bridge_state.get("symbol_spec"), dict) else {}
+        try:
+            envelope["magic_number"] = int(bridge_state.get("magic_number", 0) or 0)
+            envelope["tick_size"] = float(symbol_spec.get("tick_size", 0) or 0)
+            envelope["volume_step"] = float(symbol_spec.get("volume_step", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            envelope["magic_number"] = 0
+            envelope["tick_size"] = 0.0
+            envelope["volume_step"] = 0.0
+        envelope["position_snapshot_before"] = positions_before
 
         now = int(time.time() * 1000)
         envelope.update({"created_at_ms": now, "expires_at_ms": now + 60000})

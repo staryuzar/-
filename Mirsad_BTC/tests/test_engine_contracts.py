@@ -708,7 +708,15 @@ class BridgeProtocolTests(unittest.TestCase):
                     "state": "FILLED",
                 }), encoding="utf-8")
 
-                published = engine.publish_decision(second, {"status": "CONNECTED"})
+                unconfirmed = engine.publish_decision(second, {"status": "CONNECTED"})
+                self.assertEqual(unconfirmed["status"], "PENDING_COMMAND_BLOCKED")
+                published = engine.publish_decision(second, {
+                    "status": "CONNECTED",
+                    "position_reconciliation": {
+                        "status": "CONFIRMED",
+                        "command_id": command["command_id"],
+                    },
+                })
                 self.assertEqual(published["status"], "PUBLISHED")
                 replacement = json.loads(command_path.read_text(encoding="utf-8"))
                 self.assertEqual(replacement["command_id"], second["signal_id"])
@@ -722,6 +730,94 @@ class BridgeProtocolTests(unittest.TestCase):
                 )
             self.assertEqual(result["status"], "PUBLISH_DISABLED")
             self.assertFalse((Path(temp) / "MirsadBTC" / "command.json").exists())
+
+
+
+    def test_filled_open_ack_requires_a_later_matching_position_snapshot(self) -> None:
+        now = int(time.time() * 1000)
+        command = {
+            "command_id": "MIR-" + "a" * 24, "action": "BUY", "symbol": "BTC",
+            "magic_number": 26110201, "volume": 0.2, "volume_step": 0.01,
+            "position_snapshot_before": [],
+        }
+        ack = {
+            "command_id": command["command_id"], "state": "FILLED",
+            "filled_volume": 0.2, "ack_at_ms": now - 100,
+        }
+        stale = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack, command,
+            [{"ticket": 11, "symbol": "BTC", "type": 0, "magic": 26110201, "volume": 0.2}],
+            now - 200,
+        )
+        self.assertEqual(stale["status"], "AWAITING_POST_ACK_TELEMETRY")
+        confirmed = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack, command,
+            [{"ticket": 11, "symbol": "BTC", "type": 0, "magic": 26110201, "volume": 0.2}],
+            now,
+        )
+        self.assertEqual(confirmed["status"], "CONFIRMED")
+        self.assertEqual(confirmed["observed_volume_delta"], 0.2)
+
+    def test_filled_close_ack_is_matched_to_the_target_ticket_volume_reduction(self) -> None:
+        now = int(time.time() * 1000)
+        before = {
+            "ticket": 123456, "symbol": "BTC", "type": 1, "magic": 26110201,
+            "volume": 0.2, "stop_loss": 110.0, "take_profit": 80.0,
+        }
+        command = {
+            "command_id": "MIR-" + "b" * 24, "action": "CLOSE", "symbol": "BTC",
+            "magic_number": 26110201, "position_ticket": 123456, "volume": 0.1,
+            "volume_step": 0.01, "position_snapshot_before": [before],
+        }
+        ack = {
+            "command_id": command["command_id"], "state": "FILLED",
+            "filled_volume": 0.1, "ack_at_ms": now - 50,
+        }
+        result = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack, command,
+            [{**before, "volume": 0.1}],
+            now,
+        )
+        self.assertEqual(result["status"], "CONFIRMED")
+        self.assertEqual(result["observed_reduction"], 0.1)
+
+    def test_filled_modify_ack_requires_the_requested_stop_and_unchanged_target(self) -> None:
+        now = int(time.time() * 1000)
+        before = {
+            "ticket": 123456, "symbol": "BTC", "type": 0, "magic": 26110201,
+            "volume": 0.1, "stop_loss": 90.0, "take_profit": 130.0,
+        }
+        command = {
+            "command_id": "MIR-" + "c" * 24, "action": "MODIFY", "symbol": "BTC",
+            "magic_number": 26110201, "position_ticket": 123456, "volume": 0.1,
+            "stop_loss": 100.0, "take_profit": 130.0, "tick_size": 0.1,
+            "position_snapshot_before": [before],
+        }
+        ack = {
+            "command_id": command["command_id"], "state": "FILLED",
+            "filled_volume": 0.0, "ack_at_ms": now - 50,
+        }
+        not_applied = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack, command, [{**before, "stop_loss": 95.0}], now
+        )
+        self.assertEqual(not_applied["status"], "AWAITING_POSITION_UPDATE")
+        applied = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack, command, [{**before, "stop_loss": 100.0}], now
+        )
+        self.assertEqual(applied["status"], "CONFIRMED")
+
+    def test_partial_and_unknown_ack_states_never_count_as_reconciled(self) -> None:
+        command = {
+            "command_id": "MIR-" + "d" * 24, "action": "BUY", "symbol": "BTC",
+            "magic_number": 26110201, "volume": 0.2, "position_snapshot_before": [],
+        }
+        for state in ("SUBMITTED", "PARTIAL", "UNKNOWN"):
+            with self.subTest(state=state):
+                result = MT5BridgeEngine._reconcile_ack_with_positions(
+                    {"command_id": command["command_id"], "state": state},
+                    command, [], int(time.time() * 1000),
+                )
+                self.assertEqual(result["status"], "ACK_PENDING")
 
     def test_bridge_reads_live_magic_and_position_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
