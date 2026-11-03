@@ -225,16 +225,33 @@ def fetch_dataset_rows(
         )
 
 
-def unpack_image_info(row: dict[str, Any]) -> tuple[str, int | None, int | None]:
+def unpack_image_info(row: dict[str, Any]) -> tuple[str | bytes, int | None, int | None]:
     image = row.get("image")
     if isinstance(image, str):
-        return image, None, None
+        return image, row.get("image_width"), row.get("image_height")
     if not isinstance(image, dict):
-        raise ValueError("row.image is not an image URL object")
-    src = image.get("src") or image.get("url")
+        raise ValueError("row.image is not an image URL or embedded image object")
+
+    # Hub Parquet stores datasets.Image as {bytes, path}; Dataset Viewer rows
+    # expose the same image through src/url. Support both input forms.
+    embedded = image.get("bytes")
+    if isinstance(embedded, (bytes, bytearray, memoryview)):
+        payload = bytes(embedded)
+        if not payload:
+            raise ValueError("row.image contains an empty embedded image")
+        return (
+            payload,
+            image.get("width", row.get("image_width")),
+            image.get("height", row.get("image_height")),
+        )
+    src = image.get("src") or image.get("url") or image.get("path")
     if not src:
-        raise ValueError("row.image has no src URL")
-    return str(src), image.get("width"), image.get("height")
+        raise ValueError("row.image has neither embedded bytes nor a usable source")
+    return (
+        str(src),
+        image.get("width", row.get("image_width")),
+        image.get("height", row.get("image_height")),
+    )
 
 
 def decode_and_analyze(
@@ -267,8 +284,12 @@ def decode_and_analyze(
     )
 
     try:
-        image_url, expected_width, expected_height = unpack_image_info(row)
-        payload = request_bytes(image_url, timeout=40, max_bytes=8 * 1024 * 1024)
+        image_source, expected_width, expected_height = unpack_image_info(row)
+        payload = (
+            image_source
+            if isinstance(image_source, bytes)
+            else request_bytes(image_source, timeout=40, max_bytes=8 * 1024 * 1024)
+        )
         image = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
         if image is None:
             raise ValueError("OpenCV could not decode the downloaded image")
