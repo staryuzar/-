@@ -83,9 +83,22 @@ void InitializeIndicatorHandles(const string symbol)
    if(!InpPublishNativeIndicators)
       return;
    ResetIndicatorHandles();
+   int warmup_bars = (InpHistoryBars > 100 ? InpHistoryBars : 100);
    for(int i = 0; i < MIRSAD_TIMEFRAME_COUNT; i++)
    {
       ENUM_TIMEFRAMES timeframe = g_indicator_timeframes[i];
+
+      // Request each timeframe's history before creating indicator handles.
+      // MT5 may load higher-timeframe history asynchronously; the publisher
+      // reports WARMING_UP until BarsCalculated/CopyBuffer are actually ready.
+      MqlRates warmup_rates[];
+      ArraySetAsSeries(warmup_rates, false);
+      ResetLastError();
+      int warmup_copied = CopyRates(symbol, timeframe, 0, warmup_bars, warmup_rates);
+      if(warmup_copied < 0)
+         PrintFormat("Mirsad Observer: history warm-up pending for %s. Error=%d",
+                     g_indicator_timeframe_names[i], GetLastError());
+
       g_h_ema20[i] = iMA(symbol, timeframe, 20, 0, MODE_EMA, PRICE_CLOSE);
       g_h_ema50[i] = iMA(symbol, timeframe, 50, 0, MODE_EMA, PRICE_CLOSE);
       g_h_rsi14[i] = iRSI(symbol, timeframe, 14, PRICE_CLOSE);
@@ -127,15 +140,23 @@ void ReleaseIndicatorHandles()
 string IndicatorPairJson(const int indicator_handle, const int buffer_index)
 {
    if(indicator_handle == INVALID_HANDLE)
-      return "{\"status\":\"UNAVAILABLE\",\"closed\":null,\"current\":null,\"error_code\":-1}";
+      return "{\"status\":\"UNAVAILABLE\",\"closed\":null,\"current\":null,\"error_code\":-1,\"bars_calculated\":-1}";
+   ResetLastError();
+   int calculated = BarsCalculated(indicator_handle);
+   int calculated_error = GetLastError();
+   if(calculated < 2)
+      return StringFormat(
+         "{\"status\":\"WARMING_UP\",\"closed\":null,\"current\":null,\"bars_calculated\":%d,\"error_code\":%d}",
+         calculated, calculated_error
+      );
    double values[2];
    ResetLastError();
    int copied = CopyBuffer(indicator_handle, buffer_index, 0, 2, values);
    int error_code = GetLastError();
    if(copied != 2)
       return StringFormat(
-         "{\"status\":\"UNAVAILABLE\",\"closed\":null,\"current\":null,\"copied\":%d,\"error_code\":%d}",
-         copied, error_code
+         "{\"status\":\"WARMING_UP\",\"closed\":null,\"current\":null,\"copied\":%d,\"bars_calculated\":%d,\"error_code\":%d}",
+         copied, calculated, error_code
       );
    // CopyBuffer stores the oldest requested element first: values[0] is
    // shift 1 (last closed bar), values[1] is shift 0 (forming bar).
