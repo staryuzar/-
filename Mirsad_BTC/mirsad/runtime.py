@@ -160,6 +160,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  engine_states={
   "engine_1_market":market_status,"engine_2_chart":chart.get("status","NOT_STARTED"),
   "engine_3_indicators":indicators.get("status","NOT_STARTED"),
+  "mt5_native_indicator_feed":native_indicators.get("status","NOT_STARTED"),
   "engine_4_decision":decision.get("status","NOT_STARTED"),
   "engine_5_communication_bridge":bridge.get("status","NOT_STARTED"),
  }
