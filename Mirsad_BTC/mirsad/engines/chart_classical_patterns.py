@@ -73,29 +73,31 @@ def _evaluate_pattern(
     neckline_break = None
 
     # Do not evaluate a formation until every right-hand pivot is confirmed.
+    # Continue scanning after confirmation so a later close beyond the pattern
+    # extreme is not silently reported as an active confirmed structure.
     for index in range(formed_at + 1, len(bars)):
         close = float(bars[index]["close"])
         level = _line_value(neckline_left, neckline_right, index)
         if direction == "BEARISH":
-            if close < level - tolerance:
-                state = "CONFIRMED"
-                confirmation_index = index
-                neckline_break = level
-                break
-            if close > invalidation_level + tolerance:
-                state = "INVALIDATED"
-                invalidation_index = index
-                break
+            confirms = close < level - tolerance
+            invalidates = close > invalidation_level + tolerance
         else:
-            if close > level + tolerance:
+            confirms = close > level + tolerance
+            invalidates = close < invalidation_level - tolerance
+
+        if state == "CANDIDATE":
+            if confirms:
                 state = "CONFIRMED"
                 confirmation_index = index
                 neckline_break = level
-                break
-            if close < invalidation_level - tolerance:
+            elif invalidates:
                 state = "INVALIDATED"
                 invalidation_index = index
                 break
+        elif state == "CONFIRMED" and invalidates:
+            state = "INVALIDATED_AFTER_CONFIRMATION"
+            invalidation_index = index
+            break
 
     return {
         "pattern_id": pattern_id,
@@ -113,6 +115,8 @@ def _evaluate_pattern(
         ),
         "neckline_break_level": round(float(neckline_break), 8) if neckline_break is not None else None,
         "confirmation_index": confirmation_index,
+        "ever_confirmed": confirmation_index is not None,
+        "active_at_sample_end": state == "CONFIRMED",
         "invalidation_level": round(float(invalidation_level), 8),
         "invalidation_index": invalidation_index,
         "tolerance": round(float(tolerance), 8),

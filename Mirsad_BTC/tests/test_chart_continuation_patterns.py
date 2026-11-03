@@ -26,7 +26,7 @@ def detect(
     high_indices: list[int] | None = None,
     low_indices: list[int] | None = None,
     length: int = 46,
-    atr: float = 2.0,
+    range_reference: float = 2.0,
     data: list[dict[str, float]] | None = None,
 ) -> list[dict]:
     high_indices = high_indices or [10, 20, 30]
@@ -34,7 +34,7 @@ def detect(
     bars = data or base_bars(length)
     high_pivots = [pivot(i, p, "high") for i, p in zip(high_indices, highs)]
     low_pivots = [pivot(i, p, "low") for i, p in zip(low_indices, lows)]
-    return detect_classical_continuation_patterns(bars, high_pivots, low_pivots, atr=atr)
+    return detect_classical_continuation_patterns(bars, high_pivots, low_pivots, range_reference=range_reference)
 
 
 class ContinuationPatternTests(unittest.TestCase):
@@ -119,7 +119,7 @@ class ContinuationPatternTests(unittest.TestCase):
         bars = base_bars(40)
         found = detect_classical_continuation_patterns(
             bars, [pivot(10, 120, "high"), pivot(20, 119, "high")],
-            [pivot(15, 90, "low"), pivot(25, 91, "low")], atr=2.0,
+            [pivot(15, 90, "low"), pivot(25, 91, "low")], range_reference=2.0,
         )
         self.assertEqual(found, [])
 

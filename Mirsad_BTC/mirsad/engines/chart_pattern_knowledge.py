@@ -197,9 +197,15 @@ def analyze_candle_patterns(
                 median([float(x["range"]) for x in features[max(0, i - 14):i]]) * 0.15,
                 abs(float(cur["close"])) * 0.0001,
             )
-            if abs(float(cur["low"]) - float(prev["low"])) <= tolerance:
+            if (
+                trend == "DOWN" and previous_bear and bull
+                and abs(float(cur["low"]) - float(prev["low"])) <= tolerance
+            ):
                 add("tweezer_bottom", i - 1, i, "BULLISH", "DOWN")
-            if abs(float(cur["high"]) - float(prev["high"])) <= tolerance:
+            if (
+                trend == "UP" and previous_bull and bear
+                and abs(float(cur["high"]) - float(prev["high"])) <= tolerance
+            ):
                 add("tweezer_top", i - 1, i, "BEARISH", "UP")
 
         if i >= 2:

@@ -4,7 +4,6 @@ on:
   push:
     branches: [mirsad-engine2-native-analysis]
     paths:
-      - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
@@ -60,6 +59,10 @@ jobs:
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_native_indicators.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_structure_knowledge.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pattern_knowledge.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_classical_patterns.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_continuation_patterns.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pattern_evaluation.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_structure_evaluation.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_indicators.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_runtime_observer_flow.py' -v
 
