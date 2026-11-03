@@ -148,10 +148,19 @@ class MT5ChartCandleHistory:
         broker_symbol = str(payload.get("broker_symbol", "")).strip()
         market_symbol = str(payload.get("market_symbol", "")).strip().upper()
         if payload.get("terminal_connected") is not True or not server:
-            return self._blocked("OFFLINE", "Engine 2 candle source terminal/server identity is unavailable.")
+            return self._blocked(
+                "OFFLINE",
+                "Engine 2 candle source terminal/server identity is unavailable.",
+                source_terminal_connected=payload.get("terminal_connected"),
+                source_account_server_present=bool(server),
+                source_broker_symbol_present=bool(broker_symbol),
+                snapshot_captured_at_ms=captured_at_ms,
+            )
         if market_symbol != self.symbol or not broker_symbol:
             return self._blocked("SYMBOL_MISMATCH", "Engine 2 broker symbol is not mapped to the configured market symbol.")
 
+        if not isinstance(account, dict):
+            account = {}
         if isinstance(market, dict) and market.get("status") == "LIVE":
             if str(market.get("symbol", "")).strip().upper() != market_symbol:
                 return self._blocked("MARKET_IDENTITY_MISMATCH", "Engine 1 and Engine 2 market-symbol mappings differ.")
