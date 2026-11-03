@@ -629,15 +629,32 @@ public static class MirsadNativeWindow {
         '--expected-server', $feedServer,
         '--output', $directOutput
     )
-    $validatorLines = & python @validatorArgs 2>&1
-    $validatorExitCode = $LASTEXITCODE
-    foreach ($line in $validatorLines) {
-        Add-Report ("Direct feed validator: {0}" -f [string]$line)
+    # Quote age can cross the strict freshness boundary between two
+    # two-second snapshots. Re-read the continuously published feed instead
+    # of failing on a single transient stale quote.
+    $directSummary = $null
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
+        $validatorLines = & python @validatorArgs 2>&1
+        $validatorExitCode = $LASTEXITCODE
+        foreach ($line in $validatorLines) {
+            Add-Report ("Direct feed validator attempt {0}: {1}" -f $attempt,[string]$line)
+        }
+        if (Test-Path -LiteralPath $directOutput) {
+            $directSummary = Get-Content -LiteralPath $directOutput -Raw | ConvertFrom-Json
+            if ($validatorExitCode -eq 0 -and
+                [string]$directSummary.engine2.status -eq 'READY' -and
+                [string]$directSummary.engine3.status -eq 'READY') { break }
+        }
+        if ($attempt -lt 20) { Start-Sleep -Seconds 2 }
     }
-    if ($validatorExitCode -ne 0 -or !(Test-Path -LiteralPath $directOutput)) {
-        throw 'Image-free direct MT5 feed reader validation failed.'
+    if ($null -eq $directSummary -or $validatorExitCode -ne 0) {
+        throw 'Image-free direct MT5 feed reader validation remained blocked after 20 fresh-snapshot attempts.'
     }
-    $directSummary = Get-Content -LiteralPath $directOutput -Raw | ConvertFrom-Json
+    # Preserve the exact sanitized source snapshots used for validation so
+    # indicator parity can be measured against the same closed-bar timestamps.
+    Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $observerDir) 'market.json') -Destination (Join-Path $evidence 'market-snapshot.json') -Force
+    Copy-Item -LiteralPath (Join-Path $observerDir 'candles.json') -Destination (Join-Path $evidence 'candles-snapshot.json') -Force
+    Copy-Item -LiteralPath (Join-Path $observerDir 'indicators.json') -Destination (Join-Path $evidence 'indicators-snapshot.json') -Force
     if ([string]$directSummary.engine2.status -ne 'READY') {
         throw 'Engine 2 native MT5 market/OHLC feed is not READY.'
     }
