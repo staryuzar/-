@@ -493,6 +493,40 @@ class StorageTests(unittest.TestCase):
 
 
 class BridgeProtocolTests(unittest.TestCase):
+    def test_malformed_heartbeat_is_reported_stale_without_crashing_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "heartbeat_at_ms": "not-a-timestamp",
+                "quote": None,
+                "account": [],
+                "symbol_spec": "invalid",
+                "positions": {},
+            }), encoding="utf-8")
+            bridge = MT5BridgeEngine(common_files=temp).inspect()
+            self.assertEqual(bridge["status"], "STALE")
+            self.assertIsNone(bridge["heartbeat_age_seconds"])
+            self.assertEqual(bridge["quote"], {})
+            self.assertEqual(bridge["account"], {})
+            self.assertEqual(bridge["symbol_spec"], {})
+            self.assertEqual(bridge["positions"], [])
+
+    def test_future_heartbeat_is_not_treated_as_connected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "heartbeat_at_ms": int(time.time() * 1000) + 60_000,
+            }), encoding="utf-8")
+            bridge = MT5BridgeEngine(common_files=temp).inspect()
+            self.assertEqual(bridge["status"], "STALE")
+            self.assertLess(bridge["heartbeat_age_seconds"], 0)
+
     def test_open_and_close_envelopes_validate(self) -> None:
         open_envelope = MT5BridgeEngine._validate_decision(make_open_decision())
         close_envelope = MT5BridgeEngine._validate_decision(make_close_decision())
