@@ -2,7 +2,7 @@ name: Mirsad BTC - Held-out Candlestick Pattern Image Benchmark
 
 on:
   push:
-    branches: [mirsad-mt5-demo]
+    branches: [mirsad-mt5-demo, mirsad-engine2-native-analysis]
     paths:
       - 'Mirsad_BTC/mirsad/engines/chart*.py'
       - 'Mirsad_BTC/dashboard.py'
@@ -58,7 +58,7 @@ jobs:
         run: |
           python Mirsad_BTC/scripts/candlestick_pattern_benchmark.py \
             --batch-size "${{ github.event.inputs.batch_size || '25' }}" \
-            --max-images "${{ github.event.inputs.max_images || '0' }}" \
+            --max-images "${{ github.event.inputs.max_images || '20' }}" \
             --workers 4 \
             --output mirsad-candlestick-pattern-benchmark.json
 
