@@ -217,13 +217,46 @@ class DecisionEngine:
                     "engine_3_indicator_status": indicator_data.get("status", "NOT_READY"),
                     "reason": indicator_data.get("reason") or "Engine 3 indicators are not ready."}
 
-        last_closed_candle_time_ms = indicator_data.get("last_closed_candle_time_ms")
-        fast = indicator_values["ema20_1m"]
-        slow = indicator_values["ema50_1m"]
-        rsi = indicator_values["rsi14_1m"]
-        atr1 = indicator_values["atr14_1m"]
-        atr5 = indicator_values["atr14_5m"]
-        trend_score = float(indicator_data["trend_score"])
+        # Engine 4 accepts only the explicit Engine 3 contract produced from
+        # Engine 2's validated closed-candle history. A READY label alone is
+        # insufficient: reject missing provenance, timestamps, or bad values.
+        if (
+            indicator_data.get("engine") != "engine_3_indicators"
+            or indicator_data.get("source") != "engine_2_chart_candles"
+        ):
+            return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
+                    "timeframes": timeframe_data, "indicators": indicator_values,
+                    "engine_3_indicator_status": "INVALID_PROVENANCE",
+                    "reason": "Engine 3 provenance must identify indicators calculated from Engine 2 candle history."}
+
+        required_indicator_values = ("ema20_1m", "ema50_1m", "rsi14_1m", "atr14_1m", "atr14_5m")
+        try:
+            normalized_values = {name: float(indicator_values[name]) for name in required_indicator_values}
+            trend_score = float(indicator_data["trend_score"])
+            last_closed_candle_time_ms = int(indicator_data["last_closed_candle_time_ms"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            normalized_values = {}
+            trend_score = float("nan")
+            last_closed_candle_time_ms = 0
+        if (
+            len(normalized_values) != len(required_indicator_values)
+            or any(not math.isfinite(value) for value in normalized_values.values())
+            or not math.isfinite(trend_score) or not -1.0 <= trend_score <= 1.0
+            or last_closed_candle_time_ms <= 0
+            or not 0.0 <= normalized_values.get("rsi14_1m", -1.0) <= 100.0
+            or normalized_values.get("atr14_1m", 0.0) <= 0.0
+            or normalized_values.get("atr14_5m", 0.0) <= 0.0
+        ):
+            return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
+                    "timeframes": timeframe_data, "indicators": indicator_values,
+                    "engine_3_indicator_status": "INVALID_INDICATOR_PAYLOAD",
+                    "reason": "Engine 3 required values, normalized trend score, or last closed-candle timestamp are missing or invalid."}
+
+        fast = normalized_values["ema20_1m"]
+        slow = normalized_values["ema50_1m"]
+        rsi = normalized_values["rsi14_1m"]
+        atr1 = normalized_values["atr14_1m"]
+        atr5 = normalized_values["atr14_5m"]
         market_context = market.get("market_context") if isinstance(market.get("market_context"), dict) else {}
         microstructure = market_context.get("microstructure") if isinstance(market_context.get("microstructure"), dict) else {}
         orderflow = {"status": "NOT_PROVIDED", "reason": "Engine 1 quote updates are not treated as executed trade flow or taker volume."}
