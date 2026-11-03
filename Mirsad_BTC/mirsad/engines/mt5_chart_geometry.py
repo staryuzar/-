@@ -247,6 +247,7 @@ def assign_native_geometry_slots(
     native_slot_centers: Any,
     *,
     source: str = "MT5_NATIVE_GEOMETRY_PROVISIONAL_X",
+    clear_existing_slot_ids_on_failure: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Assign exact MT5 slot IDs to detected image bars using provisional native X anchors.
 
@@ -257,13 +258,26 @@ def assign_native_geometry_slots(
     original = [dict(item) for item in extracted_bars if isinstance(item, dict)]
 
     def fail(status: str, reason: str, **extra: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        return original, {
+        cleared_unverified_slot_count = 0
+        if clear_existing_slot_ids_on_failure:
+            # A failed native-X match must not leave earlier regular-grid IDs
+            # looking authoritative to downstream reference-candle matching.
+            for item in original:
+                if "slot_index" in item:
+                    cleared_unverified_slot_count += 1
+                item.pop("slot_index", None)
+                item.pop("slot_assignment_source", None)
+                item.pop("native_geometry_x_residual_px", None)
+        diagnostics = {
             "status": status,
             "mapping_verified": False,
             "decision_eligible": False,
             "reason": reason,
             **extra,
         }
+        if clear_existing_slot_ids_on_failure:
+            diagnostics["cleared_unverified_slot_count"] = cleared_unverified_slot_count
+        return original, diagnostics
 
     if not isinstance(native_slot_centers, list):
         return fail("NATIVE_SLOTS_NOT_PROVIDED", "No native MT5 slot centers were supplied.")

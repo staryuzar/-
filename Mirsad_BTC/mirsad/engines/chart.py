@@ -424,7 +424,9 @@ def analyze_chart_image(
         native_slot_centers = meta.get("native_geometry_slot_centers")
         if isinstance(native_slot_centers, list) and native_slot_centers:
             bars, native_geometry_slot_assignment = assign_native_geometry_slots(
-                bars, native_slot_centers
+                bars,
+                native_slot_centers,
+                clear_existing_slot_ids_on_failure=True,
             )
         elif meta.get("infer_regular_chart_slots") is True:
             try:

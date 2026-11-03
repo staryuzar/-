@@ -344,6 +344,32 @@ class NativeGeometrySlotAssignmentTests(unittest.TestCase):
         self.assertNotIn("slot_index", assigned[-1])
         self.assertEqual(len({item["slot_index"] for item in assigned[:9]}), 9)
 
+    def test_failed_native_assignment_clears_unverified_legacy_slot_ids(self) -> None:
+        native_slots = [
+            {"slot_index": index, "x_px": 20.0 + index * 12.0}
+            for index in range(7)
+        ]
+        extracted = [
+            {
+                "x_px": 20.0 + index * 12.0,
+                "slot_index": index,
+                "slot_assignment_source": "UNVERIFIED_REGULAR_GRID",
+                "native_geometry_x_residual_px": 0.0,
+            }
+            for index in range(10)
+        ]
+        assigned, diagnostics = assign_native_geometry_slots(
+            extracted,
+            native_slots,
+            clear_existing_slot_ids_on_failure=True,
+        )
+        self.assertEqual(diagnostics["status"], "INSUFFICIENT_NATIVE_SLOTS")
+        self.assertEqual(diagnostics["cleared_unverified_slot_count"], 10)
+        for item in assigned:
+            self.assertNotIn("slot_index", item)
+            self.assertNotIn("slot_assignment_source", item)
+            self.assertNotIn("native_geometry_x_residual_px", item)
+
     def test_native_slot_assignment_refuses_unverified_horizontal_offset(self) -> None:
         native_slots = [
             {"slot_index": index, "x_px": 30.0 + index * 12.0}
