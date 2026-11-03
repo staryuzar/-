@@ -43,8 +43,8 @@ def recent_reference_candle_candidates(
     """
     if not isinstance(raw_bars, list) or not raw_bars:
         return []
-    candidate_limit = max(1, min(16, int(max_candidates)))
-    lookback_limit = max(1, min(64, int(max_lookback)))
+    candidate_limit = max(1, min(256, int(max_candidates)))
+    lookback_limit = max(1, min(512, int(max_lookback)))
     candidates: list[dict[str, Any]] = []
     for offset, raw in enumerate(reversed(raw_bars[:])):
         if offset >= lookback_limit:
