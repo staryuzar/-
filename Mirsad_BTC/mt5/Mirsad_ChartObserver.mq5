@@ -4,7 +4,7 @@
 //| No trade functions. Does not publish MIR1 commands.               |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.002"
+#property version   "1.003"
 #property description "Mirsad read-only MT5 chart screenshot and OHLC observer"
 
 #define MIRSAD_OBSERVER_MIN_SOURCE_WIDTH 640
@@ -14,7 +14,7 @@ input bool InpEnableImageCapture = true; // Disable image capture while keeping 
 input int  InpCaptureIntervalSeconds = 60;   // Screenshot cadence (5..3600 seconds)
 input int  InpMarketSnapshotIntervalSeconds = 2; // MT5 market-feed cadence (1..30 seconds)
 input string InpMarketSymbol = "BTCUSDT"; // Stable Mirsad symbol mapped to this broker symbol
-input int  InpHistoryBars             = 120;  // Requested bars including the forming bar; set as needed
+input int  InpHistoryBars             = 1000; // Deep history for stable EMA/ADX/MACD parity; includes forming bar
 input int  InpScreenshotWidth         = 1600; // PNG output width
 input int  InpScreenshotHeight        = 900;  // PNG output height
 input bool InpCaptureImmediately      = true; // Capture after the initial terminal window has stabilized
@@ -106,7 +106,7 @@ void InitializeIndicatorHandles(const string symbol)
       g_h_macd[i] = iMACD(symbol, timeframe, 12, 26, 9, PRICE_CLOSE);
       g_h_bands[i] = iBands(symbol, timeframe, 20, 0, 2.0, PRICE_CLOSE);
       g_h_stochastic[i] = iStochastic(symbol, timeframe, 5, 3, 3, MODE_SMA, STO_LOWHIGH);
-      g_h_adx[i] = iADX(symbol, timeframe, 14);
+      g_h_adx[i] = iADXWilder(symbol, timeframe, 14);
       g_h_cci20[i] = iCCI(symbol, timeframe, 20, PRICE_TYPICAL);
       g_h_mfi14[i] = iMFI(symbol, timeframe, 14, VOLUME_TICK);
       g_h_momentum14[i] = iMomentum(symbol, timeframe, 14, PRICE_CLOSE);
