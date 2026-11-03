@@ -2,7 +2,7 @@ name: Mirsad BTC — MT5 direct feed (images disabled)
 
 on:
   push:
-    branches: [mirsad-mt5-demo, mirsad-engine2-native-analysis]
+    branches: [main, mirsad-mt5-demo, mirsad-engine2-native-analysis]
     paths:
       - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
       - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
