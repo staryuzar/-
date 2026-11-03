@@ -8,6 +8,32 @@ GEOMETRY_SCHEMA = "MIR-MT5-CHART-GEOMETRY-1"
 _POINT_FIELDS = ("open", "high", "low", "close")
 
 
+def native_geometry_visible_y_max(native_geometry: Any) -> float | None:
+    """Return the greatest provisional image Y among valid visible native OHLC points."""
+    if not isinstance(native_geometry, dict):
+        return None
+    bars = native_geometry.get("bars")
+    if not isinstance(bars, list):
+        return None
+    values: list[float] = []
+    for bar in bars:
+        if not isinstance(bar, dict) or bar.get("valid") is not True or bar.get("visible") is not True:
+            continue
+        points = bar.get("points_image_px_provisional")
+        if not isinstance(points, dict):
+            continue
+        for point in points.values():
+            if not isinstance(point, dict):
+                continue
+            try:
+                y = float(point["y"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+            if math.isfinite(y):
+                values.append(y)
+    return max(values) if values else None
+
+
 def validate_mt5_chart_geometry(
     raw_geometry: Any,
     *,
