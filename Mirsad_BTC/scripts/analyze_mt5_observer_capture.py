@@ -232,6 +232,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "reference_candidates_considered": len(candidates_for_chart),
             "reference_calibration_reason": reference_reason,
             "reference_calibration_diagnostics": reference_diagnostics,
+            "reference_slot_diagnostics": result.get("reference_slot_diagnostics", {}),
             "multi_reference_validation": {
                 key: reference.get(key) for key in (
                     "matched_candles", "fit_candles", "validation_candles",
