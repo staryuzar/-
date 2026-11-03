@@ -137,8 +137,10 @@ class MT5NativeTrendAnalysisTests(unittest.TestCase):
 
     def test_stale_timeframe_is_excluded_from_consensus(self) -> None:
         history = make_history()
-        history["candles_by_tf"]["1h"][-2]["open_time_ms"] -= 10 * DURATIONS["1h"]
-        # Preserve strict chronological ordering while creating a large data gap.
+        history["candles_by_tf"]["1h"] = [
+            {**bar, "open_time_ms": bar["open_time_ms"] - 10 * DURATIONS["1h"]}
+            for bar in history["candles_by_tf"]["1h"]
+        ]
         result = analyze_mt5_native_trend(history)
         self.assertEqual(result["status"], "PARTIAL")
         self.assertNotIn("1h", result["summary"]["eligible_timeframes"])
