@@ -514,7 +514,7 @@ string BuildTickHistoryJson(const string symbol,
 {
    long server_now_ms = (long)TimeTradeServer() * 1000;
    ulong to_msc = (ulong)server_now_ms;
-   ulong from_msc = (ulong)MathMax(0, server_now_ms - 30000);
+   ulong from_msc = (ulong)MathMax(0, server_now_ms - 120000);
    MqlTick ticks[];
    ResetLastError();
    int copied = CopyTicksRange(symbol, ticks, COPY_TICKS_ALL, from_msc, to_msc);
@@ -527,7 +527,7 @@ string BuildTickHistoryJson(const string symbol,
    }
 
    int start_index = MathMax(0, copied - 256);
-   string output = "\"tick_window_seconds\":30,";
+   string output = "\"tick_window_seconds\":120,";
    output += StringFormat("\"tick_copy_count\":%d,\"tick_error_code\":%d,\"ticks\":[", copied, error_code);
    int emitted = 0;
    for(int i = start_index; i < copied; i++)
