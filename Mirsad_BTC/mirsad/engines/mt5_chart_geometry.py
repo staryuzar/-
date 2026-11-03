@@ -34,6 +34,269 @@ def native_geometry_visible_y_max(native_geometry: Any) -> float | None:
     return max(values) if values else None
 
 
+def native_geometry_slot_centers(
+    native_geometry: Any,
+    *,
+    native_bar_count: int,
+    visible_bars: int,
+    first_visible_bar_shift: int,
+) -> dict[str, Any]:
+    """Build provisional image-X anchors for exact MT5 visible-bar slots.
+
+    The source X coordinates come from ChartTimePriceToXY and are scaled only
+    by the declared screenshot/source width ratio. They are matching hints, not
+    a verified overlay or permission to make a trading decision.
+    """
+    def fail(status: str, reason: str) -> dict[str, Any]:
+        return {
+            "status": status,
+            "decision_eligible": False,
+            "mapping_verified": False,
+            "reason": reason,
+            "slots": [],
+        }
+
+    if not isinstance(native_geometry, dict) or native_geometry.get("status") not in {
+        "READY_FOR_PIXEL_ALIGNMENT", "PARTIAL"
+    }:
+        return fail("GEOMETRY_NOT_READY", "Native geometry is not available for provisional slot matching.")
+    if native_bar_count < 8 or visible_bars < 8 or first_visible_bar_shift < 0:
+        return fail("INVALID_VIEWPORT", "Native bar count, visible bar count or first-visible shift is invalid.")
+    items = native_geometry.get("bars")
+    if not isinstance(items, list) or len(items) != native_bar_count:
+        return fail("GEOMETRY_BAR_COUNT_MISMATCH", "Native geometry does not cover the complete OHLC array.")
+
+    rightmost_visible_offset = max(0, first_visible_bar_shift - visible_bars + 1)
+    slots: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for index, item in enumerate(items):
+        if not isinstance(item, dict) or item.get("valid") is not True or item.get("visible") is not True:
+            continue
+        offset = native_bar_count - 1 - index
+        relative_offset = offset - rightmost_visible_offset
+        if not 0 <= relative_offset < visible_bars:
+            continue
+        slot_index = visible_bars - 1 - relative_offset
+        try:
+            x_px = float(item["x_image_px_provisional"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(x_px) or slot_index in seen:
+            continue
+        seen.add(slot_index)
+        slots.append({"slot_index": slot_index, "x_px": x_px})
+
+    slots.sort(key=lambda item: item["x_px"])
+    if len(slots) < 8:
+        return {
+            **fail("INSUFFICIENT_NATIVE_SLOTS", "At least eight visible native X anchors are required."),
+            "native_slot_count": len(slots),
+        }
+    return {
+        "status": "READY_PROVISIONAL",
+        "decision_eligible": False,
+        "mapping_verified": False,
+        "method": "MT5_CHART_TIME_PRICE_TO_XY_WITH_DECLARED_WIDTH_RATIO",
+        "native_slot_count": len(slots),
+        "slots": slots,
+        "reason": "Native X anchors are available for provisional one-to-one candle matching; independent overlay validation remains mandatory.",
+    }
+
+
+def assign_native_geometry_slots(
+    extracted_bars: list[dict[str, Any]],
+    native_slot_centers: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Assign exact MT5 slot IDs to detected image bars using provisional native X anchors.
+
+    A monotonic one-to-one dynamic-programming match tolerates missing extracted
+    candles without ordinal guessing. Assignment is diagnostic only: the later
+    OHLC fit and independent image-overlay hold-out must still pass.
+    """
+    original = [dict(item) for item in extracted_bars if isinstance(item, dict)]
+
+    def fail(status: str, reason: str, **extra: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        return original, {
+            "status": status,
+            "mapping_verified": False,
+            "decision_eligible": False,
+            "reason": reason,
+            **extra,
+        }
+
+    if not isinstance(native_slot_centers, list):
+        return fail("NATIVE_SLOTS_NOT_PROVIDED", "No native MT5 slot centers were supplied.")
+    native_slots: list[dict[str, float | int]] = []
+    seen_slots: set[int] = set()
+    for item in native_slot_centers:
+        if not isinstance(item, dict):
+            continue
+        try:
+            slot = int(item["slot_index"])
+            x_px = float(item["x_px"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if slot < 0 or not math.isfinite(x_px) or slot in seen_slots:
+            continue
+        seen_slots.add(slot)
+        native_slots.append({"slot_index": slot, "x_px": x_px})
+    native_slots.sort(key=lambda item: float(item["x_px"]))
+    if len(native_slots) < 8:
+        return fail("INSUFFICIENT_NATIVE_SLOTS", "At least eight unique native slot centers are required.")
+
+    extracted_rows: list[dict[str, Any]] = []
+    for original_index, item in enumerate(extracted_bars):
+        if not isinstance(item, dict):
+            continue
+        try:
+            x_px = float(item["x_px"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if math.isfinite(x_px):
+            extracted_rows.append({"original_index": original_index, "x_px": x_px})
+    extracted_rows.sort(key=lambda item: float(item["x_px"]))
+    if len(extracted_rows) < 8:
+        return fail("INSUFFICIENT_EXTRACTED_BARS", "At least eight image candles with finite X coordinates are required.")
+
+    spacings = [
+        float(native_slots[index]["x_px"]) - float(native_slots[index - 1]["x_px"])
+        for index in range(1, len(native_slots))
+        if float(native_slots[index]["x_px"]) > float(native_slots[index - 1]["x_px"])
+    ]
+    if len(spacings) < 2:
+        return fail("NATIVE_X_SPACING_INVALID", "Native candle X anchors do not provide stable spacing.")
+    spacing = float(median(spacings))
+    tolerance = max(2.5, min(10.0, spacing * 0.30))
+
+    n, m = len(native_slots), len(extracted_rows)
+    match_count = [[0] * (m + 1) for _ in range(n + 1)]
+    residual_sum = [[0.0] * (m + 1) for _ in range(n + 1)]
+    action = [[""] * (m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        action[i][0] = "skip_native"
+    for j in range(1, m + 1):
+        action[0][j] = "skip_extracted"
+
+    def better(candidate: tuple[int, float], current: tuple[int, float]) -> bool:
+        return (
+            candidate[0] > current[0]
+            or (candidate[0] == current[0] and candidate[1] < current[1] - 1e-9)
+        )
+
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            best = (match_count[i - 1][j], residual_sum[i - 1][j])
+            best_action = "skip_native"
+            skip_extracted = (match_count[i][j - 1], residual_sum[i][j - 1])
+            if better(skip_extracted, best):
+                best, best_action = skip_extracted, "skip_extracted"
+            residual = abs(
+                float(native_slots[i - 1]["x_px"]) - float(extracted_rows[j - 1]["x_px"])
+            )
+            if residual <= tolerance:
+                matched = (
+                    match_count[i - 1][j - 1] + 1,
+                    residual_sum[i - 1][j - 1] + residual,
+                )
+                if better(matched, best):
+                    best, best_action = matched, "match"
+            match_count[i][j], residual_sum[i][j] = best
+            action[i][j] = best_action
+
+    pairs: list[tuple[int, int]] = []
+    i, j = n, m
+    while i > 0 or j > 0:
+        step = action[i][j] if i >= 0 and j >= 0 else ""
+        if step == "match":
+            pairs.append((i - 1, j - 1))
+            i -= 1
+            j -= 1
+        elif step == "skip_native" and i > 0:
+            i -= 1
+        elif step == "skip_extracted" and j > 0:
+            j -= 1
+        elif i > 0:
+            i -= 1
+        elif j > 0:
+            j -= 1
+        else:
+            break
+    pairs.reverse()
+
+    if len(pairs) < 8:
+        return fail(
+            "INSUFFICIENT_X_MATCHES",
+            "Fewer than eight extracted candles align with distinct native MT5 X anchors.",
+            matched_candles=len(pairs),
+            native_slot_count=n,
+            extracted_bar_count=m,
+            tolerance_px=round(tolerance, 3),
+        )
+
+    matched_native_x = [float(native_slots[a]["x_px"]) for a, _ in pairs]
+    native_span = max(float(item["x_px"]) for item in native_slots) - min(
+        float(item["x_px"]) for item in native_slots
+    )
+    coverage = (
+        (max(matched_native_x) - min(matched_native_x)) / native_span
+        if native_span > 0 else 0.0
+    )
+    if coverage < 0.25:
+        return fail(
+            "X_MATCH_COVERAGE_LOW",
+            "Native/image X matches do not span at least 25% of the visible native candle range.",
+            matched_candles=len(pairs),
+            x_coverage_ratio=round(coverage, 4),
+            tolerance_px=round(tolerance, 3),
+        )
+
+    assigned = [dict(item) if isinstance(item, dict) else item for item in extracted_bars]
+    residuals: list[float] = []
+    conflicts = 0
+    sample: list[dict[str, Any]] = []
+    for native_index, extracted_index in pairs:
+        native = native_slots[native_index]
+        extracted = extracted_rows[extracted_index]
+        target = assigned[int(extracted["original_index"])]
+        slot = int(native["slot_index"])
+        previous = target.get("slot_index")
+        if previous is not None:
+            try:
+                if int(previous) != slot:
+                    conflicts += 1
+            except (TypeError, ValueError, OverflowError):
+                conflicts += 1
+        residual = abs(float(native["x_px"]) - float(extracted["x_px"]))
+        target["slot_index"] = slot
+        target["native_geometry_x_residual_px"] = round(residual, 3)
+        target["slot_assignment_source"] = "MT5_NATIVE_GEOMETRY_PROVISIONAL_X"
+        residuals.append(residual)
+        if len(sample) < 8:
+            sample.append({
+                "slot_index": slot,
+                "native_x_px": round(float(native["x_px"]), 3),
+                "image_x_px": round(float(extracted["x_px"]), 3),
+                "residual_px": round(residual, 3),
+            })
+
+    return assigned, {
+        "status": "PROVISIONAL_ASSIGNMENT",
+        "mapping_verified": False,
+        "decision_eligible": False,
+        "method": "monotonic_one_to_one_native_x_match",
+        "matched_candles": len(pairs),
+        "native_slot_count": n,
+        "extracted_bar_count": m,
+        "x_coverage_ratio": round(coverage, 4),
+        "tolerance_px": round(tolerance, 3),
+        "median_residual_px": round(float(median(residuals)), 3),
+        "maximum_residual_px": round(max(residuals), 3),
+        "preexisting_slot_conflicts": conflicts,
+        "sample_matches": sample,
+        "reason": "Slot IDs are provisional X matches only; exact OHLC fit and independent overlay hold-out remain required.",
+    }
+
+
 def validate_mt5_chart_geometry(
     raw_geometry: Any,
     *,
