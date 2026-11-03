@@ -322,6 +322,7 @@ def assign_native_geometry_slots(
         return fail("NATIVE_X_SPACING_INVALID", "Native candle X anchors do not provide stable spacing.")
     spacing = float(median(spacings))
     tolerance = max(2.5, min(10.0, spacing * 0.30))
+    n, m = len(native_slots), len(extracted_rows)
 
     def match_slots(
         candidate_slots: list[dict[str, Any]], match_tolerance: float
