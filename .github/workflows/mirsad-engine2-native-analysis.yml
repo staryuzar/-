@@ -87,6 +87,10 @@ jobs:
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_indicators.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine3_mt5_indicator_parity.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_runtime_observer_flow.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_observer.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_hf_btc_chart_image_benchmark.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_crypto_dataset_chart_benchmark.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_public_chart_image_benchmark.py' -v
 
       - name: Upload safe test summary
         if: always()
