@@ -103,9 +103,150 @@ def native_geometry_slot_centers(
     }
 
 
+def infer_regular_chart_slot_centers(
+    extracted_bars: list[dict[str, Any]],
+    *,
+    expected_candle_count: int,
+    image_width: int,
+    reference_last_candle_x_ratio: float,
+    anchor_tolerance_ratio: float = 0.025,
+    minimum_gap_integrity: float = 0.80,
+    maximum_gap_multiple: int = 4,
+) -> dict[str, Any]:
+    """Infer a dataset-scoped regular candle grid from a verified right-edge anchor.
+
+    This fallback is opt-in and intended for benchmark datasets with a known,
+    stable right-shift margin. It must never be enabled for live MT5 captures:
+    live charts should use native ChartTimePriceToXY slot anchors instead.
+    """
+    def fail(status: str, reason: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "status": status,
+            "decision_eligible": False,
+            "mapping_verified": False,
+            "reason": reason,
+            "slots": [],
+            **extra,
+        }
+
+    if expected_candle_count < 8 or image_width < 64:
+        return fail("INVALID_GRID_DIMENSIONS", "Expected candle count or image width is too small.")
+    if (
+        not math.isfinite(reference_last_candle_x_ratio)
+        or not 0.0 < reference_last_candle_x_ratio < 1.0
+        or not math.isfinite(anchor_tolerance_ratio)
+        or anchor_tolerance_ratio <= 0.0
+        or not 0.0 < minimum_gap_integrity <= 1.0
+        or maximum_gap_multiple < 1
+    ):
+        return fail("INVALID_GRID_CONFIGURATION", "Right-edge anchor or grid-quality thresholds are invalid.")
+
+    rows: list[dict[str, float]] = []
+    for item in extracted_bars:
+        if not isinstance(item, dict):
+            continue
+        try:
+            x_px = float(item["x_px"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if math.isfinite(x_px):
+            rows.append({"x_px": x_px})
+    rows.sort(key=lambda item: item["x_px"])
+    minimum_rows = max(8, int(math.ceil(expected_candle_count * 0.65)))
+    if len(rows) < minimum_rows or len(rows) > int(math.ceil(expected_candle_count * 1.25)):
+        return fail(
+            "EXTRACTED_COUNT_OUTSIDE_GRID_RANGE",
+            "Detected candle count is outside the safe range for regular-grid inference.",
+            extracted_bar_count=len(rows),
+            minimum_required=minimum_rows,
+            expected_candle_count=expected_candle_count,
+        )
+
+    rightmost_x = float(rows[-1]["x_px"])
+    observed_ratio = rightmost_x / float(image_width)
+    anchor_delta = abs(observed_ratio - reference_last_candle_x_ratio)
+    if anchor_delta > anchor_tolerance_ratio:
+        return fail(
+            "RIGHTMOST_ANCHOR_MISMATCH",
+            "The rightmost detected candle does not match the dataset's declared last-candle X anchor.",
+            observed_rightmost_x_ratio=round(observed_ratio, 5),
+            expected_rightmost_x_ratio=round(reference_last_candle_x_ratio, 5),
+            anchor_delta_ratio=round(anchor_delta, 5),
+            anchor_tolerance_ratio=round(anchor_tolerance_ratio, 5),
+        )
+
+    gaps = [
+        float(rows[index]["x_px"]) - float(rows[index - 1]["x_px"])
+        for index in range(1, len(rows))
+    ]
+    if not gaps or any(gap <= 0.0 for gap in gaps):
+        return fail("NON_MONOTONIC_EXTRACTED_X", "Extracted candle X positions are not strictly increasing.")
+    spacing = float(median(gaps))
+    if not math.isfinite(spacing) or spacing < 2.5:
+        return fail("GRID_SPACING_INVALID", "Median candle spacing is too small or non-finite.")
+
+    gap_tolerance = max(1.5, spacing * 0.22)
+    valid_gaps = 0
+    gap_multiples: list[int] = []
+    for gap in gaps:
+        multiple = int(round(gap / spacing))
+        if (
+            1 <= multiple <= maximum_gap_multiple
+            and abs(gap - multiple * spacing) <= gap_tolerance
+        ):
+            valid_gaps += 1
+            gap_multiples.append(multiple)
+    integrity = valid_gaps / len(gaps)
+    if integrity < minimum_gap_integrity:
+        return fail(
+            "GRID_GAP_INTEGRITY_LOW",
+            "Detected candle gaps do not follow a sufficiently consistent regular grid.",
+            median_spacing_px=round(spacing, 3),
+            gap_integrity_ratio=round(integrity, 4),
+            valid_gap_count=valid_gaps,
+            total_gap_count=len(gaps),
+        )
+
+    first_x = rightmost_x - spacing * (expected_candle_count - 1)
+    if first_x < -gap_tolerance or first_x > image_width * 0.20:
+        return fail(
+            "GRID_LEFT_EDGE_INCONSISTENT",
+            "The inferred first candle falls outside the expected chart-image left margin.",
+            inferred_first_x_px=round(first_x, 3),
+            image_width_px=image_width,
+            median_spacing_px=round(spacing, 3),
+        )
+
+    slots = [
+        {"slot_index": index, "x_px": first_x + index * spacing}
+        for index in range(expected_candle_count)
+    ]
+    return {
+        "status": "READY_PROVISIONAL",
+        "decision_eligible": False,
+        "mapping_verified": False,
+        "method": "DATASET_DECLARED_RIGHTMOST_X_ANCHOR_AND_MEDIAN_GAP",
+        "expected_candle_count": expected_candle_count,
+        "extracted_bar_count": len(rows),
+        "expected_rightmost_x_ratio": round(reference_last_candle_x_ratio, 5),
+        "observed_rightmost_x_ratio": round(observed_ratio, 5),
+        "anchor_delta_ratio": round(anchor_delta, 5),
+        "anchor_tolerance_ratio": round(anchor_tolerance_ratio, 5),
+        "median_spacing_px": round(spacing, 3),
+        "gap_integrity_ratio": round(integrity, 4),
+        "valid_gap_count": valid_gaps,
+        "total_gap_count": len(gaps),
+        "gap_multiples_sample": gap_multiples[:20],
+        "slots": slots,
+        "reason": "Dataset-specific regular-grid anchors are provisional; candle OHLC fit and all independent quality gates remain mandatory.",
+    }
+
+
 def assign_native_geometry_slots(
     extracted_bars: list[dict[str, Any]],
     native_slot_centers: Any,
+    *,
+    source: str = "MT5_NATIVE_GEOMETRY_PROVISIONAL_X",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Assign exact MT5 slot IDs to detected image bars using provisional native X anchors.
 
@@ -269,7 +410,7 @@ def assign_native_geometry_slots(
         residual = abs(float(native["x_px"]) - float(extracted["x_px"]))
         target["slot_index"] = slot
         target["native_geometry_x_residual_px"] = round(residual, 3)
-        target["slot_assignment_source"] = "MT5_NATIVE_GEOMETRY_PROVISIONAL_X"
+        target["slot_assignment_source"] = source
         residuals.append(residual)
         if len(sample) < 8:
             sample.append({
@@ -283,7 +424,7 @@ def assign_native_geometry_slots(
         "status": "PROVISIONAL_ASSIGNMENT",
         "mapping_verified": False,
         "decision_eligible": False,
-        "method": "monotonic_one_to_one_native_x_match",
+        "method": "monotonic_one_to_one_x_match",
         "matched_candles": len(pairs),
         "native_slot_count": n,
         "extracted_bar_count": m,
@@ -891,4 +1032,4 @@ def analyze_native_mt5_ohlc(
     }
 
 
-__all__ = ["analyze_native_mt5_ohlc", "native_geometry_slot_centers", "assign_native_geometry_slots", "validate_mt5_chart_geometry", "validate_mt5_geometry_overlay"]
+__all__ = ["analyze_native_mt5_ohlc", "native_geometry_slot_centers", "infer_regular_chart_slot_centers", "assign_native_geometry_slots", "validate_mt5_chart_geometry", "validate_mt5_geometry_overlay"]
