@@ -195,8 +195,8 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             indicators_engine.analyze.assert_called_once_with(candle_history)
             self.assertEqual(report["engine_2_candles"]["status"], "READY")
             self.assertTrue(report["readiness"]["engine_2_candles"])
-            self.assertEqual(report["engine_2_multi_timeframe_structure"]["source"], "MT5_CHART_OBSERVER")
-            self.assertEqual(report["chart"]["engine_2_multi_timeframe_structure"]["source"], "MT5_CHART_OBSERVER")
+            self.assertEqual(report["engine_2_multi_timeframe_structure"]["source"], "NATIVE_MT5_OHLC")
+            self.assertEqual(report["chart"]["engine_2_multi_timeframe_structure"]["source"], "NATIVE_MT5_OHLC")
             bridge_engine.publish_decision.assert_not_called()
 
 
