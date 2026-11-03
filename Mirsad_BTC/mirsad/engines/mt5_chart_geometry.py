@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from statistics import median
 from typing import Any
 
 GEOMETRY_SCHEMA = "MIR-MT5-CHART-GEOMETRY-1"
