@@ -60,6 +60,7 @@ def make_snapshots() -> tuple[dict, dict]:
         "broker_symbol": "BTC",
         "market_symbol": "BTCUSDT",
         "account": {"server": "Headway-Demo"},
+        "time_basis": "UTC_NORMALIZED_FROM_MT5_SERVER_TIME",
         "timeframes": candle_frames,
     }
     native = {
@@ -67,6 +68,7 @@ def make_snapshots() -> tuple[dict, dict]:
         "broker_symbol": "BTC",
         "market_symbol": "BTCUSDT",
         "account": {"server": "Headway-Demo"},
+        "time_basis": "UTC_NORMALIZED_FROM_MT5_SERVER_TIME",
         "timeframes": native_frames,
     }
     return candles, native
@@ -76,7 +78,7 @@ class Engine3MT5ParityTests(unittest.TestCase):
     def test_same_closed_bars_pass_all_twenty_metrics_on_six_timeframes(self) -> None:
         candles, native = make_snapshots()
         result = validate(candles, native)
-        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["status"], "PASS", result["failures"])
         self.assertEqual(result["passed_metrics"], 120)
         self.assertEqual(result["total_metrics"], 120)
 
