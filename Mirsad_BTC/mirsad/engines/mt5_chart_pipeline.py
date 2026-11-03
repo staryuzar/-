@@ -64,8 +64,23 @@ def analyze_mt5_observer_chart(
   return _blocked_observer_chart(observer,"MT5 chart auto-scroll is not enabled; the screenshot may not show the latest forming candle.","OBSERVER_NOT_AT_LIVE_EDGE")
  if int(chart_meta.get("windows_total",0) or 0)!=1:
   return _blocked_observer_chart(observer,"MT5 chart has indicator subwindows; plot layout must be calibrated before automatic visual analysis.","OBSERVER_LAYOUT_UNVERIFIED")
- if int(chart_meta.get("visible_bars",0) or 0)<21:
+ visible_bars=int(chart_meta.get("visible_bars",0) or 0)
+ if visible_bars<21:
   return _blocked_observer_chart(observer,"MT5 chart viewport shows fewer than 21 bars; at least 20 completed candles plus the forming candle are required.","OBSERVER_HISTORY_INSUFFICIENT")
+ try:
+  first_visible_bar_shift=int(chart_meta.get("first_visible_bar_shift",-1))
+ except (TypeError,ValueError,OverflowError):
+  first_visible_bar_shift=-1
+ if first_visible_bar_shift<0:
+  return _blocked_observer_chart(observer,"MT5 first-visible-bar position is missing; latest-candle alignment cannot be verified.","OBSERVER_VIEWPORT_POSITION_UNKNOWN")
+ rightmost_visible_offset=max(0,first_visible_bar_shift-visible_bars+1)
+ maximum_allowed_rightmost_offset=max(2,int(math.ceil(visible_bars*0.20)))
+ if rightmost_visible_offset>maximum_allowed_rightmost_offset:
+  return _blocked_observer_chart(
+   observer,
+   "MT5 chart is scrolled away from the latest candles; navigate to CHART_END before visual analysis.",
+   "OBSERVER_NOT_AT_LIVE_EDGE",
+  )
  if observer.get("rates_status")!="AVAILABLE" or int(observer.get("rates_error_code",-1))!=0:
   return _blocked_observer_chart(observer,"MT5 native CopyRates data is unavailable or reported an error.","OBSERVER_OHLC_UNAVAILABLE")
  if len(bars)!=int(observer.get("bar_count",-1)) or len(bars)<21:
