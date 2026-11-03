@@ -167,6 +167,34 @@ class ChartOCRTests(unittest.TestCase):
         self.assertLess(result["plot_bottom_px"], 535)
         self.assertGreater(result["excluded_bottom_band_px"], 50)
 
+    def test_infer_plot_bottom_uses_native_geometry_to_confirm_volume_band(self) -> None:
+        ticks = [
+            {"y_px": 30 + index * 32, "price": 120000 - index * 1000,
+             "score": 0.95, "inlier": True}
+            for index in range(17)
+        ]
+        result = infer_plot_bottom_from_axis_ticks(
+            ticks, plot_top_px=0, current_plot_bottom_px=595,
+            native_max_y_image_px=529.5,
+        )
+        self.assertEqual(result["status"], "REFINED")
+        self.assertEqual(result["tick_bottom_y_px"], 542.0)
+        self.assertEqual(result["plot_bottom_px"], 549)
+        self.assertGreater(result["native_gap_px"], 64)
+
+    def test_infer_plot_bottom_does_not_crop_when_native_candles_reach_image_bottom(self) -> None:
+        ticks = [
+            {"y_px": 30 + index * 32, "price": 120000 - index * 1000,
+             "score": 0.95, "inlier": True}
+            for index in range(17)
+        ]
+        result = infer_plot_bottom_from_axis_ticks(
+            ticks, plot_top_px=0, current_plot_bottom_px=595,
+            native_max_y_image_px=580,
+        )
+        self.assertEqual(result["status"], "UNCHANGED")
+        self.assertEqual(result["plot_bottom_px"], 595)
+
     def test_infer_plot_bottom_keeps_a_fully_labelled_plot_unchanged(self) -> None:
         ticks = [
             {
