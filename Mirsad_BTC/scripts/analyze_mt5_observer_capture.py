@@ -79,7 +79,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         },
     }
 
-    def blocked(code: str, reason: str) -> dict:
+    def blocked(code: str, reason: str, **details: Any) -> dict:
         return {
             "schema": "MIR-ENGINE2-OBSERVER-SMOKE-1",
             "capture_id": capture.get("capture_id"),
@@ -97,7 +97,8 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "decision_eligible": False,
             "engine2": {"status": code, "visual_eligible": False, "reason": reason,
                         "detected_bars": 0, "confirmed_bars": 0,
-                        "reference_calibration_status": "NOT_ATTEMPTED", "quality_gates": {}},
+                        "reference_calibration_status": "NOT_ATTEMPTED", "quality_gates": {},
+                        "diagnostics": details},
             "safety": {"read_only": True, "decision_eligible": False}
         }
     if capture.get("status") != "READY_FOR_ENGINE_2_VALIDATION":
@@ -112,7 +113,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         return blocked("VIEWPORT_UNSUITABLE", "Original MT5 viewport is below the calibration threshold.")
     try:
         visible_bars = int(chart.get("visible_bars", 0) or 0)
-        first_visible_bar_shift = int(chart.get("first_visible_bar_shift", 0) or 0)
+        first_visible_bar_shift = int(chart.get("first_visible_bar_shift", -1))
     except (TypeError, ValueError, OverflowError):
         return blocked("VIEWPORT_METADATA_INVALID", "MT5 visible-bar position metadata is invalid.")
     if visible_bars <= 0 or first_visible_bar_shift < 0:
