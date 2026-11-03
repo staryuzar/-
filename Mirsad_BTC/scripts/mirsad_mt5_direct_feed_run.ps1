@@ -260,17 +260,38 @@ try {
         Stop-Process -Id $install.Id -Force -ErrorAction SilentlyContinue
         throw 'Official MT5 installer timed out after 180 seconds; aborting cleanly instead of hanging the workflow.'
     }
-    Add-Report ("MT5 installer process exit code: {0}" -f $install.ExitCode)
-    if ($install.ExitCode -ne 0) {
-        throw ("Official MT5 installer exited with code {0}." -f $install.ExitCode)
-    }
+    $installerExitCode = $install.ExitCode
+    Add-Report ("MT5 installer process exit code: {0}" -f $installerExitCode)
 
-    $terminal = Get-ChildItem -LiteralPath $installDir -Filter 'terminal64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (!$terminal) {
-        $terminal = Get-ChildItem -LiteralPath $installDir -Filter 'terminal.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    # MetaQuotes' official web bootstrapper can return exit code 1 even when
+    # it has successfully installed MT5. A previously successful Mirsad run
+    # recorded exit code 1 and then compiled/launched the installed terminal.
+    # Therefore installation success is established by verified platform
+    # binaries, not by the bootstrapper's process code alone.
+    $terminal = $null
+    $editor = $null
+    $installDeadline = [DateTime]::UtcNow.AddSeconds(120)
+    do {
+        $terminal = Get-ChildItem -LiteralPath $installDir -Filter 'terminal64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (!$terminal) {
+            $terminal = Get-ChildItem -LiteralPath $installDir -Filter 'terminal.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        }
+        $editor = Get-ChildItem -LiteralPath $installDir -Filter 'metaeditor64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        $binariesReady = $terminal -and $editor -and $terminal.Length -gt 1000000 -and $editor.Length -gt 1000000
+        if ($binariesReady) { break }
+        Start-Sleep -Seconds 2
+    } while ([DateTime]::UtcNow -lt $installDeadline)
+
+    if (!$binariesReady) {
+        Add-Report ("FAIL — MT5 installation binaries were not verified. terminal_found={0}; editor_found={1}; installer_exit_code={2}" -f [bool]$terminal,[bool]$editor,$installerExitCode)
+        throw 'Official MT5 bootstrapper finished but valid terminal64.exe and metaeditor64.exe binaries were not found within 120 seconds.'
     }
-    $editor = Get-ChildItem -LiteralPath $installDir -Filter 'metaeditor64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (!$terminal -or !$editor) { throw 'MT5 terminal or MetaEditor was not found after installer verification.' }
+    if ($installerExitCode -ne 0) {
+        Add-Report ("WARN — Bootstrapper returned exit code {0}, but valid terminal and MetaEditor binaries were found; continuing with binary verification." -f $installerExitCode)
+    }
+    else {
+        Add-Report 'PASS — Official MT5 installer returned zero and terminal/MetaEditor binaries were verified.'
+    }
     Add-Report ("MetaTrader version: {0}" -f $terminal.VersionInfo.ProductVersion)
 
     $source = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\mt5\Mirsad_ChartObserver.mq5'
