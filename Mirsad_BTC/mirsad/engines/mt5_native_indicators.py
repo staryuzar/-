@@ -107,11 +107,13 @@ class MT5NativeIndicatorHistory:
                     "bars_calculated": item.get("bars_calculated") if isinstance(item, dict) else None,
                 }
                 continue
+            previous_closed = self._finite(item.get("previous_closed"))
             closed = self._finite(item.get("closed"))
             current = self._finite(item.get("current"))
             if closed is None or current is None:
                 values[indicator] = {
                     "status": "INVALID",
+                    "previous_closed": previous_closed,
                     "closed": None,
                     "current": None,
                     "error_code": item.get("error_code"),
@@ -121,6 +123,7 @@ class MT5NativeIndicatorHistory:
                 continue
             values[indicator] = {
                 "status": "READY",
+                "previous_closed": previous_closed,
                 "closed": closed,
                 "current": current,
                 "error_code": 0,
