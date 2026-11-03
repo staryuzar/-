@@ -418,6 +418,21 @@ public static class MirsadNativeWindow {
         $windowRect = [MirsadNativeWindow]::WindowRectText($terminalWindow.MainWindowHandle)
         Add-Report ("PASS — MT5 main terminal maximized; main window={0}; HWND={1}." -f $windowRect,$terminalWindow.MainWindowHandle)
 
+        # Maximize the MDI chart immediately after the terminal appears.
+        # The previous ordering waited up to 25 seconds for an EA HWND before
+        # maximizing the chart, while the EA's first screenshot was due after
+        # only 10 seconds. That allowed a small, unmaximized viewport to be
+        # captured before the maximize request and permanently failed the
+        # visual-source quality gate for that run.
+        $allMdiChildren = [MirsadNativeWindow]::MaximizeMdiChildren($terminalWindow.MainWindowHandle)
+        if ($allMdiChildren -gt 0) {
+            Start-Sleep -Seconds 2
+            $allMdiChildren = [MirsadNativeWindow]::MaximizeMdiChildren($terminalWindow.MainWindowHandle)
+            Add-Report ("PASS — Early MDI maximize requested before first Observer capture; chart windows={0}." -f $allMdiChildren)
+        } else {
+            Add-Report 'WARN — No MDI chart child was present at first maximize attempt; startup loop will retry.'
+        }
+
         # Wait for the Observer EA to publish the HWND of its exact BTC chart.
         $chartHandleDeadline = [DateTime]::UtcNow.AddSeconds(25)
         $observerChartStatus = $null
@@ -425,6 +440,9 @@ public static class MirsadNativeWindow {
             $observerDir = Get-CommonObserverDirectory
             $observerChartStatus = Get-ObserverStatusSnapshot
             if ($observerChartStatus -and [long]$observerChartStatus.chart_window_handle -gt 0) { break }
+            # Retry MDI maximize while the chart HWND is unavailable. Do not
+            # let a missing CHART_WINDOW_HANDLE prevent a native window resize.
+            $allMdiChildren = [MirsadNativeWindow]::MaximizeMdiChildren($terminalWindow.MainWindowHandle)
             Start-Sleep -Seconds 1
         } while ([DateTime]::UtcNow -lt $chartHandleDeadline)
         $allMdiChildren = [MirsadNativeWindow]::MaximizeMdiChildren($terminalWindow.MainWindowHandle)
