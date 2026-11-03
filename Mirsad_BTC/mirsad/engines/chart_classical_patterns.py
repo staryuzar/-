@@ -127,7 +127,7 @@ def detect_classical_reversal_patterns(
     swing_highs: list[dict[str, Any]],
     swing_lows: list[dict[str, Any]],
     *,
-    atr: float,
+    range_reference: float,
 ) -> list[dict[str, Any]]:
     """Detect conservative multi-swing reversal candidates from confirmed pivots.
 
@@ -142,8 +142,8 @@ def detect_classical_reversal_patterns(
         return []
 
     close = float(bars[-1]["close"])
-    tolerance = max(max(float(atr), 0.0) * 0.50, close * 0.001)
-    prominence = max(max(float(atr), 0.0) * 0.50, close * 0.001)
+    tolerance = max(max(float(range_reference), 0.0) * 0.50, close * 0.001)
+    prominence = max(max(float(range_reference), 0.0) * 0.50, close * 0.001)
     patterns: list[dict[str, Any]] = []
 
     triple = sequence[-3:]
