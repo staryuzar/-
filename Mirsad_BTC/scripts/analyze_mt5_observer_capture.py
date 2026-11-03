@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse, hashlib, json, math, sys
 from typing import Any
 from pathlib import Path
+from PIL import Image
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -10,6 +11,7 @@ from mirsad.engines.mt5_observer import MT5ChartObserverInbox, recent_reference_
 from mirsad.engines.mt5_market import MT5MarketDataEngine
 from mirsad.engines.mt5_chart_candles import MT5ChartCandleHistory
 from mirsad.engines.mt5_native_indicators import MT5NativeIndicatorHistory
+from mirsad.engines.mt5_chart_geometry import validate_mt5_chart_geometry
 
 SUPPORTED = {"1m", "5m", "15m", "1h", "4h", "1d", "1w"}
 
@@ -157,6 +159,12 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
     digest = hashlib.sha256(image.read_bytes()).hexdigest()
     if digest != str(capture.get("image_sha256", "")).lower():
         return blocked("IMAGE_CHANGED", "PNG hash changed after inbox verification.")
+    with Image.open(image) as source_image:
+        image_width, image_height = source_image.size
+    native_pixel_geometry = validate_mt5_chart_geometry(
+        chart.get("pixel_geometry"), bars=bars, chart=chart,
+        image_width=image_width, image_height=image_height,
+    )
     if not market_symbol or len(market_symbol) > 32:
         return blocked("MARKET_MAPPING_INVALID", "Explicit Mirsad market symbol is invalid.")
     reference_candidates = recent_reference_candle_candidates(
@@ -215,6 +223,11 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
                     "image_sha256": digest, "native_ohlc_bars": len(bars),
                     "source_width_px": int(chart["source_width_px"]),
                     "source_height_px": int(chart["source_main_window_height_px"]),
+                    "chart_mode": chart.get("chart_mode"),
+                    "chart_scale": chart.get("chart_scale"),
+                    "chart_shift": chart.get("chart_shift"),
+                    "price_min": chart.get("price_min"),
+                    "price_max": chart.get("price_max"),
                     "visible_bars": visible_bars,
                     "first_visible_bar_shift": first_visible_bar_shift,
                     "rightmost_visible_offset": rightmost_visible_offset,
@@ -233,6 +246,12 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "reference_calibration_reason": reference_reason,
             "reference_calibration_diagnostics": reference_diagnostics,
             "reference_slot_diagnostics": result.get("reference_slot_diagnostics", {}),
+            "native_pixel_geometry": {
+                key: native_pixel_geometry.get(key) for key in (
+                    "status", "decision_eligible", "validated_bars", "visible_bars",
+                    "minimum_visible_bars", "mapping_status", "scale_x", "scale_y", "reason"
+                )
+            },
             "multi_reference_validation": {
                 key: reference.get(key) for key in (
                     "matched_candles", "fit_candles", "validation_candles",
