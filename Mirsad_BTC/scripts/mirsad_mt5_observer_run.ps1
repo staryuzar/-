@@ -15,7 +15,7 @@ $accountPassword = $null
 
 $imageCaptureSetting = [string]$env:MIRSAD_MT5_IMAGE_CAPTURE
 $imageCaptureEnabled = $true
-if ($imageCaptureSetting.ToLowerInvariant() -in @('false','0','no','off')) {
+if ($imageCaptureSetting.ToLowerInvariant() -in @('false','0','no','off')) { $imageCaptureEnabled = $false }
 function Add-Report([string]$Line) {
     $Line | Add-Content -LiteralPath $report -Encoding utf8
 }
