@@ -3,6 +3,7 @@ import sys
 import time
 import hashlib
 import io
+import html
 from pathlib import Path
 import pandas as pd
 import streamlit as st
@@ -164,11 +165,13 @@ def render_component_health(state:dict)->None:
       with st.container(border=True):
        level=item.get("health","WAITING")
        bg,fg,dot=colors.get(level,colors["WAITING"])
+       component_name=html.escape(str(item.get("component","مكوّن غير مسمى")),quote=True)
+       health_label=html.escape(str(item.get("health_label","بانتظار البيانات")),quote=True)
        st.markdown(
         f'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'
-        f'<div style="font-size:14px;font-weight:750;color:#30363A">{item.get("component","مكوّن غير مسمى")}</div>'
+        f'<div style="font-size:14px;font-weight:750;color:#30363A">{component_name}</div>'
         f'<span style="display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:5px 10px;background:{bg};color:{fg};font-size:11px;font-weight:750;white-space:nowrap">'
-        f'<span style="width:7px;height:7px;border-radius:50%;background:{dot};display:inline-block"></span>{item.get("health_label","بانتظار البيانات")}</span></div>',
+        f'<span style="width:7px;height:7px;border-radius:50%;background:{dot};display:inline-block"></span>{health_label}</span></div>',
         unsafe_allow_html=True,
        )
        st.caption(f"حالة المصدر: {item.get('status_label',item.get('status','غير متاح'))}")
