@@ -149,6 +149,21 @@ class MT5NativeTrendAnalysisTests(unittest.TestCase):
         self.assertNotIn("1h", result["summary"]["eligible_timeframes"])
         self.assertIn("1h", result["timeframe_errors"])
 
+    def test_large_missing_interval_fraction_blocks_a_timeframe(self) -> None:
+        history = make_history()
+        bars = history["candles_by_tf"]["1h"]
+        duration = DURATIONS["1h"]
+        split = len(bars) // 2
+        for bar in bars[:split]:
+            bar["open_time_ms"] -= 10 * duration
+        result = analyze_mt5_native_trend(history)
+        self.assertEqual(result["timeframes"]["1h"]["status"], "PARTIAL")
+        self.assertGreater(
+            result["timeframes"]["1h"]["data_quality"]["gap_fraction"],
+            0.03,
+        )
+        self.assertNotIn("1h", result["summary"]["eligible_timeframes"])
+
     def test_invalid_ohlc_fails_closed(self) -> None:
         history = make_history()
         history["candles_by_tf"]["15m"][10]["high"] = 1.0
