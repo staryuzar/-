@@ -27,6 +27,7 @@ def make_payload(*, captured_at_ms: int | None = None) -> dict:
                 base = -45.0
             values[name] = {
                 "status": "READY",
+                "previous_closed": base - 0.5,
                 "closed": base,
                 "current": base + 0.25,
                 "error_code": 0,
@@ -87,6 +88,7 @@ class MT5NativeIndicatorHistoryTests(unittest.TestCase):
         self.assertFalse(result["decision_eligible"])
         self.assertEqual(result["source"], "MT5_COPYBUFFER")
         self.assertEqual(result["ready_timeframe_count"], 6)
+        self.assertEqual(result["timeframes"]["1m"]["values"]["ema20"]["previous_closed"], 89_999.5)
         self.assertEqual(result["timeframes"]["1m"]["values"]["ema20"]["closed"], 90_000.0)
         self.assertEqual(result["timeframes"]["1m"]["values"]["ema20"]["current"], 90_000.25)
         self.assertEqual(result["timeframes"]["1d"]["values"]["obv"]["status"], "READY")
