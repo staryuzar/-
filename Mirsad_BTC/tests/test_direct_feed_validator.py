@@ -92,6 +92,33 @@ class DirectFeedValidatorTests(unittest.TestCase):
         self.assertEqual(result["native_indicators"]["ready_timeframe_count"], 6)
         self.assertFalse(result["safety"]["trading_api_used"])
 
+    def test_direct_feed_rejects_any_timeframe_below_engine2_closed_bar_minimum(self) -> None:
+        candles = ready_candles()
+        candles["closed_candles"]["1d"] = 23
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch(
+                    "scripts.validate_mt5_direct_feed.MT5MarketDataEngine.collect",
+                    return_value=ready_market(),
+                ),
+                patch(
+                    "scripts.validate_mt5_direct_feed.MT5ChartCandleHistory.collect",
+                    return_value=candles,
+                ),
+                patch(
+                    "scripts.validate_mt5_direct_feed.MT5NativeIndicatorHistory.collect",
+                    return_value=ready_indicators(),
+                ),
+            ):
+                result = validate(
+                    Path(directory),
+                    market_symbol="BTCUSDT",
+                    broker_symbol="BTC",
+                    expected_server="Headway-Demo",
+                )
+        self.assertEqual(result["engine2"]["status"], "FAILED")
+        self.assertTrue(any("1d has 23 closed bars" in item for item in result["engine2"]["failures"]))
+
     def test_engine2_feed_remains_ready_when_native_indicators_are_partial(self) -> None:
         partial = ready_indicators()
         partial["status"] = "PARTIAL"

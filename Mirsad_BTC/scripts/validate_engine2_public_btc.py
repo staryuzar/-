@@ -103,9 +103,15 @@ def normalise_kline_rows(
     result: list[dict[str, Any]] = []
     previous = 0
     for index, raw in enumerate(rows):
-        bar = parse_row(raw, timeframe)
-        if bar["open_time_ms"] <= previous:
+        if not isinstance(raw, list) or not raw:
+            raise ValueError(f"{timeframe} Kline row has an invalid shape")
+        try:
+            row_open_time = int(raw[0])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{timeframe} Kline row has an invalid open time") from exc
+        if row_open_time <= previous:
             raise ValueError(f"{timeframe} timestamps are not strictly increasing")
+        bar = parse_row(raw, timeframe)
         closed = bar["close_time_ms"] < as_of_ms
         if index < len(rows) - 1 and not closed:
             raise ValueError(f"{timeframe} contains a forming candle before its final row")
