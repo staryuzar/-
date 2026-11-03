@@ -5,6 +5,7 @@ import unittest
 from mirsad.engines.mt5_chart_geometry import (
     analyze_native_mt5_ohlc,
     validate_mt5_chart_geometry,
+    validate_mt5_geometry_overlay,
 )
 
 
@@ -107,6 +108,84 @@ class MT5ChartGeometryTests(unittest.TestCase):
         self.assertEqual(result["visible_bars"], len(bars) - 1)
         self.assertFalse(result["bars"][0]["valid"])
         self.assertIsNone(result["bars"][0]["points_source_px"])
+
+    def test_native_geometry_overlay_uses_fit_and_independent_image_holdout(self) -> None:
+        bars = make_bars()
+        geometry = make_geometry(bars)
+        validated = validate_mt5_chart_geometry(
+            geometry,
+            bars=bars,
+            chart={
+                "source_width_px": 600,
+                "source_main_window_height_px": 500,
+                "visible_bars": len(bars),
+            },
+            image_width=1200,
+            image_height=1000,
+        )
+        extracted = []
+        for index, bar in enumerate(bars):
+            item = geometry["bars"][index]
+            extracted.append({
+                "slot_index": index,
+                "x_px": 1.1 * item["x_px"] + 5.0,
+                "high_y_px": 1.5 * item["high"]["y_px"] + 7.0,
+                "low_y_px": 1.5 * item["low"]["y_px"] + 7.0,
+                "body_top_y_px": 1.5 * item["close"]["y_px"] + 7.0,
+                "body_bottom_y_px": 1.5 * item["open"]["y_px"] + 7.0,
+            })
+        result = validate_mt5_geometry_overlay(
+            validated,
+            native_bars=bars,
+            extracted_bars=extracted,
+            visible_bars=len(bars),
+            first_visible_bar_shift=len(bars) - 1,
+        )
+        self.assertEqual(result["status"], "READY")
+        self.assertTrue(result["mapping_verified"])
+        self.assertFalse(result["decision_eligible"])
+        self.assertEqual(result["matched_candles"], len(bars))
+        self.assertAlmostEqual(result["x_scale"], 1.1, places=6)
+        self.assertAlmostEqual(result["x_offset"], 5.0, places=4)
+        self.assertAlmostEqual(result["y_scale"], 1.5, places=6)
+        self.assertAlmostEqual(result["y_offset"], 7.0, places=4)
+
+    def test_native_geometry_overlay_rejects_bad_interleaved_holdout(self) -> None:
+        bars = make_bars()
+        geometry = make_geometry(bars)
+        validated = validate_mt5_chart_geometry(
+            geometry,
+            bars=bars,
+            chart={
+                "source_width_px": 600,
+                "source_main_window_height_px": 500,
+                "visible_bars": len(bars),
+            },
+            image_width=1200,
+            image_height=1000,
+        )
+        extracted = []
+        for index, bar in enumerate(bars):
+            item = geometry["bars"][index]
+            extracted.append({
+                "slot_index": index,
+                "x_px": 1.1 * item["x_px"] + 5.0,
+                "high_y_px": 1.5 * item["high"]["y_px"] + 7.0,
+                "low_y_px": 1.5 * item["low"]["y_px"] + 7.0,
+                "body_top_y_px": 1.5 * item["close"]["y_px"] + 7.0,
+                "body_bottom_y_px": 1.5 * item["open"]["y_px"] + 7.0,
+            })
+        extracted[8]["high_y_px"] += 100.0
+        result = validate_mt5_geometry_overlay(
+            validated,
+            native_bars=bars,
+            extracted_bars=extracted,
+            visible_bars=len(bars),
+            first_visible_bar_shift=len(bars) - 1,
+        )
+        self.assertEqual(result["status"], "OVERLAY_HOLDOUT_FAILED")
+        self.assertFalse(result["mapping_verified"])
+        self.assertFalse(result["decision_eligible"])
 
     def test_geometry_must_match_exact_native_bar_timestamps(self) -> None:
         bars = make_bars()
