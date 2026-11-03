@@ -51,15 +51,11 @@ jobs:
       - name: Run Engine 2 on exactly 20 BTC images
         run: python scripts/run_hf_btc_chart_image_benchmark.py --max-images 20 --min-images 20 --ocr-sample-limit 5 --output reports/hf_btc_chart_image_pilot_20.json
 
-      - name: Run the full independent BTC image dataset (minimum 10,000; target 13,081)
-        run: python scripts/run_hf_btc_chart_image_benchmark.py --max-images 13081 --min-images 10000 --ocr-sample-limit 128 --output reports/hf_btc_chart_image_full.json
-
-      - name: Upload pilot and full-dataset reports
+      - name: Upload the 20-image pilot report before any expansion
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mirsad-btc-image-pilot-and-full-${{ github.run_id }}
-          path: |
-            Mirsad_BTC/reports/hf_btc_chart_image_pilot_20.json
-            Mirsad_BTC/reports/hf_btc_chart_image_full.json
-          if-no-files-found: error
+          name: mirsad-btc-image-pilot-20-${{ github.run_id }}
+          path: Mirsad_BTC/reports/hf_btc_chart_image_pilot_20.json
+          if-no-files-found: warn
           retention-days: 30
