@@ -91,6 +91,10 @@
 
 ## تقرير الإنجاز والتدقيق
 
+- [تقرير مركز القيادة ولوحة متابعة المحركات](reports/DASHBOARD_HEALTH_CENTER_AR.md)
+- [نموذج تصميم مركز القيادة في MagicPath](https://designs.magicpath.ai/v1/clear-field-7078)
+
+
 - [آخر تقرير تدقيق وتكامل ونتائج الاختبارات الحية](reports/MIRSAD_INTEGRATION_DIAGNOSTIC_AR_20261103_0928.md)
 - [التقرير التفصيلي السابق للمحركات الخمسة](reports/MIRSAD_PROGRESS_REPORT_AR_20261102.md)
 - [دفتر الاستكمال على الجهاز عبر سطح المكتب القائد](reports/DESKTOP_COMPLETION_NOTEBOOK_AR.md) — المهام التي تحتاج MT5 وبيئة Windows المحلية بعد تثبيت نسخة GitHub.
