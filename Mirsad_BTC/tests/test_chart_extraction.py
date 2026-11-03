@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from mirsad.engines.chart_extraction import _extract_bars, _select_slot_guided_bars
+from mirsad.engines.native_chart_extraction import extract_native_geometry_guided_bars
 
 
 class SlotGuidedExtractionTests(unittest.TestCase):
@@ -156,6 +157,94 @@ class SlotGuidedExtractionTests(unittest.TestCase):
         self.assertEqual(diagnostics["segmentation_mode"], "projection_groups")
         self.assertFalse(diagnostics["slot_guided_extraction"]["adopted"])
         self.assertEqual(len(bars), 4)
+
+
+class NativeGeometryGuidedExtractionTests(unittest.TestCase):
+    HEIGHT = 280
+    WIDTH = 520
+    COUNT = 20
+    GREEN = (0, 200, 0)
+    RED = (0, 0, 220)
+
+    def _centers(self) -> list[dict]:
+        return [
+            {"slot_index": i, "x_px": 18.0 + i * 24.0 + (i % 3) * 1.5}
+            for i in range(self.COUNT)
+        ]
+
+    def _chart(self, active: list[int]) -> np.ndarray:
+        image = np.full((self.HEIGHT, self.WIDTH, 3), 255, dtype=np.uint8)
+        centers = self._centers()
+        for i in active:
+            x = int(round(centers[i]["x_px"]))
+            high, low = 54 + (i % 5) * 4, 204 - (i % 4) * 3
+            opened = 112 + (i % 3) * 3
+            closed = opened - 24 if i % 2 == 0 else opened + 24
+            colour = self.GREEN if i % 2 == 0 else self.RED
+            cv2.line(image, (x, high), (x, low), colour, 2)
+            cv2.rectangle(image, (x - 3, min(opened, closed)),
+                          (x + 3, max(opened, closed)), colour, -1)
+        # Long horizontal and off-centre traces are not candle evidence.
+        cv2.line(image, (0, 24), (self.WIDTH - 1, 24), self.GREEN, 1)
+        for item in centers:
+            x = int(round(item["x_px"] + 8.0))
+            if x < self.WIDTH:
+                cv2.line(image, (x, 72), (x, 196), self.GREEN, 1)
+        return image
+
+    def test_native_centres_recover_irregularly_spaced_pixel_candles(self) -> None:
+        active = [i for i in range(self.COUNT) if i not in {4, 12}]
+        diagnostics: dict = {}
+        bars = _extract_bars(
+            self._chart(active),
+            {
+                "plot_left_px": 0, "plot_right_px": self.WIDTH,
+                "plot_top_px": 0, "plot_bottom_px": self.HEIGHT,
+                "palette_mode": "green_red",
+                "expected_candle_count": self.COUNT,
+                "native_geometry_slot_centers": self._centers(),
+            },
+            diagnostics,
+        )
+        self.assertEqual(
+            diagnostics["segmentation_mode"],
+            "mt5_native_geometry_guided",
+            msg=repr(diagnostics.get("native_geometry_guided_extraction")),
+        )
+        native = diagnostics["native_geometry_guided_extraction"]
+        self.assertTrue(native["adopted"])
+        self.assertGreaterEqual(len(bars), len(active) - 2)
+        hints = [bar["native_slot_hint"] for bar in bars]
+        self.assertEqual(len(hints), len(set(hints)))
+        self.assertTrue(set(hints).issubset(set(active)))
+        self.assertNotIn("slot_index", bars[0])
+        self.assertTrue(all(bar["native_center_residual_px"] <= 4.5 for bar in bars))
+        self.assertFalse(native["mapping_verified"])
+        self.assertFalse(native["decision_eligible"])
+
+    def test_native_windows_reject_offcentre_lines_and_empty_slots(self) -> None:
+        image = np.full((self.HEIGHT, self.WIDTH, 3), 255, dtype=np.uint8)
+        centers = self._centers()
+        # Each trace sits outside the native centre tolerance; the horizontal
+        # line has no candle body and is wider than one slot.
+        for item in centers:
+            x = int(round(item["x_px"] + 8.0))
+            if x < self.WIDTH:
+                cv2.line(image, (x, 70), (x, 205), self.GREEN, 1)
+        cv2.line(image, (0, 140), (self.WIDTH - 1, 140), self.GREEN, 18)
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        from mirsad.engines.chart_extraction import _hue_mask, PALETTE_PRESETS
+        palette = PALETTE_PRESETS["green_red"]
+        bullish = _hue_mask(hsv, palette["bullish"]) > 0
+        bearish = _hue_mask(hsv, palette["bearish"]) > 0
+        bars, diagnostics = extract_native_geometry_guided_bars(
+            bullish, bearish, native_slot_centers=centers,
+            plot_left=0, plot_top=0,
+        )
+        self.assertEqual(bars, [])
+        self.assertEqual(diagnostics["occupied_slots"], 0)
+        self.assertFalse(diagnostics["decision_eligible"])
+        self.assertFalse(diagnostics["mapping_verified"])
 
 
 class AutomaticPaletteInferenceTests(unittest.TestCase):

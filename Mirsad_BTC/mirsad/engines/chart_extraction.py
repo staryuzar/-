@@ -5,6 +5,8 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .native_chart_extraction import extract_native_geometry_guided_bars
+
 def _groups(columns:np.ndarray,gap:int=2)->list[tuple[int,int]]:
     indices=np.flatnonzero(columns)
     if len(indices)==0:
@@ -596,6 +598,9 @@ def _extract_bars(
             "palette_mode": palette_mode,
         })
     slot_diagnostics: dict[str, Any] = {"mode": "disabled", "occupied_slots": 0}
+    native_geometry_diagnostics: dict[str, Any] = {
+        "status": "NOT_REQUESTED", "mapping_verified": False, "decision_eligible": False,
+    }
     selected_mode = "projection_groups"
     if expected_candle_count > 0:
         slot_bars, slot_diagnostics = _extract_slot_guided_bars(
@@ -627,9 +632,38 @@ def _extract_bars(
             legacy_mean_purity, 4
         )
         slot_diagnostics.update(slot_selection)
+
+    native_slot_centers = meta.get("native_geometry_slot_centers")
+    if expected_candle_count > 0 and isinstance(native_slot_centers, list) and native_slot_centers:
+        native_bars, native_geometry_diagnostics = extract_native_geometry_guided_bars(
+            bullish, bearish,
+            native_slot_centers=native_slot_centers,
+            plot_left=left,
+            plot_top=top,
+        )
+        minimum_native_recovery = max(8, int(np.ceil(expected_candle_count * 0.45)))
+        native_purity = float(native_geometry_diagnostics.get("mean_colour_purity", 0.0) or 0.0)
+        native_x_error = native_geometry_diagnostics.get("median_native_x_residual_px")
+        native_adopted = (
+            len(native_bars) >= minimum_native_recovery
+            and native_purity >= 0.75
+            and native_x_error is not None
+            and float(native_x_error) <= 4.5
+        )
+        native_geometry_diagnostics.update({
+            "minimum_recovery_threshold": minimum_native_recovery,
+            "adopted": native_adopted,
+        })
+        if native_adopted:
+            # Native MT5 time-slot centres supersede a uniform inferred grid.
+            # Only pixels observed inside each local slot window become bars.
+            bars = native_bars
+            selected_mode = "mt5_native_geometry_guided"
+
     if diagnostics is not None:
         diagnostics["accepted_bars"] = len(bars)
         diagnostics["rejected_groups"] = rejection_counts
         diagnostics["slot_guided_extraction"] = slot_diagnostics
+        diagnostics["native_geometry_guided_extraction"] = native_geometry_diagnostics
         diagnostics["segmentation_mode"] = selected_mode
     return sorted(bars, key=lambda item: item["x_px"])
