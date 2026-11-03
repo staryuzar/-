@@ -19,7 +19,12 @@ from .chart_extraction import PALETTE_PRESETS, _extract_bars
 from .chart_image import load_chart_image
 from .chart_metrics import analyze_calibrated_bars
 from .chart_patterns import _body_bounds, _patterns
-from .chart_ocr import detect_price_axis_ticks, fit_price_axis, detect_chart_header_metadata
+from .chart_ocr import (
+    detect_price_axis_ticks,
+    fit_price_axis,
+    infer_plot_bottom_from_axis_ticks,
+    detect_chart_header_metadata,
+)
 from .chart_pattern_reference import analyze_talib_pattern_reference
 from .chart_pattern_knowledge import analyze_candle_patterns
 from .chart_structure_knowledge import analyze_chart_structure_knowledge
@@ -287,6 +292,43 @@ def analyze_chart_image(
                 )
                 axis_ocr["fit"] = axis_fit
                 if axis_fit.get("status") == "READY":
+                    explicit_bottom = int(meta.get("plot_bottom_px", 0) or 0)
+                    if explicit_bottom:
+                        bottom_refinement = {
+                            "status": "SKIPPED_EXPLICIT",
+                            "plot_bottom_px": calibration["plot_bottom_px"],
+                            "reason": "An explicit plot bottom supplied by the caller is preserved.",
+                        }
+                    else:
+                        bottom_refinement = infer_plot_bottom_from_axis_ticks(
+                            axis_fit.get("ticks", []),
+                            plot_top_px=calibration["plot_top_px"],
+                            current_plot_bottom_px=calibration["plot_bottom_px"],
+                        )
+                    if bottom_refinement.get("status") == "REFINED":
+                        refined_bottom = int(bottom_refinement["plot_bottom_px"])
+                        inlier_ticks = [
+                            tick for tick in axis_fit.get("ticks", [])
+                            if isinstance(tick, dict) and tick.get("inlier", True)
+                        ]
+                        refined_fit = fit_price_axis(
+                            inlier_ticks,
+                            plot_top_px=calibration["plot_top_px"],
+                            plot_bottom_px=refined_bottom,
+                            scale_type=calibration["price_scale_type"],
+                        )
+                        if refined_fit.get("status") == "READY":
+                            axis_fit = refined_fit
+                            meta = {**meta, "plot_bottom_px": refined_bottom}
+                        else:
+                            bottom_refinement = {
+                                **bottom_refinement,
+                                "status": "REFIT_REJECTED",
+                                "reason": "The OCR price-axis fit did not remain READY after the proposed bottom crop.",
+                                "refit_status": refined_fit.get("status"),
+                            }
+                    axis_ocr["plot_bounds_refinement"] = bottom_refinement
+                    axis_ocr["fit"] = axis_fit
                     proposed_right = axis_ocr.get("candidate_plot_right_px")
                     explicit_right = int(meta.get("plot_right_px", 0) or 0)
                     if not explicit_right and proposed_right is not None:
