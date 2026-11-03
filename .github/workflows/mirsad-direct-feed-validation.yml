@@ -2,12 +2,15 @@ name: Mirsad BTC — MT5 direct feed (images disabled)
 
 on:
   push:
-    branches: [mirsad-mt5-demo]
+    branches: [mirsad-mt5-demo, mirsad-engine2-native-analysis]
     paths:
       - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
       - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
       - 'Mirsad_BTC/scripts/mirsad_mt5_direct_feed_run.ps1'
       - 'Mirsad_BTC/scripts/validate_mt5_direct_feed.py'
+      - 'Mirsad_BTC/scripts/analyze_mt5_native_trend.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_trend_analysis.py'
+      - 'Mirsad_BTC/tests/test_mt5_trend_analysis.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
@@ -30,7 +33,7 @@ jobs:
       - name: Checkout Mirsad branch
         uses: actions/checkout@v4
         with:
-          ref: mirsad-mt5-demo
+          ref: ${{ github.ref }}
 
       - name: Set up Python for direct MT5 feed readers
         uses: actions/setup-python@v5
@@ -50,7 +53,8 @@ jobs:
         env:
           PYTHONPATH: Mirsad_BTC
         run: |
-          python -m compileall -q Mirsad_BTC/mirsad/engines/mt5_market.py Mirsad_BTC/mirsad/engines/mt5_chart_candles.py Mirsad_BTC/mirsad/engines/mt5_native_indicators.py Mirsad_BTC/scripts/validate_mt5_direct_feed.py
+          python -m compileall -q Mirsad_BTC/mirsad/engines/mt5_market.py Mirsad_BTC/mirsad/engines/mt5_chart_candles.py Mirsad_BTC/mirsad/engines/mt5_native_indicators.py Mirsad_BTC/mirsad/engines/mt5_trend_analysis.py Mirsad_BTC/scripts/validate_mt5_direct_feed.py Mirsad_BTC/scripts/analyze_mt5_native_trend.py
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_trend_analysis.py" -v
           python -m unittest discover -s Mirsad_BTC/tests -p "test_direct_feed_validator.py" -v
           python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_market.py" -v
           python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_chart_candles.py" -v
@@ -76,6 +80,7 @@ jobs:
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/direct-feed-validation.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/engine2-native-trend-analysis.json
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
           if-no-files-found: warn
           retention-days: 14
