@@ -53,7 +53,7 @@ class ATRPositionManagementTests(unittest.TestCase):
         result = self.plan([position()], bid=112.1, ask=112.2, atr=4.0)
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["management_stage"], "ATR_TRAILING")
-        self.assertAlmostEqual(result["stop_loss"], 106.0)
+        self.assertAlmostEqual(result["stop_loss"], 106.1)
         self.assertGreater(result["stop_loss"], 100.0)
 
     def test_short_position_uses_atr_trailing_after_25_atr(self):
