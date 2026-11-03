@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from mirsad.engines.indicators import IndicatorsEngine
 from mirsad.engines.decision import (
     CHART_DECISION_WEIGHT,
     MARKET_CONFIRMATION_WEIGHT,
@@ -197,6 +198,59 @@ class ChartDominantDecisionIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(result["candidate_action"], "WAIT")
         self.assertEqual(result["chart_gate"], "INSUFFICIENT_ANALYSIS_CONFIDENCE")
+
+
+class Engine2Engine3Engine4ContractTests(unittest.TestCase):
+    def _market(self) -> dict:
+        now = int(time.time() * 1000)
+        return {
+            "status": "LIVE", "source": "MT5_TERMINAL", "venue_count": 1,
+            "symbol": "BTCUSDT", "price": 100.0, "captured_at_ms": now,
+            "primary_venue": "MT5 Broker",
+            "feed_health": {"terminal_connected": True, "quote_fresh": True},
+        }
+
+    def _chart(self) -> dict:
+        history = make_engine2_candle_history("up", 90)
+        return {
+            "status": "READY", "decision_eligible": True,
+            "visual_bias": "BULLISH", "analysis_score": 0.95,
+            "analysis_confidence": 0.90, "image": "contract-fixture.png",
+            "candle_history": history,
+        }
+
+    def test_engine3_consumes_engine2_history_and_engine4_accepts_valid_contract(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        self.assertEqual(indicators["engine"], "engine_3_indicators")
+        self.assertEqual(indicators["source"], "engine_2_chart_candles")
+        self.assertEqual(indicators["status"], "READY")
+
+        result = DecisionEngine().analyze(self._market(), chart, {}, indicators)
+        self.assertEqual(result["engine_3_indicator_status"], "READY")
+        self.assertEqual(result["engine_inputs"]["indicators_from_engine_3"], "READY")
+        self.assertEqual(result["candidate_action"], "BUY")
+        self.assertFalse(result["command_ready"])
+
+    def test_engine4_rejects_ready_indicator_payload_with_wrong_provenance(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["source"] = "external_unverified_candles"
+
+        result = DecisionEngine().analyze(self._market(), chart, {}, indicators)
+        self.assertEqual(result["status"], "NOT_READY")
+        self.assertEqual(result["action"], "WAIT")
+        self.assertEqual(result["engine_3_indicator_status"], "INVALID_PROVENANCE")
+
+    def test_engine4_rejects_missing_or_nonfinite_required_indicator_values(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["values"]["atr14_5m"] = float("nan")
+
+        result = DecisionEngine().analyze(self._market(), chart, {}, indicators)
+        self.assertEqual(result["status"], "NOT_READY")
+        self.assertEqual(result["action"], "WAIT")
+        self.assertEqual(result["engine_3_indicator_status"], "INVALID_INDICATOR_PAYLOAD")
 
 
 class DecisionBoundaryTests(unittest.TestCase):
