@@ -19,17 +19,41 @@ from mirsad.health import build_component_health,summarize_component_health
 st.set_page_config(page_title="مرصاد البيتكوين",page_icon="₿",layout="wide")
 st.markdown("""
 <style>
-.stApp {background:radial-gradient(ellipse at 8% 0%,#162b43 0%,#0a1220 44%,#080e19 100%);color:#e7eef8}
-[data-testid="stSidebar"] {background:#0c1728;border-right:1px solid #21344d}
-.block-container {padding-top:1.65rem;padding-bottom:2.5rem;max-width:1600px}
-div[data-testid="stMetric"] {background:linear-gradient(145deg,#14243a,#101b2d);border:1px solid #2a405d;padding:15px 16px;border-radius:15px;box-shadow:0 8px 22px rgba(0,0,0,.16)}
-div[data-testid="stMetric"] label {color:#9db4cf!important;font-size:.82rem}
-div[data-testid="stMetric"] [data-testid="stMetricValue"] {color:#f4f8ff!important;font-weight:700}
-[data-testid="stDataFrame"] {border:1px solid #263750;border-radius:12px;overflow:hidden}
-[data-testid="stVerticalBlockBorderWrapper"] {background:rgba(15,28,46,.72);border-color:#29405c!important;border-radius:14px}
-button[data-baseweb="tab"] {font-weight:650}
-h1,h2,h3,p,label {color:#e5edf8}
-hr {border-color:#263b55}
+:root {
+ --mirsad-paper:#F3F1EA; --mirsad-surface:#FAF9F5; --mirsad-ink:#30363A;
+ --mirsad-muted:#777F80; --mirsad-line:#E3E0D7; --mirsad-copper:#B66D43;
+ --mirsad-copper-tint:#F0E4DA; --mirsad-green:#2D7254; --mirsad-amber:#9A6B24;
+ --mirsad-red:#B94E49; --mirsad-safe:#858C8D;
+}
+.stApp {background:var(--mirsad-paper);color:var(--mirsad-ink)}
+[data-testid="stSidebar"] {background:#EAE7DE;border-right:1px solid #D8D4CB}
+.block-container {padding-top:1.45rem;padding-bottom:2.5rem;max-width:1660px}
+h1,h2,h3,p,label,[data-testid="stMarkdownContainer"] {color:var(--mirsad-ink)}
+h1 {font-weight:800;letter-spacing:-.035em}
+h2,h3 {font-weight:750;letter-spacing:-.02em}
+div[data-testid="stMetric"] {background:var(--mirsad-surface);border:1px solid var(--mirsad-line);padding:15px 16px;border-radius:16px;box-shadow:0 4px 14px rgba(48,54,58,.045)}
+div[data-testid="stMetric"] label {color:var(--mirsad-muted)!important;font-size:.82rem}
+div[data-testid="stMetric"] [data-testid="stMetricValue"] {color:var(--mirsad-ink)!important;font-weight:750}
+[data-testid="stDataFrame"] {border:1px solid var(--mirsad-line);border-radius:13px;overflow:hidden;background:var(--mirsad-surface)}
+[data-testid="stVerticalBlockBorderWrapper"] {background:var(--mirsad-surface);border-color:var(--mirsad-line)!important;border-radius:15px}
+button[data-baseweb="tab"] {font-weight:700;color:var(--mirsad-muted)}
+button[data-baseweb="tab"][aria-selected="true"] {color:var(--mirsad-copper)}
+[role="tablist"] {gap:5px;border-bottom:1px solid var(--mirsad-line)}
+.stButton>button {border:1px solid var(--mirsad-line);border-radius:11px;background:var(--mirsad-surface);color:var(--mirsad-ink);font-weight:650;transition:transform .16s ease-out,border-color .16s ease-out}
+.stButton>button:hover {border-color:var(--mirsad-copper);color:var(--mirsad-copper)}
+.stButton>button:active {transform:scale(.98)}
+div[data-testid="stAlert"] {border-radius:13px}
+div[data-testid="stExpander"] {border:1px solid var(--mirsad-line);border-radius:13px;background:var(--mirsad-surface)}
+input,textarea,[data-baseweb="select"] {border-radius:10px!important}
+hr {border-color:var(--mirsad-line)}
+.mirsad-kicker {font-size:10px;font-weight:800;letter-spacing:.17em;color:var(--mirsad-copper);text-transform:uppercase;margin-bottom:4px}
+.mirsad-subtle {font-size:12px;color:var(--mirsad-muted);line-height:1.8}
+.mirsad-status {display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:5px 10px;font-weight:700;font-size:11px}
+.mirsad-dot {display:inline-block;width:7px;height:7px;border-radius:99px}
+@media (max-width: 700px) {
+ .block-container {padding-left:1rem;padding-right:1rem;padding-top:1rem}
+ div[data-testid="stMetric"] {padding:11px;border-radius:13px}
+}
 </style>
 """,unsafe_allow_html=True)
 
@@ -58,14 +82,26 @@ def age_text(ts):
 def render_component_health(state:dict)->None:
  items=state.get("component_health") or build_component_health(state)
  summary=state.get("component_health_summary") or summarize_component_health(items)
+ st.markdown('<div class="mirsad-kicker">COMMAND CENTER / ENGINE HEALTH</div>',unsafe_allow_html=True)
  st.subheader("مركز مراقبة المحركات والأدوات")
  st.caption("الحالة من آخر دورة تشغيل فعلية؛ غياب القياس يظهر كحالة انتظار، واختلاف هوية الصورة أو تقادم البيانات يظهر كتنبيه.")
  totals=st.columns(4)
- totals[0].metric("مكونات تعمل فعلياً",summary.get("healthy",0))
- totals[1].metric("بانتظار بيانات أو اتصال",summary.get("waiting",0))
- totals[2].metric("تحتاج متابعة",summary.get("attention",0))
- totals[3].metric("تعطيل آمن مقصود",summary.get("safe_disabled",0))
- tabs=st.tabs(["التشغيل","1 · السوق","2 · التحليل","3 · المؤشرات","4 · القرار","5 · الجسر"])
+ total_cards=[
+  ("مكونات تعمل فعلياً","healthy",summary.get("healthy",0),"#E6F0E9","#2D7254","✓"),
+  ("بانتظار بيانات أو اتصال","waiting",summary.get("waiting",0),"#F5EDDC","#9A6B24","◷"),
+  ("تحتاج متابعة","attention",summary.get("attention",0),"#F7E8E5","#B94E49","!"),
+  ("تعطيل آمن مقصود","safe_disabled",summary.get("safe_disabled",0),"#ECEDEA","#858C8D","⌑"),
+ ]
+ for col,(label,key,value,bg,fg,symbol) in zip(totals,total_cards):
+  with col:
+   st.markdown(
+    f'<div style="background:#FAF9F5;border:1px solid #E3E0D7;border-radius:15px;padding:14px 16px;">'
+    f'<div style="display:flex;align-items:center;justify-content:space-between;color:#777F80;font-size:12px;font-weight:650;">{label}'
+    f'<span style="width:29px;height:29px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;background:{bg};color:{fg};font-weight:800">{symbol}</span></div>'
+    f'<div style="margin-top:10px;font-size:31px;font-weight:800;color:#30363A;line-height:1.2">{value}'
+    f'<span style="font-size:11px;font-weight:500;color:#777F80;margin-right:7px">من {summary.get("total",len(items))}</span></div></div>',
+    unsafe_allow_html=True,
+   )
  groups=[
   "التشغيل",
   "المحرك الأول — استخبارات السوق",
@@ -74,31 +110,70 @@ def render_component_health(state:dict)->None:
   "المحرك الرابع — القرار وإدارة الصفقات",
   "المحرك الخامس — جسر التواصل مع MT5",
  ]
- icons={"HEALTHY":"🟢","WAITING":"🟡","ATTENTION":"🔴","SAFE_DISABLED":"⚪"}
+ filter_cols=st.columns([1.25,1.25,2.5])
+ with filter_cols[0]:
+  health_options=["الكل","HEALTHY","WAITING","ATTENTION","SAFE_DISABLED"]
+  health_filter=st.selectbox(
+   "تصفية حسب الحالة",health_options,
+   format_func=lambda value:{"الكل":"كل الحالات","HEALTHY":"يعمل","WAITING":"بانتظار البيانات","ATTENTION":"تنبيه / خلل","SAFE_DISABLED":"تعطيل آمن"}[value],
+   key="mirsad_health_filter",
+  )
+ with filter_cols[1]:
+  engine_options=["الكل"]+groups
+  engine_filter=st.selectbox(
+   "تصفية حسب المحرك",engine_options,
+   format_func=lambda value:"كل المحركات" if value=="الكل" else value,
+   key="mirsad_engine_filter",
+  )
+ with filter_cols[2]:
+  search=st.text_input("ابحث في الأدوات والتشخيص","",placeholder="اسم الأداة أو الحالة أو سبب الانتظار…",key="mirsad_health_search")
+ filtered=[]
+ needle=search.strip().casefold()
+ for item in items:
+  if health_filter!="الكل" and item.get("health")!=health_filter:
+   continue
+  if engine_filter!="الكل" and item.get("engine")!=engine_filter:
+   continue
+  searchable=" ".join(str(item.get(key,"")) for key in ("component","status","status_label","detail","source","engine")).casefold()
+  if needle and needle not in searchable:
+   continue
+  filtered.append(item)
+ tabs=st.tabs(["التشغيل","1 · السوق","2 · التحليل","3 · المؤشرات","4 · القرار","5 · الجسر"])
+ icons={"HEALTHY":"✓","WAITING":"◷","ATTENTION":"!","SAFE_DISABLED":"⌑"}
+ colors={
+  "HEALTHY":("#E6F0E9","#2D7254","#2D7254"),
+  "WAITING":("#F5EDDC","#9A6B24","#9A6B24"),
+  "ATTENTION":("#F7E8E5","#B94E49","#B94E49"),
+  "SAFE_DISABLED":("#ECEDEA","#61696A","#858C8D"),
+ }
  for tab,group in zip(tabs,groups):
-  selected=[item for item in items if item.get("engine")==group]
+  selected=[item for item in filtered if item.get("engine")==group]
   with tab:
    if not selected:
-    st.info("لا توجد بيانات تشخيصية لهذا القسم في آخر دورة.")
+    st.info("لا توجد أدوات تطابق عوامل التصفية في هذا القسم.")
     continue
    healthy=sum(item.get("health")=="HEALTHY" for item in selected)
    waiting=sum(item.get("health")=="WAITING" for item in selected)
    attention=sum(item.get("health")=="ATTENTION" for item in selected)
    safe=sum(item.get("health")=="SAFE_DISABLED" for item in selected)
-   st.caption(f"{len(selected)} مكونات · يعمل {healthy} · ينتظر {waiting} · يحتاج متابعة {attention} · تعطيل آمن {safe}")
+   st.caption(f"{len(selected)} مكونات معروضة · يعمل {healthy} · ينتظر {waiting} · يحتاج متابعة {attention} · تعطيل آمن {safe}")
    for start in range(0,len(selected),2):
     cols=st.columns(2)
     for col,item in zip(cols,selected[start:start+2]):
      with col:
       with st.container(border=True):
-       left,right=st.columns([3,2])
-       with left:
-        st.markdown(f"**{item.get('component','مكوّن غير مسمى')}**")
-       with right:
-        level=item.get("health","WAITING")
-        st.markdown(f"{icons.get(level,'⚪')} **{item.get('health_label','بانتظار البيانات')}**")
+       level=item.get("health","WAITING")
+       bg,fg,dot=colors.get(level,colors["WAITING"])
+       st.markdown(
+        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'
+        f'<div style="font-size:14px;font-weight:750;color:#30363A">{item.get("component","مكوّن غير مسمى")}</div>'
+        f'<span style="display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:5px 10px;background:{bg};color:{fg};font-size:11px;font-weight:750;white-space:nowrap">'
+        f'<span style="width:7px;height:7px;border-radius:50%;background:{dot};display:inline-block"></span>{item.get("health_label","بانتظار البيانات")}</span></div>',
+        unsafe_allow_html=True,
+       )
        st.caption(f"حالة المصدر: {item.get('status_label',item.get('status','غير متاح'))}")
        st.write(item.get("detail","لا توجد تفاصيل إضافية."))
+       st.caption(f"المحرك: {item.get('engine','—')} · المصدر: {item.get('source','غير محدد')}")
 
 
 def render_engine_dashboard():
