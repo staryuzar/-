@@ -393,10 +393,44 @@ def validate_mt5_geometry_overlay(
         })
 
     matched.sort(key=lambda row: row["slot_index"])
+
+    def coordinate_range(values: list[float]) -> dict[str, float | None]:
+        if not values:
+            return {"min": None, "max": None, "span": None}
+        return {
+            "min": round(min(values), 3),
+            "max": round(max(values), 3),
+            "span": round(max(values) - min(values), 3),
+        }
+
+    coordinate_diagnostics = {
+        "x_source": coordinate_range([row["x_source"] for row in matched]),
+        "x_image": coordinate_range([row["x_image"] for row in matched]),
+        "y_source": {
+            name: coordinate_range([row["y_source"][name] for row in matched])
+            for name in _POINT_FIELDS
+        },
+        "y_image": {
+            name: coordinate_range([row["y_image"][name] for row in matched])
+            for name in _POINT_FIELDS
+        },
+        "sample_matches": [
+            {
+                "slot_index": row["slot_index"],
+                "x_source": round(row["x_source"], 3),
+                "x_image": round(row["x_image"], 3),
+                "y_source": {name: round(row["y_source"][name], 3) for name in _POINT_FIELDS},
+                "y_image": {name: round(row["y_image"][name], 3) for name in _POINT_FIELDS},
+            }
+            for row in matched[:3]
+        ],
+    }
+
     if len(matched) < 8:
         return fail("INSUFFICIENT_MATCHED_CANDLES",
                     "At least eight exact-slot native/image candle pairs are required.",
-                    matched_candles=len(matched))
+                    matched_candles=len(matched),
+                    coordinate_diagnostics=coordinate_diagnostics)
 
     fit_rows = [row for row in matched if row["slot_index"] % 4 != 0]
     holdout_rows = [row for row in matched if row["slot_index"] % 4 == 0]
@@ -462,6 +496,7 @@ def validate_mt5_geometry_overlay(
             residual_limit_px=residual_limit_px, validation_rows=validation_rows,
             x_scale=round(x_scale, 8), x_offset=round(x_offset, 4),
             y_scale=round(y_scale, 8), y_offset=round(y_offset, 4),
+            coordinate_diagnostics=coordinate_diagnostics,
         )
 
     return {
@@ -482,6 +517,7 @@ def validate_mt5_geometry_overlay(
         "y_scale": round(y_scale, 8),
         "y_offset": round(y_offset, 4),
         "validation_rows": validation_rows,
+        "coordinate_diagnostics": coordinate_diagnostics,
     }
 
 
