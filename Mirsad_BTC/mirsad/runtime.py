@@ -139,7 +139,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "reason":candle_history.get("reason"),
  }
  chart["engine_2_multi_timeframe_structure"]=engine2_multitimeframe
- decision=DecisionEngine().analyze(market,chart,bridge,indicators)
+ decision=DecisionEngine().analyze(market,chart,bridge,indicators,engine2_price_action=engine2_price_action)
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
  if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
   command_publish=bridge_adapter.publish_decision(decision,bridge)
