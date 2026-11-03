@@ -749,7 +749,13 @@ class BridgeProtocolTests(unittest.TestCase):
             [{"ticket": 11, "symbol": "BTC", "type": 0, "magic": 26110201, "volume": 0.2}],
             now - 200,
         )
+        same_second = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack, command,
+            [{"ticket": 11, "symbol": "BTC", "type": 0, "magic": 26110201, "volume": 0.2}],
+            now - 100,
+        )
         self.assertEqual(stale["status"], "AWAITING_POST_ACK_TELEMETRY")
+        self.assertEqual(same_second["status"], "AWAITING_POST_ACK_TELEMETRY")
         confirmed = MT5BridgeEngine._reconcile_ack_with_positions(
             ack, command,
             [{"ticket": 11, "symbol": "BTC", "type": 0, "magic": 26110201, "volume": 0.2}],

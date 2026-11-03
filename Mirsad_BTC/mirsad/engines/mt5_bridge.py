@@ -135,10 +135,13 @@ class MT5BridgeEngine:
             ack_at = heartbeat = 0
         if ack_at <= 0 or heartbeat <= 0:
             return outcome("ACK_TIMESTAMP_INVALID", "ACK and heartbeat timestamps are required for reconciliation.")
-        if heartbeat < ack_at:
+        # MQL5's UTC millisecond helper is second-resolution. Equality can
+        # therefore mean "telemetry was written immediately before the ACK".
+        # Require a strictly later second to prove a post-ACK position read.
+        if heartbeat <= ack_at:
             return outcome(
                 "AWAITING_POST_ACK_TELEMETRY",
-                "The current MT5 heartbeat predates the FILLED ACK; wait for a newer positions snapshot.",
+                "The current MT5 heartbeat is not strictly later than the FILLED ACK; wait for a newer positions snapshot.",
                 ack_at_ms=ack_at,
                 heartbeat_at_ms=heartbeat,
             )
