@@ -13,6 +13,7 @@ from mirsad.engines.mt5_chart_candles import MT5ChartCandleHistory
 from mirsad.engines.mt5_market import MT5MarketDataEngine
 from mirsad.engines.mt5_native_indicators import (
     REQUIRED_INDICATORS,
+    REQUIRED_TIMEFRAMES,
     TIMEFRAMES,
     MT5NativeIndicatorHistory,
 )
@@ -93,6 +94,7 @@ def validate(
 
     native_frames = indicators.get("timeframes") or {}
     ready_indicator_counts: dict[str, int] = {}
+    optional_indicator_gaps: dict[str, list[str]] = {}
     for timeframe in TIMEFRAMES:
         frame = native_frames.get(timeframe) or {}
         values = frame.get("values") or {}
@@ -106,11 +108,13 @@ def validate(
             if not isinstance(values.get(name), dict)
             or values[name].get("status") != "READY"
         ]
-        if missing_core:
+        if missing_core and timeframe in REQUIRED_TIMEFRAMES:
             engine3_warnings.append(
                 f"native indicators: {timeframe} missing core values "
                 + ", ".join(missing_core)
             )
+        elif missing_core:
+            optional_indicator_gaps[timeframe] = missing_core
 
     engine2_status = "READY" if not engine2_failures else "FAILED"
     engine3_status = "READY" if not engine3_warnings else "PARTIAL"
@@ -164,6 +168,8 @@ def validate(
             "source": indicators.get("source"),
             "ready_timeframe_count": indicators.get("ready_timeframe_count"),
             "ready_indicator_count_by_timeframe": ready_indicator_counts,
+            "required_timeframes": list(REQUIRED_TIMEFRAMES),
+            "optional_timeframe_missing_core_values": optional_indicator_gaps,
             "timeframes": list(native_frames.keys()),
         },
         "failures": engine2_failures + engine3_warnings,
