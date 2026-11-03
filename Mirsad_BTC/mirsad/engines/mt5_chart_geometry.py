@@ -10,7 +10,7 @@ _POINT_FIELDS = ("open", "high", "low", "close")
 
 def native_geometry_visible_y_max(native_geometry: Any) -> float | None:
     """Return the greatest provisional image Y among valid visible native OHLC points."""
-    if not isinstance(native_geometry, dict):
+    if not isinstance(native_geometry, dict) or native_geometry.get("status") != "READY_FOR_PIXEL_ALIGNMENT":
         return None
     bars = native_geometry.get("bars")
     if not isinstance(bars, list):
