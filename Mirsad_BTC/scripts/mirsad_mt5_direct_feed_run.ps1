@@ -622,10 +622,14 @@ public static class MirsadNativeWindow {
         throw 'Image-free direct MT5 feed reader validation failed.'
     }
     $directSummary = Get-Content -LiteralPath $directOutput -Raw | ConvertFrom-Json
-    if ([string]$directSummary.status -ne 'READY') {
-        throw 'Image-free direct MT5 feed summary is not READY.'
+    if ([string]$directSummary.engine2.status -ne 'READY') {
+        throw 'Engine 2 native MT5 market/OHLC feed is not READY.'
     }
-    Add-Report ("PASS — Market feed={0}; OHLC candles={1}; native MT5 indicators={2}; ready frames={3}." -f $directSummary.market.status,$directSummary.candles.status,$directSummary.native_indicators.status,$directSummary.native_indicators.ready_timeframe_count)
+    Add-Report ("PASS — Engine 2 feed: market={0}; native OHLC candles={1}." -f $directSummary.market.status,$directSummary.candles.status)
+    Add-Report ("Engine 3 native indicator feed: {0}; ready timeframes={1}." -f $directSummary.engine3.status,$directSummary.native_indicators.ready_timeframe_count)
+    if ([string]$directSummary.engine3.status -ne 'READY') {
+        Add-Report 'WARN — Engine 3 indicator feed is partial; Engine 2 price-action analysis continues independently.'
+    }
     Add-Report ("Direct movement: quote ticks={0}; Last ticks={1}; volume updates={2}; depth={3}." -f $directSummary.market.quote_tick_count,$directSummary.market.last_price_tick_count,$directSummary.market.volume_update_count,$directSummary.market.depth_of_market_status)
     $priceActionAnalyzer = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\\scripts\\analyze_mt5_native_price_action.py'
     $priceActionOutput = Join-Path $evidence 'engine2-price-action-analysis.json'

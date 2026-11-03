@@ -84,13 +84,15 @@ class DirectFeedValidatorTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["engine2"]["status"], "READY")
+        self.assertEqual(result["engine3"]["status"], "READY")
         self.assertFalse(result["image_capture_enabled"])
         self.assertFalse(result["decision_eligible"])
         self.assertEqual(result["candles"]["timeframes"]["1m"], 120)
         self.assertEqual(result["native_indicators"]["ready_timeframe_count"], 6)
         self.assertFalse(result["safety"]["trading_api_used"])
 
-    def test_direct_feed_fails_when_native_indicators_are_partial(self) -> None:
+    def test_engine2_feed_remains_ready_when_native_indicators_are_partial(self) -> None:
         partial = ready_indicators()
         partial["status"] = "PARTIAL"
         with tempfile.TemporaryDirectory() as directory:
@@ -114,8 +116,11 @@ class DirectFeedValidatorTests(unittest.TestCase):
                     broker_symbol="BTC",
                     expected_server="Headway-Demo",
                 )
-        self.assertEqual(result["status"], "FAILED")
-        self.assertTrue(any("native indicator feed" in item for item in result["failures"]))
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertEqual(result["engine2"]["status"], "READY")
+        self.assertEqual(result["engine3"]["status"], "PARTIAL")
+        self.assertFalse(result["engine2"]["failures"])
+        self.assertTrue(any("native indicator feed" in item for item in result["engine3"]["warnings"]))
 
 
 if __name__ == "__main__":

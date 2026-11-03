@@ -608,7 +608,7 @@ def scan_historical_structure_events(
     """
     from .chart_classical_patterns import detect_classical_reversal_patterns
     from .chart_continuation_patterns import detect_classical_continuation_patterns
-    from .chart_structure_knowledge import _pivots, _true_ranges
+    from .chart_structure_knowledge import _pivots
 
     if not isinstance(pivot_left, int) or pivot_left < 1:
         raise ValueError("pivot_left must be a positive integer")
@@ -635,7 +635,10 @@ def scan_historical_structure_events(
             "lookahead_policy": "closed_prefix_replay",
         }
 
-    true_ranges = _true_ranges(normalised_bars)
+    candle_ranges = [
+        float(bar["high"]) - float(bar["low"])
+        for bar in normalised_bars
+    ]
     interval_ms = CANDLE_INTERVAL_MS[timeframe]
     events_by_identity: dict[tuple[str, str, int], dict[str, Any]] = {}
     prefixes_scanned = 0
@@ -646,13 +649,13 @@ def scan_historical_structure_events(
         prefixes_scanned += 1
         swing_highs = _pivots(prefix, pivot_left, pivot_right, "high")
         swing_lows = _pivots(prefix, pivot_left, pivot_right, "low")
-        atr = median(true_ranges[max(0, end_index - 13):end_index + 1])
+        range_reference = median(candle_ranges[max(0, end_index - 13):end_index + 1])
 
         reversal = detect_classical_reversal_patterns(
-            prefix, swing_highs, swing_lows, atr=atr
+            prefix, swing_highs, swing_lows, range_reference=range_reference
         )
         continuation = detect_classical_continuation_patterns(
-            prefix, swing_highs, swing_lows, atr=atr
+            prefix, swing_highs, swing_lows, range_reference=range_reference
         )
         for pattern in reversal:
             if (

@@ -40,30 +40,28 @@ def validate(
         symbol=market_symbol,
     ).collect(candle_history=candles)
 
-    failures: list[str] = []
+    engine2_failures: list[str] = []
+    engine3_warnings: list[str] = []
     if market.get("status") != "LIVE":
-        failures.append(f"market feed: {market.get('status')} — {market.get('reason')}")
+        engine2_failures.append(f"market feed: {market.get('status')} — {market.get('reason')}")
     if candles.get("status") != "READY":
-        failures.append(f"candle feed: {candles.get('status')} — {candles.get('reason')}")
-    if indicators.get("status") != "READY":
-        failures.append(f"native indicator feed: {indicators.get('status')} — {indicators.get('reason')}")
+        engine2_failures.append(f"candle feed: {candles.get('status')} — {candles.get('reason')}")
 
-    broker_symbols = {
-        "market": str((market.get("feed_health") or {}).get("broker_symbol", "")).strip(),
-        "candles": str(candles.get("broker_symbol", "")).strip(),
-        "native indicators": str(indicators.get("broker_symbol", "")).strip(),
-    }
-    for feed_name, actual_symbol in broker_symbols.items():
+    market_symbol_actual = str((market.get("feed_health") or {}).get("broker_symbol", "")).strip()
+    candle_symbol_actual = str(candles.get("broker_symbol", "")).strip()
+    for feed_name, actual_symbol in (("market", market_symbol_actual), ("candles", candle_symbol_actual)):
         if actual_symbol != broker_symbol:
-            failures.append(
+            engine2_failures.append(
                 f"{feed_name}: broker symbol mismatch (expected {broker_symbol}, got {actual_symbol or 'missing'})"
             )
+    indicator_symbol_actual = str(indicators.get("broker_symbol", "")).strip()
+    if indicator_symbol_actual != broker_symbol:
+        engine3_warnings.append(
+            "native indicators: broker symbol mismatch "
+            f"(expected {broker_symbol}, got {indicator_symbol_actual or 'missing'})"
+        )
 
-    for feed_name, feed in (
-        ("market", market),
-        ("candles", candles),
-        ("native indicators", indicators),
-    ):
+    for feed_name, feed in (("market", market), ("candles", candles)):
         server = str(
             feed.get("feed_health", {}).get("account_server", "")
             if feed_name == "market"
@@ -72,12 +70,22 @@ def validate(
         if feed_name != "market" and not server:
             server = str((feed.get("account") or {}).get("server", "")).strip()
         if expected_server and server and server.casefold() != expected_server.casefold():
-            failures.append(f"{feed_name}: broker server identity mismatch")
+            engine2_failures.append(f"{feed_name}: broker server identity mismatch")
+
+    indicator_server = str(indicators.get("account_server", "")).strip()
+    if not indicator_server:
+        indicator_server = str((indicators.get("account") or {}).get("server", "")).strip()
+    if expected_server and indicator_server and indicator_server.casefold() != expected_server.casefold():
+        engine3_warnings.append("native indicators: broker server identity mismatch")
+    if indicators.get("status") != "READY":
+        engine3_warnings.append(
+            f"native indicator feed: {indicators.get('status')} — {indicators.get('reason')}"
+        )
 
     candle_frames = candles.get("timeframes") or {}
     for timeframe in TIMEFRAMES:
         if int(candle_frames.get(timeframe, 0) or 0) < 2:
-            failures.append(f"candles: {timeframe} timeframe is missing or too short")
+            engine2_failures.append(f"candles: {timeframe} timeframe is missing or too short")
 
     native_frames = indicators.get("timeframes") or {}
     ready_indicator_counts: dict[str, int] = {}
@@ -95,17 +103,35 @@ def validate(
             or values[name].get("status") != "READY"
         ]
         if missing_core:
-            failures.append(
+            engine3_warnings.append(
                 f"native indicators: {timeframe} missing core values "
                 + ", ".join(missing_core)
             )
+
+    engine2_status = "READY" if not engine2_failures else "FAILED"
+    engine3_status = "READY" if not engine3_warnings else "PARTIAL"
+    overall_status = (
+        "READY" if engine2_status == "READY" and engine3_status == "READY"
+        else "PARTIAL" if engine2_status == "READY"
+        else "FAILED"
+    )
 
     context = market.get("market_context") or {}
     pulse = context.get("microstructure") or {}
     book = context.get("order_book") or {}
     result = {
-        "schema": "MIR-MT5-DIRECT-FEED-VALIDATION-1",
-        "status": "READY" if not failures else "FAILED",
+        "schema": "MIR-MT5-DIRECT-FEED-VALIDATION-2",
+        "status": overall_status,
+        "engine2": {
+            "status": engine2_status,
+            "source": "NATIVE_MT5_OHLC",
+            "failures": engine2_failures,
+        },
+        "engine3": {
+            "status": engine3_status,
+            "source": "MT5_COPYBUFFER",
+            "warnings": engine3_warnings,
+        },
         "image_capture_enabled": False,
         "decision_eligible": False,
         "read_only": True,
@@ -136,7 +162,8 @@ def validate(
             "ready_indicator_count_by_timeframe": ready_indicator_counts,
             "timeframes": list(native_frames.keys()),
         },
-        "failures": failures,
+        "failures": engine2_failures + engine3_warnings,
+        "warnings": engine3_warnings,
         "safety": {
             "trading_api_used": False,
             "execution_ea_loaded": False,
@@ -174,14 +201,18 @@ def main() -> int:
     )
     print(json.dumps({
         "status": report["status"],
+        "engine2_status": report["engine2"]["status"],
+        "engine3_status": report["engine3"]["status"],
         "image_capture_enabled": False,
         "market": report["market"]["status"],
         "candles": report["candles"]["status"],
         "native_indicators": report["native_indicators"]["status"],
         "ready_timeframes": report["native_indicators"]["ready_timeframe_count"],
-        "failures": report["failures"],
+        "failures": report["engine2"]["failures"],
+        "engine3_warnings": report["engine3"]["warnings"],
     }, ensure_ascii=False))
-    return 0 if report["status"] == "READY" else 1
+    # Engine 2 is validated independently from Engine 3's CopyBuffer status.
+    return 0 if report["engine2"]["status"] == "READY" else 1
 
 
 if __name__ == "__main__":
