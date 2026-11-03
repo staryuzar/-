@@ -52,6 +52,8 @@ def ready_indicators() -> dict:
     return {
         "status": "READY",
         "source": "MT5_COPYBUFFER",
+        "broker_symbol": "BTC",
+        "account_server": "Headway-Demo",
         "ready_timeframe_count": 6,
         "timeframes": frames,
     }
