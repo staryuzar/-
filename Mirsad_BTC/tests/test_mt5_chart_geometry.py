@@ -378,12 +378,13 @@ class NativeGeometrySlotAssignmentTests(unittest.TestCase):
             for index in range(80)
         ]
         extracted = [
-            {"x_px": 1.01 * slot["x_px"] + 2.0, "colour": "GREEN"}
+            {"x_px": 1.01 * slot["x_px"] + 2.0, "slot_index": slot["slot_index"], "colour": "GREEN"}
             for slot in native_slots
         ]
         assigned, diagnostics = assign_native_geometry_slots(extracted, native_slots)
         self.assertEqual(diagnostics["status"], "PROVISIONAL_ASSIGNMENT")
         self.assertTrue(diagnostics["x_affine_refinement_used"])
+        self.assertEqual(diagnostics["x_affine_refinement_source"], "PREEXISTING_SLOT_ID_ANCHORS")
         self.assertAlmostEqual(diagnostics["x_affine_scale"], 1.01, places=5)
         self.assertAlmostEqual(diagnostics["x_affine_offset_px"], 2.0, places=4)
         self.assertEqual(diagnostics["matched_candles"], len(native_slots))

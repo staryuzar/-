@@ -387,17 +387,53 @@ def assign_native_geometry_slots(
         pairs.reverse()
         return pairs
 
-    pairs = match_slots(native_slots, tolerance)
+    pairs: list[tuple[int, int]] = []
     aligned_native_slots = [dict(item) for item in native_slots]
     x_scale, x_offset = 1.0, 0.0
     x_refinement_used = False
-    if len(pairs) >= 8:
+    x_refinement_source = "NOT_USED"
+
+    # The slot IDs emitted by slot-guided extraction are provisional spatial
+    # hints, but they preserve a global slot identity. Use only exact ID
+    # correspondences spanning enough of the viewport to estimate the affine
+    # screenshot transform; then re-match all candles against transformed native
+    # centers. This avoids a local DP match jumping by one candle after scale drift.
+    native_index_by_slot = {
+        int(item["slot_index"]): index
+        for index, item in enumerate(native_slots)
+    }
+    extracted_index_by_original = {
+        int(item["original_index"]): index
+        for index, item in enumerate(extracted_rows)
+    }
+    hint_pairs: list[tuple[int, int]] = []
+    for original_index, item in enumerate(extracted_bars):
+        if not isinstance(item, dict):
+            continue
+        try:
+            slot = int(item.get("slot_index"))
+            float(item["x_px"])
+            native_index = native_index_by_slot.get(slot)
+            extracted_index = extracted_index_by_original.get(original_index)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if native_index is not None and extracted_index is not None:
+            hint_pairs.append((native_index, extracted_index))
+
+    if len(hint_pairs) >= 8:
+        hint_x = [float(native_slots[a]["x_px"]) for a, _ in hint_pairs]
+        native_span = max(float(item["x_px"]) for item in native_slots) - min(
+            float(item["x_px"]) for item in native_slots
+        )
+        hint_coverage = (
+            (max(hint_x) - min(hint_x)) / native_span if native_span > 0 else 0.0
+        )
         seed_pairs = [
             (
                 float(native_slots[native_index]["x_px"]),
                 float(extracted_rows[extracted_index]["x_px"]),
             )
-            for native_index, extracted_index in pairs
+            for native_index, extracted_index in hint_pairs
         ]
         slopes = [
             (y2 - y1) / (x2 - x1)
@@ -405,7 +441,7 @@ def assign_native_geometry_slots(
             for x2, y2 in seed_pairs[index + 1:]
             if abs(x2 - x1) >= spacing * 2.0
         ]
-        if slopes:
+        if slopes and hint_coverage >= 0.25:
             candidate_scale = float(median(slopes))
             candidate_offset = float(median(
                 y - candidate_scale * x for x, y in seed_pairs
@@ -417,12 +453,16 @@ def assign_native_geometry_slots(
             image_width = max(
                 float(row["x_px"]) for row in extracted_rows
             ) - min(float(row["x_px"]) for row in extracted_rows)
+            inlier_ratio = sum(
+                residual <= tolerance for residual in transform_residuals
+            ) / len(transform_residuals)
             transform_is_plausible = (
                 math.isfinite(candidate_scale)
                 and math.isfinite(candidate_offset)
                 and 0.80 <= candidate_scale <= 1.20
                 and abs(candidate_offset) <= max(40.0, image_width * 0.08)
                 and float(median(transform_residuals)) <= max(2.5, tolerance * 0.75)
+                and inlier_ratio >= 0.75
             )
             if transform_is_plausible:
                 candidate_slots = [
@@ -433,25 +473,15 @@ def assign_native_geometry_slots(
                     for item in native_slots
                 ]
                 refined_pairs = match_slots(candidate_slots, tolerance)
-                initial_error = sum(
-                    abs(float(native_slots[a]["x_px"]) - float(extracted_rows[j]["x_px"]))
-                    for a, j in pairs
-                )
-                refined_error = sum(
-                    abs(float(candidate_slots[a]["x_px"]) - float(extracted_rows[j]["x_px"]))
-                    for a, j in refined_pairs
-                )
-                if (
-                    len(refined_pairs) > len(pairs)
-                    or (
-                        len(refined_pairs) == len(pairs)
-                        and refined_error < initial_error - 1e-6
-                    )
-                ):
+                if len(refined_pairs) >= len(hint_pairs):
                     pairs = refined_pairs
                     aligned_native_slots = candidate_slots
                     x_scale, x_offset = candidate_scale, candidate_offset
                     x_refinement_used = True
+                    x_refinement_source = "PREEXISTING_SLOT_ID_ANCHORS"
+
+    if not pairs:
+        pairs = match_slots(native_slots, tolerance)
 
     if len(pairs) < 8:
         return fail(
@@ -530,6 +560,7 @@ def assign_native_geometry_slots(
         "decision_eligible": False,
         "method": "monotonic_one_to_one_x_match_with_provisional_affine_refinement",
         "x_affine_refinement_used": x_refinement_used,
+        "x_affine_refinement_source": x_refinement_source,
         "x_affine_scale": round(x_scale, 8),
         "x_affine_offset_px": round(x_offset, 4),
         "matched_candles": len(pairs),
