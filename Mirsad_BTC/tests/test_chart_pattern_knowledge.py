@@ -108,8 +108,10 @@ class ChartPatternKnowledgeTests(unittest.TestCase):
         self.assertNotIn("dark_cloud_cover", ids(rejected))
 
     def test_current_open_candle_is_marked_forming(self) -> None:
+        history = [candle(100, 110, 90, 100.2) for _ in range(10)]
         result = analyze_candle_patterns(
-            [candle(100, 101, 99, 100.01)], last_candle_closed=False
+            history + [candle(100, 101, 99, 100.5)],
+            last_candle_closed=False,
         )
         doji = [x for x in result["detected"] if x["pattern_id"] == "doji"]
         self.assertTrue(doji)
