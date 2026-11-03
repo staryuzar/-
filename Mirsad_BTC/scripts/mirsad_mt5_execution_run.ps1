@@ -119,7 +119,7 @@ Period=M1
  $accountPassword=$null;$credentialRaw=$null;$obj=$null
  $terminalProcess=Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable',"/config:$loginConfig","/login:$login") -WorkingDirectory $installDir -PassThru
  Add-Report 'MT5 started with Mirsad EA configured for BTC,M1. No command.json was created.'
- $loginStarted=Get-Date;$authorized=$false;$heartbeat=$false;$folder=$null;$telemetry=$null
+ $loginStarted=Get-Date;$authorized=$false;$heartbeat=$false;$quoteFresh=$false;$folder=$null;$telemetry=$null
  $deadline=(Get-Date).AddSeconds(150)
  while((Get-Date)-lt $deadline){
   $logDir=Join-Path $installDir 'Logs'
@@ -142,15 +142,20 @@ Period=M1
     $heartbeat=($telemetry.schema -eq 'MIR1' -and [bool]$telemetry.terminal_connected -and
       -not [bool]$telemetry.execution_enabled -and
       [int64]$telemetry.heartbeat_at_ms -gt 0 -and $telemetry.symbol -eq 'BTC')
-   }catch{$heartbeat=$false}
+    $tickAgeValue=$telemetry.quote.tick_age_seconds
+    $tickAge=[double]$tickAgeValue
+    $quoteFresh=($null -ne $tickAgeValue -and [double]$telemetry.quote.ask -gt 0 -and
+      $tickAge -ge 0 -and $tickAge -le 10)
+   }catch{$heartbeat=$false;$quoteFresh=$false}
   }
-  if($authorized -and $heartbeat){break}
+  if($authorized -and $heartbeat -and $quoteFresh){break}
   if($terminalProcess.HasExited){Add-Report 'Terminal exited before both authorization and EA heartbeat.';break}
   Start-Sleep -Seconds 3
  }
  if(!$authorized){throw 'Headway demo authorization was not confirmed.'}
  Add-Report 'PASS — MT5 authorized on the Headway demo server.'
  if(!$heartbeat){throw 'MT5 logged in but the Mirsad EA heartbeat was not observed with execution disabled.'}
+ if(!$quoteFresh){throw 'MT5 demo quote did not become fresh within the 150-second observation window.'}
  Add-Report 'PASS — Mirsad EA heartbeat is live and its internal execution switch is OFF.'
  Add-Report ("Broker symbol: {0}; market mapping: {1}; account currency: {2}" -f $telemetry.symbol,$telemetry.market_symbol,$telemetry.account.currency)
  Add-Report ("Current Ask quote available: {0}" -f ([double]$telemetry.quote.ask -gt 0))
