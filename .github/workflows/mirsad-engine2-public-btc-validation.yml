@@ -2,7 +2,7 @@ name: Mirsad Engine 2 — Public BTC OHLC Validation
 
 on:
   push:
-    branches: [mirsad-engine2-native-analysis]
+    branches: [main, mirsad-engine2-native-analysis]
     paths:
       - 'Mirsad_BTC/scripts/validate_engine2_public_btc.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
