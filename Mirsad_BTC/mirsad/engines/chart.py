@@ -28,7 +28,10 @@ from .chart_ocr import (
 from .chart_pattern_reference import analyze_talib_pattern_reference
 from .chart_pattern_knowledge import analyze_candle_patterns
 from .chart_structure_knowledge import analyze_chart_structure_knowledge
-from .mt5_chart_geometry import assign_native_geometry_slots
+from .mt5_chart_geometry import (
+    assign_native_geometry_slots,
+    infer_regular_chart_slot_centers,
+)
 from .visual_knowledge import (
     seed_visual_knowledge,
     visual_knowledge_summary,
@@ -408,11 +411,43 @@ def analyze_chart_image(
             "mapping_verified": False,
             "decision_eligible": False,
         }
+        regular_grid_slot_inference: dict[str, Any] = {
+            "status": "NOT_REQUESTED",
+            "mapping_verified": False,
+            "decision_eligible": False,
+        }
+        regular_grid_slot_assignment: dict[str, Any] = {
+            "status": "NOT_REQUESTED",
+            "mapping_verified": False,
+            "decision_eligible": False,
+        }
         native_slot_centers = meta.get("native_geometry_slot_centers")
         if isinstance(native_slot_centers, list) and native_slot_centers:
             bars, native_geometry_slot_assignment = assign_native_geometry_slots(
                 bars, native_slot_centers
             )
+        elif meta.get("infer_regular_chart_slots") is True:
+            try:
+                rightmost_anchor_ratio = float(meta.get("reference_last_candle_x_ratio"))
+                anchor_tolerance_ratio = float(
+                    meta.get("reference_last_candle_x_ratio_tolerance", 0.025)
+                )
+            except (TypeError, ValueError, OverflowError):
+                rightmost_anchor_ratio = float("nan")
+                anchor_tolerance_ratio = 0.025
+            regular_grid_slot_inference = infer_regular_chart_slot_centers(
+                bars,
+                expected_candle_count=expected_count,
+                image_width=image_width,
+                reference_last_candle_x_ratio=rightmost_anchor_ratio,
+                anchor_tolerance_ratio=anchor_tolerance_ratio,
+            )
+            if regular_grid_slot_inference.get("status") == "READY_PROVISIONAL":
+                bars, regular_grid_slot_assignment = assign_native_geometry_slots(
+                    bars,
+                    regular_grid_slot_inference.get("slots", []),
+                    source="DATASET_RIGHT_EDGE_REGULAR_GRID",
+                )
         has_slot_indices = any(
             isinstance(item, dict) and "slot_index" in item for item in bars
         )
@@ -862,6 +897,8 @@ def analyze_chart_image(
         ),
         "reference_multi_calibration": reference_multi_calibration,
         "native_geometry_slot_assignment": native_geometry_slot_assignment,
+        "regular_grid_slot_inference": regular_grid_slot_inference,
+        "regular_grid_slot_assignment": regular_grid_slot_assignment,
         "reference_slot_diagnostics": {
             "candidate_count": len(reference_candidates),
             "visible_candidate_count": sum(
