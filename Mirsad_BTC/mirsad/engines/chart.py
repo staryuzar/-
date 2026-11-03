@@ -304,6 +304,7 @@ def analyze_chart_image(
                             axis_fit.get("ticks", []),
                             plot_top_px=calibration["plot_top_px"],
                             current_plot_bottom_px=calibration["plot_bottom_px"],
+                            native_max_y_image_px=meta.get("native_geometry_max_y_image_px"),
                         )
                     if bottom_refinement.get("status") == "REFINED":
                         refined_bottom = int(bottom_refinement["plot_bottom_px"])
