@@ -22,7 +22,7 @@ permissions:
 
 concurrency:
   group: mirsad-btc-live-validation-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   live-market-check:
