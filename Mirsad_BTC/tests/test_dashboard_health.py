@@ -66,6 +66,13 @@ class ComponentHealthTests(unittest.TestCase):
         self.assertEqual(by_name["تغذية السوق وسعر MT5"]["health"], "ATTENTION")
         self.assertEqual(by_name["تطابق هوية الصورة مع بيانات التحليل"]["status"], "HASH_MISMATCH")
 
+    def test_observer_capture_gate_failures_are_attention_not_waiting(self) -> None:
+        state = self.healthy_state()
+        state["chart"]["status"] = "OBSERVER_INBOX_VALIDATION_BLOCKED"
+        state["chart"]["decision_eligible"] = False
+        item = next(x for x in build_component_health(state) if x["component"] == "تحليل الصورة وأهلية المعايرة")
+        self.assertEqual(item["health"], "ATTENTION")
+
     def test_missing_telemetry_is_never_reported_as_healthy(self) -> None:
         self.assertEqual(build_component_health({}), [])
         state = {"heartbeat_at_ms": 0, "execution_controls": {"order_publish_enabled": False}}

@@ -114,6 +114,84 @@ jobs:
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_market_candle_timezones.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_run_structure_study.py' -v
 
+      - name: Smoke-test Mirsad dashboard startup and health endpoint
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          import time
+          import urllib.request
+          from pathlib import Path
+
+          data_dir = Path(tempfile.mkdtemp(prefix="mirsad-dashboard-smoke-"))
+          os.environ["MIRSAD_DATA_DIR"] = str(data_dir)
+          from mirsad.health import build_component_health, summarize_component_health
+
+          state = {
+              "heartbeat_at_ms": int(time.time() * 1000),
+              "overall_status": "PARTIAL_OR_WAITING",
+              "engines": {},
+              "market": {},
+              "chart": {},
+              "indicators": {},
+              "engine_2_candles": {},
+              "engine_2_multi_timeframe_structure": {},
+              "engine_2_price_action": {},
+              "mt5_native_indicators": {},
+              "chart_observer": {},
+              "bridge": {},
+              "decision": {},
+              "daily_risk": {"enabled": False, "mode": "DISABLED_FOR_DEVELOPMENT"},
+              "command_publish": {"status": "NOT_READY"},
+              "execution_controls": {"order_publish_enabled": False},
+          }
+          state["component_health"] = build_component_health(state)
+          state["component_health_summary"] = summarize_component_health(state["component_health"])
+          (data_dir / "system_status.json").write_text(json.dumps(state), encoding="utf-8")
+          log_path = data_dir / "streamlit.log"
+          env = os.environ.copy()
+          app = Path("Mirsad_BTC/dashboard.py").resolve()
+          process = None
+          try:
+              with log_path.open("w", encoding="utf-8") as log:
+                  process = subprocess.Popen(
+                      [sys.executable, "-m", "streamlit", "run", str(app),
+                       "--server.address", "127.0.0.1", "--server.port", "8767",
+                       "--server.headless", "true", "--browser.gatherUsageStats", "false"],
+                      env=env, stdout=log, stderr=subprocess.STDOUT,
+                  )
+                  deadline = time.monotonic() + 35
+                  healthy = False
+                  while time.monotonic() < deadline and process.poll() is None:
+                      try:
+                          with urllib.request.urlopen("http://127.0.0.1:8767/_stcore/health", timeout=2) as response:
+                              healthy = response.status == 200
+                          if healthy:
+                              with urllib.request.urlopen("http://127.0.0.1:8767/", timeout=3) as response:
+                                  page = response.read(100_000).decode("utf-8", errors="replace").lower()
+                                  healthy = response.status == 200 and ("streamlit" in page or "stapp" in page)
+                          if healthy:
+                              break
+                      except Exception:
+                          time.sleep(0.5)
+                  if not healthy:
+                      raise RuntimeError("Mirsad Streamlit dashboard did not become healthy.\\n" + log_path.read_text(encoding="utf-8", errors="replace")[-12000:])
+                  print("PASS: Mirsad dashboard served its health endpoint and root page.")
+          finally:
+              if process is not None and process.poll() is None:
+                  process.terminate()
+                  try:
+                      process.wait(timeout=8)
+                  except subprocess.TimeoutExpired:
+                      process.kill()
+                      process.wait(timeout=5)
+          PY
+
       - name: Upload safe test summary
         if: always()
         run: |

@@ -66,7 +66,8 @@ def _health(value: Any) -> str:
             "NOT_VERIFIED", "SYMBOL_MISMATCH", "CANDLE_IDENTITY_MISMATCH",
             "BRIDGE_IDENTITY_MISMATCH", "BLOCKED_QUALITY_GATE",
         }
-        or status.startswith(("ERROR_", "FAILED_", "INVALID_", "MISMATCH_", "REJECTED_"))
+        or status.startswith(("ERROR_", "FAILED_", "INVALID_", "MISMATCH_", "REJECTED_", "OBSERVER_"))
+        or status.endswith("_BLOCKED")
         or "MISMATCH" in status
     ):
         return "ATTENTION"
