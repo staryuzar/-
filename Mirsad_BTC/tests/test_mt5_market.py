@@ -20,7 +20,7 @@ def make_snapshot(*, captured_at_ms: int | None = None) -> dict:
         "account": {"server": "Headway-Demo"},
         "time_basis": "UTC_NORMALIZED_FROM_MT5_SERVER_TIME",
         "quote": {"bid": 90_000.0, "ask": 90_001.0, "tick_age_seconds": 1.0},
-        "tick_window_seconds": 30,
+        "tick_window_seconds": 120,
         "ticks": [
             {"time_utc_ms": now - 2_000, "bid": 89_998.0, "ask": 89_999.0, "flags": 6},
             {"time_utc_ms": now - 1_000, "bid": 89_999.0, "ask": 90_000.0,
@@ -76,6 +76,8 @@ class MT5MarketDataEngineTests(unittest.TestCase):
         self.assertEqual(market["feed_health"]["bridge_quote_check"]["status"], "MATCHED")
         pulse = market["market_context"]["microstructure"]
         self.assertEqual(pulse["status"], "READY")
+        self.assertEqual(pulse["window_seconds"], 120.0)
+        self.assertEqual(pulse["tick_rate_per_minute"], 1.5)
         self.assertEqual(pulse["upticks"], 2)
         self.assertGreater(pulse["quote_direction_balance"], 0)
         self.assertEqual(market["market_context"]["economic_calendar"]["events"][0]["importance"], "HIGH")
