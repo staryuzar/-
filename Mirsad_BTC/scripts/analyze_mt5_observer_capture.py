@@ -266,16 +266,31 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
                     "validation_pass_ratio", "validation_median_max_residual_px",
                     "validation_max_residual_px", "x_scale", "x_offset",
                     "y_scale", "y_offset", "reason", "coordinate_diagnostics"
-                )
+                ),
+                "worst_validation_rows": sorted(
+                    [row for row in native_geometry_overlay.get("validation_rows", [])
+                     if isinstance(row, dict)],
+                    key=lambda row: float(row.get("maximum_residual_px", 0.0)),
+                    reverse=True,
+                )[:5],
             },
             "multi_reference_validation": {
-                key: reference.get(key) for key in (
-                    "matched_candles", "fit_candles", "validation_candles",
-                    "validation_passed_candles", "validation_pass_ratio",
-                    "validation_median_max_residual_fraction",
-                    "fit_inlier_ratio", "fit_vertical_coverage",
-                    "fit_x_coverage", "validation_x_coverage",
-                )
+                **{
+                    key: reference.get(key) for key in (
+                        "matched_candles", "fit_candles", "validation_candles",
+                        "validation_passed_candles", "validation_pass_ratio",
+                        "validation_median_max_residual_fraction",
+                        "fit_point_count", "fit_inlier_count", "fit_inlier_ratio",
+                        "fit_residual_limit_px", "fit_vertical_coverage",
+                        "fit_x_coverage", "validation_x_coverage",
+                    )
+                },
+                "worst_validation_rows": sorted(
+                    [row for row in reference.get("validation_rows", [])
+                     if isinstance(row, dict)],
+                    key=lambda row: float(row.get("maximum_residual_fraction", 0.0)),
+                    reverse=True,
+                )[:5],
             },
             "calibration_source": calibration.get("source", "unavailable"),
             "axis_ocr": {
@@ -300,7 +315,10 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
                     ).items()
                     if key in {"mode", "slots_considered", "occupied_slots", "rejected_low_activity",
                                "rejected_component_quality", "rejected_low_pixels", "rejected_mixed_palette",
-                               "count_fit_improves", "geometry_quality_improves"}
+                               "rejected_off_center_components", "count_fit_improves", "geometry_quality_improves",
+                               "mean_colour_purity", "legacy_mean_colour_purity", "mean_body_ratio",
+                               "legacy_mean_body_ratio", "bars_with_both_wicks_separated",
+                               "legacy_bars_with_both_wicks_separated", "adopted"}
                 },
             },
             "quality_gates": result.get("quality_gates", {}),
