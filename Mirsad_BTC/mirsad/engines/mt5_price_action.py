@@ -441,6 +441,21 @@ def _direction(score: float | None) -> str:
     return "MIXED_OR_UNCONFIRMED"
 
 
+def _summarize_latest_pattern_alignment(
+    latest_pattern_biases: dict[str, str | None],
+) -> tuple[str, list[str], list[str], list[str]]:
+    bullish = [tf for tf, bias in latest_pattern_biases.items() if bias == "BULLISH"]
+    bearish = [tf for tf, bias in latest_pattern_biases.items() if bias == "BEARISH"]
+    mixed = [tf for tf, bias in latest_pattern_biases.items() if bias == "MIXED"]
+    alignment = (
+        "MIXED_CANDLE_PATTERN_EVIDENCE" if mixed or (bullish and bearish)
+        else "BULLISH_CANDLE_PATTERN_EVIDENCE" if bullish
+        else "BEARISH_CANDLE_PATTERN_EVIDENCE" if bearish
+        else "NO_LATEST_DIRECTIONAL_CANDLE_PATTERN"
+    )
+    return alignment, bullish, bearish, mixed
+
+
 def analyze_mt5_native_price_action(
     candle_history: dict[str, Any],
 ) -> dict[str, Any]:
@@ -570,18 +585,12 @@ def analyze_mt5_native_price_action(
         timeframe: reports[timeframe].get("candle_analysis", {}).get("latest_pattern_bias")
         for timeframe in eligible
     }
-    bullish_pattern_frames = [
-        tf for tf, bias in latest_pattern_biases.items() if bias == "BULLISH"
-    ]
-    bearish_pattern_frames = [
-        tf for tf, bias in latest_pattern_biases.items() if bias == "BEARISH"
-    ]
-    pattern_alignment = (
-        "MIXED_CANDLE_PATTERN_EVIDENCE" if bullish_pattern_frames and bearish_pattern_frames
-        else "BULLISH_CANDLE_PATTERN_EVIDENCE" if bullish_pattern_frames
-        else "BEARISH_CANDLE_PATTERN_EVIDENCE" if bearish_pattern_frames
-        else "NO_LATEST_DIRECTIONAL_CANDLE_PATTERN"
-    )
+    (
+        pattern_alignment,
+        bullish_pattern_frames,
+        bearish_pattern_frames,
+        mixed_pattern_frames,
+    ) = _summarize_latest_pattern_alignment(latest_pattern_biases)
 
     direction_ar = {
         "BULLISH": "صاعد",
@@ -631,6 +640,7 @@ def analyze_mt5_native_price_action(
             "latest_candle_pattern_alignment": pattern_alignment,
             "bullish_pattern_timeframes": bullish_pattern_frames,
             "bearish_pattern_timeframes": bearish_pattern_frames,
+            "mixed_pattern_timeframes": mixed_pattern_frames,
         },
         "timeframes": reports,
         "timeframe_errors": timeframe_errors,
