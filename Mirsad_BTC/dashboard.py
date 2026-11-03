@@ -398,7 +398,16 @@ def render_execution_console(state:dict)->None:
    st.info("ملف events.jsonl غير موجود أو لا يحتوي أحداثاً قابلة للقراءة.")
   paths=bridge.get("common_files_files") if isinstance(bridge.get("common_files_files"),dict) else {}
   st.caption("مجلد الجسر: "+str(bridge.get("common_files_directory") or "غير مضبوط في بيئة التشغيل"))
-  st.dataframe(pd.DataFrame([{"الملف":name,"الحالة":"موجود" if exists else "لم يُنشأ"} for name,exists in paths.items()]),use_container_width=True,hide_index=True)
+  file_rows=[]
+  for name,exists in paths.items():
+   if not exists:
+    status_label="لم يُنشأ"
+   elif name=="positions.json":
+    status_label="سليم" if bridge.get("positions_file_valid") else "موجود لكن محتواه غير صالح"
+   else:
+    status_label="موجود"
+   file_rows.append({"الملف":name,"الحالة":status_label})
+  st.dataframe(pd.DataFrame(file_rows),use_container_width=True,hide_index=True)
   st.caption("Common Files / MirsadBTC: status.json · command.json · ack.json · positions.json · events.jsonl")
 
  with tabs[6]:
@@ -424,6 +433,7 @@ def render_execution_console(state:dict)->None:
    {"الإعداد":"MIRSAD_MARKET_MAX_AGE","القيمة":MARKET_MAX_AGE_SECONDS,"المعنى":"أقصى عمر للبيانات السوقية."},
    {"الإعداد":"MIRSAD_CHART_MAX_AGE","القيمة":CHART_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لصورة الشارت."},
    {"الإعداد":"MIRSAD_COLLECT_SECONDS","القيمة":COLLECT_INTERVAL_SECONDS,"المعنى":"الفاصل بين دورات runtime بالثانية."},
+   {"الإعداد":"MIRSAD_MT5_COMMON_FILES","القيمة":MT5_COMMON_FILES or "غير مضبوط","المعنى":"المجلد الأب الذي يضم Common Files/MirsadBTC بين البرنامج والخبير."},
    {"الإعداد":"InpMagicNumber","القيمة":bridge.get("magic_number","—"),"المعنى":"معرّف المراكز والأوامر التي يملكها خبير مرصاد."},
    {"الإعداد":"مصادر البحث والمقارنة","القيمة":"، ".join(PROVIDERS.keys()),"المعنى":"مصادر بحث/تقييم مهيأة في الكود؛ مصدر القرار والتشغيل الحي يبقى MT5 وفق عقود المحركات."},
   ]
