@@ -66,6 +66,7 @@ jobs:
           python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_market.py" -v
           python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_chart_candles.py" -v
           python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_native_indicators.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_engine3_mt5_indicator_parity.py" -v
 
       - name: Connect to MT5 demo and verify direct feeds with images disabled
         env:
