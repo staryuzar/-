@@ -595,6 +595,7 @@ def analyze_mt5_native_price_action(
         "timeframes": reports,
         "timeframe_errors": timeframe_errors,
         "multi_timeframe_structure": {
+            "status": "READY" if analysis_ready else "PARTIAL",
             "source": "NATIVE_MT5_OHLC",
             "as_of_utc_ms": as_of_ms,
             "alignment": alignment,
