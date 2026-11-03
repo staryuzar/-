@@ -278,6 +278,9 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "reference_calibration_reason": reference_reason,
             "reference_calibration_diagnostics": reference_diagnostics,
             "reference_slot_diagnostics": result.get("reference_slot_diagnostics", {}),
+            "native_geometry_slot_center_status": native_slot_center_result.get("status"),
+            "native_geometry_slot_center_count": native_slot_center_result.get("native_slot_count", 0),
+            "native_geometry_slot_assignment": result.get("native_geometry_slot_assignment", {}),
             "native_pixel_geometry": {
                 key: native_pixel_geometry.get(key) for key in (
                     "status", "decision_eligible", "validated_bars", "visible_bars",
