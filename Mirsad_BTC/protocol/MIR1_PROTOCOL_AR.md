@@ -9,7 +9,7 @@
 Common\\Files\\MirsadBTC\\
 
 الملفات:
-- status.json: نبض الخبير والحساب وخصائص الرمز والمراكز.
+- status.json: نبض الخبير وحالة مفتاح التنفيذ والحساب وخصائص الرمز والمراكز.
 - command.json: آخر أمر من المحرك الرابع.
 - ack.json: آخر إقرار للبرنامج.
 - positions.json: المراكز المفتوحة.
@@ -26,7 +26,7 @@ Common\\Files\\MirsadBTC\\
 - position_ticket: إلزامي عند CLOSE، ويستهدف تذكرة واحدة محددة. لا يغلق الخبير مراكز أخرى من تلقاء نفسه.
 
 ## Status heartbeat
-schema=MIR1, terminal_connected, heartbeat_at_ms, account, symbol, market_symbol, quote, symbol_spec, positions.
+schema=MIR1, terminal_connected, execution_enabled, heartbeat_at_ms, account, symbol, market_symbol, quote, symbol_spec, positions.
 account يحمل equity وbalance وfree_margin وcurrency وserver وlogin عند توافرها. لا يستنتج الخبير أو الجسر نوع الحساب.
 market_symbol هو رمز محرك السوق الذي تم ضبطه صراحة ليتطابق مع الأداة المقابلة لدى الوسيط. لا يرسل المحرك الرابع أمراً إذا لم يتطابق هذا الحقل مع أداة السوق التي حللها.
 
