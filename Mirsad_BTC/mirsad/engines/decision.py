@@ -193,7 +193,8 @@ class DecisionEngine:
             "eligible_timeframes": (price_action.get("summary") or {}).get("eligible_timeframes", []),
             "timeframe_alignment": (price_action.get("summary") or {}).get("timeframe_alignment", "NOT_AVAILABLE"),
             "decision_eligible": False,
-            "role": "DESCRIPTIVE_ONLY_NOT_USED_AS_A_DIRECTIONAL_VOTE",
+            "gate": "NOT_EVALUATED",
+            "role": "NON_DIRECTIONAL_SAFETY_GATE_ONLY",
         }
         base["engine_2_native_price_action_context"] = price_action_context
         source = str(market.get("source", "")).upper()
@@ -303,6 +304,46 @@ class DecisionEngine:
             ):
                 candidate = "SELL"
 
+        # Native OHLC price action is not a separate directional vote. It is a
+        # fail-closed confluence gate: when runtime supplies it, Engine 4 only
+        # keeps a visual BUY/SELL candidate if the independently analysed
+        # closed-candle structure is READY and aligned in the same direction.
+        native_pa_gate = "NOT_PROVIDED"
+        native_pa_allows_candidate = True
+        if engine2_price_action is not None:
+            native_pa_status = str(price_action.get("status", "NOT_READY"))
+            native_pa_direction = str(price_action.get("direction", "UNKNOWN"))
+            native_pa_alignment = str(
+                (price_action.get("summary") or {}).get("timeframe_alignment", "NOT_AVAILABLE")
+            )
+            if native_pa_status != "READY":
+                native_pa_gate = "NOT_READY"
+                native_pa_allows_candidate = False
+            elif (
+                native_pa_direction == "BULLISH"
+                and native_pa_alignment == "BULLISH_STRUCTURE_CONFLUENCE"
+            ):
+                native_pa_gate = "BULLISH_CONFLUENCE"
+            elif (
+                native_pa_direction == "BEARISH"
+                and native_pa_alignment == "BEARISH_STRUCTURE_CONFLUENCE"
+            ):
+                native_pa_gate = "BEARISH_CONFLUENCE"
+            else:
+                native_pa_gate = "MIXED_OR_NO_CONFLUENCE"
+                native_pa_allows_candidate = False
+
+            if candidate in {"BUY", "SELL"}:
+                expected_native_direction = "BULLISH" if candidate == "BUY" else "BEARISH"
+                if not native_pa_allows_candidate or native_pa_direction != expected_native_direction:
+                    native_pa_gate = (
+                        "DIRECTION_CONFLICT"
+                        if native_pa_status == "READY" and native_pa_allows_candidate
+                        else native_pa_gate
+                    )
+                    candidate = "WAIT"
+            price_action_context["gate"] = native_pa_gate
+
         aligned_signal = candidate
         chart_gate = "NOT_CALIBRATED"
         if not chart_eligible:
@@ -311,6 +352,10 @@ class DecisionEngine:
         elif chart_confidence < MIN_CHART_CONFIDENCE:
             aligned_signal = "WAIT"
             chart_gate = "INSUFFICIENT_ANALYSIS_CONFIDENCE"
+        elif candidate == "WAIT" and native_pa_gate not in {
+            "NOT_PROVIDED", "BULLISH_CONFLUENCE", "BEARISH_CONFLUENCE"
+        }:
+            chart_gate = "WAITING_FOR_ENGINE_2_PRICE_ACTION_CONFLUENCE"
         elif candidate == "WAIT":
             chart_gate = "80_20_SCORE_BELOW_THRESHOLD_OR_CONFLICT"
         else:
