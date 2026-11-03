@@ -16,6 +16,7 @@ from typing import Any, Callable
 from ..config import MT5_COMMON_FILES
 from .chart import analyze_chart_image
 from .mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candidates
+from .mt5_chart_geometry import analyze_native_mt5_ohlc
 
 
 def _blocked_observer_chart(observer:dict[str,Any], reason:str, status:str="OBSERVER_VALIDATION_BLOCKED")->dict[str,Any]:
@@ -139,9 +140,18 @@ def analyze_mt5_observer_chart(
   "reference_last_candle_ohlc":reference_candidates_for_chart[0]["ohlc"],
   "reference_candle_offset_from_right":reference_candidates_for_chart[0]["offset_from_right"],
  }
+ native_ohlc_analysis=analyze_native_mt5_ohlc(
+  bars, symbol=market_symbol, timeframe=timeframe
+ )
+ pixel_geometry=observer.get("pixel_geometry") if isinstance(observer.get("pixel_geometry"),dict) else {
+  "status":"NOT_AVAILABLE","decision_eligible":False,
+  "reason":"Observer inbox did not provide native pixel geometry."
+ }
  analysis=(image_analyzer or analyze_chart_image)(image_path,metadata,expected_symbol=market_symbol)
  analysis={
   **analysis,
+  "native_ohlc_analysis":native_ohlc_analysis,
+  "native_pixel_geometry":pixel_geometry,
   "source":"MT5_OBSERVER",
   "observer_capture":{
    "pipeline_component":"engine2_mt5_chart_image_pipeline",
@@ -154,6 +164,9 @@ def analyze_mt5_observer_chart(
    "forming_bar_used_as_reference":(analysis.get("reference_anchor") or {}).get("offset_from_right")==0,
    "reference_anchor":analysis.get("reference_anchor"),
    "reference_candidates_considered":len(reference_candidates_for_chart),
+   "native_pixel_geometry_status":pixel_geometry.get("status"),
+   "native_pixel_geometry_visible_bars":pixel_geometry.get("visible_bars"),
+   "native_pixel_geometry_mapping_status":pixel_geometry.get("mapping_status"),
    "broker_symbol":observer_symbol,
    "market_symbol":market_symbol,
    "engine_1_quote_freshness_required_for_visual_analysis":False,
