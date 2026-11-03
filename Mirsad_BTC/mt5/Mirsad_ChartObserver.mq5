@@ -1077,10 +1077,23 @@ int OnInit()
    if(g_chart_id == 0)
       return INIT_FAILED;
 
-   // Bring the exact chart carrying this Observer to the foreground.
+   // Bring the exact chart carrying this Observer to the foreground and
+   // force its visible window to the newest available bars. A stale scrolled
+   // viewport can show a valid old chart while the live MT5 feed is current;
+   // native candle offsets then correctly fail to match most visible slots.
    ResetLastError();
    if(!ChartSetInteger(g_chart_id, CHART_BRING_TO_TOP, true))
       PrintFormat("Mirsad Observer: CHART_BRING_TO_TOP failed. Error=%d", GetLastError());
+
+   ResetLastError();
+   if(!ChartSetInteger(g_chart_id, CHART_AUTOSCROLL, false))
+      PrintFormat("Mirsad Observer: disabling AUTOSCROLL before navigation failed. Error=%d", GetLastError());
+   ResetLastError();
+   if(!ChartNavigate(g_chart_id, CHART_END, 0))
+      PrintFormat("Mirsad Observer: navigation to latest bars failed. Error=%d", GetLastError());
+   ResetLastError();
+   if(!ChartSetInteger(g_chart_id, CHART_AUTOSCROLL, true))
+      PrintFormat("Mirsad Observer: enabling AUTOSCROLL failed. Error=%d", GetLastError());
    ChartRedraw(g_chart_id);
 
    FolderCreate("MirsadBTC", 0);
