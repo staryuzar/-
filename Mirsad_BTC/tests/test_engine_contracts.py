@@ -189,7 +189,7 @@ class WeightedDecisionTests(unittest.TestCase):
             engine2_quality=1.0,
             engine3_quality=1.0,
         )
-        self.assertAlmostEqual(weights["engine_1_market_intelligence"], 0.20 / 0.90)
+        self.assertAlmostEqual(weights["engine_1_market_intelligence"], (0.20 * 0.50) / 0.90)
         self.assertAlmostEqual(weights["engine_2_price_action"], 0.50 / 0.90)
         self.assertAlmostEqual(weights["engine_3_indicators"], 0.30 / 0.90)
         self.assertAlmostEqual(score, 0.90 * weights["engine_1_market_intelligence"]
@@ -231,7 +231,7 @@ class WeightedDecisionTests(unittest.TestCase):
         self.assertEqual(quality, 0.0)
         self.assertEqual(parts["source"], "UNAVAILABLE")
 
-class ChartDominantDecisionIntegrationTests(unittest.TestCase):
+class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
     def _market(self, direction: str) -> dict:
         now = int(time.time() * 1000)
         return {
@@ -550,6 +550,10 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertFalse(result["engine_2_visual_evidence_used"])
         self.assertEqual(result["engine_2_score_source"], "NATIVE_OHLC_ONLY_VISUAL_NOT_ELIGIBLE")
         self.assertAlmostEqual(result["decision_scores"]["engine_2_score"], 0.80)
+        self.assertEqual(
+            result["decision_weights"]["engine_2_internal"]["applied"],
+            {"native_ohlc_price_action": 1.0, "calibrated_visual_chart": 0.0},
+        )
         self.assertIn("NATIVE_OHLC_CONFIRMED", result["chart_gate"])
 
     def test_engine4_rejects_missing_or_nonfinite_required_indicator_values(self) -> None:
@@ -563,7 +567,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["engine_3_indicator_status"], "INVALID_INDICATOR_PAYLOAD")
 
 
-    def test_engine2_native_price_action_is_visible_but_never_becomes_an_unvalidated_vote(self) -> None:
+    def test_engine2_native_price_action_is_primary_only_after_multitimeframe_confluence(self) -> None:
         chart = self._chart()
         chart["decision_eligible"] = True
         chart["status"] = "READY"
@@ -626,6 +630,10 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertTrue(aligned["engine_2_visual_evidence_used"])
         self.assertEqual(aligned["engine_2_score_source"], "NATIVE_OHLC_PLUS_CALIBRATED_VISUAL")
         self.assertAlmostEqual(aligned["decision_scores"]["engine_2_score"], 0.70 * 0.25 + 0.30 * 0.95)
+        self.assertEqual(
+            aligned["decision_weights"]["engine_2_internal"]["applied"],
+            {"native_ohlc_price_action": 0.70, "calibrated_visual_chart": 0.30},
+        )
         self.assertEqual(
             aligned["engine_2_native_price_action_context"]["gate"],
             "BULLISH_CONFLUENCE",

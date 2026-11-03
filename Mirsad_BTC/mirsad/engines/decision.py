@@ -122,6 +122,146 @@ def _matching_positions(bridge: dict[str, Any], broker_symbol: str) -> list[dict
     return result
 
 
+def _protective_position_management_decision(
+    bridge: dict[str, Any],
+    indicator_data: dict[str, Any],
+    market: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build one protective MODIFY command from Engine 3 ATR and fresh Engine 5 facts.
+
+    This safety path is deliberately independent of Engine 1's external/market
+    reference price and Engine 2's visual image eligibility. It cannot create
+    BUY/SELL commands; it only tightens the stop of an existing Mirsad-owned
+    position using the broker's own fresh quote.
+    """
+    if bridge.get("status") != "CONNECTED":
+        return None
+    if (
+        indicator_data.get("status") != "READY"
+        or indicator_data.get("engine") != "engine_3_indicators"
+        or indicator_data.get("source") != "engine_2_chart_candles"
+    ):
+        return None
+
+    values = indicator_data.get("values")
+    if not isinstance(values, dict):
+        return None
+    try:
+        atr5 = float(values["atr14_5m"])
+        closed_at = int(indicator_data["last_closed_candle_time_ms"])
+        capture_at = int(indicator_data["source_capture_at_ms"])
+        capture_age = (time.time() * 1000.0 - capture_at) / 1000.0
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if (
+        not math.isfinite(atr5) or atr5 <= 0
+        or closed_at <= 0
+        or not math.isfinite(capture_age)
+        or capture_age < 0
+        or capture_age > MT5_MARKET_DATA_MAX_AGE_SECONDS
+    ):
+        return None
+
+    broker_symbol = str(bridge.get("symbol", "")).strip()
+    market_symbol = str(bridge.get("market_symbol", "")).strip()
+    if not broker_symbol or not market_symbol:
+        return None
+
+    quote = bridge.get("quote") if isinstance(bridge.get("quote"), dict) else {}
+    specs = bridge.get("symbol_spec") if isinstance(bridge.get("symbol_spec"), dict) else {}
+    try:
+        bid = float(quote["bid"])
+        ask = float(quote["ask"])
+        quote_age = float(bridge["quote_age_seconds"])
+        tick_age = float(quote["tick_age_seconds"])
+        midpoint = (bid + ask) / 2.0
+        spread_pct = (ask - bid) / midpoint if midpoint > 0 else float("inf")
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if (
+        not all(math.isfinite(value) for value in (bid, ask, quote_age, tick_age, spread_pct))
+        or bid <= 0 or ask < bid
+        or quote_age < 0 or quote_age > MT5_QUOTE_MAX_AGE_SECONDS
+        or tick_age < 0 or tick_age > MT5_QUOTE_MAX_AGE_SECONDS
+        or midpoint <= 0
+        or spread_pct > MT5_MAX_SPREAD_PCT
+    ):
+        return None
+
+    positions = _matching_positions(bridge, broker_symbol)
+    if not positions:
+        return None
+    try:
+        tick_size = float(specs.get("tick_size", 0) or 0)
+        point = float(specs.get("point", tick_size) or tick_size)
+        digits = int(specs.get("digits", 2) or 2)
+        stops_level = int(specs.get("stops_level_points", 0) or 0)
+        freeze_level = int(specs.get("freeze_level_points", 0) or 0)
+        plan = plan_atr_stop_update(
+            positions,
+            broker_symbol=broker_symbol,
+            bid=bid,
+            ask=ask,
+            atr=atr5,
+            tick_size=tick_size,
+            point=point,
+            digits=digits,
+            stops_level_points=stops_level,
+            freeze_level_points=freeze_level,
+        )
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if plan.get("status") != "READY":
+        return None
+
+    ticket = int(plan["ticket"])
+    stop_loss = float(plan["stop_loss"])
+    take_profit = float(plan["take_profit"])
+    command_id = _signal_id(
+        "MODIFY", market_symbol, ticket,
+        round(stop_loss, digits), round(take_profit, digits),
+    )
+    return {
+        "status": "READY",
+        "action": "MODIFY",
+        "candidate_action": "WAIT",
+        "aligned_signal": "WAIT",
+        "signal_id": command_id,
+        "command_ready": True,
+        "position_ticket": ticket,
+        "symbol": broker_symbol,
+        "market_symbol": market_symbol,
+        "entry_reference": 0.0,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "chart_gate": "POSITION_MANAGEMENT_PRIORITY",
+        "open_block_reason": "New entries are deferred while a protective stop update is pending.",
+        "risk_plan": {
+            "status": "READY",
+            "volume": float(plan["volume"]),
+            "purpose": "protective_stop_update",
+        },
+        "position_management": {
+            "action": "MODIFY",
+            "ticket": ticket,
+            "stage": plan.get("management_stage"),
+            "protective_stop_only": True,
+            "market_feed_independent": True,
+        },
+        "management_plan": plan,
+        "broker_quote": quote,
+        "broker_spread_pct": round(spread_pct * 100.0, 4),
+        "engine_inputs": {
+            "engine_1_market": market.get("status", "UNAVAILABLE"),
+            "engine_1_required_for_protective_management": False,
+            "engine_2_chart": "NOT_REQUIRED_FOR_PROTECTIVE_MANAGEMENT",
+            "engine_3_indicators": "READY",
+            "engine_5_bridge": "CONNECTED",
+            "protective_management_quote_source": "MT5_BROKER_BID_ASK",
+        },
+        "reason": plan.get("reason"),
+    }
+
 # Engine 4's fixed baseline decision mix. Evidence quality may reduce a
 # component's effective contribution; the remaining valid weights are
 # re-normalized to 100% rather than silently filling missing evidence with zero.
