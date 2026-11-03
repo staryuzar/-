@@ -50,10 +50,7 @@ def build_report(
         if expected_server and server.casefold() != expected_server.casefold():
             failures.append(f"{name} broker server identity mismatch.")
 
-    analysis = analyze_mt5_native_trend(
-        candles,
-        native_indicators=native,
-    )
+    analysis = analyze_mt5_native_price_action(candles)
     if analysis.get("status") != "READY":
         failures.append(
             "Engine 2 native analysis is not READY: "
@@ -95,7 +92,7 @@ def build_report(
         "broker_symbol": broker_symbol,
         "market_feed_status": market.get("status"),
         "candle_feed_status": candles.get("status"),
-                "analysis_status": analysis.get("status"),
+        "analysis_status": analysis.get("status"),
         "direction": analysis.get("direction"),
         "direction_ar": analysis.get("direction_ar"),
         "summary": analysis.get("summary"),
