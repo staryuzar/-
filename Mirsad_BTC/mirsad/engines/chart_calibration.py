@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from statistics import median
 from typing import Any
 
 
@@ -95,6 +96,188 @@ def calibrate_bars(
         calibrated.append(candle)
     return calibrated
 
+
+
+def calibrate_from_reference_candles(
+    reference_pairs: list[dict[str, Any]],
+    *,
+    image_width: int,
+    image_height: int,
+    plot_left_px: int = 0,
+    plot_top_px: int = 0,
+    plot_right_px: int | None = None,
+    plot_bottom_px: int | None = None,
+    scale_type: str = "linear",
+    maximum_validation_residual_fraction: float = 0.40,
+    minimum_validation_pass_ratio: float = 0.80,
+) -> dict[str, Any]:
+    """Fit a price axis from exact-slot native OHLC references and a blind hold-out."""
+    def fail(status: str, reason: str, **extra: Any) -> dict[str, Any]:
+        return {"status": status, "reason": reason, **extra}
+
+    right = image_width if plot_right_px is None else int(plot_right_px)
+    bottom = image_height if plot_bottom_px is None else int(plot_bottom_px)
+    left, top = int(plot_left_px), int(plot_top_px)
+    if not (0 <= left < right <= image_width and 0 <= top < bottom <= image_height):
+        return fail("INVALID_PLOT_BOUNDS", "Plot bounds are outside the image.")
+    width, height = right - left, bottom - top
+    if width < 32 or height < 32:
+        return fail("INVALID_PLOT_BOUNDS", "Plot rectangle is too small.")
+    scale = str(scale_type).strip().lower()
+    if scale not in {"linear", "logarithmic"}:
+        return fail("INVALID_SCALE", "Scale must be linear or logarithmic.")
+
+    clean: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for pair in reference_pairs if isinstance(reference_pairs, list) else []:
+        if not isinstance(pair, dict) or pair.get("closed") is False:
+            continue
+        bar, ohlc = pair.get("bar") or pair.get("pixel_bar"), pair.get("ohlc")
+        if not isinstance(bar, dict) or not isinstance(ohlc, dict):
+            continue
+        try:
+            slot = int(pair.get("slot_index", bar.get("slot_index")))
+            x = float(bar["x_px"])
+            px = {k: float(bar[k + "_y_px"]) for k in ("high", "low")}
+            px["body_top"] = float(bar["body_top_y_px"])
+            px["body_bottom"] = float(bar["body_bottom_y_px"])
+            values = {k: float(ohlc[k]) for k in ("open", "high", "low", "close")}
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if slot in seen or not all(math.isfinite(v) for v in (*px.values(), *values.values(), x)):
+            continue
+        if not all(v > 0 for v in values.values()):
+            continue
+        if (
+            values["high"] < max(values["open"], values["close"], values["low"])
+            or values["low"] > min(values["open"], values["close"], values["high"])
+            or values["high"] <= values["low"]
+        ):
+            continue
+        if not (top <= px["high"] < px["low"] <= bottom
+                and px["high"] <= px["body_top"] <= px["body_bottom"] <= px["low"]
+                and left <= x <= right):
+            continue
+        seen.add(slot)
+        clean.append({"slot_index":slot,"x_px":x,"pixel":px,"ohlc":values})
+    clean.sort(key=lambda x:x["slot_index"])
+    if len(clean) < 8:
+        return fail("INSUFFICIENT_REFERENCE_CANDLES",
+                    "At least eight exact-slot closed candles are required.",
+                    matched_candles=len(clean))
+
+    fit = [x for i,x in enumerate(clean) if i % 4 != 0]
+    holdout = [x for i,x in enumerate(clean) if i % 4 == 0]
+    if len(fit) < 5 or len(holdout) < 3:
+        return fail("INSUFFICIENT_REFERENCE_SPLIT","Fit/hold-out split is too small.",
+                    matched_candles=len(clean),fit_candles=len(fit),validation_candles=len(holdout))
+
+    def coverage(items: list[dict[str,Any]]) -> float:
+        xs=[float(x["x_px"]) for x in items]
+        return (max(xs)-min(xs))/width if len(xs)>1 else 0.0
+    fit_x, val_x = coverage(fit), coverage(holdout)
+    if fit_x < 0.25 or val_x < 0.25:
+        return fail("REFERENCE_SPATIAL_COVERAGE_LOW",
+                    "Fit and hold-out candles must each span at least 25% of the plot.",
+                    fit_x_coverage=round(fit_x,4),validation_x_coverage=round(val_x,4))
+
+    points=[]
+    for item in fit:
+        for key in ("high","low"):
+            price=float(item["ohlc"][key])
+            points.append((float(item["pixel"][key]),math.log(price) if scale=="logarithmic" else price))
+    slopes=[
+        (v2-v1)/(y2-y1)
+        for i,(y1,v1) in enumerate(points)
+        for y2,v2 in points[i+1:]
+        if abs(y2-y1)>=2.0
+    ]
+    if len(slopes)<6:
+        return fail("REFERENCE_FIT_INSUFFICIENT_POINTS","Too few distinct high/low pixel anchors.")
+    slope=float(median(slopes))
+    if not math.isfinite(slope) or slope>=0:
+        return fail("REFERENCE_FIT_NON_MONOTONIC","Higher prices must map above lower prices.")
+    intercept=float(median(v-slope*y for y,v in points))
+    limit=max(2.5,height*0.015)
+    inliers=[p for p in points if abs(p[0]-(p[1]-intercept)/slope)<=limit]
+    inlier_ratio=len(inliers)/len(points)
+    if len(inliers)<6 or inlier_ratio<0.75:
+        return fail("REFERENCE_FIT_LOW_CONFIDENCE","Native anchors do not form a consistent price axis.",
+                    fit_point_count=len(points),fit_inlier_count=len(inliers),
+                    fit_inlier_ratio=round(inlier_ratio,4),fit_residual_limit_px=round(limit,3))
+    refined=[
+        (v2-v1)/(y2-y1)
+        for i,(y1,v1) in enumerate(inliers)
+        for y2,v2 in inliers[i+1:]
+        if abs(y2-y1)>=2.0
+    ]
+    if not refined:
+        return fail("REFERENCE_FIT_INSUFFICIENT_POINTS","Accepted anchors lack vertical spread.")
+    slope=float(median(refined))
+    intercept=float(median(v-slope*y for y,v in inliers))
+    y_span=max(p[0] for p in inliers)-min(p[0] for p in inliers)
+    if slope>=0 or y_span<height*0.20:
+        return fail("REFERENCE_FIT_COVERAGE_LOW","Fit anchors do not cover enough of the price axis.",
+                    fit_vertical_coverage=round(y_span/height,4))
+
+    def predict(y: float) -> float:
+        value=intercept+slope*float(y)
+        return math.exp(value) if scale=="logarithmic" else value
+
+    rows=[]
+    for item in holdout:
+        px,values=item["pixel"],item["ohlc"]
+        if values["close"]>values["open"]:
+            open_y,close_y=px["body_bottom"],px["body_top"]
+        elif values["close"]<values["open"]:
+            open_y,close_y=px["body_top"],px["body_bottom"]
+        else:
+            open_y=close_y=(px["body_top"]+px["body_bottom"])/2.0
+        predicted={"high":predict(px["high"]),"low":predict(px["low"]),
+                   "open":predict(open_y),"close":predict(close_y)}
+        candle_range=values["high"]-values["low"]
+        residuals={k:abs(predicted[k]-values[k])/candle_range for k in ("open","high","low","close")}
+        maximum=max(residuals.values())
+        rows.append({"slot_index":item["slot_index"],
+                     "maximum_residual_fraction":round(maximum,6),
+                     "residual_fraction_by_field":{k:round(v,6) for k,v in residuals.items()},
+                     "passed":all(math.isfinite(v) for v in residuals.values())
+                         and maximum<=maximum_validation_residual_fraction})
+    passed=[r for r in rows if r["passed"]]
+    ratio=len(passed)/len(rows)
+    median_error=float(median(r["maximum_residual_fraction"] for r in rows))
+    need=max(3,math.ceil(len(rows)*minimum_validation_pass_ratio))
+    if len(passed)<need or median_error>0.20:
+        return fail("REFERENCE_HOLDOUT_VALIDATION_FAILED",
+                    "Held-out native candles do not independently agree with the mapping.",
+                    matched_candles=len(clean),fit_candles=len(fit),validation_candles=len(holdout),
+                    validation_passed_candles=len(passed),validation_pass_ratio=round(ratio,4),
+                    validation_median_max_residual_fraction=round(median_error,6),
+                    validation_max_residual_fraction=max(r["maximum_residual_fraction"] for r in rows),
+                    validation_rows=rows)
+    try:
+        price_top,price_bottom=predict(top),predict(bottom)
+    except (OverflowError,ValueError):
+        return fail("REFERENCE_FIT_INVALID_RANGE","Price-axis extrapolation overflowed.")
+    if not (math.isfinite(price_top) and math.isfinite(price_bottom) and price_top>price_bottom>0):
+        return fail("REFERENCE_FIT_INVALID_RANGE","Fit does not produce a positive descending price range.")
+    return {
+        "status":"READY",
+        "method":"multi_candle_native_ohlc_fit_with_interleaved_holdout",
+        "calibration":{
+            "plot_left_px":left,"plot_top_px":top,"plot_right_px":right,"plot_bottom_px":bottom,
+            "price_top":price_top,"price_bottom":price_bottom,"price_scale_type":scale,
+            "price_scale_valid":True,"plot_width_px":width,"plot_height_px":height,
+        },
+        "matched_candles":len(clean),"fit_candles":len(fit),"validation_candles":len(holdout),
+        "validation_passed_candles":len(passed),"validation_pass_ratio":round(ratio,4),
+        "validation_median_max_residual_fraction":round(median_error,6),
+        "validation_max_residual_fraction":round(max(r["maximum_residual_fraction"] for r in rows),6),
+        "fit_point_count":len(points),"fit_inlier_count":len(inliers),
+        "fit_inlier_ratio":round(inlier_ratio,4),"fit_vertical_coverage":round(y_span/height,4),
+        "fit_x_coverage":round(fit_x,4),"validation_x_coverage":round(val_x,4),
+        "fit_residual_limit_px":round(limit,3),"validation_rows":rows,
+    }
 
 def calibrate_from_reference_candle(
     reference_bar: dict[str, Any],
