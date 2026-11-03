@@ -8,11 +8,28 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from mirsad.engines.chart import _patterns, analyze_chart_image
+from mirsad.engines.chart import (
+    _patterns,
+    _visible_slot_for_reference_offset,
+    analyze_chart_image,
+)
 from mirsad.engines.chart_calibration import price_at_pixel, resolve_chart_calibration
 from mirsad.engines.chart_image import load_chart_image
 from mirsad.engines.chart_metrics import analyze_calibrated_bars
 from mirsad.engines.chart_pattern_reference import analyze_talib_pattern_reference
+
+
+class VisibleReferenceSlotTests(unittest.TestCase):
+    def test_native_offsets_map_to_visible_slots_without_chart_shift(self) -> None:
+        self.assertEqual(_visible_slot_for_reference_offset(0, 93, 92), 92)
+        self.assertEqual(_visible_slot_for_reference_offset(92, 93, 92), 0)
+        self.assertIsNone(_visible_slot_for_reference_offset(93, 93, 92))
+
+    def test_native_offsets_account_for_right_margin_from_chart_shift(self) -> None:
+        self.assertEqual(_visible_slot_for_reference_offset(8, 93, 100), 92)
+        self.assertEqual(_visible_slot_for_reference_offset(100, 93, 100), 0)
+        self.assertIsNone(_visible_slot_for_reference_offset(7, 93, 100))
+        self.assertIsNone(_visible_slot_for_reference_offset(101, 93, 100))
 
 
 class ChartEngineTests(unittest.TestCase):
