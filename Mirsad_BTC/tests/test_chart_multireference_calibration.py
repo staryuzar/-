@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
+import cv2
+import numpy as np
+
 from mirsad.engines.chart_calibration import calibrate_from_reference_candles
+from mirsad.engines.chart_extraction import _extract_bars
 
 
 def price_at(y: float, *, top: float = 120000.0, bottom: float = 80000.0) -> float:
@@ -90,6 +94,87 @@ class MultiReferenceCalibrationTests(unittest.TestCase):
         self.assertEqual(result["fit_candles"], 18)
         self.assertEqual(result["validation_candles"], 6)
         self.assertEqual(result["fit_x_coverage"], 0.11)
+
+
+    def test_image_slot_filter_rejects_off_center_vertical_overlays_before_multireference_fit(self) -> None:
+        height, width, count = 260, 400, 20
+        image = np.full((height, width, 3), 255, dtype=np.uint8)
+        slot_width = width / count
+        expected_ohlc = {}
+
+        for index in range(count):
+            x = int(round((index + 0.5) * slot_width))
+            high_y = 55 + (index % 5) * 2
+            low_y = 190 - (index % 4) * 2
+            body_top = 116 + (index % 3) * 2
+            body_bottom = 139 + (index % 4) * 2
+            green = (0, 200, 0)
+
+            cv2.line(image, (x, high_y), (x, low_y), green, 1)
+            cv2.rectangle(
+                image, (x - 1, body_top), (x + 1, body_bottom), green, -1
+            )
+            # This narrow same-palette overlay is inside the slot but five
+            # pixels off the candle centre. It must not become a candle.
+            cv2.line(image, (x + 5, 35), (x + 5, 225), green, 1)
+
+            def price_at(y: int) -> float:
+                return 120_000.0 - ((y - 20.0) / 220.0) * 40_000.0
+
+            expected_ohlc[index] = {
+                "open": price_at(body_bottom),
+                "high": price_at(high_y),
+                "low": price_at(low_y),
+                "close": price_at(body_top),
+            }
+
+        diagnostics: dict = {}
+        extracted = _extract_bars(
+            image,
+            {
+                "plot_left_px": 0,
+                "plot_right_px": width,
+                "plot_top_px": 0,
+                "plot_bottom_px": height,
+                "palette_mode": "green_red",
+                "expected_candle_count": count,
+            },
+            diagnostics,
+        )
+        self.assertEqual(len(extracted), count, msg=repr(diagnostics))
+        self.assertEqual(diagnostics["segmentation_mode"], "expected_slot_hint")
+        self.assertGreater(
+            diagnostics["slot_guided_extraction"]["rejected_off_center_components"],
+            0,
+            msg=repr(diagnostics),
+        )
+
+        by_slot = {bar["slot_index"]: bar for bar in extracted}
+        pairs = []
+        for index in range(count):
+            bar = by_slot[index]
+            expected_x = int(round((index + 0.5) * slot_width))
+            self.assertLessEqual(abs(bar["x_px"] - expected_x), 1, msg=repr(bar))
+            self.assertGreaterEqual(bar["high_y_px"], 54, msg=repr(bar))
+            self.assertLessEqual(bar["low_y_px"], 191, msg=repr(bar))
+            pairs.append({
+                "slot_index": index,
+                "closed": True,
+                "bar": bar,
+                "ohlc": expected_ohlc[index],
+            })
+
+        result = calibrate_from_reference_candles(
+            pairs,
+            image_width=width,
+            image_height=height,
+            plot_left_px=0,
+            plot_top_px=20,
+            plot_right_px=width,
+            plot_bottom_px=240,
+            scale_type="linear",
+        )
+        self.assertEqual(result["status"], "READY", msg=repr(result))
 
 
 if __name__ == "__main__":
