@@ -11,7 +11,7 @@ from mirsad.engines.mt5_observer import MT5ChartObserverInbox, recent_reference_
 from mirsad.engines.mt5_market import MT5MarketDataEngine
 from mirsad.engines.mt5_chart_candles import MT5ChartCandleHistory
 from mirsad.engines.mt5_native_indicators import MT5NativeIndicatorHistory
-from mirsad.engines.mt5_chart_geometry import validate_mt5_chart_geometry
+from mirsad.engines.mt5_chart_geometry import validate_mt5_chart_geometry, validate_mt5_geometry_overlay
 
 SUPPORTED = {"1m", "5m", "15m", "1h", "4h", "1d", "1w"}
 
@@ -194,6 +194,13 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         "reference_candle_offset_from_right": candidates_for_chart[0]["offset_from_right"],
     }
     result = analyze_chart_image(image, metadata, expected_symbol=market_symbol)
+    native_geometry_overlay = validate_mt5_geometry_overlay(
+        native_pixel_geometry,
+        native_bars=bars,
+        extracted_bars=result.get("bars", []),
+        visible_bars=int(chart.get("visible_bars", 0) or 0),
+        first_visible_bar_shift=int(chart.get("first_visible_bar_shift", 0) or 0),
+    )
     reference = result.get("reference_multi_calibration") or {}
     axis_validation = result.get("reference_axis_validation") or {}
     axis_ocr = result.get("axis_ocr") or {}
@@ -250,6 +257,15 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
                 key: native_pixel_geometry.get(key) for key in (
                     "status", "decision_eligible", "validated_bars", "visible_bars",
                     "minimum_visible_bars", "mapping_status", "scale_x", "scale_y", "reason"
+                )
+            },
+            "native_geometry_overlay": {
+                key: native_geometry_overlay.get(key) for key in (
+                    "status", "mapping_verified", "matched_candles", "fit_candles",
+                    "validation_candles", "validation_passed_candles",
+                    "validation_pass_ratio", "validation_median_max_residual_px",
+                    "validation_max_residual_px", "x_scale", "x_offset",
+                    "y_scale", "y_offset", "reason"
                 )
             },
             "multi_reference_validation": {
