@@ -11,7 +11,11 @@ from mirsad.engines.mt5_observer import MT5ChartObserverInbox, recent_reference_
 from mirsad.engines.mt5_market import MT5MarketDataEngine
 from mirsad.engines.mt5_chart_candles import MT5ChartCandleHistory
 from mirsad.engines.mt5_native_indicators import MT5NativeIndicatorHistory
-from mirsad.engines.mt5_chart_geometry import validate_mt5_chart_geometry, validate_mt5_geometry_overlay
+from mirsad.engines.mt5_chart_geometry import (
+    native_geometry_visible_y_max,
+    validate_mt5_chart_geometry,
+    validate_mt5_geometry_overlay,
+)
 
 SUPPORTED = {"1m", "5m", "15m", "1h", "4h", "1d", "1w"}
 
@@ -193,6 +197,9 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         "reference_last_candle_ohlc": candidates_for_chart[0]["ohlc"],
         "reference_candle_offset_from_right": candidates_for_chart[0]["offset_from_right"],
     }
+    native_max_y = native_geometry_visible_y_max(native_pixel_geometry)
+    if native_max_y is not None:
+        metadata["native_geometry_max_y_image_px"] = native_max_y
     result = analyze_chart_image(image, metadata, expected_symbol=market_symbol)
     native_geometry_overlay = validate_mt5_geometry_overlay(
         native_pixel_geometry,
