@@ -428,34 +428,62 @@ def analyze_chart_image(
                 native_slot_centers,
                 clear_existing_slot_ids_on_failure=True,
             )
-            # Compare the native X extent with the OCR-derived plot crop. This is
-            # diagnostic only: disagreement must remain visible to the overlay gate.
+            # Keep exact boundary deltas for diagnosis; never coerce native X
+            # anchors into the OCR crop or weaken the independent overlay gate.
             try:
-                native_slot_x_values = [
+                native_slot_x_values = sorted(
                     float(item["x_px"])
                     for item in native_slot_centers
                     if isinstance(item, dict)
                     and item.get("x_px") is not None
                     and math.isfinite(float(item["x_px"]))
-                ]
+                )
                 ocr_plot_left = float(calibration["plot_left_px"])
                 ocr_plot_right = float(calibration["plot_right_px"])
                 plot_tolerance = max(
                     2.0, float(native_geometry_slot_assignment.get("tolerance_px", 0.0) or 0.0)
                 )
-                if native_slot_x_values:
+                if native_slot_x_values and ocr_plot_right > ocr_plot_left:
+                    left_outside = [
+                        x for x in native_slot_x_values
+                        if x < ocr_plot_left - plot_tolerance
+                    ]
+                    right_outside = [
+                        x for x in native_slot_x_values
+                        if x > ocr_plot_right + plot_tolerance
+                    ]
+                    gaps = [
+                        native_slot_x_values[index] - native_slot_x_values[index - 1]
+                        for index in range(1, len(native_slot_x_values))
+                        if native_slot_x_values[index] > native_slot_x_values[index - 1]
+                    ]
                     native_geometry_slot_assignment.update({
                         "ocr_plot_left_px": round(ocr_plot_left, 3),
                         "ocr_plot_right_px": round(ocr_plot_right, 3),
-                        "native_slots_before_ocr_plot_left": sum(
-                            x < ocr_plot_left - plot_tolerance for x in native_slot_x_values
+                        "native_slot_x_min_px": round(native_slot_x_values[0], 3),
+                        "native_slot_x_max_px": round(native_slot_x_values[-1], 3),
+                        "native_slot_x_span_px": round(
+                            native_slot_x_values[-1] - native_slot_x_values[0], 3
                         ),
-                        "native_slots_beyond_ocr_plot_right": sum(
-                            x > ocr_plot_right + plot_tolerance for x in native_slot_x_values
+                        "native_slot_median_spacing_px": round(float(median(gaps)), 3) if gaps else None,
+                        "native_slots_inside_ocr_plot": sum(
+                            ocr_plot_left - plot_tolerance <= x <= ocr_plot_right + plot_tolerance
+                            for x in native_slot_x_values
                         ),
+                        "native_slots_before_ocr_plot_left": len(left_outside),
+                        "native_slots_beyond_ocr_plot_right": len(right_outside),
+                        "native_slots_outside_sample": [
+                            {"side": "left", "x_px": round(x, 3),
+                             "distance_px": round(ocr_plot_left - x, 3)}
+                            for x in left_outside[:4]
+                        ] + [
+                            {"side": "right", "x_px": round(x, 3),
+                             "distance_px": round(x - ocr_plot_right, 3)}
+                            for x in right_outside[:4]
+                        ],
                     })
             except (TypeError, ValueError, OverflowError):
-                pass
+                native_geometry_slot_assignment["plot_bounds_diagnostics_status"] = "INVALID_DIAGNOSTIC_INPUT"
         elif meta.get("infer_regular_chart_slots") is True:
             try:
                 rightmost_anchor_ratio = float(meta.get("reference_last_candle_x_ratio"))
