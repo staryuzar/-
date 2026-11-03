@@ -121,7 +121,11 @@ class MT5MarketDataEngine:
             last_value = last or 0.0
             volume_value = volume or 0.0
             volume_real_value = volume_real or 0.0
-            quote_valid = bid_value > 0 and ask_value >= bid_value
+            # MqlTick keeps the previous Bid/Ask values on Last/Volume-only
+            # events. Count a quote update only when the corresponding flags
+            # explicitly state that Bid or Ask changed.
+            quote_changed = bool(flags & (2 | 4))
+            quote_valid = quote_changed and bid_value > 0 and ask_value >= bid_value
             last_valid = bool(flags & 8) and last_value > 0
             volume_valid = bool(flags & 16) and (volume_value > 0 or volume_real_value > 0)
             if not (quote_valid or last_valid or volume_valid):
