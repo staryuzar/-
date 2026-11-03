@@ -18,7 +18,11 @@ from PIL import Image
 from ..config import MT5_COMMON_FILES
 from .chart import analyze_chart_image
 from .mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candidates
-from .mt5_chart_geometry import analyze_native_mt5_ohlc, validate_mt5_chart_geometry
+from .mt5_chart_geometry import (
+    analyze_native_mt5_ohlc,
+    native_geometry_visible_y_max,
+    validate_mt5_chart_geometry,
+)
 
 
 def _blocked_observer_chart(observer:dict[str,Any], reason:str, status:str="OBSERVER_VALIDATION_BLOCKED")->dict[str,Any]:
@@ -167,6 +171,9 @@ def analyze_mt5_observer_chart(
   observer.get("pixel_geometry"),bars=bars,chart=chart_meta,
   image_width=image_width,image_height=image_height,
  )
+ native_max_y=native_geometry_visible_y_max(native_pixel_geometry)
+ if native_max_y is not None:
+  metadata["native_geometry_max_y_image_px"]=native_max_y
  pixel_geometry=observer.get("pixel_geometry") if isinstance(observer.get("pixel_geometry"),dict) else {
   "status":"NOT_AVAILABLE","decision_eligible":False,
   "reason":"Observer inbox did not provide native pixel geometry."
