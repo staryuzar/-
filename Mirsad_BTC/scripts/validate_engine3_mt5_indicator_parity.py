@@ -61,10 +61,12 @@ def validate(candles_payload: dict[str, Any], native_payload: dict[str, Any]) ->
         failures.append("Broker symbol differs between Engine 2 candles and native indicators.")
     if str(candles_payload.get("market_symbol", "")).upper() != str(native_payload.get("market_symbol", "")).upper():
         failures.append("Mirsad market symbol differs between Engine 2 candles and native indicators.")
-    candle_server = str((candles_payload.get("account") or {}).get("server", "")).casefold()
-    native_server = str((native_payload.get("account") or {}).get("server", "")).casefold()
-    if candle_server and native_server and candle_server != native_server:
-        failures.append("Broker account/server identity differs between Engine 2 candles and native indicators.")
+    candle_server = str((candles_payload.get("account") or {}).get("server", "")).strip().casefold()
+    native_server = str((native_payload.get("account") or {}).get("server", "")).strip().casefold()
+    if not candle_server or not native_server or candle_server != native_server:
+        failures.append("Broker account/server identity is missing or differs between Engine 2 candles and native indicators.")
+    if candles_payload.get("time_basis") != "UTC_NORMALIZED_FROM_MT5_SERVER_TIME" or native_payload.get("time_basis") != "UTC_NORMALIZED_FROM_MT5_SERVER_TIME":
+        failures.append("Both snapshots must use the same UTC-normalized MT5 server-time basis.")
 
     candle_frames = candles_payload.get("timeframes") or {}
     native_frames = native_payload.get("timeframes") or {}
@@ -86,11 +88,17 @@ def validate(candles_payload: dict[str, Any], native_payload: dict[str, Any]) ->
             try:
                 expected_closed_time = int(closed_bars[-1]["open_time_ms"])
                 native_closed_time = int(native_frame.get("closed_bar_time_utc_ms", 0))
+                expected_forming_time = int(bars[-1]["open_time_ms"])
+                native_forming_time = int(native_frame.get("forming_bar_time_utc_ms", 0))
             except (KeyError, TypeError, ValueError, OverflowError):
                 expected_closed_time = native_closed_time = 0
             if expected_closed_time <= 0 or expected_closed_time != native_closed_time:
                 frame_failures.append(
                     f"Closed-bar timestamp mismatch: Engine2={expected_closed_time}, MT5={native_closed_time}."
+                )
+            if expected_forming_time <= 0 or expected_forming_time != native_forming_time:
+                frame_failures.append(
+                    f"Forming-bar timestamp mismatch: Engine2={expected_forming_time}, MT5={native_forming_time}."
                 )
 
         calculated = _calculate_timeframe_indicators(bars)
