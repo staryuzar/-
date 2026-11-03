@@ -277,6 +277,28 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertIn("Daily loss cap", result["open_block_reason"])
         self.assertTrue(result["daily_risk_gate"]["new_entry_blocked"])
 
+    def test_disabled_daily_loss_guard_does_not_block_entry_when_other_gates_pass(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        bridge = self._daily_risk_bridge(locked=False)
+        bridge["daily_risk"] = {
+            "status": "READY",
+            "mode": "DISABLED_FOR_DEVELOPMENT",
+            "enabled": False,
+            "locked": False,
+            "new_entries_blocked": False,
+            "max_daily_loss_fraction": None,
+            "daily_loss_fraction": None,
+        }
+
+        result = DecisionEngine().analyze(self._market(), chart, bridge, indicators)
+
+        self.assertEqual(result["candidate_action"], "BUY")
+        self.assertEqual(result["action"], "BUY")
+        self.assertTrue(result["command_ready"])
+        self.assertEqual(result["daily_risk_gate"]["status"], "READY")
+        self.assertFalse(result["daily_risk_gate"]["new_entry_blocked"])
+
     def test_daily_loss_lock_does_not_block_opposite_position_close(self) -> None:
         chart = self._chart()
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
