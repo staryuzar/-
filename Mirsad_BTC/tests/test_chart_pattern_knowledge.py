@@ -15,12 +15,23 @@ def ids(result: dict) -> set[str]:
 
 class ChartPatternKnowledgeTests(unittest.TestCase):
     def test_doji_and_subtype_are_reported_as_rule_matches(self) -> None:
-        result = analyze_candle_patterns([candle(100, 101, 99, 100.01)])
+        history = [candle(100, 110, 90, 100.2) for _ in range(10)]
+        result = analyze_candle_patterns(history + [candle(100, 101, 99, 100.5)])
         self.assertIn("doji", ids(result))
         self.assertTrue(all(
             item["interpretation"] == "RULE_MATCH_NOT_PROBABILITY"
             for item in result["detected"]
         ))
+
+    def test_doji_uses_previous_ten_candle_ranges(self) -> None:
+        history = [candle(100, 110, 90, 100.2) for _ in range(10)]
+        result = analyze_candle_patterns(history + [candle(100, 101, 99, 100.5)])
+        self.assertIn("doji", ids(result))
+
+    def test_doji_does_not_use_future_or_incomplete_history(self) -> None:
+        history = [candle(100, 102, 98, 101) for _ in range(9)]
+        result = analyze_candle_patterns(history + [candle(100, 101, 99, 100.01)])
+        self.assertNotIn("doji", ids(result))
 
     def test_bullish_engulfing_requires_second_body_to_span_first(self) -> None:
         bars = [
@@ -54,13 +65,11 @@ class ChartPatternKnowledgeTests(unittest.TestCase):
         self.assertFalse(engulfing)
 
     def test_hammer_requires_prior_decline_context(self) -> None:
-        bars = [
-            candle(106, 107, 105, 105),
-            candle(105, 106, 104, 104),
-            candle(104, 105, 103, 103),
-            candle(103, 104, 102, 102),
-            candle(102, 102.6, 97, 102.5),
+        history = [
+            candle(110 - index, 111 - index, 108.5 - index, 109 - index)
+            for index in range(10)
         ]
+        bars = history + [candle(100.0, 100.1, 95.0, 99.9)]
         result = analyze_candle_patterns(bars)
         hammer = [x for x in result["detected"] if x["pattern_id"] == "hammer"]
         self.assertTrue(hammer)
