@@ -117,26 +117,47 @@ def _bollinger(values: list[float], period: int = 20, deviations: float = 2.0) -
     return middle, upper, lower
 
 
-def _stochastic(candles: list[dict[str, Any]], k_period: int = 5, d_period: int = 3) -> tuple[float | None, float | None]:
-    if len(candles) < k_period + d_period - 1:
+def _stochastic(
+    candles: list[dict[str, Any]],
+    k_period: int = 5,
+    d_period: int = 3,
+    slowing: int = 3,
+) -> tuple[float | None, float | None]:
+    """Match MT5 iStochastic(K=5, D=3, slowing=3, MODE_SMA).
+
+    MT5's main line is the SMA-smoothed raw %K (the slowing period), while
+    the signal line is the SMA of that smoothed %K over D periods.
+    """
+    if (
+        k_period < 1 or d_period < 1 or slowing < 1
+        or len(candles) < k_period + slowing + d_period - 2
+    ):
         return None, None
     try:
-        k_values: list[float] = []
-        for end in range(len(candles) - d_period + 1, len(candles) + 1):
+        raw_k: list[float] = []
+        for end in range(k_period, len(candles) + 1):
             window = candles[end - k_period:end]
             highest = max(float(row["high"]) for row in window)
             lowest = min(float(row["low"]) for row in window)
             close = float(candles[end - 1]["close"])
             if not _finite_values([highest, lowest, close]) or highest < lowest:
                 return None, None
-            k_values.append(50.0 if highest == lowest else 100.0 * (close - lowest) / (highest - lowest))
-        return k_values[-1], sum(k_values[-d_period:]) / d_period
+            raw_k.append(50.0 if highest == lowest else 100.0 * (close - lowest) / (highest - lowest))
+
+        slow_k = [
+            sum(raw_k[index - slowing + 1:index + 1]) / slowing
+            for index in range(slowing - 1, len(raw_k))
+        ]
+        if len(slow_k) < d_period:
+            return None, None
+        slow_d = sum(slow_k[-d_period:]) / d_period
+        return slow_k[-1], slow_d
     except (KeyError, TypeError, ValueError, OverflowError):
         return None, None
 
 
 def _adx(candles: list[dict[str, Any]], period: int = 14) -> tuple[float | None, float | None, float | None]:
-    if period < 2 or len(candles) < period * 2 + 1:
+    if period < 2 or len(candles) < period * 2:
         return None, None, None
     try:
         plus_dm: list[float] = []
@@ -147,17 +168,21 @@ def _adx(candles: list[dict[str, Any]], period: int = 14) -> tuple[float | None,
             down = float(previous["low"]) - float(current["low"])
             plus_dm.append(up if up > down and up > 0 else 0.0)
             minus_dm.append(down if down > up and down > 0 else 0.0)
-            high, low, previous_close = float(current["high"]), float(current["low"]), float(previous["close"])
+            high, low, previous_close = float(current["high"]), float(current["low"]), float(current["close"])
             true_ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
-        if not _finite_values(plus_dm + minus_dm + true_ranges):
+        if not _finite_values(plus_dm + minus_dm + true_ranges) or len(true_ranges) < period * 2 - 1:
             return None, None, None
+
+        # Seed Wilder's smoothed directional movement with the first period
+        # observations, then calculate the first DX immediately.
         smoothed_tr = sum(true_ranges[:period])
         smoothed_plus = sum(plus_dm[:period])
         smoothed_minus = sum(minus_dm[:period])
         dx_values: list[float] = []
         latest_plus = latest_minus = None
-        for index in range(period, len(true_ranges)):
-            if index > period:
+
+        for index in range(period - 1, len(true_ranges)):
+            if index >= period:
                 smoothed_tr = smoothed_tr - smoothed_tr / period + true_ranges[index]
                 smoothed_plus = smoothed_plus - smoothed_plus / period + plus_dm[index]
                 smoothed_minus = smoothed_minus - smoothed_minus / period + minus_dm[index]
@@ -169,6 +194,7 @@ def _adx(candles: list[dict[str, Any]], period: int = 14) -> tuple[float | None,
             denominator = plus_di + minus_di
             dx_values.append(0.0 if denominator == 0 else 100.0 * abs(plus_di - minus_di) / denominator)
             latest_plus, latest_minus = plus_di, minus_di
+
         adx_value = _wilder_average(dx_values, period)
         if adx_value is None or latest_plus is None or latest_minus is None:
             return None, None, None
