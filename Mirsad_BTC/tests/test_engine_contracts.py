@@ -255,8 +255,8 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
 
     def test_engine2_native_price_action_is_visible_but_never_becomes_an_unvalidated_vote(self) -> None:
         chart = self._chart()
-        chart["decision_eligible"] = False
-        chart["status"] = "WAITING_FOR_IMAGE"
+        chart["decision_eligible"] = True
+        chart["status"] = "READY"
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         price_action = {
             "engine": "engine_2_native_price_action",
@@ -286,8 +286,31 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             with_context["engine_2_native_price_action_context"]["role"],
             "DESCRIPTIVE_ONLY_NOT_USED_AS_A_DIRECTIONAL_VOTE",
         )
-        self.assertEqual(with_context["candidate_action"], without_context["candidate_action"])
+        self.assertEqual(without_context["candidate_action"], "BUY")
+        self.assertEqual(with_context["candidate_action"], "WAIT")
+        self.assertEqual(with_context["chart_gate"], "WAITING_FOR_ENGINE_2_PRICE_ACTION_CONFLUENCE")
+        self.assertEqual(
+            with_context["engine_2_native_price_action_context"]["gate"],
+            "MIXED_OR_NO_CONFLUENCE",
+        )
         self.assertEqual(with_context["decision_scores"], without_context["decision_scores"])
+
+        aligned_price_action = {
+            **price_action,
+            "direction": "BULLISH",
+            "summary": {
+                **price_action["summary"],
+                "timeframe_alignment": "BULLISH_STRUCTURE_CONFLUENCE",
+            },
+        }
+        aligned = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators, engine2_price_action=aligned_price_action
+        )
+        self.assertEqual(aligned["candidate_action"], "BUY")
+        self.assertEqual(
+            aligned["engine_2_native_price_action_context"]["gate"],
+            "BULLISH_CONFLUENCE",
+        )
 
 
 class DecisionBoundaryTests(unittest.TestCase):
@@ -452,6 +475,16 @@ class BridgeProtocolTests(unittest.TestCase):
                 self.assertEqual(published["status"], "PUBLISHED")
                 replacement = json.loads(command_path.read_text(encoding="utf-8"))
                 self.assertEqual(replacement["command_id"], second["signal_id"])
+
+    def test_command_publish_disabled_switch_writes_no_mir1_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", False):
+                result = engine.publish_decision(
+                    make_open_decision(), {"status": "CONNECTED"}
+                )
+            self.assertEqual(result["status"], "PUBLISH_DISABLED")
+            self.assertFalse((Path(temp) / "MirsadBTC" / "command.json").exists())
 
     def test_bridge_reads_live_magic_and_position_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
