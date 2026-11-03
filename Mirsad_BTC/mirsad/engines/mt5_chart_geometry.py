@@ -891,4 +891,4 @@ def analyze_native_mt5_ohlc(
     }
 
 
-__all__ = ["analyze_native_mt5_ohlc", "validate_mt5_chart_geometry"]
+__all__ = ["analyze_native_mt5_ohlc", "native_geometry_slot_centers", "assign_native_geometry_slots", "validate_mt5_chart_geometry", "validate_mt5_geometry_overlay"]
