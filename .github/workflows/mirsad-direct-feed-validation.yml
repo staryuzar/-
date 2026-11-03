@@ -46,12 +46,11 @@ jobs:
           cache: pip
           cache-dependency-path: Mirsad_BTC/requirements.txt
 
-      - name: Install direct feed validation dependencies
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          python -m pip install --upgrade pip
-          python -m pip install -r Mirsad_BTC/requirements.txt
+      # The direct-feed readers and their focused tests use Python's standard
+      # library only. Installing the full application stack here (OCR, OpenCV,
+      # ONNX Runtime and TA-Lib) delays the MT5 live-feed gate without adding
+      # coverage. Keep this workflow isolated and fast; full dependencies are
+      # exercised by the application CI workflow.
 
       - name: Test direct feed reader and contract code
         env:
