@@ -338,6 +338,8 @@ class NativeGeometrySlotAssignmentTests(unittest.TestCase):
         assigned, diagnostics = assign_native_geometry_slots(extracted, native_slots)
         self.assertEqual(diagnostics["status"], "PROVISIONAL_ASSIGNMENT")
         self.assertEqual(diagnostics["matched_candles"], 9)
+        self.assertEqual(diagnostics["native_slot_x_min_px"], 20.0)
+        self.assertEqual(diagnostics["native_slot_x_max_px"], 128.0)
         self.assertEqual(diagnostics["cleared_existing_slot_count"], 10)
         self.assertEqual(diagnostics["preexisting_slot_conflicts"], 9)
         self.assertEqual([item["slot_index"] for item in assigned[:9]], list(range(9)))

@@ -454,6 +454,8 @@ def assign_native_geometry_slots(
         "method": "monotonic_one_to_one_x_match",
         "matched_candles": len(pairs),
         "native_slot_count": n,
+        "native_slot_x_min_px": round(min(float(item["x_px"]) for item in native_slots), 3),
+        "native_slot_x_max_px": round(max(float(item["x_px"]) for item in native_slots), 3),
         "extracted_bar_count": m,
         "x_coverage_ratio": round(coverage, 4),
         "tolerance_px": round(tolerance, 3),

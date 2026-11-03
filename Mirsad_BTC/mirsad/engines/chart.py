@@ -428,6 +428,34 @@ def analyze_chart_image(
                 native_slot_centers,
                 clear_existing_slot_ids_on_failure=True,
             )
+            # Compare the native X extent with the OCR-derived plot crop. This is
+            # diagnostic only: disagreement must remain visible to the overlay gate.
+            try:
+                native_slot_x_values = [
+                    float(item["x_px"])
+                    for item in native_slot_centers
+                    if isinstance(item, dict)
+                    and item.get("x_px") is not None
+                    and math.isfinite(float(item["x_px"]))
+                ]
+                ocr_plot_left = float(calibration["plot_left_px"])
+                ocr_plot_right = float(calibration["plot_right_px"])
+                plot_tolerance = max(
+                    2.0, float(native_geometry_slot_assignment.get("tolerance_px", 0.0) or 0.0)
+                )
+                if native_slot_x_values:
+                    native_geometry_slot_assignment.update({
+                        "ocr_plot_left_px": round(ocr_plot_left, 3),
+                        "ocr_plot_right_px": round(ocr_plot_right, 3),
+                        "native_slots_before_ocr_plot_left": sum(
+                            x < ocr_plot_left - plot_tolerance for x in native_slot_x_values
+                        ),
+                        "native_slots_beyond_ocr_plot_right": sum(
+                            x > ocr_plot_right + plot_tolerance for x in native_slot_x_values
+                        ),
+                    })
+            except (TypeError, ValueError, OverflowError):
+                pass
         elif meta.get("infer_regular_chart_slots") is True:
             try:
                 rightmost_anchor_ratio = float(meta.get("reference_last_candle_x_ratio"))
