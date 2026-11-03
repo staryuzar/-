@@ -237,6 +237,10 @@ try {
     if ([string]::IsNullOrWhiteSpace($observerSymbol)) { $observerSymbol = 'BTC' }
     $observerTimeframe = $observerTimeframe.Trim().ToUpperInvariant()
     if ([string]::IsNullOrWhiteSpace($observerTimeframe)) { $observerTimeframe = 'M1' }
+    $marketSymbol = [string]$env:MIRSAD_MT5_MARKET_SYMBOL
+    if ([string]::IsNullOrWhiteSpace($marketSymbol)) { $marketSymbol = 'BTCUSDT' }
+    $marketSymbol = $marketSymbol.Trim()
+    if ($marketSymbol.Length -gt 32) { throw 'Configured Mirsad market symbol is too long.' }
     # Do not restrict broker-specific symbols or the MT5 timeframe catalogue.
     # MT5 itself will report an unknown symbol/period during startup or CopyRates.
     Write-Output "::add-mask::$login"
@@ -517,10 +521,11 @@ public static class MirsadNativeWindow {
                     $market = $loaded.market
                     $candles = $loaded.candles
                     $indicators = $loaded.indicators
+                    $feedServer = [string]$market.account.server
                     $serverOk = (
-                        [string]$market.account.server -eq $server -and
-                        [string]$candles.account.server -eq $server -and
-                        [string]$indicators.account.server -eq $server
+                        -not [string]::IsNullOrWhiteSpace($feedServer) -and
+                        [string]$candles.account.server -eq $feedServer -and
+                        [string]$indicators.account.server -eq $feedServer
                     )
                     $identityOk = (
                         [bool]$market.terminal_connected -and
@@ -595,7 +600,7 @@ public static class MirsadNativeWindow {
             '--common-files', $commonFilesRoot,
             '--market-symbol', $marketSymbol,
             '--broker-symbol', $observerSymbol,
-            '--expected-server', $server,
+            '--expected-server', $feedServer,
             '--output', $directOutput
         )
         $validatorLines = & python @validatorArgs 2>&1
@@ -777,10 +782,6 @@ public static class MirsadNativeWindow {
         }
     }
 
-    $marketSymbol = [string]$env:MIRSAD_MT5_MARKET_SYMBOL
-    if ([string]::IsNullOrWhiteSpace($marketSymbol)) { $marketSymbol = 'BTCUSDT' }
-    $marketSymbol = $marketSymbol.Trim()
-    if ($marketSymbol.Length -gt 32) { throw 'Configured Mirsad market symbol is too long.' }
     $analysisScript = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\analyze_mt5_observer_capture.py'
     $analysisOutput = Join-Path $evidence 'observer-engine2-analysis.json'
     if (!(Test-Path -LiteralPath $analysisScript)) { throw 'Engine 2 Observer analysis script is missing.' }
