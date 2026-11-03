@@ -178,6 +178,7 @@ def _extract_slot_guided_bars(
         "rejected_component_quality": 0,
         "rejected_low_pixels": 0,
         "rejected_mixed_palette": 0,
+        "rejected_off_center_components": 0,
         "slot_kernel_height": None,
         "minimum_component_height": None,
         "minimum_component_area": None,
@@ -229,12 +230,14 @@ def _extract_slot_guided_bars(
             diagnostics["rejected_low_activity"] += 1
             continue
 
-        component_count, component_labels, component_stats, _ = cv2.connectedComponentsWithStats(
+        component_count, component_labels, component_stats, component_centroids = cv2.connectedComponentsWithStats(
             local_core.astype(np.uint8),
             connectivity=8,
         )
         retained = np.zeros(local_core.shape, dtype=bool)
         max_local_component_width = max(3, int(np.ceil(slot_width * 0.60)))
+        center_local = float(center - candidate_left)
+        center_tolerance = max(3.0, slot_width * 0.18)
         # Dense charts contain valid narrow candles whose visible wicks
         # can be shorter than the global morphology threshold. Keep the
         # per-slot component-area, palette-purity and occupancy gates strict,
@@ -253,6 +256,14 @@ def _extract_slot_guided_bars(
             if comp_height < min_vertical_bar_height or comp_area < min_component_area:
                 continue
             if comp_height < comp_width * 0.60:
+                continue
+            # A same-colour vertical overlay can pass the shape/height filters
+            # inside a candle slot. Retain only components centred near the
+            # expected candle position; otherwise an off-centre line can win
+            # the activity vote and corrupt the candle's High/Low pixel rows.
+            component_center = float(component_centroids[component_id][0])
+            if abs(component_center - center_local) > center_tolerance:
+                diagnostics["rejected_off_center_components"] += 1
                 continue
             retained[component_labels == component_id] = True
 
