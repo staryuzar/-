@@ -235,9 +235,12 @@ def _extract_slot_guided_bars(
         )
         retained = np.zeros(local_core.shape, dtype=bool)
         max_local_component_width = max(3, int(np.ceil(slot_width * 0.60)))
+        # Dense charts can contain valid narrow candles with short visible
+        # wicks. Keep slot-local colour, area and dominance tests strict, but
+        # do not discard a candle solely because it is below 35% of a slot.
         min_vertical_bar_height = max(
-            slot_kernel_height * 2,
-            int(round(slot_width * 0.35)),
+            slot_kernel_height,
+            int(round(slot_width * 0.25)),
         )
         min_component_area = max(5, slot_kernel_height * 2)
         for component_id in range(1, int(component_count)):
@@ -248,7 +251,7 @@ def _extract_slot_guided_bars(
                 continue
             if comp_height < min_vertical_bar_height or comp_area < min_component_area:
                 continue
-            if comp_height < comp_width * 0.80:
+            if comp_height < comp_width * 0.60:
                 continue
             retained[component_labels == component_id] = True
 
