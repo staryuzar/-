@@ -323,6 +323,7 @@ def analyze_chart_image(
         require_multi_reference_validation = bool(meta.get("require_multi_reference_validation", False))
         reference_multi_calibration: dict[str, Any] = {"status": "NOT_REQUESTED"}
         reference_pair_candidates: list[dict[str, Any]] = []
+        reference_slot_diagnostics: list[dict[str, Any]] = []
         selected_reference_bar: dict[str, Any] | None = None
         selected_reference_ohlc: dict[str, Any] | None = None
         selected_reference_candidate: dict[str, Any] | None = None
@@ -386,14 +387,42 @@ def analyze_chart_image(
             index = len(bars) - 1 - offset_from_right
             return bars[index] if 0 <= index < len(bars) else None
 
+        detected_slot_indices = sorted(
+            int(item["slot_index"])
+            for item in bars
+            if isinstance(item, dict) and isinstance(item.get("slot_index"), int)
+        )
         for candidate in reference_candidates:
             offset = int(candidate["offset_from_right"])
+            target_slot_for_diagnostic = (
+                _visible_slot_for_reference_offset(
+                    offset, expected_count, first_visible_bar_shift
+                ) if expected_count > 0 else None
+            )
+            diagnostic = {
+                "offset_from_right": offset,
+                "closed": candidate.get("closed"),
+                "target_slot_index": target_slot_for_diagnostic,
+                "detected_slot_present": (
+                    target_slot_for_diagnostic in detected_slot_indices
+                    if target_slot_for_diagnostic is not None else None
+                ),
+            }
             if candidate.get("closed") is False:
+                diagnostic["match_status"] = "FORMING_CANDLE"
+                if len(reference_slot_diagnostics) < 24:
+                    reference_slot_diagnostics.append(diagnostic)
                 continue
             if expected_count > 0 and offset >= expected_count:
+                diagnostic["match_status"] = "OUTSIDE_VIEWPORT"
+                if len(reference_slot_diagnostics) < 24:
+                    reference_slot_diagnostics.append(diagnostic)
                 continue
             reference_bar = find_reference_pixel_bar(offset)
             if reference_bar is None:
+                diagnostic["match_status"] = "PIXEL_SLOT_NOT_DETECTED"
+                if len(reference_slot_diagnostics) < 24:
+                    reference_slot_diagnostics.append(diagnostic)
                 last_reference_failure = {
                     "status": "REFERENCE_BAR_NOT_DETECTED",
                     "reason": "The extracted chart image has no candle in the exact MT5 reference slot.",
@@ -405,6 +434,12 @@ def analyze_chart_image(
                     ),
                 }
                 continue
+
+            diagnostic["match_status"] = "MATCHED"
+            diagnostic["matched_slot_index"] = reference_bar.get("slot_index")
+            diagnostic["matched_x_px"] = reference_bar.get("x_px")
+            if len(reference_slot_diagnostics) < 24:
+                reference_slot_diagnostics.append(diagnostic)
 
             reference_ohlc_candidate = candidate["ohlc"]
             target_slot = (
@@ -766,6 +801,24 @@ def analyze_chart_image(
             else {"status": "NOT_REQUESTED"}
         ),
         "reference_multi_calibration": reference_multi_calibration,
+        "reference_slot_diagnostics": {
+            "candidate_count": len(reference_candidates),
+            "visible_candidate_count": sum(
+                1 for item in reference_candidates
+                if expected_count <= 0 or int(item.get("offset_from_right", -1)) < expected_count
+            ),
+            "closed_visible_candidate_count": sum(
+                1 for item in reference_candidates
+                if item.get("closed") is not False
+                and (expected_count <= 0 or int(item.get("offset_from_right", -1)) < expected_count)
+            ),
+            "exact_slot_match_count": len(reference_pair_candidates),
+            "detected_slot_count": len(detected_slot_indices),
+            "detected_slot_min": min(detected_slot_indices) if detected_slot_indices else None,
+            "detected_slot_max": max(detected_slot_indices) if detected_slot_indices else None,
+            "detected_slot_sample": detected_slot_indices[:12] + detected_slot_indices[-12:],
+            "candidate_match_sample": reference_slot_diagnostics,
+        },
         "reference_ohlc_override_applied": reference_ohlc_override_applied,
         "reference_anchor": ({
             "status": "READY",
