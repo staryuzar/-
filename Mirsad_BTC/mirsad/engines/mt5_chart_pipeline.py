@@ -21,6 +21,7 @@ from .mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candida
 from .mt5_chart_geometry import (
     analyze_native_mt5_ohlc,
     native_geometry_visible_y_max,
+    native_geometry_slot_centers,
     validate_mt5_chart_geometry,
 )
 
@@ -171,6 +172,14 @@ def analyze_mt5_observer_chart(
   observer.get("pixel_geometry"),bars=bars,chart=chart_meta,
   image_width=image_width,image_height=image_height,
  )
+ native_slot_center_result=native_geometry_slot_centers(
+  native_pixel_geometry,
+  native_bar_count=len(bars),
+  visible_bars=visible_bars,
+  first_visible_bar_shift=first_visible_bar_shift,
+ )
+ metadata["native_geometry_slot_centers"]=native_slot_center_result.get("slots",[])
+ metadata["native_geometry_slot_center_status"]=native_slot_center_result.get("status")
  native_max_y=native_geometry_visible_y_max(native_pixel_geometry)
  if native_max_y is not None:
   metadata["native_geometry_max_y_image_px"]=native_max_y
@@ -199,6 +208,9 @@ def analyze_mt5_observer_chart(
    "native_pixel_geometry_status":native_pixel_geometry.get("status"),
    "native_pixel_geometry_visible_bars":native_pixel_geometry.get("visible_bars"),
    "native_pixel_geometry_mapping_status":native_pixel_geometry.get("mapping_status"),
+   "native_geometry_slot_center_status":native_slot_center_result.get("status"),
+   "native_geometry_slot_center_count":native_slot_center_result.get("native_slot_count",0),
+   "native_geometry_slot_assignment":analysis.get("native_geometry_slot_assignment"),
    "broker_symbol":observer_symbol,
    "market_symbol":market_symbol,
    "engine_1_quote_freshness_required_for_visual_analysis":False,
