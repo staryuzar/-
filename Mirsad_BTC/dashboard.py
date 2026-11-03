@@ -12,9 +12,11 @@ from PIL import Image, UnidentifiedImageError
 ROOT=Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
-from mirsad.config import CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH,ENABLE_ORDER_PUBLISH
+from mirsad.config import (CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,COLLECT_INTERVAL_SECONDS,RISK_PER_TRADE,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,MARKET_MAX_AGE_SECONDS,MT5_HEARTBEAT_MAX_AGE_SECONDS,MT5_QUOTE_MAX_AGE_SECONDS,MT5_MARKET_DATA_MAX_AGE_SECONDS,MT5_MARKET_DIVERGENCE_MAX_PCT,MT5_MAX_SPREAD_PCT,CHART_MAX_AGE_SECONDS)
 from mirsad.storage import read_json,write_json_atomic
 from mirsad.engines.visual_knowledge import visual_knowledge_summary
+from mirsad.engines.mt5_bridge import MT5BridgeEngine
+from mirsad.engines.position_management import BREAK_EVEN_TRIGGER_ATR,TRAILING_ACTIVATION_ATR,TRAILING_DISTANCE_ATR,TRAILING_STEP_ATR
 from mirsad.health import build_component_health,summarize_component_health
 
 st.set_page_config(page_title="مرصاد البيتكوين",page_icon="₿",layout="wide")
@@ -68,7 +70,7 @@ STATUS_AR={
  "UNAVAILABLE":"مكتبة مرجعية غير متاحة",
  "INSUFFICIENT_DATA":"بيانات غير كافية","BLOCKED_QUALITY_GATE":"بوابات جودة الرسم لم تكتمل","IMAGE_METADATA_MISMATCH":"إعدادات المعايرة لا تطابق الصورة","CONNECTED":"جسر الخبير متصل",
  "WAITING_FOR_EXPERT":"بانتظار الخبير التنفيذي","NOT_CONFIGURED":"مسار MT5 غير محدد",
- "PUBLISH_DISABLED":"نشر أوامر الخبير معطل","PUBLISHED":"أُرسل أمر للجسر",
+ "PUBLISH_DISABLED":"نشر أوامر الخبير معطل","EXECUTION_DISABLED":"تنفيذ خبير MT5 معطّل","EXECUTION_STATE_UNKNOWN":"لم تصل حالة مفتاح تنفيذ الخبير","TERMINAL_NOT_CONNECTED":"طرفية MT5 غير متصلة","PUBLISHED":"أُرسل أمر للجسر",
  "ALREADY_ACKNOWLEDGED":"الأمر له إقرار سابق","ALREADY_PUBLISHED":"الأمر منشور مسبقاً",
  "PENDING_COMMAND_BLOCKED":"أمر سابق ينتظر التسوية","REJECTED":"الأمر مرفوض","ERROR":"خطأ",
  "FULLY_OPERATIONAL":"المحركات الموصولة جاهزة","NOT_REPORTED":"لم ترد حالة تشغيل مستقلة بعد","PARTIAL_OR_WAITING":"تشغيل جزئي — توجد وصلات تنتظر",
@@ -178,6 +180,255 @@ def render_component_health(state:dict)->None:
        st.write(item.get("detail","لا توجد تفاصيل إضافية."))
        st.caption(f"المحرك: {item.get('engine','—')} · المصدر: {item.get('source','غير محدد')}")
 
+
+
+def action_ar(value):
+ return {"BUY":"شراء","SELL":"بيع","CLOSE":"إغلاق","MODIFY":"تعديل وقف الحماية","WAIT":"انتظار","HOLD":"الاحتفاظ"}.get(str(value or "").upper(),str(value or "غير متاح"))
+
+def _fmt_money(value):
+ try:
+  return f"{float(value):,.2f}"
+ except (TypeError,ValueError,OverflowError):
+  return "—"
+
+def render_execution_console(state:dict)->None:
+ bridge=state.get("bridge") if isinstance(state.get("bridge"),dict) else {}
+ decision=state.get("decision") if isinstance(state.get("decision"),dict) else {}
+ controls=state.get("execution_controls") if isinstance(state.get("execution_controls"),dict) else {}
+ daily=state.get("daily_risk") if isinstance(state.get("daily_risk"),dict) else bridge.get("daily_risk",{})
+ account=bridge.get("account") if isinstance(bridge.get("account"),dict) else {}
+ specs=bridge.get("symbol_spec") if isinstance(bridge.get("symbol_spec"),dict) else {}
+ command=bridge.get("current_command") if isinstance(bridge.get("current_command"),dict) else {}
+ ack=bridge.get("last_order_ack") if isinstance(bridge.get("last_order_ack"),dict) else {}
+ reconciliation=bridge.get("position_reconciliation") if isinstance(bridge.get("position_reconciliation"),dict) else {}
+ positions=bridge.get("positions") if isinstance(bridge.get("positions"),list) else []
+ events=bridge.get("event_log") if isinstance(bridge.get("event_log"),list) else []
+ publish_enabled=bool(controls.get("order_publish_enabled",ENABLE_ORDER_PUBLISH))
+ terminal_connected=bridge.get("terminal_connected") is True
+ expert_execution=bridge.get("execution_enabled")
+ bridge_connected=bridge.get("status")=="CONNECTED"
+ command_ready=(
+  decision.get("status")=="READY"
+  and decision.get("command_ready") is True
+  and str(decision.get("action","")).upper() in {"BUY","SELL","CLOSE","MODIFY"}
+ )
+ command_preview=None
+ preview_error=None
+ if command_ready:
+  try:
+   command_preview=MT5BridgeEngine._validate_decision(decision)
+  except (TypeError,ValueError,OverflowError) as exc:
+   preview_error=f"{type(exc).__name__}: {exc}"
+
+ st.divider()
+ st.markdown('<div class="mirsad-kicker">ENGINE 4 → ENGINE 5 / MIR1 OPERATIONS</div>',unsafe_allow_html=True)
+ st.subheader("مركز أوامر التنفيذ والتحكم الكامل")
+ st.caption("يعرض هذا القسم أوامر MIR1 ومفاتيح النشر والتنفيذ والطرفية والأمر الحالي وACK والمصالحة والمراكز وسجل الأحداث وإعدادات المخاطر. لا يرسل أي أمر خارج قرار المحرك الرابع.")
+
+ gate_cols=st.columns(5)
+ gate_values=[
+  ("نشر الأوامر من البرنامج","مفعّل" if publish_enabled else "معطّل",publish_enabled),
+  ("اتصال طرفية MT5","متصل" if terminal_connected else "غير مثبت",terminal_connected),
+  ("مفتاح الخبير InpAllowExecution","مفعّل" if expert_execution is True else "معطّل" if expert_execution is False else "غير معروف",expert_execution is True),
+  ("جاهزية المحرك الرابع","جاهز" if command_ready and command_preview else "لا يوجد أمر معتمد",bool(command_ready and command_preview)),
+  ("مصالحة آخر أمر","مؤكدة" if reconciliation.get("status")=="CONFIRMED" else ar(reconciliation.get("status","NOT_REPORTED")),reconciliation.get("status")=="CONFIRMED"),
+ ]
+ for col,(label,value,ok) in zip(gate_cols,gate_values):
+  with col:
+   st.metric(label,value)
+   st.caption("اجتاز" if ok else "لم يجتز / غير متاح")
+
+ tabs=st.tabs(["أوامر MIR1 والتحكم","معاينة الأمر والإرسال","الحساب ومواصفات الرمز","المراكز المفتوحة","الإقرارات والمصالحة","سجل الأحداث","إعدادات النظام والحدود"])
+ with tabs[0]:
+  st.markdown("**جميع أنواع الأوامر المعرفة في بروتوكول MIR1**")
+  command_rows=[
+   {"الرمز":"BUY","الاسم":"فتح شراء","مصدر القرار":"المحرك الرابع فقط","البيانات الإلزامية":"الرمز والحجم والدخول ووقف الخسارة والهدف","سلوك الخبير":"طلب سوق مع فحص السعر والحجم والوقف والتنفيذ"},
+   {"الرمز":"SELL","الاسم":"فتح بيع","مصدر القرار":"المحرك الرابع فقط","البيانات الإلزامية":"الرمز والحجم والدخول ووقف الخسارة والهدف","سلوك الخبير":"طلب سوق مع فحص السعر والحجم والوقف والتنفيذ"},
+   {"الرمز":"CLOSE","الاسم":"إغلاق كامل أو جزئي","مصدر القرار":"المحرك الرابع لمركز معاكس","البيانات الإلزامية":"position_ticket والحجم المستهدف","سلوك الخبير":"يقيّد الإغلاق بمركز مرصاد ورقم Magic الخاص به"},
+   {"الرمز":"MODIFY","الاسم":"تعديل وقف الحماية","مصدر القرار":"إدارة الوقف الوقائي في المحرك الرابع","البيانات الإلزامية":"position_ticket وSL الجديد وTP الحالي","سلوك الخبير":"لا يسمح بتخفيف الوقف أو تغيير الهدف"},
+  ]
+  st.dataframe(pd.DataFrame(command_rows),use_container_width=True,hide_index=True)
+  st.markdown("**حالات دورة حياة الأمر وإقرار MT5**")
+  st.write("RECEIVED: استلم الخبير الأمر · SUBMITTED: أرسل طلب الوسيط · PARTIAL: تنفيذ جزئي · FILLED: أقر الوسيط بالملء · REJECTED: رفض · CANCELLED: أُلغي · EXPIRED: انتهت صلاحيته · UNKNOWN: النتيجة غير محسومة.")
+  st.info("لا يوجد أمر CANCEL مستقل أو أوامر Pending / Limit / Stop في MIR1 الحالي. لا توجد أزرار إلغاء شكلية؛ الأوامر المدعومة حالياً هي BUY وSELL وCLOSE وMODIFY فقط.")
+  st.markdown("**تسلسل التشغيل**")
+  st.write("قرار المحرك الرابع ← حساب المخاطرة والحجم ← التحقق من سعر ومواصفات الوسيط ← مفتاح نشر البرنامج ← مفتاح تنفيذ الخبير ← كتابة command.json ← ACK من الخبير ← نبضة MT5 أحدث ← مطابقة التغير الفعلي في المراكز قبل إعلان CONFIRMED.")
+  st.caption("عند وجود مركز معاكس يطلب المحرك CLOSE أولاً وينتظر المزامنة قبل فتح الاتجاه الآخر. لا يسمح بتكرار مركز في الاتجاه نفسه.")
+
+ with tabs[1]:
+  active_action=str(decision.get("action","WAIT")).upper()
+  st.markdown(f"**تعليمات المحرك الرابع الحالية: {action_ar(active_action)} ({active_action})**")
+  st.caption(f"حالة القرار: {ar(decision.get('status','NOT_READY'))} | جاهزية الأمر: {'نعم' if command_ready else 'لا'} | حالة الجسر: {ar(bridge.get('status','NOT_CONFIGURED'))}")
+  if preview_error:
+   st.error("رفضت معاينة الأمر قبل النشر: "+preview_error)
+  elif command_preview:
+   st.markdown("**Envelope MIR1 الذي سيُرسل عند تحقق جميع البوابات**")
+   st.json(command_preview,expanded=True)
+  else:
+   st.info("لا يوجد حالياً أمر BUY أو SELL أو CLOSE أو MODIFY معتمد من المحرك الرابع. لا تنشئ اللوحة إشارة يدوية بديلة ولا تتجاوز بوابات المحركات.")
+  current_id=command.get("command_id")
+  if current_id:
+   st.caption(f"آخر ملف أمر موجود: {current_id} | حالته وفق آخر ACK: {ack.get('state','لا يوجد ACK')}")
+  else:
+   st.caption("لم ينشأ command.json بعد في مجلد Common Files أو لم يصل إلى البرنامج.")
+  confirmation=st.checkbox(
+   "أؤكد أنني راجعت أمر المحرك الرابع الحالي وأسمح بمحاولة تمريره إلى خبير MT5.",
+   value=False,key="mirsad_confirm_engine4_command",
+   help="هذا التأكيد لا يتجاوز مفاتيح الإيقاف البرمجية أو مفتاح تنفيذ الخبير.",
+  )
+  gates_ok=bool(
+   publish_enabled and bridge_connected and terminal_connected
+   and expert_execution is True and command_ready and command_preview is not None
+  )
+  publish_clicked=st.button(
+   "إرسال أمر المحرك الرابع المعتمد عبر MIR1",
+   key="mirsad_publish_engine4_command",
+   use_container_width=True,
+   disabled=not (gates_ok and confirmation),
+  )
+  if publish_clicked:
+   result=MT5BridgeEngine().publish_decision(decision,bridge)
+   status=str(result.get("status","UNKNOWN"))
+   if status=="PUBLISHED":
+    st.success(f"تمت كتابة ظرف MIR1 للخبير، والانتظار لإقرار MT5: {result.get('command_id','—')}")
+   elif status in {"ALREADY_PUBLISHED","ALREADY_ACKNOWLEDGED"}:
+    st.info(ar(status)+" — لم يُنشأ أمر مكرر.")
+   else:
+    st.warning(f"لم يُنشر الأمر: {ar(status)} | {result.get('message') or result.get('reason') or 'لا توجد تفاصيل إضافية.'}")
+   st.json(result,expanded=True)
+  if not publish_enabled:
+   st.warning("زر الإرسال مقفل لأن MIRSAD_ENABLE_ORDER_PUBLISH=0 في إعداد البرنامج.")
+  if not bridge_connected or not terminal_connected:
+   st.warning("زر الإرسال مقفل حتى تصل نبضة MIR1 حديثة وتثبت اتصال MT5.")
+  if expert_execution is not True:
+   reason="InpAllowExecution=false داخل الخبير." if expert_execution is False else "لم يرسل الخبير execution_enabled في نبضة MIR1."
+   st.warning("زر الإرسال مقفل: "+reason)
+  if not command_ready:
+   st.warning("زر الإرسال مقفل لأن المحرك الرابع لم ينتج أمراً مكتمل الشروط.")
+  st.caption("لا توجد مدخلات لفرض سعر أو حجم أو اتجاه يدوي. قيم أمر التداول تأتي من المحرك الرابع ومواصفات الوسيط الحية.")
+
+ with tabs[2]:
+  account_cols=st.columns(4)
+  account_cols[0].metric("Equity",_fmt_money(account.get("equity")))
+  account_cols[1].metric("Balance",_fmt_money(account.get("balance")))
+  account_cols[2].metric("Free margin",_fmt_money(account.get("free_margin")))
+  account_cols[3].metric("عملة الحساب",account.get("currency") or "—")
+  login=str(account.get("login") or "")
+  login_label=("…" + login[-4:]) if login else "—"
+  st.caption(f"الخادم: {account.get('server') or '—'} | الحساب: {login_label} | الرمز: {bridge.get('symbol') or '—'} | رمز السوق: {bridge.get('market_symbol') or '—'} | Magic: {bridge.get('magic_number') or '—'}")
+  quote=bridge.get("quote") if isinstance(bridge.get("quote"),dict) else {}
+  st.caption(f"Bid: {quote.get('bid','—')} | Ask: {quote.get('ask','—')} | عمر السعر: {quote.get('tick_age_seconds','—')} ثانية | وقت السعر ms: {quote.get('time_ms','—')}")
+  spec_rows=[
+   {"المواصفة":"Tick size","القيمة":specs.get("tick_size","—")},
+   {"المواصفة":"Tick value (loss)","القيمة":specs.get("tick_value_loss","—")},
+   {"المواصفة":"Point / Digits","القيمة":f"{specs.get('point','—')} / {specs.get('digits','—')}"},
+   {"المواصفة":"Volume min / step / max","القيمة":f"{specs.get('volume_min','—')} / {specs.get('volume_step','—')} / {specs.get('volume_max','—')}"},
+   {"المواصفة":"Contract size","القيمة":specs.get("contract_size","—")},
+   {"المواصفة":"Stops / Freeze level","القيمة":f"{specs.get('stops_level_points','—')} / {specs.get('freeze_level_points','—')}"},
+   {"المواصفة":"Filling / Execution mode","القيمة":f"{specs.get('filling_mode','—')} / {specs.get('execution_mode','—')}"},
+   {"المواصفة":"Trade mode","القيمة":specs.get("trade_mode","—")},
+  ]
+  st.dataframe(pd.DataFrame(spec_rows),use_container_width=True,hide_index=True)
+  st.caption("هذه الحقول يقرأها الجسر من status.json الصادر من الخبير. لا يستنتج المحرك الرصيد أو tick value أو حدود الحجم.")
+
+ with tabs[3]:
+  st.caption(f"عدد المراكز في آخر نبضة: {len(positions)}. Magic Number يحدد المراكز التي يملكها خبير مرصاد.")
+  if positions:
+   position_rows=[]
+   for item in positions:
+    position_rows.append({
+     "التذكرة":item.get("ticket"),
+     "الرمز":item.get("symbol"),
+     "الاتجاه":"شراء" if item.get("type")==0 else "بيع" if item.get("type")==1 else item.get("type"),
+     "Magic":item.get("magic"),
+     "الحجم":item.get("volume"),
+     "سعر الفتح":item.get("price_open"),
+     "السعر الحالي":item.get("price_current"),
+     "الربح":item.get("profit"),
+     "Swap":item.get("swap"),
+     "وقف الخسارة":item.get("stop_loss"),
+     "الهدف":item.get("take_profit"),
+    })
+   st.dataframe(pd.DataFrame(position_rows),use_container_width=True,hide_index=True)
+  else:
+   st.info("لا توجد مراكز أبلغ عنها الخبير في آخر نبضة، أو أن نبضة الخبير لم تصل بعد.")
+  plan=decision.get("management_plan") if isinstance(decision.get("management_plan"),dict) else {}
+  pm=decision.get("position_management") if isinstance(decision.get("position_management"),dict) else {}
+  if plan:
+   st.markdown("**خطة إدارة الوقف الوقائي الحالية**")
+   st.json(plan,expanded=True)
+  else:
+   st.caption(f"حالة إدارة المراكز: {ar(pm.get('action','NOT_REQUIRED'))} | لا توجد خطة تعديل وقف جديدة في هذه الدورة.")
+
+ with tabs[4]:
+  ack_cols=st.columns(4)
+  ack_cols[0].metric("حالة ACK",ack.get("state") or "—")
+  ack_cols[1].metric("Retcode",ack.get("retcode","—"))
+  ack_cols[2].metric("Deal ticket",ack.get("deal_ticket","—"))
+  ack_cols[3].metric("Filled volume",ack.get("filled_volume","—"))
+  if ack:
+   st.caption(f"Command ID: {ack.get('command_id','—')} | Order ticket: {ack.get('order_ticket','—')} | Fill price: {ack.get('filled_price','—')} | وقت الإقرار ms: {ack.get('ack_at_ms','—')}")
+   st.write(ack.get("message") or "لا توجد رسالة من الخبير.")
+  else:
+   st.info("لا يوجد ملف ack.json مقروء حتى الآن.")
+  st.markdown("**مصالحة الإقرار مع المراكز اللاحقة**")
+  st.write(f"الحالة: {ar(reconciliation.get('status','NOT_REPORTED'))}")
+  st.write(reconciliation.get("reason") or "لم تسجل مصالحة بعد.")
+  if reconciliation:
+   st.json(reconciliation,expanded=True)
+  st.caption("FILLED من الوسيط لا يعد نجاحاً نهائياً حتى تصل نبضة MT5 أحدث ويظهر تغير الحجم أو وقف الحماية المطلوب في المركز المستهدف.")
+
+ with tabs[5]:
+  if events:
+   event_rows=[{
+    "الوقت ms":item.get("time_ms",item.get("timestamp_ms","—")),
+    "النوع":item.get("event",item.get("type","—")),
+    "Command ID":item.get("command_id","—"),
+    "الحالة":item.get("state",item.get("status","—")),
+    "التفاصيل":item.get("message",item.get("reason","—")),
+   } for item in events]
+   st.dataframe(pd.DataFrame(event_rows),use_container_width=True,hide_index=True)
+  else:
+   st.info("ملف events.jsonl غير موجود أو لا يحتوي أحداثاً قابلة للقراءة.")
+  paths=bridge.get("common_files_files") if isinstance(bridge.get("common_files_files"),dict) else {}
+  st.caption("مجلد الجسر: "+str(bridge.get("common_files_directory") or "غير مضبوط في بيئة التشغيل"))
+  st.dataframe(pd.DataFrame([{"الملف":name,"الحالة":"موجود" if exists else "لم يُنشأ"} for name,exists in paths.items()]),use_container_width=True,hide_index=True)
+  st.caption("Common Files / MirsadBTC: status.json · command.json · ack.json · positions.json · events.jsonl")
+
+ with tabs[6]:
+  settings_rows=[
+   {"الإعداد":"MIRSAD_ENABLE_ORDER_PUBLISH","القيمة":"1" if publish_enabled else "0","المعنى":"يسمح للبرنامج بكتابة command.json عند اكتمال القرار."},
+   {"الإعداد":"InpAllowExecution داخل الخبير","القيمة":"TRUE" if expert_execution is True else "FALSE" if expert_execution is False else "غير معروف","المعنى":"يسمح للخبير بإرسال طلب الوسيط بعد فحوصه الداخلية."},
+   {"الإعداد":"MIRSAD_DAILY_LOSS_LIMIT_ENABLED","القيمة":"1" if DAILY_LOSS_LIMIT_ENABLED else "0","المعنى":"حاجز الخسارة اليومية؛ معطل للتطوير حالياً."},
+   {"الإعداد":"MIRSAD_RISK_PER_TRADE","القيمة":RISK_PER_TRADE,"المعنى":"النسبة المستخدمة لحساب مخاطرة الصفقة الواحدة."},
+   {"الإعداد":"MIRSAD_MAX_DAILY_LOSS_FRACTION","القيمة":MAX_DAILY_LOSS_FRACTION,"المعنى":"حد الخسارة اليومية المضبوط، لكنه غير مفعل ما دام المفتاح 0."},
+   {"الإعداد":"MIRSAD_MT5_MARKET_DIVERGENCE_MAX_PCT","القيمة":MT5_MARKET_DIVERGENCE_MAX_PCT,"المعنى":"أقصى انحراف بين سعر الوسيط ومرجع السوق."},
+   {"الإعداد":"MIRSAD_MT5_MAX_SPREAD_PCT","القيمة":MT5_MAX_SPREAD_PCT,"المعنى":"أقصى سبريد مسموح قبل حجب الدخول وإدارة الوقف."},
+   {"الإعداد":"MIRSAD_MT5_QUOTE_MAX_AGE","القيمة":MT5_QUOTE_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لسعر Bid/Ask."},
+   {"الإعداد":"MIRSAD_MT5_HEARTBEAT_MAX_AGE","القيمة":MT5_HEARTBEAT_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لنبضة الخبير."},
+   {"الإعداد":"MIRSAD_MT5_MARKET_DATA_MAX_AGE","القيمة":MT5_MARKET_DATA_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لبيانات المؤشرات والشموع المستخدمة لإدارة الوقف."},
+   {"الإعداد":"MIRSAD_MARKET_MAX_AGE","القيمة":MARKET_MAX_AGE_SECONDS,"المعنى":"أقصى عمر للبيانات السوقية."},
+   {"الإعداد":"MIRSAD_CHART_MAX_AGE","القيمة":CHART_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لصورة الشارت."},
+   {"الإعداد":"MIRSAD_COLLECT_SECONDS","القيمة":COLLECT_INTERVAL_SECONDS,"المعنى":"الفاصل بين دورات runtime بالثانية."},
+   {"الإعداد":"MIRSAD_MT5_COMMON_FILES","القيمة":MT5_COMMON_FILES or "غير مضبوط","المعنى":"مجلد Common Files الذي يتبادل فيه البرنامج والخبير ملفات MIR1."},
+   {"الإعداد":"InpMagicNumber","القيمة":bridge.get("magic_number","—"),"المعنى":"معرّف المراكز والأوامر التي يملكها خبير مرصاد."},
+  ]
+  st.dataframe(pd.DataFrame(settings_rows),use_container_width=True,hide_index=True)
+  daily_cols=st.columns(4)
+  daily_cols[0].metric("حالة حد الخسارة اليومية",ar(daily.get("status","NOT_REPORTED")))
+  daily_cols[1].metric("مفعّل","نعم" if daily.get("enabled") else "لا")
+  daily_cols[2].metric("قفل فتح المراكز","نعم" if daily.get("locked") else "لا")
+  daily_cols[3].metric("الخسارة اليومية %",f"{float(daily.get('daily_loss_fraction'))*100:.3f}" if daily.get("daily_loss_fraction") is not None else "—")
+  st.caption(daily.get("reason") or "حد الخسارة اليومية معطل خلال التطوير؛ بقية ضوابط المخاطر لا تزال قائمة.")
+  st.markdown("**إدارة الوقف الوقائي ATR — خطة المحرك الرابع**")
+  trail_rows=[
+   {"المعلمة":"نقل الوقف إلى سعر الدخول بعد حركة مواتية","القيمة":f"{BREAK_EVEN_TRIGGER_ATR} ATR"},
+   {"المعلمة":"بدء التتبع بعد حركة مواتية","القيمة":f"{TRAILING_ACTIVATION_ATR} ATR"},
+   {"المعلمة":"مسافة الوقف المتتبع","القيمة":f"{TRAILING_DISTANCE_ATR} ATR"},
+   {"المعلمة":"أقل خطوة بين تحديثين","القيمة":f"{TRAILING_STEP_ATR} ATR"},
+  ]
+  st.dataframe(pd.DataFrame(trail_rows),use_container_width=True,hide_index=True)
+  st.caption("إدارة الوقف لا توسع المخاطرة ولا تعدل الهدف؛ تقترح تحديثاً واحداً فقط في الدورة وتبقى خاضعة لتطابق Tick وStops/Freeze لدى الوسيط.")
 
 def render_engine_dashboard():
  state=read_json(STATUS_PATH,{})
@@ -708,6 +959,7 @@ def render_engine_dashboard():
    st.warning("نشر أوامر MIR1 مفعّل في إعداد البرنامج. هذا لا يثبت أن تنفيذ الخبير نفسه مسموح، ولا يغيّر إعداد InpAllowExecution داخل MT5.")
   else:
    st.info("نشر أوامر MIR1 معطّل افتراضياً في إعداد البرنامج (MIRSAD_ENABLE_ORDER_PUBLISH=0). لا يُرسل البرنامج أوامر إلى الخبير في هذه الحالة.")
+  render_execution_console(state)
 
  st.divider()
  st.subheader("تهيئة صورة الرسم للمحرك الثاني")
