@@ -6,6 +6,7 @@ on:
     paths:
       - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
       - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
+      - 'Mirsad_BTC/scripts/mirsad_mt5_direct_feed_run.ps1'
       - 'Mirsad_BTC/scripts/validate_mt5_direct_feed.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
