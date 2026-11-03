@@ -20,6 +20,9 @@ on:
       - 'Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py'
       - 'Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py'
       - 'Mirsad_BTC/mirsad/runtime.py'
+      - 'Mirsad_BTC/mirsad/health.py'
+      - 'Mirsad_BTC/dashboard.py'
+      - 'Mirsad_BTC/tests/test_dashboard_health.py'
       - 'Mirsad_BTC/mirsad/engines/daily_risk.py'
       - 'Mirsad_BTC/tests/test_daily_risk.py'
       - 'Mirsad_BTC/scripts/analyze_mt5_native_price_action.py'
@@ -61,6 +64,7 @@ jobs:
       - name: Compile Engine 2, runtime and live Observer validator
         run: |
           python -m compileall -q Mirsad_BTC/mirsad Mirsad_BTC/tests
+          python -m py_compile Mirsad_BTC/dashboard.py
           python -m py_compile Mirsad_BTC/scripts/analyze_mt5_observer_capture.py
 
       - name: Run native OHLC price-action and separate Engine 3 indicator tests
@@ -96,6 +100,7 @@ jobs:
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_indicators.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine3_mt5_indicator_parity.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_runtime_observer_flow.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_dashboard_health.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_observer.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_hf_btc_chart_image_benchmark.py' -v
           # PyArrow fixture assertions pass, but the hosted runner aborts during

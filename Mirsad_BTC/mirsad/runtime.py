@@ -19,6 +19,7 @@ from .engines.mt5_bridge import MT5BridgeEngine
 from .engines.mt5_chart_pipeline import Engine2MT5ChartImagePipeline
 from .storage import save_market_snapshot,write_json_atomic,read_json
 from .engines.daily_risk import evaluate_daily_risk
+from .health import build_component_health,summarize_component_health
 
 def _analyze_engine2_multi_timeframe_structure(candle_history:dict[str,Any])->dict[str,Any]:
  if not isinstance(candle_history,dict) or candle_history.get("status")!="READY":
@@ -192,6 +193,11 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "cycle_started_at_ms":started,"market_age_seconds":round(age,2),
   "overall_status":overall,"readiness":readiness,"engines":engine_states,
   "daily_loss_limit_mode":("ENABLED" if DAILY_LOSS_LIMIT_ENABLED else "DISABLED_FOR_DEVELOPMENT"),
+  "execution_controls":{
+   "order_publish_enabled":bool(ENABLE_ORDER_PUBLISH),
+   "daily_loss_limit_enabled":bool(DAILY_LOSS_LIMIT_ENABLED),
+   "expert_execution_telemetry":"NOT_REPORTED_BY_CURRENT_MIR1_STATUS_SCHEMA",
+  },
   "market":{"symbol":market.get("symbol"),"price":market.get("price"),
    "primary_venue":market.get("primary_venue"),"venue_count":market.get("venue_count"),
    "status":market_status,
@@ -243,6 +249,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions through Engine 5; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
   ],
  }
+ report["component_health"]=build_component_health(report,now_ms=now)
+ report["component_health_summary"]=summarize_component_health(report["component_health"])
  write_json_atomic(STATUS_PATH,report)
  return report
 

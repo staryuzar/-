@@ -11,18 +11,25 @@ from PIL import Image, UnidentifiedImageError
 ROOT=Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
-from mirsad.config import CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH
+from mirsad.config import CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH,ENABLE_ORDER_PUBLISH
 from mirsad.storage import read_json,write_json_atomic
 from mirsad.engines.visual_knowledge import visual_knowledge_summary
+from mirsad.health import build_component_health,summarize_component_health
 
 st.set_page_config(page_title="مرصاد البيتكوين",page_icon="₿",layout="wide")
 st.markdown("""
 <style>
-.stApp {background:#0b1220;color:#e5edf8}
-[data-testid="stSidebar"] {background:#101a2b}
-div[data-testid="stMetric"] {background:#111d30;border:1px solid #263750;padding:14px;border-radius:12px}
-[data-testid="stDataFrame"] {border:1px solid #263750;border-radius:10px}
+.stApp {background:radial-gradient(ellipse at 8% 0%,#162b43 0%,#0a1220 44%,#080e19 100%);color:#e7eef8}
+[data-testid="stSidebar"] {background:#0c1728;border-right:1px solid #21344d}
+.block-container {padding-top:1.65rem;padding-bottom:2.5rem;max-width:1600px}
+div[data-testid="stMetric"] {background:linear-gradient(145deg,#14243a,#101b2d);border:1px solid #2a405d;padding:15px 16px;border-radius:15px;box-shadow:0 8px 22px rgba(0,0,0,.16)}
+div[data-testid="stMetric"] label {color:#9db4cf!important;font-size:.82rem}
+div[data-testid="stMetric"] [data-testid="stMetricValue"] {color:#f4f8ff!important;font-weight:700}
+[data-testid="stDataFrame"] {border:1px solid #263750;border-radius:12px;overflow:hidden}
+[data-testid="stVerticalBlockBorderWrapper"] {background:rgba(15,28,46,.72);border-color:#29405c!important;border-radius:14px}
+button[data-baseweb="tab"] {font-weight:650}
 h1,h2,h3,p,label {color:#e5edf8}
+hr {border-color:#263b55}
 </style>
 """,unsafe_allow_html=True)
 
@@ -48,6 +55,52 @@ def age_text(ts):
  if not ts: return "لا توجد إشارة حياة"
  return f"آخر نبض منذ {max(0,int(time.time()*1000)-int(ts))/1000:.1f} ثانية"
 
+def render_component_health(state:dict)->None:
+ items=state.get("component_health") or build_component_health(state)
+ summary=state.get("component_health_summary") or summarize_component_health(items)
+ st.subheader("مركز مراقبة المحركات والأدوات")
+ st.caption("الحالة من آخر دورة تشغيل فعلية؛ غياب القياس يظهر كحالة انتظار، واختلاف هوية الصورة أو تقادم البيانات يظهر كتنبيه.")
+ totals=st.columns(4)
+ totals[0].metric("مكونات تعمل فعلياً",summary.get("healthy",0))
+ totals[1].metric("بانتظار بيانات أو اتصال",summary.get("waiting",0))
+ totals[2].metric("تحتاج متابعة",summary.get("attention",0))
+ totals[3].metric("تعطيل آمن مقصود",summary.get("safe_disabled",0))
+ tabs=st.tabs(["التشغيل","1 · السوق","2 · التحليل","3 · المؤشرات","4 · القرار","5 · الجسر"])
+ groups=[
+  "التشغيل",
+  "المحرك الأول — استخبارات السوق",
+  "المحرك الثاني — التحليل البصري والسعري",
+  "المحرك الثالث — المؤشرات",
+  "المحرك الرابع — القرار وإدارة الصفقات",
+  "المحرك الخامس — جسر التواصل مع MT5",
+ ]
+ icons={"HEALTHY":"🟢","WAITING":"🟡","ATTENTION":"🔴","SAFE_DISABLED":"⚪"}
+ for tab,group in zip(tabs,groups):
+  selected=[item for item in items if item.get("engine")==group]
+  with tab:
+   if not selected:
+    st.info("لا توجد بيانات تشخيصية لهذا القسم في آخر دورة.")
+    continue
+   healthy=sum(item.get("health")=="HEALTHY" for item in selected)
+   waiting=sum(item.get("health")=="WAITING" for item in selected)
+   attention=sum(item.get("health")=="ATTENTION" for item in selected)
+   safe=sum(item.get("health")=="SAFE_DISABLED" for item in selected)
+   st.caption(f"{len(selected)} مكونات · يعمل {healthy} · ينتظر {waiting} · يحتاج متابعة {attention} · تعطيل آمن {safe}")
+   for start in range(0,len(selected),2):
+    cols=st.columns(2)
+    for col,item in zip(cols,selected[start:start+2]):
+     with col:
+      with st.container(border=True):
+       left,right=st.columns([3,2])
+       with left:
+        st.markdown(f"**{item.get('component','مكوّن غير مسمى')}**")
+       with right:
+        level=item.get("health","WAITING")
+        st.markdown(f"{icons.get(level,'⚪')} **{item.get('health_label','بانتظار البيانات')}**")
+       st.caption(f"حالة المصدر: {item.get('status_label',item.get('status','غير متاح'))}")
+       st.write(item.get("detail","لا توجد تفاصيل إضافية."))
+
+
 def render_engine_dashboard():
  state=read_json(STATUS_PATH,{})
  market=read_json(SNAPSHOT_PATH,{})
@@ -72,6 +125,8 @@ def render_engine_dashboard():
    if key=="engine_5_communication_bridge" and status is None:
     status=engine_states.get("engine_3_mt5_bridge",engine_states.get("engine_5_mt5_bridge","NOT_STARTED"))
    with col: col.metric(label,ar(status or "NOT_REPORTED"))
+  st.divider()
+  render_component_health(state)
   st.divider()
 
  if market:
@@ -571,7 +626,10 @@ def render_engine_dashboard():
   st.caption(publication.get("message","لا يوجد أمر جاهز للإرسال."))
   if decision.get("open_block_reason"): st.caption(decision["open_block_reason"])
   if decision.get("position_ticket"): st.caption(f"تذكرة المركز المطلوب إغلاقه: {decision['position_ticket']}")
-  st.caption("لن يرسل أمر إلى MT5 إلا بعد جاهزية القرار ووصول نبض الجسر وسعر MT5 المتطابق والحديث. الإرسال مفعّل وفق تفويض المستخدم، ويمكن تعطيله من إعداد MIRSAD_ENABLE_ORDER_PUBLISH=0.")
+  if ENABLE_ORDER_PUBLISH:
+   st.warning("نشر أوامر MIR1 مفعّل في إعداد البرنامج. هذا لا يثبت أن تنفيذ الخبير نفسه مسموح، ولا يغيّر إعداد InpAllowExecution داخل MT5.")
+  else:
+   st.info("نشر أوامر MIR1 معطّل افتراضياً في إعداد البرنامج (MIRSAD_ENABLE_ORDER_PUBLISH=0). لا يُرسل البرنامج أوامر إلى الخبير في هذه الحالة.")
 
  st.divider()
  st.subheader("تهيئة صورة الرسم للمحرك الثاني")
