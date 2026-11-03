@@ -5,7 +5,7 @@ import hashlib
 import math
 from pathlib import Path
 from typing import Any
-from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES
+from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,MAX_DAILY_LOSS_FRACTION,RISK_STATE_PATH
 from .engines.market import MarketEngine  # Research/benchmark adapter; not used for live runtime.
 from .engines.mt5_market import MT5MarketDataEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
@@ -18,6 +18,7 @@ from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
 from .engines.mt5_chart_pipeline import Engine2MT5ChartImagePipeline
 from .storage import save_market_snapshot,write_json_atomic,read_json
+from .engines.daily_risk import evaluate_daily_risk
 
 def _analyze_engine2_multi_timeframe_structure(candle_history:dict[str,Any])->dict[str,Any]:
  if not isinstance(candle_history,dict) or candle_history.get("status")!="READY":
@@ -76,6 +77,19 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  started=int(time.time()*1000)
  bridge_adapter=bridge_engine or MT5BridgeEngine()
  bridge=bridge_adapter.inspect()
+ risk_previous=read_json(RISK_STATE_PATH,{})
+ if not isinstance(risk_previous,dict):
+  risk_previous={}
+ risk_evaluation=evaluate_daily_risk(
+  bridge.get("account") if isinstance(bridge.get("account"),dict) else {},
+  risk_previous,
+  max_daily_loss_fraction=MAX_DAILY_LOSS_FRACTION,
+  now_ms=started,
+ )
+ bridge["daily_risk"]=risk_evaluation["report"]
+ bridge["daily_risk_required"]=True
+ if risk_evaluation["report"].get("status")=="READY":
+  write_json_atomic(RISK_STATE_PATH,risk_evaluation["state"])
  # Live Engine 1 reads only the locally published MT5 market snapshot. The
  # public-venue MarketEngine remains available for research, never runtime decisions.
  market=(market_engine.collect() if market_engine is not None
@@ -157,6 +171,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "engine_2_price_action":engine2_price_action.get("status")=="READY",
   "engine_3_indicators":indicators.get("status")=="READY",
   "mt5_native_indicator_feed":native_indicators.get("status")=="READY",
+  "engine_4_daily_risk_guard":(bridge.get("daily_risk") or {}).get("status")=="READY",
   "engine_4_decision":decision.get("status")=="READY",
   "engine_5_communication_bridge":bridge.get("status")=="CONNECTED",
  }
@@ -167,6 +182,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "engine_2_price_action":engine2_price_action.get("status","NOT_STARTED"),
   "engine_3_indicators":indicators.get("status","NOT_STARTED"),
   "mt5_native_indicator_feed":native_indicators.get("status","NOT_STARTED"),
+  "engine_4_daily_risk_guard":("LOCKED" if (bridge.get("daily_risk") or {}).get("locked") is True else (bridge.get("daily_risk") or {}).get("status","NOT_STARTED")),
   "engine_4_decision":decision.get("status","NOT_STARTED"),
   "engine_5_communication_bridge":bridge.get("status","NOT_STARTED"),
  }
@@ -196,12 +212,13 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   },
   "indicators":indicators,
   "mt5_native_indicators":native_indicators,
-  "bridge":bridge,"decision":decision,"command_publish":command_publish,
+  "bridge":bridge,"daily_risk":bridge.get("daily_risk"),"decision":decision,"command_publish":command_publish,
   "wiring":{"engine_1_market_to_engine_4":True,"engine_2_chart_to_engine_4":True,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
    "engine_2_price_action_to_engine_4":"fail_closed_confluence_gate_not_an_independent_directional_vote",
    "engine_2_price_action_requires_chart_image":False,
    "mt5_native_indicator_buffers_to_engine_3_report":True,
+   "engine_4_daily_risk_guard":"persistent_utc_day_equity_drawdown_gate",
    "engine_4_to_engine_5_command_envelope":"implemented_idempotent_user_authorized",
    "engine_5_to_engine_4_ack_and_positions":"read_from_common_files",
    "expert_connection":bridge.get("status","NOT_CONFIGURED")},
@@ -216,6 +233,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "Engine 1 quote updates describe quote movement only; they are not represented as executed trades, taker flow or order-book depth.",
    "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
    "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
+   "Engine 4 persists a UTC-day equity baseline on the first valid MT5 snapshot; the default 2% daily loss cap blocks new entries but never blocks protective MODIFY or CLOSE.",
    "No market simulation or simulated order is used.",
    "Chart-image extraction and pixel calibration are a separate deferred visual track; the native OHLC analysis continues without waiting for chart images.",
    "Engine 1 accepts one fresh MT5 terminal feed after broker-symbol, account-server, quote-age and multi-timeframe OHLC validation; runtime does not query external spot venues.",

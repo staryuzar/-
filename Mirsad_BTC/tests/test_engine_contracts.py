@@ -241,6 +241,69 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertFalse(result["command_ready"])
 
+    def _daily_risk_bridge(self, *, locked: bool, positions: list[dict] | None = None) -> dict:
+        now = int(time.time() * 1000)
+        return {
+            "status": "CONNECTED", "symbol": "BTC", "market_symbol": "BTCUSDT",
+            "magic_number": 26110201, "quote_age_seconds": 1.0,
+            "quote": {"bid": 99.9, "ask": 100.0, "time_ms": now, "tick_age_seconds": 1.0},
+            "account": {"equity": 1000.0},
+            "symbol_spec": {
+                "tick_size": 0.1, "tick_value_loss": 1.0, "point": 0.1,
+                "digits": 1, "volume_min": 0.01, "volume_step": 0.01,
+                "volume_max": 10.0, "stops_level_points": 0, "freeze_level_points": 0,
+            },
+            "positions": positions or [],
+            "daily_risk_required": True,
+            "daily_risk": {
+                "status": "READY", "locked": locked,
+                "new_entries_blocked": locked,
+                "max_daily_loss_fraction": 0.02,
+                "daily_loss_fraction": 0.021 if locked else 0.005,
+                "day_utc": "2026-11-03",
+            },
+        }
+
+    def test_daily_loss_lock_blocks_new_buy_or_sell_entry(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        result = DecisionEngine().analyze(
+            self._market(), chart, self._daily_risk_bridge(locked=True), indicators
+        )
+        self.assertEqual(result["candidate_action"], "BUY")
+        self.assertEqual(result["action"], "WAIT")
+        self.assertFalse(result["command_ready"])
+        self.assertEqual(result["risk_plan"]["status"], "BLOCKED")
+        self.assertIn("Daily loss cap", result["open_block_reason"])
+        self.assertTrue(result["daily_risk_gate"]["new_entry_blocked"])
+
+    def test_daily_loss_lock_does_not_block_opposite_position_close(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        bridge = self._daily_risk_bridge(
+            locked=True,
+            positions=[{
+                "ticket": 345678, "symbol": "BTC", "type": 1,
+                "magic": 26110201, "volume": 0.1,
+            }],
+        )
+        result = DecisionEngine().analyze(self._market(), chart, bridge, indicators)
+        self.assertEqual(result["action"], "CLOSE")
+        self.assertTrue(result["command_ready"])
+        self.assertEqual(result["position_ticket"], 345678)
+        self.assertTrue(result["daily_risk_gate"]["new_entry_blocked"])
+
+    def test_required_but_missing_daily_risk_baseline_fails_closed_for_entry(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        bridge = self._daily_risk_bridge(locked=False)
+        bridge["daily_risk"] = {"status": "ACCOUNT_EQUITY_UNAVAILABLE", "locked": True}
+        result = DecisionEngine().analyze(self._market(), chart, bridge, indicators)
+        self.assertEqual(result["candidate_action"], "BUY")
+        self.assertEqual(result["action"], "WAIT")
+        self.assertFalse(result["command_ready"])
+        self.assertEqual(result["daily_risk_gate"]["status"], "ACCOUNT_EQUITY_UNAVAILABLE")
+
     def test_engine4_protective_stop_management_has_priority_over_visual_chart_gate(self) -> None:
         chart = self._chart()
         chart["status"] = "WAITING_FOR_IMAGE"

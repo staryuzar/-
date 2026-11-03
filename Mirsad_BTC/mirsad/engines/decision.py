@@ -657,6 +657,26 @@ class DecisionEngine:
                 open_block_reason = "A same-direction position is already open; duplicate entry is suppressed."
                 size = {"status": "NOT_REQUIRED", "reason": open_block_reason}
 
+        daily_risk = bridge.get("daily_risk") if isinstance(bridge.get("daily_risk"), dict) else {}
+        daily_risk_required = bridge.get("daily_risk_required") is True
+        daily_risk_status = str(daily_risk.get("status", "NOT_CONFIGURED"))
+        daily_risk_locked = daily_risk.get("locked") is True
+        daily_risk_blocks_entry = (
+            daily_risk_required
+            and (daily_risk_status != "READY" or daily_risk_locked)
+        )
+        # The daily loss gate applies only to NEW exposure. A protective MODIFY
+        # has already returned above; an opposite-position CLOSE is kept intact.
+        if action in {"BUY", "SELL"} and quote_ok and daily_risk_blocks_entry:
+            action = "WAIT"
+            reason = (
+                "Daily loss cap reached; new entries are locked for the current UTC day."
+                if daily_risk_status == "READY" and daily_risk_locked
+                else "Daily risk baseline is unavailable; new entries fail closed."
+            )
+            open_block_reason = reason
+            size = {"status": "BLOCKED", "reason": reason}
+
         command_ready = bool(
             bridge.get("status") == "CONNECTED" and quote_ok
             and (
@@ -701,6 +721,15 @@ class DecisionEngine:
             "market_microstructure": microstructure,
             "economic_calendar": market_context.get("economic_calendar", {"status": "NOT_AVAILABLE", "events": []}),
             "risk_plan": size,
+            "daily_risk_gate": {
+                "required": daily_risk_required,
+                "status": daily_risk_status,
+                "locked": daily_risk_locked,
+                "new_entry_blocked": daily_risk_blocks_entry,
+                "max_daily_loss_fraction": daily_risk.get("max_daily_loss_fraction"),
+                "daily_loss_fraction": daily_risk.get("daily_loss_fraction"),
+                "day_utc": daily_risk.get("day_utc"),
+            },
             "position_management": {
                 "matching_positions": len(positions),
                 "opposite_positions": sum(1 for p in positions if aligned_signal in {"BUY", "SELL"} and p["side"] != aligned_signal),
