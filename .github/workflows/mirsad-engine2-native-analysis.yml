@@ -20,6 +20,8 @@ on:
       - 'Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py'
       - 'Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py'
       - 'Mirsad_BTC/mirsad/runtime.py'
+      - 'Mirsad_BTC/mirsad/engines/daily_risk.py'
+      - 'Mirsad_BTC/tests/test_daily_risk.py'
       - 'Mirsad_BTC/scripts/analyze_mt5_native_price_action.py'
       - 'Mirsad_BTC/scripts/analyze_mt5_observer_capture.py'
       - 'Mirsad_BTC/tests/**'
@@ -101,6 +103,7 @@ jobs:
           # of the required Engine 2 gate until the upstream native shutdown issue is isolated.
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_public_chart_image_benchmark.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_candlestick_pattern_benchmark.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_daily_risk.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine_contracts.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_position_management.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_market_candle_timezones.py' -v
