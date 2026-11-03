@@ -430,6 +430,14 @@ def analyze_mt5_native_price_action(
         "direction": "UNKNOWN",
         "direction_ar": "غير معروف",
         "timeframes": {},
+        "multi_timeframe_structure": {
+            "status": "NOT_READY",
+            "source": "NATIVE_MT5_OHLC",
+            "alignment": "INSUFFICIENT_TIMEFRAME_CONFLUENCE",
+            "bullish_timeframes": [],
+            "bearish_timeframes": [],
+            "mixed_or_unconfirmed_timeframes": [],
+        },
     }
     if not isinstance(candle_history, dict) or candle_history.get("status") != "READY":
         return {
