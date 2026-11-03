@@ -686,6 +686,30 @@ public static class MirsadNativeWindow {
     Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $observerDir) 'market.json') -Destination (Join-Path $evidence 'market-snapshot.json') -Force
     Copy-Item -LiteralPath (Join-Path $observerDir 'candles.json') -Destination (Join-Path $evidence 'candles-snapshot.json') -Force
     Copy-Item -LiteralPath (Join-Path $observerDir 'indicators.json') -Destination (Join-Path $evidence 'indicators-snapshot.json') -Force
+
+    # Compare Engine 3's independent calculations with native MT5 CopyBuffer
+    # on the exact same closed-bar timestamps and tick-volume history.
+    $parityValidator = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\\scripts\\validate_engine3_mt5_indicator_parity.py'
+    $parityOutput = Join-Path $evidence 'engine3-indicator-parity.json'
+    if (!(Test-Path -LiteralPath $parityValidator)) {
+        throw 'Engine 3 MT5 indicator parity validator is missing.'
+    }
+    $parityArgs = @(
+        $parityValidator,
+        '--candles', (Join-Path $evidence 'candles-snapshot.json'),
+        '--native-indicators', (Join-Path $evidence 'indicators-snapshot.json'),
+        '--output', $parityOutput
+    )
+    $parityLines = & python @parityArgs 2>&1
+    $parityExitCode = $LASTEXITCODE
+    foreach ($line in $parityLines) {
+        Add-Report ("Engine 3 MT5 parity: {0}" -f [string]$line)
+    }
+    if ($parityExitCode -ne 0 -or !(Test-Path -LiteralPath $parityOutput)) {
+        throw 'Engine 3 indicator parity against native MT5 CopyBuffer did not pass on identical closed bars.'
+    }
+    $paritySummary = Get-Content -LiteralPath $parityOutput -Raw | ConvertFrom-Json
+    Add-Report ("PASS — Engine 3 versus MT5 parity: {0}/{1} indicator checks passed across six timeframes." -f $paritySummary.passed_metrics,$paritySummary.total_metrics)
     if ([string]$directSummary.engine2.status -ne 'READY') {
         throw 'Engine 2 native MT5 market/OHLC feed is not READY.'
     }
