@@ -381,6 +381,10 @@ class DecisionEngine:
         elif chart_confidence < MIN_CHART_CONFIDENCE:
             aligned_signal = "WAIT"
             chart_gate = "INSUFFICIENT_ANALYSIS_CONFIDENCE"
+        elif candidate == "WAIT" and native_pa_gate in {
+            "MIXED_CANDLE_PATTERN_EVIDENCE", "CANDLE_PATTERN_DIRECTION_CONFLICT"
+        }:
+            chart_gate = "WAITING_FOR_ENGINE_2_CANDLE_PATTERN_CONFLUENCE"
         elif candidate == "WAIT" and native_pa_gate not in {
             "NOT_PROVIDED", "BULLISH_CONFLUENCE", "BEARISH_CONFLUENCE"
         }:
