@@ -252,8 +252,18 @@ try {
     }
 
     $installArg = '/path:"' + $installDir + '"'
-    $install = Start-Process -FilePath $installer -ArgumentList @('/auto', $installArg) -PassThru -Wait
+    # Never let a silent MetaTrader bootstrapper hold a hosted runner forever.
+    # The installer is external software and must finish before terminal discovery.
+    $install = Start-Process -FilePath $installer -ArgumentList @('/auto', $installArg) -PassThru
+    if (!$install.WaitForExit(180000)) {
+        Add-Report 'FAIL — Official MT5 installer exceeded the 180-second installation deadline.'
+        Stop-Process -Id $install.Id -Force -ErrorAction SilentlyContinue
+        throw 'Official MT5 installer timed out after 180 seconds; aborting cleanly instead of hanging the workflow.'
+    }
     Add-Report ("MT5 installer process exit code: {0}" -f $install.ExitCode)
+    if ($install.ExitCode -ne 0) {
+        throw ("Official MT5 installer exited with code {0}." -f $install.ExitCode)
+    }
 
     $terminal = Get-ChildItem -LiteralPath $installDir -Filter 'terminal64.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if (!$terminal) {
