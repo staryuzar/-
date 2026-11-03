@@ -338,6 +338,7 @@ Period=$observerTimeframe
     $credentialRaw = $null
     $obj = $null
 
+    $loginStarted = [DateTime]::UtcNow
     $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable', "/config:$loginConfig", "/login:$login") -WorkingDirectory $installDir -PassThru
     Add-Report ("MT5 terminal launched with the read-only Observer on {0},{1}. Automated trading permission is disabled." -f $observerSymbol, $observerTimeframe)
 
@@ -467,7 +468,7 @@ public static class MirsadNativeWindow {
     $lastObserverStatus = $null
     $authorizationConfirmed = $false
     $nextLogScan = [DateTime]::MinValue
-    $loginStarted = Get-Date
+    # Login log scan started immediately before launching MT5.
     $marketSymbol = [string]$env:MIRSAD_MT5_MARKET_SYMBOL
     if ([string]::IsNullOrWhiteSpace($marketSymbol)) { $marketSymbol = 'BTCUSDT' }
     $marketSymbol = $marketSymbol.Trim()
