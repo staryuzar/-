@@ -10,6 +10,10 @@ on:
       - 'Mirsad_BTC/scripts/validate_mt5_direct_feed.py'
       - 'Mirsad_BTC/scripts/analyze_mt5_native_price_action.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_classical_patterns.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py'
       - 'Mirsad_BTC/tests/test_mt5_price_action.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
@@ -53,7 +57,7 @@ jobs:
         env:
           PYTHONPATH: Mirsad_BTC
         run: |
-          python -m compileall -q Mirsad_BTC/mirsad/engines/mt5_market.py Mirsad_BTC/mirsad/engines/mt5_chart_candles.py Mirsad_BTC/mirsad/engines/mt5_native_indicators.py Mirsad_BTC/mirsad/engines/mt5_price_action.py Mirsad_BTC/mirsad/engines/mt5_chart_candles.py Mirsad_BTC/scripts/validate_mt5_direct_feed.py Mirsad_BTC/scripts/analyze_mt5_native_price_action.py
+          python -m compileall -q Mirsad_BTC/mirsad/engines/mt5_market.py Mirsad_BTC/mirsad/engines/mt5_chart_candles.py Mirsad_BTC/mirsad/engines/mt5_native_indicators.py Mirsad_BTC/mirsad/engines/mt5_price_action.py Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py Mirsad_BTC/mirsad/engines/chart_classical_patterns.py Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py Mirsad_BTC/scripts/validate_mt5_direct_feed.py Mirsad_BTC/scripts/analyze_mt5_native_price_action.py
           python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_price_action.py" -v
           python -m unittest discover -s Mirsad_BTC/tests -p "test_direct_feed_validator.py" -v
           python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_market.py" -v
