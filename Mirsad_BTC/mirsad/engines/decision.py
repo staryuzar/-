@@ -368,7 +368,7 @@ def _weighted_three_engine_score(
     normalized = {name: value / total for name, value in effective.items()}
     combined = sum(valid_scores[name] * normalized[name] for name in valid_scores)
     return max(-1.0, min(1.0, combined)), {
-        name: round(weight, 6) for name, weight in normalized.items()
+        name: round(weight, 8) for name, weight in normalized.items()
     }
 
 
