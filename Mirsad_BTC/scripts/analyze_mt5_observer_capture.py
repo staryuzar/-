@@ -13,6 +13,7 @@ from mirsad.engines.mt5_chart_candles import MT5ChartCandleHistory
 from mirsad.engines.mt5_native_indicators import MT5NativeIndicatorHistory
 from mirsad.engines.mt5_chart_geometry import (
     native_geometry_visible_y_max,
+    native_geometry_slot_centers,
     validate_mt5_chart_geometry,
     validate_mt5_geometry_overlay,
 )
@@ -203,6 +204,14 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         "reference_last_candle_ohlc": candidates_for_chart[0]["ohlc"],
         "reference_candle_offset_from_right": candidates_for_chart[0]["offset_from_right"],
     }
+    native_slot_center_result = native_geometry_slot_centers(
+        native_pixel_geometry,
+        native_bar_count=len(bars),
+        visible_bars=int(chart.get("visible_bars", 0) or 0),
+        first_visible_bar_shift=int(chart.get("first_visible_bar_shift", 0) or 0),
+    )
+    metadata["native_geometry_slot_centers"] = native_slot_center_result.get("slots", [])
+    metadata["native_geometry_slot_center_status"] = native_slot_center_result.get("status")
     native_max_y = native_geometry_visible_y_max(native_pixel_geometry)
     if native_max_y is not None:
         metadata["native_geometry_max_y_image_px"] = native_max_y
