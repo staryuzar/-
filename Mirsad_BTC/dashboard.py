@@ -983,7 +983,7 @@ def render_engine_dashboard():
    st.warning("نشر أوامر MIR1 مفعّل في إعداد البرنامج. هذا لا يثبت أن تنفيذ الخبير نفسه مسموح، ولا يغيّر إعداد InpAllowExecution داخل MT5.")
   else:
    st.info("نشر أوامر MIR1 معطّل افتراضياً في إعداد البرنامج (MIRSAD_ENABLE_ORDER_PUBLISH=0). لا يُرسل البرنامج أوامر إلى الخبير في هذه الحالة.")
-  render_execution_console(state)
+ render_execution_console(state)
 
  st.divider()
  st.subheader("تهيئة صورة الرسم للمحرك الثاني")
