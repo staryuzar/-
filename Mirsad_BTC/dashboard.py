@@ -269,12 +269,18 @@ def render_execution_console(state:dict)->None:
   current_id=command.get("command_id")
   if current_id:
    st.caption(f"آخر ملف أمر موجود: {current_id} | حالته وفق آخر ACK: {ack.get('state','لا يوجد ACK')}")
+   st.markdown("**الظرف الكامل الموجود حالياً لدى الجسر**")
+   st.json(command,expanded=False)
   else:
    st.caption("لم ينشأ command.json بعد في مجلد Common Files أو لم يصل إلى البرنامج.")
+  signal_identity=str(decision.get("signal_id") or "NO_ACTIVE_COMMAND")
+  confirmation_token=hashlib.sha256(signal_identity.encode("utf-8")).hexdigest()[:16]
+  confirmation_key="mirsad_confirm_engine4_command_"+confirmation_token
+  publish_button_key="mirsad_publish_engine4_command_"+confirmation_token
   confirmation=st.checkbox(
    "أؤكد أنني راجعت أمر المحرك الرابع الحالي وأسمح بمحاولة تمريره إلى خبير MT5.",
-   value=False,key="mirsad_confirm_engine4_command",
-   help="هذا التأكيد لا يتجاوز مفاتيح الإيقاف البرمجية أو مفتاح تنفيذ الخبير.",
+   value=False,key=confirmation_key,
+   help="يتجدد التأكيد تلقائياً عند تغير معرّف الأمر؛ ولا يتجاوز مفاتيح الإيقاف أو بوابات التنفيذ.",
   )
   gates_ok=bool(
    publish_enabled and bridge_connected and terminal_connected
@@ -282,7 +288,7 @@ def render_execution_console(state:dict)->None:
   )
   publish_clicked=st.button(
    "إرسال أمر المحرك الرابع المعتمد عبر MIR1",
-   key="mirsad_publish_engine4_command",
+   key=publish_button_key,
    use_container_width=True,
    disabled=not (gates_ok and confirmation),
   )

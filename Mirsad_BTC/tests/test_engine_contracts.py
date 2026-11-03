@@ -642,6 +642,43 @@ class BridgeProtocolTests(unittest.TestCase):
             self.assertEqual(bridge["symbol_spec"], {})
             self.assertEqual(bridge["positions"], [])
 
+    def test_inspect_surfaces_ea_execution_current_command_and_event_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            now = int(time.time() * 1000)
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "execution_enabled": False,
+                "heartbeat_at_ms": now,
+                "symbol": "BTC",
+                "market_symbol": "BTCUSDT",
+                "account": {"equity": 1000.0},
+                "symbol_spec": {"tick_size": 0.1},
+                "positions": [],
+            }), encoding="utf-8")
+            command = {"schema": "MIR1", "command_id": "MIR-" + "a" * 24, "action": "BUY"}
+            ack = {"schema": "MIR1", "command_id": command["command_id"], "state": "REJECTED"}
+            (root / "command.json").write_text(json.dumps(command), encoding="utf-8")
+            (root / "ack.json").write_text(json.dumps(ack), encoding="utf-8")
+            (root / "positions.json").write_text("[]", encoding="utf-8")
+            (root / "events.jsonl").write_text(
+                json.dumps({"time_ms": now, "event": "COMMAND_REJECTED", "command_id": command["command_id"]}) + "\\n",
+                encoding="utf-8",
+            )
+
+            bridge = MT5BridgeEngine(common_files=temp).inspect()
+
+            self.assertEqual(bridge["status"], "CONNECTED")
+            self.assertIs(bridge["terminal_connected"], True)
+            self.assertIs(bridge["execution_enabled"], False)
+            self.assertEqual(bridge["current_command"]["command_id"], command["command_id"])
+            self.assertEqual(bridge["last_order_ack"]["state"], "REJECTED")
+            self.assertTrue(bridge["positions_file_valid"])
+            self.assertEqual(bridge["event_log"][0]["event"], "COMMAND_REJECTED")
+            self.assertTrue(bridge["common_files_files"]["events.jsonl"])
+
     def test_future_heartbeat_is_not_treated_as_connected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "MirsadBTC"
