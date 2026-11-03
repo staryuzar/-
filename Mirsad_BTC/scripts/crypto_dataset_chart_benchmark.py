@@ -86,7 +86,7 @@ def build_page_url(split: str, offset: int, length: int, ticker: str | None) -> 
     return f"{VIEWER}/rows?{urllib.parse.urlencode(params)}"
 
 
-def fetch_dataset_rows(split: str, ticker: str | None, max_images: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _fetch_dataset_rows_via_viewer(split: str, ticker: str | None, max_images: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     # The HF /filter endpoint is faster, but may return transient 5xx responses
     # for some image datasets. Fall back to /rows and filter locally so the test
     # is not lost because the metadata index is temporarily unavailable.
@@ -148,6 +148,81 @@ def fetch_dataset_rows(split: str, ticker: str | None, max_images: int) -> tuple
         "filter_fallback_to_rows": used_fallback,
         "metadata_rows_selected": len(rows),
     }
+
+
+def _fetch_dataset_rows_from_parquet(
+    split: str,
+    ticker: str | None,
+    max_images: int,
+    *,
+    viewer_error: Exception,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Fallback to the source Parquet file if the Dataset Viewer API is down."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    parquet_url = (
+        f"https://huggingface.co/datasets/{DATASET}/resolve/main/"
+        f"data/{split}-00000-of-00001.parquet"
+    )
+    print(
+        f"Dataset Viewer unavailable ({type(viewer_error).__name__}: {viewer_error}); "
+        "falling back to the source Parquet file.",
+        flush=True,
+    )
+    payload = request_bytes(
+        parquet_url,
+        timeout=180,
+        max_bytes=256 * 1024 * 1024,
+    )
+    table = pq.read_table(pa.BufferReader(payload))
+    available_columns = set(table.column_names)
+    required_columns = {"image", "ticker", "label", "end_date", "pct_return"}
+    missing_columns = required_columns - available_columns
+    if missing_columns:
+        raise RuntimeError(
+            "Source Parquet schema is missing required columns: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    rows = table.to_pylist()
+    selected: list[dict[str, Any]] = []
+    for row in rows:
+        if ticker and str(row.get("ticker", "")) != ticker:
+            continue
+        selected.append(row)
+        if max_images > 0 and len(selected) >= max_images:
+            break
+    if not selected:
+        raise RuntimeError(
+            f"Source Parquet returned no rows for split={split}, ticker={ticker!r}"
+        )
+    return selected, {
+        "dataset": DATASET,
+        "split": split,
+        "ticker_filter": ticker,
+        "reported_rows_total": table.num_rows,
+        "partial_index": False,
+        "filter_fallback_to_rows": False,
+        "metadata_rows_selected": len(selected),
+        "source_mode": "DIRECT_HUB_PARQUET_FALLBACK",
+        "source_url": parquet_url,
+        "source_bytes": len(payload),
+        "viewer_error": f"{type(viewer_error).__name__}: {viewer_error}",
+    }
+
+
+def fetch_dataset_rows(
+    split: str, ticker: str | None, max_images: int
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    try:
+        return _fetch_dataset_rows_via_viewer(split, ticker, max_images)
+    except Exception as viewer_error:
+        # A transient viewer outage must not discard the held-out evaluation.
+        # Read the same split and labels from the source dataset repository.
+        return _fetch_dataset_rows_from_parquet(
+            split, ticker, max_images, viewer_error=viewer_error
+        )
 
 
 def unpack_image_info(row: dict[str, Any]) -> tuple[str, int | None, int | None]:
