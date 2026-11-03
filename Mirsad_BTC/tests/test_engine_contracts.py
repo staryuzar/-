@@ -277,14 +277,14 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         )
 
         self.assertEqual(with_context["action"], "WAIT")
-        self.assertEqual(with_context["status"], "WAITING_FOR_ENGINE_2")
+        self.assertEqual(with_context["status"], "READY")
         self.assertEqual(
             with_context["engine_2_native_price_action_context"]["direction"],
             "MIXED_TIMEFRAME_DIRECTIONS",
         )
         self.assertEqual(
             with_context["engine_2_native_price_action_context"]["role"],
-            "DESCRIPTIVE_ONLY_NOT_USED_AS_A_DIRECTIONAL_VOTE",
+            "NON_DIRECTIONAL_SAFETY_GATE_ONLY",
         )
         self.assertEqual(without_context["candidate_action"], "BUY")
         self.assertEqual(with_context["candidate_action"], "WAIT")
