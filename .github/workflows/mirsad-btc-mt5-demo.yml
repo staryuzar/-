@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout Mirsad project source
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Verify Windows and PowerShell environment
         shell: pwsh

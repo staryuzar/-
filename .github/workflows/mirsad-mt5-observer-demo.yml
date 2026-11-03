@@ -34,7 +34,7 @@ jobs:
       - name: Checkout Mirsad project source branch
         uses: actions/checkout@v4
         with:
-          ref: mirsad-mt5-demo
+          ref: main
 
       - name: Verify Windows runner
         shell: pwsh

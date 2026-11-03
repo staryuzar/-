@@ -2,7 +2,7 @@ name: Mirsad BTC — MT5 OPEN/CLOSE EA compile and demo runtime
 
 on:
   push:
-    branches: [mirsad-mt5-demo]
+    branches: [main]
     paths:
       - 'Mirsad_BTC/mt5/Mirsad_BTC_ExecutionBridge.mq5'
       - 'Mirsad_BTC/scripts/mirsad_mt5_execution_run.ps1'
@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout Mirsad project
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Verify Windows runner
         shell: pwsh

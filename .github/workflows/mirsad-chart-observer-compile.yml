@@ -2,7 +2,7 @@ name: Mirsad Chart Observer — actual MT5 read-only feed verification
 
 on:
   push:
-    branches: [mirsad-mt5-demo]
+    branches: [main]
     paths:
       - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
       - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
@@ -31,7 +31,7 @@ jobs:
       - name: Checkout Mirsad project
         uses: actions/checkout@v4
         with:
-          ref: mirsad-mt5-demo
+          ref: main
 
       - name: Set up Python for the real MT5 Engine 1/2 validators
         uses: actions/setup-python@v5

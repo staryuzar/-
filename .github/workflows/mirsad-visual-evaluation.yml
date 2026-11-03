@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - mirsad-mt5-demo
+      - main
     paths:
       - "Mirsad_BTC/mirsad/engines/chart_structure_evaluation.py"
       - "Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py"
@@ -43,7 +43,7 @@ on:
       - ".github/workflows/mirsad-visual-evaluation.yml"
   pull_request:
     branches:
-      - mirsad-mt5-demo
+      - main
     paths:
       - "Mirsad_BTC/mirsad/engines/chart_structure_evaluation.py"
       - "Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py"
@@ -97,6 +97,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -164,6 +166,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v5
