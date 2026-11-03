@@ -253,6 +253,43 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["engine_3_indicator_status"], "INVALID_INDICATOR_PAYLOAD")
 
 
+    def test_engine2_native_price_action_is_visible_but_never_becomes_an_unvalidated_vote(self) -> None:
+        chart = self._chart()
+        chart["decision_eligible"] = False
+        chart["status"] = "WAITING_FOR_IMAGE"
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = {
+            "engine": "engine_2_native_price_action",
+            "source": "MT5_COPYRATES_CLOSED_BARS",
+            "status": "READY",
+            "direction": "MIXED_TIMEFRAME_DIRECTIONS",
+            "structure_score": 0.25,
+            "as_of_utc_ms": int(time.time() * 1000),
+            "summary": {
+                "eligible_timeframes": ["1m", "5m", "15m", "1h"],
+                "timeframe_alignment": "MIXED_TIMEFRAME_DIRECTIONS",
+            },
+            "decision_eligible": False,
+        }
+        without_context = DecisionEngine().analyze(self._market(), chart, {}, indicators)
+        with_context = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators, engine2_price_action=price_action
+        )
+
+        self.assertEqual(with_context["action"], "WAIT")
+        self.assertEqual(with_context["status"], "WAITING_FOR_ENGINE_2")
+        self.assertEqual(
+            with_context["engine_2_native_price_action_context"]["direction"],
+            "MIXED_TIMEFRAME_DIRECTIONS",
+        )
+        self.assertEqual(
+            with_context["engine_2_native_price_action_context"]["role"],
+            "DESCRIPTIVE_ONLY_NOT_USED_AS_A_DIRECTIONAL_VOTE",
+        )
+        self.assertEqual(with_context["candidate_action"], without_context["candidate_action"])
+        self.assertEqual(with_context["decision_scores"], without_context["decision_scores"])
+
+
 class DecisionBoundaryTests(unittest.TestCase):
     def test_one_verified_mt5_source_passes_market_quorum_but_still_needs_engine3_history(self) -> None:
         result = DecisionEngine().analyze(
