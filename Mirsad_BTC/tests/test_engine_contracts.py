@@ -248,7 +248,10 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         now = int(time.time() * 1000)
         market = self._market()
-        market["price"] = 200.05
+        market["status"] = "STALE"
+        market["venue_count"] = 0
+        market["primary_venue"] = None
+        market["price"] = None
         bridge = {
             "status": "CONNECTED", "symbol": "BTC", "market_symbol": "BTCUSDT",
             "magic_number": 26110201, "quote_age_seconds": 1.0,
@@ -267,6 +270,8 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["position_ticket"], 123456)
         self.assertEqual(result["position_management"]["action"], "MODIFY")
         self.assertEqual(result["chart_gate"], "POSITION_MANAGEMENT_PRIORITY")
+        self.assertEqual(result["engine_inputs"]["engine_1_market"], "STALE")
+        self.assertFalse(result["engine_inputs"]["engine_1_required_for_protective_management"])
         self.assertFalse(result["management_plan"]["decision_eligible"])
         self.assertGreater(result["stop_loss"], 100.0)
 
