@@ -6,6 +6,7 @@ from mirsad.engines.mt5_chart_geometry import (
     analyze_native_mt5_ohlc,
     native_geometry_visible_y_max,
     native_geometry_slot_centers,
+    infer_regular_chart_slot_centers,
     assign_native_geometry_slots,
     validate_mt5_chart_geometry,
     validate_mt5_geometry_overlay,
@@ -337,6 +338,81 @@ class NativeGeometrySlotAssignmentTests(unittest.TestCase):
         self.assertEqual(diagnostics["status"], "INSUFFICIENT_X_MATCHES")
         self.assertNotIn("slot_index", assigned[0])
         self.assertFalse(diagnostics["mapping_verified"])
+
+
+
+class RegularChartSlotInferenceTests(unittest.TestCase):
+    def test_dataset_right_edge_anchor_recovers_missing_interior_slots(self) -> None:
+        expected = 30
+        image_width = 337
+        spacing = 10.0
+        first_x = 10.0
+        missing = {4, 11, 22}
+        extracted = [
+            {"x_px": first_x + index * spacing + 0.4, "colour": "GREEN"}
+            for index in range(expected)
+            if index not in missing
+        ]
+        inferred = infer_regular_chart_slot_centers(
+            extracted,
+            expected_candle_count=expected,
+            image_width=image_width,
+            reference_last_candle_x_ratio=0.89,
+        )
+        self.assertEqual(inferred["status"], "READY_PROVISIONAL")
+        self.assertEqual(len(inferred["slots"]), expected)
+        self.assertAlmostEqual(inferred["median_spacing_px"], spacing, places=3)
+        self.assertGreaterEqual(inferred["gap_integrity_ratio"], 0.80)
+        self.assertFalse(inferred["decision_eligible"])
+        self.assertFalse(inferred["mapping_verified"])
+
+        assigned, diagnostics = assign_native_geometry_slots(
+            extracted,
+            inferred["slots"],
+            source="DATASET_RIGHT_EDGE_REGULAR_GRID",
+        )
+        self.assertEqual(diagnostics["status"], "PROVISIONAL_ASSIGNMENT")
+        self.assertEqual(diagnostics["matched_candles"], expected - len(missing))
+        self.assertEqual(
+            [item["slot_index"] for item in assigned],
+            [index for index in range(expected) if index not in missing],
+        )
+        self.assertTrue(
+            all(item["slot_assignment_source"] == "DATASET_RIGHT_EDGE_REGULAR_GRID" for item in assigned)
+        )
+        self.assertFalse(diagnostics["decision_eligible"])
+        self.assertFalse(diagnostics["mapping_verified"])
+
+    def test_regular_grid_inference_rejects_rightmost_anchor_mismatch(self) -> None:
+        extracted = [
+            {"x_px": 10.0 + index * 10.0, "colour": "RED"}
+            for index in range(30)
+        ]
+        result = infer_regular_chart_slot_centers(
+            extracted,
+            expected_candle_count=30,
+            image_width=337,
+            reference_last_candle_x_ratio=0.89,
+        )
+        self.assertEqual(result["status"], "RIGHTMOST_ANCHOR_MISMATCH")
+        self.assertEqual(result["slots"], [])
+        self.assertFalse(result["decision_eligible"])
+
+    def test_regular_grid_inference_rejects_irregular_candle_spacing(self) -> None:
+        extracted = [
+            {"x_px": 10.0 + index * 10.0 + (6.0 if index % 3 == 0 else 0.0), "colour": "GREEN"}
+            for index in range(30)
+        ]
+        result = infer_regular_chart_slot_centers(
+            extracted,
+            expected_candle_count=30,
+            image_width=337,
+            reference_last_candle_x_ratio=0.89,
+            minimum_gap_integrity=0.95,
+        )
+        self.assertEqual(result["status"], "GRID_GAP_INTEGRITY_LOW")
+        self.assertEqual(result["slots"], [])
+        self.assertFalse(result["mapping_verified"])
 
 
 
