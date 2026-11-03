@@ -66,10 +66,10 @@ class ChartEngineTests(unittest.TestCase):
 
         self.assertTrue(cv2.imwrite(str(path), image))
 
-    def _analyze(self, *, direction="up", colour="GREEN", metadata=None, expected="BTCUSDT"):
+    def _analyze(self, *, direction="up", colour="GREEN", metadata=None, expected="BTCUSDT", count=24):
         with tempfile.TemporaryDirectory() as temp:
             image_path = Path(temp) / "synthetic_chart.png"
-            self._write_chart(image_path, direction=direction, colour=colour)
+            self._write_chart(image_path, direction=direction, colour=colour, count=count)
             meta = dict(self.META)
             if metadata:
                 meta.update(metadata)
@@ -102,6 +102,22 @@ class ChartEngineTests(unittest.TestCase):
         self.assertEqual(pixel["direction"], "BULLISH")
         self.assertFalse(pixel["decision_eligible"])
         self.assertEqual(pixel["method"], "scale_free_pixel_close_trend")
+
+    def test_detected_candles_without_price_axis_are_not_misreported_as_low_detection(self) -> None:
+        result = self._analyze(metadata={"price_top": None, "price_bottom": None})
+        self.assertGreaterEqual(result["detected_bar_count"], 20)
+        self.assertEqual(result["status"], "DETECTED_UNCALIBRATED")
+        self.assertFalse(result["decision_eligible"])
+
+    def test_sparse_chart_keeps_low_detection_status(self) -> None:
+        result = self._analyze(count=3)
+        self.assertEqual(result["status"], "LOW_DETECTION")
+        self.assertLess(result["detected_bar_count"], 5)
+
+    def test_calibrated_chart_below_minimum_history_has_distinct_status(self) -> None:
+        result = self._analyze(count=10)
+        self.assertEqual(result["status"], "INSUFFICIENT_CALIBRATED_CANDLES")
+        self.assertFalse(result["decision_eligible"])
 
     def test_doji_uses_previous_ten_candle_ranges(self) -> None:
         bars = [

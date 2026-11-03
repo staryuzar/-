@@ -601,10 +601,15 @@ def analyze_chart_image(
     eligible = all(quality_gates.values())
     if eligible:
         state = "READY"
-    elif len(confirmed_calibrated) < 5:
+    elif len(bars) < 5:
         state = "LOW_DETECTION"
     elif not calibration["price_scale_valid"]:
+        # A chart can contain many detected candles while its price axis is
+        # unavailable or its native reference anchor has failed. Do not label
+        # that calibration failure as candle-detection failure.
         state = "DETECTED_UNCALIBRATED"
+    elif len(confirmed_calibrated) < MIN_CALIBRATED_BARS:
+        state = "INSUFFICIENT_CALIBRATED_CANDLES"
     else:
         state = "BLOCKED_QUALITY_GATE"
 
