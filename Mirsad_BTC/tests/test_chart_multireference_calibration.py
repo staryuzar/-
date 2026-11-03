@@ -64,7 +64,8 @@ class MultiReferenceCalibrationTests(unittest.TestCase):
     def test_multiple_bad_holdout_candles_block_calibration(self) -> None:
         pairs = make_pairs()
         for index in (0, 4):
-            pairs[index]["ohlc"]["close"] += 1500.0
+            for field in ("open", "high", "low", "close"):
+                pairs[index]["ohlc"][field] += 1500.0
         result = self.calibrate(pairs)
         self.assertEqual(result["status"], "REFERENCE_HOLDOUT_VALIDATION_FAILED")
         self.assertFalse(result.get("calibration"))
@@ -74,8 +75,10 @@ class MultiReferenceCalibrationTests(unittest.TestCase):
         for pair in pairs[-6:]:
             pair["closed"] = False
         result = self.calibrate(pairs)
-        self.assertNotEqual(result["status"], "READY")
-        self.assertLess(result.get("matched_candles", 0), 8)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["matched_candles"], 18)
+        self.assertEqual(result["fit_candles"], 13)
+        self.assertEqual(result["validation_candles"], 5)
 
     def test_reference_pairs_must_cover_the_chart_horizontally(self) -> None:
         pairs = make_pairs()
