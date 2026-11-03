@@ -94,6 +94,13 @@ class Engine3MT5ParityTests(unittest.TestCase):
         self.assertEqual(result["status"], "FAIL")
         self.assertTrue(any("15m: Closed-bar timestamp mismatch" in failure for failure in result["failures"]))
 
+    def test_forming_bar_timestamp_mismatch_fails_parity(self) -> None:
+        candles, native = make_snapshots()
+        native["timeframes"]["1h"]["forming_bar_time_utc_ms"] += 60_000
+        result = validate(candles, native)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertTrue(any("1h: Forming-bar timestamp mismatch" in failure for failure in result["failures"]))
+
 
 if __name__ == "__main__":
     unittest.main()
