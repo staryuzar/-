@@ -9,6 +9,7 @@ import numpy as np
 from mirsad.engines.chart_ocr import (
     detect_price_axis_ticks,
     fit_price_axis,
+    infer_plot_bottom_from_axis_ticks,
     parse_price_label,
 )
 
@@ -143,6 +144,61 @@ class ChartOCRTests(unittest.TestCase):
             result = detect_price_axis_ticks(image)
         self.assertEqual(result["status"], "OCR_UNAVAILABLE")
         self.assertIn("missing OCR backend", result["reason"])
+
+
+    def test_infer_plot_bottom_excludes_an_unlabelled_volume_overlay_band(self) -> None:
+        ticks = [
+            {
+                "y_px": 60 + index * 20,
+                "price": 120000 - index * 1000,
+                "score": 0.95,
+                "inlier": True,
+            }
+            for index in range(23)
+        ]
+        result = infer_plot_bottom_from_axis_ticks(
+            ticks,
+            plot_top_px=0,
+            current_plot_bottom_px=595,
+        )
+        self.assertEqual(result["status"], "REFINED")
+        self.assertEqual(result["tick_bottom_y_px"], 500.0)
+        self.assertGreater(result["plot_bottom_px"], result["tick_bottom_y_px"])
+        self.assertLess(result["plot_bottom_px"], 535)
+        self.assertGreater(result["excluded_bottom_band_px"], 50)
+
+    def test_infer_plot_bottom_keeps_a_fully_labelled_plot_unchanged(self) -> None:
+        ticks = [
+            {
+                "y_px": 60 + index * 20,
+                "price": 120000 - index * 1000,
+                "score": 0.95,
+                "inlier": True,
+            }
+            for index in range(26)
+        ]
+        result = infer_plot_bottom_from_axis_ticks(
+            ticks,
+            plot_top_px=0,
+            current_plot_bottom_px=595,
+        )
+        self.assertEqual(result["status"], "UNCHANGED")
+        self.assertEqual(result["plot_bottom_px"], 595)
+
+    def test_infer_plot_bottom_ignores_outlier_ticks_and_requires_dense_coverage(self) -> None:
+        ticks = [
+            {"y_px": 60 + index * 20, "inlier": True}
+            for index in range(5)
+        ] + [
+            {"y_px": 560, "inlier": False}
+        ]
+        result = infer_plot_bottom_from_axis_ticks(
+            ticks,
+            plot_top_px=0,
+            current_plot_bottom_px=595,
+        )
+        self.assertEqual(result["status"], "UNCHANGED")
+        self.assertEqual(result["plot_bottom_px"], 595)
 
 
 if __name__ == "__main__":
