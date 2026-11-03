@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - mirsad-mt5-demo
+      - mirsad-engine2-native-analysis
     paths:
       - ".github/workflows/mirsad-btc-image-pilot.yml"
       - "Mirsad_BTC/scripts/run_hf_btc_chart_image_benchmark.py"
@@ -27,7 +28,7 @@ jobs:
   btc-image-pilot:
     name: Run Engine 2 on 20 BTC chart images
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: Mirsad_BTC
@@ -49,10 +50,15 @@ jobs:
       - name: Run Engine 2 on exactly 20 BTC images
         run: python scripts/run_hf_btc_chart_image_benchmark.py --max-images 20 --min-images 20 --ocr-sample-limit 5 --output reports/hf_btc_chart_image_pilot_20.json
 
-      - name: Upload 20-image pilot report
+      - name: Run the full independent BTC image dataset (minimum 10,000; target 13,081)
+        run: python scripts/run_hf_btc_chart_image_benchmark.py --max-images 13081 --min-images 10000 --ocr-sample-limit 128 --output reports/hf_btc_chart_image_full.json
+
+      - name: Upload pilot and full-dataset reports
         uses: actions/upload-artifact@v4
         with:
-          name: mirsad-btc-image-pilot-20-${{ github.run_id }}
-          path: Mirsad_BTC/reports/hf_btc_chart_image_pilot_20.json
+          name: mirsad-btc-image-pilot-and-full-${{ github.run_id }}
+          path: |
+            Mirsad_BTC/reports/hf_btc_chart_image_pilot_20.json
+            Mirsad_BTC/reports/hf_btc_chart_image_full.json
           if-no-files-found: error
           retention-days: 30
