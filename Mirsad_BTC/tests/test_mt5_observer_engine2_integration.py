@@ -72,8 +72,9 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
             expected_analysis = {
                 "status": "READY",
                 "decision_eligible": True,
-                "calibration": {"source": "reference_last_candle_ohlc"},
-                "reference_calibration": {"status": "READY"},
+                "calibration": {"source": "reference_multi_candle_ohlc"},
+                "reference_multi_calibration": {"status": "READY"},
+                "reference_axis_validation": {"status": "READY"},
                 "reference_ohlc_override_applied": True,
             }
             with patch("mirsad.runtime.analyze_chart_image", return_value=expected_analysis) as analyzer:
@@ -87,10 +88,12 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
             self.assertEqual(args[1]["symbol"], "BTCUSDT")
             self.assertEqual(args[1]["timeframe"], "1m")
             self.assertFalse(args[1]["last_candle_closed"])
-            self.assertFalse(args[1]["auto_axis_ocr"])
+            self.assertTrue(args[1]["auto_axis_ocr"])
             self.assertEqual(args[1]["reference_last_candle_ohlc"]["close"], observer["bars"][-1]["close"])
             self.assertEqual(kwargs["expected_symbol"], "BTCUSDT")
             self.assertEqual(args[1]["expected_candle_count"], 30)
+            self.assertTrue(args[1]["require_multi_reference_validation"])
+            self.assertGreaterEqual(len(args[1]["reference_candle_candidates"]), 8)
 
     def test_flat_forming_bar_uses_previous_closed_mt5_candle_as_visual_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -103,8 +106,9 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
             expected_analysis = {
                 "status": "READY",
                 "decision_eligible": True,
-                "calibration": {"source": "reference_last_candle_ohlc"},
-                "reference_calibration": {"status": "READY"},
+                "calibration": {"source": "reference_multi_candle_ohlc"},
+                "reference_multi_calibration": {"status": "READY"},
+                "reference_axis_validation": {"status": "READY"},
                 "reference_ohlc_override_applied": True,
                 "reference_anchor": {"status": "READY", "offset_from_right": 1},
             }
@@ -179,8 +183,9 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
             expected_analysis = {
                 "status": "READY",
                 "decision_eligible": True,
-                "calibration": {"source": "reference_last_candle_ohlc"},
-                "reference_calibration": {"status": "READY"},
+                "calibration": {"source": "reference_multi_candle_ohlc"},
+                "reference_multi_calibration": {"status": "READY"},
+                "reference_axis_validation": {"status": "READY"},
                 "reference_ohlc_override_applied": True,
                 "reference_anchor": {"status": "READY", "offset_from_right": 0},
             }
@@ -219,7 +224,7 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
                 "status": "READY",
                 "decision_eligible": True,
                 "calibration": {"source": "ocr"},
-                "reference_calibration": {"status": "NOT_REQUESTED"},
+                "reference_multi_calibration": {"status": "NOT_REQUESTED"},
                 "reference_ohlc_override_applied": False,
             }
             with patch("mirsad.runtime.analyze_chart_image", return_value=expected_analysis):
