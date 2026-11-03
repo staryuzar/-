@@ -16,6 +16,7 @@ from typing import Any, Callable
 from ..config import MT5_COMMON_FILES
 from .chart import analyze_chart_image
 from .mt5_observer import MT5ChartObserverInbox, recent_reference_candle_candidates
+from .mt5_chart_geometry import analyze_native_mt5_ohlc
 
 
 def _blocked_observer_chart(observer:dict[str,Any], reason:str, status:str="OBSERVER_VALIDATION_BLOCKED")->dict[str,Any]:
@@ -117,7 +118,7 @@ def analyze_mt5_observer_chart(
   return _blocked_observer_chart(observer,"Engine 2 could not read the validated Observer PNG.","OBSERVER_IMAGE_UNREADABLE")
  if not observer.get("image_sha256") or image_hash.lower()!=str(observer.get("image_sha256")).strip().lower():
   return _blocked_observer_chart(observer,"Observer PNG changed after inbox validation; its verified SHA-256 no longer matches.","OBSERVER_IMAGE_CHANGED")
- reference_candidates=recent_reference_candle_candidates(bars,max_candidates=8,max_lookback=16)
+ reference_candidates=recent_reference_candle_candidates(bars,max_candidates=256,max_lookback=256)
  if not reference_candidates:
   return _blocked_observer_chart(observer,"No recent native MT5 candle has a positive range suitable for visual calibration.","OBSERVER_REFERENCE_CANDLE_UNAVAILABLE")
  reference_candidates_for_chart=[{
@@ -132,15 +133,25 @@ def analyze_mt5_observer_chart(
   "price_scale_type":str(chart_meta.get("price_scale_type","linear")).strip().lower(),
   "expected_candle_count":int(chart_meta.get("visible_bars",0) or 0),
   "allow_reference_anchor_override":True,
+  "require_multi_reference_validation":True,
   "last_candle_closed":False,
   "auto_axis_ocr":False,
   "reference_candle_candidates":reference_candidates_for_chart,
   "reference_last_candle_ohlc":reference_candidates_for_chart[0]["ohlc"],
   "reference_candle_offset_from_right":reference_candidates_for_chart[0]["offset_from_right"],
  }
+ native_ohlc_analysis=analyze_native_mt5_ohlc(
+  bars, symbol=market_symbol, timeframe=timeframe
+ )
+ pixel_geometry=observer.get("pixel_geometry") if isinstance(observer.get("pixel_geometry"),dict) else {
+  "status":"NOT_AVAILABLE","decision_eligible":False,
+  "reason":"Observer inbox did not provide native pixel geometry."
+ }
  analysis=(image_analyzer or analyze_chart_image)(image_path,metadata,expected_symbol=market_symbol)
  analysis={
   **analysis,
+  "native_ohlc_analysis":native_ohlc_analysis,
+  "native_pixel_geometry":pixel_geometry,
   "source":"MT5_OBSERVER",
   "observer_capture":{
    "pipeline_component":"engine2_mt5_chart_image_pipeline",
@@ -153,6 +164,9 @@ def analyze_mt5_observer_chart(
    "forming_bar_used_as_reference":(analysis.get("reference_anchor") or {}).get("offset_from_right")==0,
    "reference_anchor":analysis.get("reference_anchor"),
    "reference_candidates_considered":len(reference_candidates_for_chart),
+   "native_pixel_geometry_status":pixel_geometry.get("status"),
+   "native_pixel_geometry_visible_bars":pixel_geometry.get("visible_bars"),
+   "native_pixel_geometry_mapping_status":pixel_geometry.get("mapping_status"),
    "broker_symbol":observer_symbol,
    "market_symbol":market_symbol,
    "engine_1_quote_freshness_required_for_visual_analysis":False,
@@ -161,18 +175,19 @@ def analyze_mt5_observer_chart(
    "source_viewport_height_px":int(chart_meta.get("source_main_window_height_px",0) or 0),
   },
  }
- reference=analysis.get("reference_calibration") or {}
+ reference=analysis.get("reference_multi_calibration") or {}
+ axis_validation=analysis.get("reference_axis_validation") or {}
  anchor_verified=(
-  analysis.get("calibration",{}).get("source")=="reference_last_candle_ohlc"
+  analysis.get("calibration",{}).get("source")=="reference_multi_candle_ohlc"
   and reference.get("status")=="READY"
-  and analysis.get("reference_ohlc_override_applied") is True
+  and axis_validation.get("status")=="READY"
  )
  if not anchor_verified:
   analysis["decision_eligible"]=False
   if analysis.get("status")=="READY":
    analysis["status"]="OBSERVER_REFERENCE_NOT_VERIFIED"
   analysis["observer_reference_status"]=reference.get("status","NOT_VERIFIED")
-  analysis["observer_block_reason"]="No recent native MT5 candle passed the exact visible-slot colour/body/wick geometry anchor check."
+  analysis["observer_block_reason"]="The chart did not pass multi-candle native OHLC fit and independent hold-out validation."
  else:
   analysis["observer_reference_status"]="READY"
  return analysis

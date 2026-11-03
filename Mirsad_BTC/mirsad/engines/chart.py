@@ -10,6 +10,7 @@ from typing import Any
 from .chart_calibration import (
     calibrate_bars,
     calibrate_from_reference_candle,
+    calibrate_from_reference_candles,
     resolve_chart_calibration,
     validate_reference_candle_against_calibration,
 )
@@ -300,13 +301,18 @@ def analyze_chart_image(
         reference_calibration: dict[str, Any] = {"status": "NOT_REQUESTED"}
         reference_axis_validation: dict[str, Any] = {"status": "NOT_REQUESTED"}
         reference_anchor_verified = False
+        multi_reference_base_calibration = dict(calibration)
+        multi_reference_base_source = calibration_source
+        require_multi_reference_validation = bool(meta.get("require_multi_reference_validation", False))
+        reference_multi_calibration: dict[str, Any] = {"status": "NOT_REQUESTED"}
+        reference_pair_candidates: list[dict[str, Any]] = []
         selected_reference_bar: dict[str, Any] | None = None
         selected_reference_ohlc: dict[str, Any] | None = None
         selected_reference_candidate: dict[str, Any] | None = None
         reference_candidates_raw = meta.get("reference_candle_candidates")
         reference_candidates: list[dict[str, Any]] = []
         if isinstance(reference_candidates_raw, list):
-            for item in reference_candidates_raw[:16]:
+            for item in reference_candidates_raw[:256]:
                 if not isinstance(item, dict) or not isinstance(item.get("ohlc"), dict):
                     continue
                 try:
@@ -361,6 +367,8 @@ def analyze_chart_image(
 
         for candidate in reference_candidates:
             offset = int(candidate["offset_from_right"])
+            if candidate.get("closed") is False:
+                continue
             if expected_count > 0 and offset >= expected_count:
                 continue
             reference_bar = find_reference_pixel_bar(offset)
@@ -374,6 +382,17 @@ def analyze_chart_image(
                 continue
 
             reference_ohlc_candidate = candidate["ohlc"]
+            target_slot = (
+                expected_count - 1 - offset
+                if expected_count > 0
+                else int(reference_bar.get("slot_index", len(bars) - 1 - offset))
+            )
+            reference_pair_candidates.append({
+                "slot_index": reference_bar.get("slot_index", target_slot),
+                "bar": reference_bar,
+                "ohlc": reference_ohlc_candidate,
+                "closed": candidate.get("closed"),
+            })
             candidate_calibration = calibrate_from_reference_candle(
                 reference_bar,
                 reference_ohlc_candidate,
@@ -454,6 +473,30 @@ def analyze_chart_image(
                 reference_calibration = dict(last_reference_failure)
             else:
                 reference_calibration = {"status": "REFERENCE_NOT_VERIFIED"}
+
+        if require_multi_reference_validation and reference_candidates:
+            reference_multi_calibration = calibrate_from_reference_candles(
+                reference_pair_candidates,
+                image_width=image_width,
+                image_height=image_height,
+                plot_left_px=calibration["plot_left_px"],
+                plot_top_px=calibration["plot_top_px"],
+                plot_right_px=calibration["plot_right_px"],
+                plot_bottom_px=calibration["plot_bottom_px"],
+                scale_type=calibration["price_scale_type"],
+            )
+            reference_calibration = reference_multi_calibration
+            reference_axis_validation = reference_multi_calibration
+            if reference_multi_calibration.get("status") == "READY":
+                calibration = reference_multi_calibration["calibration"]
+                calibration_source = "reference_multi_candle_ohlc"
+                reference_anchor_verified = True
+            else:
+                # A single-candle fit is diagnostic only when multi-reference
+                # validation is required. Never leave its unvalidated axis active.
+                calibration = multi_reference_base_calibration
+                calibration_source = multi_reference_base_source
+                reference_anchor_verified = False
     except (TypeError, ValueError, OverflowError) as exc:
         return {
             **result,
@@ -466,7 +509,12 @@ def analyze_chart_image(
     pattern_candidates = _patterns(bars, last_candle_closed=last_candle_closed)
     calibrated = calibrate_bars(bars, calibration)
     reference_ohlc_override_applied = False
-    if reference_anchor_verified and isinstance(selected_reference_ohlc, dict) and selected_reference_bar:
+    if (
+        reference_anchor_verified
+        and not require_multi_reference_validation
+        and isinstance(selected_reference_ohlc, dict)
+        and selected_reference_bar
+    ):
         reference_x = selected_reference_bar.get("x_px")
         for index in range(len(calibrated) - 1, -1, -1):
             if calibrated[index].get("x_px") == reference_x:
@@ -597,7 +645,11 @@ def analyze_chart_image(
         "candle_colour_purity": mean_colour_purity >= MIN_MEAN_COLOUR_PURITY,
     }
     if isinstance(meta.get("reference_last_candle_ohlc"), dict) or isinstance(meta.get("reference_candle_candidates"), list):
-        quality_gates["native_reference_candle_verified"] = bool(reference_anchor_verified)
+        quality_gates["native_reference_candle_verified"] = bool(
+            reference_multi_calibration.get("status") == "READY"
+            if require_multi_reference_validation
+            else reference_anchor_verified
+        )
     eligible = all(quality_gates.values())
     if eligible:
         state = "READY"
@@ -686,6 +738,7 @@ def analyze_chart_image(
             if "reference_calibration" in locals()
             else {"status": "NOT_REQUESTED"}
         ),
+        "reference_multi_calibration": reference_multi_calibration,
         "reference_ohlc_override_applied": reference_ohlc_override_applied,
         "reference_anchor": ({
             "status": "READY",

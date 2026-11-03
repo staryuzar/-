@@ -9,6 +9,8 @@ from typing import Any
 
 from PIL import Image
 
+from .mt5_chart_geometry import validate_mt5_chart_geometry
+
 OBSERVER_SCHEMA = "MIR-CHART-OBSERVATION-1"
 ENGINE2_TIMEFRAME_ALIASES = {
     "M1": "1m",
@@ -43,8 +45,8 @@ def recent_reference_candle_candidates(
     """
     if not isinstance(raw_bars, list) or not raw_bars:
         return []
-    candidate_limit = max(1, min(16, int(max_candidates)))
-    lookback_limit = max(1, min(64, int(max_lookback)))
+    candidate_limit = max(1, min(256, int(max_candidates)))
+    lookback_limit = max(1, min(512, int(max_lookback)))
     candidates: list[dict[str, Any]] = []
     for offset, raw in enumerate(reversed(raw_bars[:])):
         if offset >= lookback_limit:
@@ -322,6 +324,16 @@ class MT5ChartObserverInbox:
         if forming_flag != bool(bars):
             return _invalid("FORMING_BAR_FLAG_MISMATCH", "forming_bar_included does not match whether MT5 supplied a current bar.")
         newest_bar_after_server_clock = bool(bars and bars[-1]["time_server_ms"] > server_time_ms + 5_000)
+        pixel_geometry = validate_mt5_chart_geometry(
+            chart.get("pixel_geometry"),
+            bars=bars or [],
+            chart=chart,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        chart["pixel_geometry_validation"] = {
+            key: value for key, value in pixel_geometry.items() if key != "bars"
+        }
 
         digest = hashlib.sha256(image_bytes).hexdigest()
         return {
@@ -354,6 +366,7 @@ class MT5ChartObserverInbox:
             "bar_count": len(bars or []),
             "rates_status": payload.get("rates_status", "AVAILABLE" if bars else "UNAVAILABLE"),
             "rates_error_code": payload.get("rates_error_code", 0),
+            "pixel_geometry": pixel_geometry,
             "plot_bounds_status": chart.get("plot_bounds_status", "UNKNOWN"),
             "message": (
                 "Image and native OHLC snapshot passed inbox validation. "

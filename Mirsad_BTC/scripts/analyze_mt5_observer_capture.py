@@ -140,7 +140,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
     if not market_symbol or len(market_symbol) > 32:
         return blocked("MARKET_MAPPING_INVALID", "Explicit Mirsad market symbol is invalid.")
     reference_candidates = recent_reference_candle_candidates(
-        bars, max_candidates=8, max_lookback=16
+        bars, max_candidates=256, max_lookback=256
     )
     if not reference_candidates:
         return blocked(
@@ -158,13 +158,15 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
         "price_scale_type": str(chart.get("price_scale_type", "linear")).lower(),
         "expected_candle_count": int(chart.get("visible_bars", 0) or 0),
         "allow_reference_anchor_override": True,
+        "require_multi_reference_validation": True,
         "last_candle_closed": False, "auto_axis_ocr": True,
         "reference_candle_candidates": candidates_for_chart,
         "reference_last_candle_ohlc": candidates_for_chart[0]["ohlc"],
         "reference_candle_offset_from_right": candidates_for_chart[0]["offset_from_right"],
     }
     result = analyze_chart_image(image, metadata, expected_symbol=market_symbol)
-    reference = result.get("reference_calibration") or {}
+    reference = result.get("reference_multi_calibration") or {}
+    axis_validation = result.get("reference_axis_validation") or {}
     axis_ocr = result.get("axis_ocr") or {}
     axis_fit = axis_ocr.get("fit") or {}
     calibration = result.get("calibration") or {}
@@ -179,10 +181,9 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
     # Keep the live MT5 native candle as the only trusted calibration anchor.
     # OCR may independently suggest axis ticks, but OCR-only calibration is not
     # accepted until a separate native-OHLC-to-visible-candle residual check exists.
-    axis_validation = result.get("reference_axis_validation") or {}
-    anchor = (reference.get("status") == "READY"
-              and axis_validation.get("status") == "READY"
-              and result.get("reference_ohlc_override_applied") is True)
+    anchor = (calibration.get("source") == "reference_multi_candle_ohlc"
+              and reference.get("status") == "READY"
+              and axis_validation.get("status") == "READY")
     eligible = bool(result.get("decision_eligible")) and anchor
     selected_reference_anchor = result.get("reference_anchor") or {}
     return {
@@ -206,6 +207,15 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "reference_candidates_considered": len(candidates_for_chart),
             "reference_calibration_reason": reference_reason,
             "reference_calibration_diagnostics": reference_diagnostics,
+            "multi_reference_validation": {
+                key: reference.get(key) for key in (
+                    "matched_candles", "fit_candles", "validation_candles",
+                    "validation_passed_candles", "validation_pass_ratio",
+                    "validation_median_max_residual_fraction",
+                    "fit_inlier_ratio", "fit_vertical_coverage",
+                    "fit_x_coverage", "validation_x_coverage",
+                )
+            },
             "calibration_source": calibration.get("source", "unavailable"),
             "axis_ocr": {
                 "status": axis_ocr.get("status", "NOT_RUN"),
@@ -236,7 +246,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str) -> dict
             "reason": None if eligible else (
                 reference_reason
                 or (axis_ocr.get("reason") if axis_ocr.get("status") == "OCR_UNAVAILABLE" else None)
-                or "Visual quality or native OHLC anchor did not pass."
+                or "Visual quality or multi-candle OHLC hold-out validation did not pass."
             )
         },
         "engine1_market": engine1_summary,
