@@ -153,7 +153,7 @@ def analyze_mt5_observer_chart(
   "allow_reference_anchor_override":True,
   "require_multi_reference_validation":True,
   "last_candle_closed":False,
-  "auto_axis_ocr":False,
+  "auto_axis_ocr":True,
   "reference_candle_candidates":reference_candidates_for_chart,
   "reference_last_candle_ohlc":reference_candidates_for_chart[0]["ohlc"],
   "reference_candle_offset_from_right":reference_candidates_for_chart[0]["offset_from_right"],
