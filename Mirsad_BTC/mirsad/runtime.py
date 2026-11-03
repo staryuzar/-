@@ -5,7 +5,7 @@ import hashlib
 import math
 from pathlib import Path
 from typing import Any
-from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,MAX_DAILY_LOSS_FRACTION,RISK_STATE_PATH
+from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,RISK_STATE_PATH
 from .engines.market import MarketEngine  # Research/benchmark adapter; not used for live runtime.
 from .engines.mt5_market import MT5MarketDataEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
@@ -84,6 +84,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   bridge.get("account") if isinstance(bridge.get("account"),dict) else {},
   risk_previous,
   max_daily_loss_fraction=MAX_DAILY_LOSS_FRACTION,
+  enabled=DAILY_LOSS_LIMIT_ENABLED,
   now_ms=started,
  )
  bridge["daily_risk"]=risk_evaluation["report"]
@@ -182,7 +183,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "engine_2_price_action":engine2_price_action.get("status","NOT_STARTED"),
   "engine_3_indicators":indicators.get("status","NOT_STARTED"),
   "mt5_native_indicator_feed":native_indicators.get("status","NOT_STARTED"),
-  "engine_4_daily_risk_guard":("LOCKED" if (bridge.get("daily_risk") or {}).get("locked") is True else (bridge.get("daily_risk") or {}).get("status","NOT_STARTED")),
+  "engine_4_daily_risk_guard":("LOCKED" if (bridge.get("daily_risk") or {}).get("locked") is True else ((bridge.get("daily_risk") or {}).get("mode") or (bridge.get("daily_risk") or {}).get("status","NOT_STARTED"))),
   "engine_4_decision":decision.get("status","NOT_STARTED"),
   "engine_5_communication_bridge":bridge.get("status","NOT_STARTED"),
  }
@@ -190,6 +191,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "project":"Mirsad BTC","version":"0.2.0","heartbeat_at_ms":now,
   "cycle_started_at_ms":started,"market_age_seconds":round(age,2),
   "overall_status":overall,"readiness":readiness,"engines":engine_states,
+  "daily_loss_limit_mode":("ENABLED" if DAILY_LOSS_LIMIT_ENABLED else "DISABLED_FOR_DEVELOPMENT"),
   "market":{"symbol":market.get("symbol"),"price":market.get("price"),
    "primary_venue":market.get("primary_venue"),"venue_count":market.get("venue_count"),
    "status":market_status,
@@ -233,7 +235,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "Engine 1 quote updates describe quote movement only; they are not represented as executed trades, taker flow or order-book depth.",
    "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
    "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
-   "Engine 4 persists a UTC-day equity baseline on the first valid MT5 snapshot; the default 2% daily loss cap blocks new entries but never blocks protective MODIFY or CLOSE.",
+   "Engine 4 daily loss cap is disabled by default for development (MIRSAD_DAILY_LOSS_LIMIT_ENABLED=0); per-trade sizing, account/quote validation, signal-quality gates and protective position management remain active. Re-enable explicitly with MIRSAD_DAILY_LOSS_LIMIT_ENABLED=1 before deployment.",
    "No market simulation or simulated order is used.",
    "Chart-image extraction and pixel calibration are a separate deferred visual track; the native OHLC analysis continues without waiting for chart images.",
    "Engine 1 accepts one fresh MT5 terminal feed after broker-symbol, account-server, quote-age and multi-timeframe OHLC validation; runtime does not query external spot venues.",

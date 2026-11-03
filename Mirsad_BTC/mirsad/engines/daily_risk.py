@@ -12,20 +12,44 @@ def evaluate_daily_risk(
     previous_state: dict[str, Any] | None,
     *,
     max_daily_loss_fraction: float,
+    enabled: bool = True,
     now_ms: int | None = None,
 ) -> dict[str, Any]:
-    """Return a restart-safe UTC-day equity drawdown gate and its persisted state.
+    """Return the UTC-day equity drawdown gate and its persisted state.
 
     The first valid connected-equity snapshot of a UTC day becomes the baseline.
-    Missing account identity/equity or an invalid cap fails closed for new entries.
+    Missing account identity/equity or an invalid enabled cap fails closed for
+    new entries. The daily cap may be explicitly disabled during development;
+    this does not bypass any other Engine 4 risk or signal-quality checks.
     """
+    if not enabled:
+        return {
+            "report": {
+                "status": "READY",
+                "mode": "DISABLED_FOR_DEVELOPMENT",
+                "enabled": False,
+                "locked": False,
+                "new_entries_blocked": False,
+                "max_daily_loss_fraction": None,
+                "configured_max_daily_loss_fraction": max_daily_loss_fraction,
+                "daily_loss_fraction": None,
+                "decision_eligible": False,
+                "reason": (
+                    "The daily loss cap is disabled for development; all other "
+                    "account, quote, per-trade risk, signal-quality and position "
+                    "management checks remain active."
+                ),
+            },
+            "state": previous_state if isinstance(previous_state, dict) else {},
+        }
+
     timestamp = int(time.time() * 1000) if now_ms is None else int(now_ms)
 
     def blocked(status: str, reason: str) -> dict[str, Any]:
         return {
             "report": {
-                "status": status, "locked": True,
-                "new_entries_blocked": True,
+                "status": status, "mode": "ENABLED", "enabled": True,
+                "locked": True, "new_entries_blocked": True,
                 "max_daily_loss_fraction": max_daily_loss_fraction,
                 "decision_eligible": False, "reason": reason,
             },
@@ -90,6 +114,8 @@ def evaluate_daily_risk(
     remaining_loss_cash = max(0.0, starting_equity * cap - daily_loss_cash)
     report = {
         "status": "READY",
+        "mode": "ENABLED",
+        "enabled": True,
         "day_utc": day,
         "account_key_sha256": account_digest,
         "starting_equity": round(starting_equity, 8),

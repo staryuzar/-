@@ -19,6 +19,9 @@ MT5_MARKET_DIVERGENCE_MAX_PCT=max(0.001,float(os.getenv("MIRSAD_MT5_MARKET_DIVER
 MT5_MAX_SPREAD_PCT=max(0.0001,float(os.getenv("MIRSAD_MT5_MAX_SPREAD_PCT","0.003")))
 CHART_MAX_AGE_SECONDS=max(30,int(os.getenv("MIRSAD_CHART_MAX_AGE","300")))
 RISK_PER_TRADE=float(os.getenv("MIRSAD_RISK_PER_TRADE","0.005"))
+# Daily loss lock is intentionally off during development. Re-enable explicitly
+# before any live deployment with MIRSAD_DAILY_LOSS_LIMIT_ENABLED=1.
+DAILY_LOSS_LIMIT_ENABLED=os.getenv("MIRSAD_DAILY_LOSS_LIMIT_ENABLED","0").strip().lower() in {"1","true","yes","on"}
 MAX_DAILY_LOSS_FRACTION=float(os.getenv("MIRSAD_MAX_DAILY_LOSS_FRACTION","0.02"))
 RISK_STATE_PATH=DATA_DIR/"daily_risk_state.json"
 MT5_COMMON_FILES=os.getenv("MIRSAD_MT5_COMMON_FILES","").strip()

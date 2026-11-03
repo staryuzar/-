@@ -82,12 +82,29 @@ class DailyRiskBaselineTests(unittest.TestCase):
         self.assertEqual(other_account["report"]["baseline_reset_reason"], "ACCOUNT_CHANGED")
         self.assertEqual(other_account["report"]["starting_equity"], 970.0)
 
+    def test_daily_loss_limit_can_be_disabled_for_development(self) -> None:
+        previous_state = {"marker": "preserve-existing-baseline"}
+        result = evaluate_daily_risk(
+            None, previous_state, max_daily_loss_fraction=0.02,
+            enabled=False, now_ms=1_800_000_000_000,
+        )
+        report = result["report"]
+        self.assertEqual(report["status"], "READY")
+        self.assertEqual(report["mode"], "DISABLED_FOR_DEVELOPMENT")
+        self.assertFalse(report["enabled"])
+        self.assertFalse(report["locked"])
+        self.assertFalse(report["new_entries_blocked"])
+        self.assertIsNone(report["max_daily_loss_fraction"])
+        self.assertEqual(report["configured_max_daily_loss_fraction"], 0.02)
+        self.assertFalse(report["decision_eligible"])
+        self.assertEqual(result["state"], previous_state)
+
     def test_invalid_equity_identity_or_loss_limit_fails_closed(self) -> None:
         cases = [
             ({**self._account(), "equity": 0}, 0.02),
             ({**self._account(), "login": ""}, 0.02),
             ({"equity": 1000.0, "login": "123", "server": "Demo"}, 0.02),
-            (self._account(), 0.0),
+            (self._account(), -0.01),
             (self._account(), 0.75),
         ]
         for account, cap in cases:
