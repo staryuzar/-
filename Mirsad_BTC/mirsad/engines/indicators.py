@@ -77,7 +77,9 @@ def _atr(candles: list[dict[str, Any]], period: int = 14) -> float | None:
     ranges = _true_ranges(candles)
     if ranges is None:
         return None
-    return _wilder_average(ranges, period)
+    # MT5 built-in iATR uses a simple moving average of True Range;
+    # Wilder SMMA is a distinct custom ATR variant.
+    return _rolling_mean(ranges, period)
 
 
 def _rolling_mean(values: list[float], period: int) -> float | None:
@@ -98,7 +100,8 @@ def _macd(values: list[float], fast: int = 12, slow: int = 26, signal: int = 9) 
         main.append(value)
         if value is not None:
             compact.append(value)
-    signal_value = _ema(compact, signal)
+    # MetaTrader's built-in MACD signal line is a simple moving average.
+    signal_value = _rolling_mean(compact, signal)
     main_value = main[-1] if main else None
     osma = main_value - signal_value if main_value is not None and signal_value is not None else None
     return main_value, signal_value, osma
@@ -123,10 +126,11 @@ def _stochastic(
     d_period: int = 3,
     slowing: int = 3,
 ) -> tuple[float | None, float | None]:
-    """Match MT5 iStochastic(K=5, D=3, slowing=3, MODE_SMA).
+    """Match MetaTrader's slow stochastic %K and %D calculation.
 
-    MT5's main line is the SMA-smoothed raw %K (the slowing period), while
-    the signal line is the SMA of that smoothed %K over D periods.
+    The slowed %K is 100 * sum(Close - rolling Low) /
+    sum(rolling High - rolling Low) over the slowing window.
+    %D is the SMA of the slowed %K over d_period.
     """
     if (
         k_period < 1 or d_period < 1 or slowing < 1
@@ -134,7 +138,8 @@ def _stochastic(
     ):
         return None, None
     try:
-        raw_k: list[float] = []
+        numerators: list[float] = []
+        denominators: list[float] = []
         for end in range(k_period, len(candles) + 1):
             window = candles[end - k_period:end]
             highest = max(float(row["high"]) for row in window)
@@ -142,19 +147,19 @@ def _stochastic(
             close = float(candles[end - 1]["close"])
             if not _finite_values([highest, lowest, close]) or highest < lowest:
                 return None, None
-            raw_k.append(50.0 if highest == lowest else 100.0 * (close - lowest) / (highest - lowest))
+            numerators.append(close - lowest)
+            denominators.append(highest - lowest)
 
-        slow_k = [
-            sum(raw_k[index - slowing + 1:index + 1]) / slowing
-            for index in range(slowing - 1, len(raw_k))
-        ]
-        if len(slow_k) < d_period:
+        slow_k_values: list[float] = []
+        for end in range(slowing, len(numerators) + 1):
+            numerator = sum(numerators[end - slowing:end])
+            denominator = sum(denominators[end - slowing:end])
+            slow_k_values.append(50.0 if denominator == 0 else 100.0 * numerator / denominator)
+        if len(slow_k_values) < d_period:
             return None, None
-        slow_d = sum(slow_k[-d_period:]) / d_period
-        return slow_k[-1], slow_d
+        return slow_k_values[-1], sum(slow_k_values[-d_period:]) / d_period
     except (KeyError, TypeError, ValueError, OverflowError):
         return None, None
-
 
 def _adx(candles: list[dict[str, Any]], period: int = 14) -> tuple[float | None, float | None, float | None]:
     if period < 2 or len(candles) < period * 2:
