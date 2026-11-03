@@ -417,8 +417,8 @@ class MT5ObserverScreenshotAlignmentTests(unittest.TestCase):
         self.assertIn(navigation_call, capture_body)
         self.assertLess(capture_body.index(navigation_call), capture_body.index("CHART_FIRST_VISIBLE_BAR"))
         self.assertIn(r'\"chart_navigated_to_end\"', content)
-        self.assertIn("ChartGetInteger(g_chart_id, CHART_WIDTH_IN_PIXELS, synchronized_width)", content)
-        self.assertNotIn("ChartGetInteger(g_chart_id, CHART_WIDTH_IN_PIXELS, 0, synchronized_width)", content)
+        self.assertIn("ChartGetInteger(g_chart_id, CHART_WIDTH_IN_PIXELS, 0, synchronized_width)", content)
+        self.assertNotIn("ChartGetInteger(g_chart_id, CHART_WIDTH_IN_PIXELS, synchronized_width)", content)
 
 
 

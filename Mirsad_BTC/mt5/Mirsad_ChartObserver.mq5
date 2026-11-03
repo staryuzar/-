@@ -931,7 +931,7 @@ bool SynchronizeLatestChartViewport()
    // commands to complete before the caller samples FIRST_VISIBLE_BAR/X/Y.
    long synchronized_width = 0;
    ResetLastError();
-   if(!ChartGetInteger(g_chart_id, CHART_WIDTH_IN_PIXELS, synchronized_width) ||
+   if(!ChartGetInteger(g_chart_id, CHART_WIDTH_IN_PIXELS, 0, synchronized_width) ||
       synchronized_width <= 0)
    {
       PrintFormat("Mirsad Observer: viewport synchronization barrier failed. Error=%d", GetLastError());
