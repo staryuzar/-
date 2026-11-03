@@ -13,6 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from mirsad.engines.indicators import _calculate_timeframe_indicators
 
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
+MIN_PARITY_CLOSED_BARS = 500
 TOLERANCES = {
     "ema20": 0.10, "ema50": 0.10, "rsi14": 0.35, "atr14": 0.50,
     "macd_main": 0.10, "macd_signal": 0.10, "osma": 0.10,
@@ -81,6 +82,10 @@ def validate(candles_payload: dict[str, Any], native_payload: dict[str, Any]) ->
             failures.extend(f"{timeframe}: {item}" for item in frame_failures)
             continue
         closed_bars = [bar for bar in bars if isinstance(bar, dict) and bar.get("closed") is True]
+        if len(closed_bars) < MIN_PARITY_CLOSED_BARS:
+            frame_failures.append(
+                f"Only {len(closed_bars)} closed bars are available; at least {MIN_PARITY_CLOSED_BARS} are required to stabilize long-period EMA/ADX/MACD parity."
+            )
         if len(closed_bars) < 2:
             frame_failures.append("At least two closed bars are required.")
             expected_closed_time = 0
@@ -182,6 +187,7 @@ def validate(candles_payload: dict[str, Any], native_payload: dict[str, Any]) ->
         "failures": failures,
         "decision_eligible": False,
         "obv_method": "compare last closed-bar OBV delta; cumulative absolute OBV offsets are history-origin dependent",
+        "minimum_closed_bars_per_timeframe": MIN_PARITY_CLOSED_BARS,
         "tolerances": TOLERANCES,
     }
 
