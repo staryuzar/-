@@ -92,6 +92,7 @@ def validate(candles_payload: dict[str, Any], native_payload: dict[str, Any]) ->
                 native_forming_time = int(native_frame.get("forming_bar_time_utc_ms", 0))
             except (KeyError, TypeError, ValueError, OverflowError):
                 expected_closed_time = native_closed_time = 0
+                expected_forming_time = native_forming_time = 0
             if expected_closed_time <= 0 or expected_closed_time != native_closed_time:
                 frame_failures.append(
                     f"Closed-bar timestamp mismatch: Engine2={expected_closed_time}, MT5={native_closed_time}."
