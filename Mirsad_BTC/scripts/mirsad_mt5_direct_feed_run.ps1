@@ -627,30 +627,30 @@ public static class MirsadNativeWindow {
     }
     Add-Report ("PASS — Market feed={0}; OHLC candles={1}; native MT5 indicators={2}; ready frames={3}." -f $directSummary.market.status,$directSummary.candles.status,$directSummary.native_indicators.status,$directSummary.native_indicators.ready_timeframe_count)
     Add-Report ("Direct movement: quote ticks={0}; Last ticks={1}; volume updates={2}; depth={3}." -f $directSummary.market.quote_tick_count,$directSummary.market.last_price_tick_count,$directSummary.market.volume_update_count,$directSummary.market.depth_of_market_status)
-    $trendAnalyzer = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\\scripts\\analyze_mt5_native_trend.py'
-    $trendOutput = Join-Path $evidence 'engine2-native-trend-analysis.json'
-    if (!(Test-Path -LiteralPath $trendAnalyzer)) {
-        throw 'Engine 2 native trend analysis script is missing.'
+    $priceActionAnalyzer = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\\scripts\\analyze_mt5_native_price_action.py'
+    $priceActionOutput = Join-Path $evidence 'engine2-price-action-analysis.json'
+    if (!(Test-Path -LiteralPath $priceActionAnalyzer)) {
+        throw 'Engine 2 native price-action analysis script is missing.'
     }
-    $trendArgs = @(
-        $trendAnalyzer,
+    $priceActionArgs = @(
+        $priceActionAnalyzer,
         '--common-files', $commonFilesRoot,
         '--market-symbol', $marketSymbol,
         '--broker-symbol', $observerSymbol,
         '--expected-server', $feedServer,
-        '--output', $trendOutput
+        '--output', $priceActionOutput
     )
-    $trendLines = & python @trendArgs 2>&1
-    $trendExitCode = $LASTEXITCODE
-    foreach ($line in $trendLines) {
-        Add-Report ("Engine 2 native trend: {0}" -f [string]$line)
+    $priceActionLines = & python @trendArgs 2>&1
+    $priceActionExitCode = $LASTEXITCODE
+    foreach ($line in $priceActionLines) {
+        Add-Report ("Engine 2 price action: {0}" -f [string]$line)
     }
-    if ($trendExitCode -ne 0 -or !(Test-Path -LiteralPath $trendOutput)) {
+    if ($priceActionExitCode -ne 0 -or !(Test-Path -LiteralPath $priceActionOutput)) {
         throw 'Engine 2 native MT5 multi-timeframe trend analysis did not reach READY.'
     }
-    $trendSummary = Get-Content -LiteralPath $trendOutput -Raw | ConvertFrom-Json
-    Add-Report ("PASS — Engine 2 native direction={0}; score={1}; regime={2}; alignment={3}; eligible frames={4}." -f $trendSummary.direction,$trendSummary.summary.trend_score,$trendSummary.summary.market_regime,$trendSummary.summary.timeframe_alignment,($trendSummary.summary.eligible_timeframes -join ','))
-    Add-Report 'PASS — Direction and patterns were computed from completed native OHLC only; no chart image was used.'
+    $priceActionSummary = Get-Content -LiteralPath $priceActionOutput -Raw | ConvertFrom-Json
+    Add-Report ("PASS — Engine 2 price-action direction={0}; structure score={1}; alignment={2}; eligible frames={3}." -f $priceActionSummary.direction,$priceActionSummary.summary.structure_score,$priceActionSummary.summary.timeframe_alignment,($priceActionSummary.summary.eligible_timeframes -join ','))
+    Add-Report 'PASS — Candle formations and price structure were computed from completed native OHLC only; no chart image was used.'
     Add-Report 'PASS — Native MT5 data path validated with InpEnableImageCapture=false; no screenshot is needed.'
     Add-Report 'Safety — Read-only Observer only; automated trading permission disabled; no execution EA, order API or MIR1 command.'
     Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
