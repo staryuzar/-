@@ -22,11 +22,11 @@ def make_snapshot(*, captured_at_ms: int | None = None) -> dict:
         "quote": {"bid": 90_000.0, "ask": 90_001.0, "tick_age_seconds": 1.0},
         "tick_window_seconds": 30,
         "ticks": [
-            {"time_utc_ms": now - 2_000, "bid": 89_998.0, "ask": 89_999.0},
+            {"time_utc_ms": now - 2_000, "bid": 89_998.0, "ask": 89_999.0, "flags": 6},
             {"time_utc_ms": now - 1_000, "bid": 89_999.0, "ask": 90_000.0,
-             "last": 90_000.0, "volume": 2, "volume_real": 2.5, "flags": 24},
+             "last": 90_000.0, "volume": 2, "volume_real": 2.5, "flags": 30},
             {"time_utc_ms": now - 500, "bid": 90_000.0, "ask": 90_001.0,
-             "last": 90_001.0, "volume": 3, "volume_real": 3.5, "flags": 56},
+             "last": 90_001.0, "volume": 3, "volume_real": 3.5, "flags": 62},
         ],
         "depth_of_market": {
             "status": "AVAILABLE", "source": "MT5_MARKET_BOOK",
@@ -100,14 +100,19 @@ class MT5MarketDataEngineTests(unittest.TestCase):
             now = payload["captured_at_utc_ms"]
             payload["ticks"] = [
                 {
-                    "time_utc_ms": now - 2_000,
-                    "bid": 0, "ask": 0, "last": 90_000,
+                    "time_utc_ms": now - 3_000,
+                    "bid": 0, "ask": 0, "last": 89_999.5,
                     "volume": 2, "volume_real": 2.5, "flags": 24,
                 },
                 {
-                    "time_utc_ms": now - 1_000,
+                    "time_utc_ms": now - 2_000,
                     "bid": 90_000, "ask": 90_001,
-                    "last": 90_000.5, "volume": 3, "volume_real": 3.5, "flags": 56,
+                    "last": 90_000.5, "volume": 0, "volume_real": 0, "flags": 6,
+                },
+                {
+                    "time_utc_ms": now - 1_000,
+                    "bid": 90_001, "ask": 90_002,
+                    "last": 90_000.5, "volume": 0, "volume_real": 0, "flags": 6,
                 },
                 {
                     "time_utc_ms": now - 500,
@@ -121,15 +126,15 @@ class MT5MarketDataEngineTests(unittest.TestCase):
         pulse = market["market_context"]["microstructure"]
         self.assertEqual(market["status"], "LIVE")
         self.assertEqual(pulse["status"], "READY")
-        self.assertEqual(pulse["tick_count"], 3)
+        self.assertEqual(pulse["tick_count"], 4)
         self.assertEqual(pulse["quote_tick_count"], 2)
-        self.assertEqual(pulse["reported_last_price_tick_count"], 3)
-        self.assertEqual(pulse["reported_volume_update_count"], 3)
-        self.assertEqual(pulse["reported_buy_flag_count"], 2)
+        self.assertEqual(pulse["reported_last_price_tick_count"], 2)
+        self.assertEqual(pulse["reported_volume_update_count"], 2)
+        self.assertEqual(pulse["reported_buy_flag_count"], 1)
         self.assertEqual(pulse["reported_sell_flag_count"], 0)
         self.assertEqual(pulse["upticks"], 1)
         self.assertEqual(pulse["downticks"], 0)
-        self.assertAlmostEqual(pulse["reported_volume_sum"], 7.5)
+        self.assertAlmostEqual(pulse["reported_volume_sum"], 4.0)
 
     def test_depth_of_market_unavailable_is_reported_without_inventing_levels(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
