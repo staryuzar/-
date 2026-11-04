@@ -283,6 +283,7 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
     }
     tracked_ticket: int | None = None
     open_command_published = False
+    exit_code = 1
     symbol = ""
     magic = 0
     try:
@@ -423,11 +424,11 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
         }
         result["steps"].append({"step": "BROKER_DEAL_LEDGER_CLOSED_CYCLE", "status": "PASS"})
         result["status"] = "SUCCESS"
-        return 0
+        exit_code = 0
     except Exception as exc:
         result["status"] = "FAILED"
         result["error"] = f"{type(exc).__name__}: {exc}"
-        return 1
+        exit_code = 1
     finally:
         # If a BUY was confirmed but any later acceptance assertion failed,
         # make a best-effort close of only the tracked test ticket.
@@ -478,6 +479,7 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
                 result["status"] = "FAILED"
         write_report(report_path, result)
         print(json.dumps(result, indent=2, ensure_ascii=False))
+    return exit_code if result.get("status") == "SUCCESS" else 1
 
 
 def main() -> int:
