@@ -2,7 +2,7 @@ name: Mirsad Engine 2 — Public BTC OHLC Validation
 
 on:
   push:
-    branches: [main]
+    branches: [mini]
     paths:
       - 'Mirsad_BTC/scripts/validate_engine2_public_btc.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
@@ -30,7 +30,7 @@ jobs:
       - name: Checkout native Engine 2 branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
