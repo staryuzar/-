@@ -712,6 +712,119 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 command["volume"],
             )
 
+    def test_full_engine1_to_engine5_sell_and_mixed_wait_no_publish(self) -> None:
+        """Verify bearish end-to-end publishing and mixed-structure fail-closed behavior."""
+        chart = {
+            "status": "READY",
+            "candle_history": make_engine2_candle_history("down", 90),
+        }
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["mt5_native"] = {"status": "READY"}
+        indicators["mt5_native_parity"] = {
+            "status": "PASS",
+            "passed_metrics": 120,
+            "total_metrics": 120,
+            "failures": [],
+        }
+        bridge = self._daily_risk_bridge(locked=False)
+        bridge.update({
+            "terminal_connected": True,
+            "execution_enabled": True,
+            "execution_input_enabled": True,
+            "trade_permissions_available": True,
+        })
+        intelligence = {
+            "status": "PARTIAL",
+            "direction": "BEARISH",
+            "directional_score": -0.90,
+            "confidence": 0.95,
+            "evidence_coverage": 0.95,
+            "economic_calendar": {
+                "status": "EMPTY",
+                "high_impact_window_active": False,
+                "events": [],
+            },
+        }
+
+        decision = DecisionEngine().analyze(
+            self._market(),
+            chart,
+            bridge,
+            indicators,
+            engine2_price_action=make_engine2_price_action(
+                direction="BEARISH", score=-0.80
+            ),
+            market_intelligence=intelligence,
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(decision["status"], "READY")
+        self.assertEqual(decision["candidate_action"], "SELL")
+        self.assertEqual(decision["action"], "SELL")
+        self.assertTrue(decision["command_ready"])
+        self.assertLess(
+            decision["take_profit"],
+            decision["entry_reference"],
+        )
+        self.assertLess(
+            decision["entry_reference"],
+            decision["stop_loss"],
+        )
+        self.assertEqual(decision["risk_plan"]["status"], "READY")
+
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                published = engine.publish_decision(decision, bridge)
+            self.assertEqual(published["status"], "PUBLISHED")
+            command = json.loads(
+                (Path(temp) / "MirsadBTC" / "command.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(command["schema"], "MIR1")
+            self.assertEqual(command["action"], "SELL")
+            self.assertEqual(command["command_id"], decision["signal_id"])
+            self.assertEqual(command["magic_number"], bridge["magic_number"])
+
+        mixed_price_action = {
+            "engine": "engine_2_native_price_action",
+            "source": "MT5_COPYRATES_CLOSED_BARS",
+            "status": "READY",
+            "direction": "MIXED_TIMEFRAME_DIRECTIONS",
+            "structure_score": -0.08,
+            "summary": {
+                "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"],
+                "timeframe_alignment": "MIXED_TIMEFRAME_DIRECTIONS",
+                "timeframe_weight_coverage": 1.0,
+                "directional_frame_coverage": 0.50,
+                "directional_structure_agreement": 0.6667,
+                "directional_evidence_coverage": 0.95,
+                "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
+            },
+        }
+        wait = DecisionEngine().analyze(
+            self._market(),
+            chart,
+            bridge,
+            indicators,
+            engine2_price_action=mixed_price_action,
+            market_intelligence=intelligence,
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(wait["action"], "WAIT")
+        self.assertEqual(wait["candidate_action"], "WAIT")
+        self.assertFalse(wait["command_ready"])
+        self.assertEqual(wait["status"], "WAITING_FOR_ENGINE_2")
+
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                rejected = engine.publish_decision(wait, bridge)
+            self.assertEqual(rejected["status"], "REJECTED")
+            self.assertFalse(
+                (Path(temp) / "MirsadBTC" / "command.json").exists()
+            )
+
     def test_market_snapshot_time_does_not_change_order_signal_identity(self) -> None:
         intelligence = {
             "status": "PARTIAL",
