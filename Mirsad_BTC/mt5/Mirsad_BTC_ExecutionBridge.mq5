@@ -103,19 +103,47 @@ long JsonLong(const string json, const string key)
 
 bool WriteCommonText(const string file_name, const string data)
 {
-   int handle = FileOpen(CommonPath(file_name),
+   // Stage the complete snapshot at a sibling path. Readers continue to see
+   // the previous valid JSON until FileMove publishes the flushed replacement.
+   string temporary_name = file_name + ".tmp";
+   int handle = FileOpen(CommonPath(temporary_name),
                          FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON,
                          0, CP_UTF8);
    if(handle == INVALID_HANDLE)
    {
-      PrintFormat("Mirsad: cannot open Common Files/%s for write. Error=%d",
-                  file_name, GetLastError());
+      PrintFormat("Mirsad: cannot open Common Files/%s for staged write. Error=%d",
+                  temporary_name, GetLastError());
       return false;
    }
-   FileWriteString(handle, data);
+
+   uint written = FileWriteString(handle, data);
    FileFlush(handle);
    FileClose(handle);
-   return true;
+   if(written == 0 && StringLen(data) > 0)
+   {
+      PrintFormat("Mirsad: staged write produced no bytes for %s.", file_name);
+      return false;
+   }
+
+   // Never fall back to truncating the published file. If a reader briefly
+   // holds the destination, retry the atomic replacement with bounded backoff.
+   for(int attempt = 0; attempt < 6; attempt++)
+   {
+      ResetLastError();
+      if(FileMove(CommonPath(temporary_name), FILE_COMMON,
+                  CommonPath(file_name), FILE_COMMON | FILE_REWRITE))
+         return true;
+
+      int error_code = GetLastError();
+      PrintFormat("Mirsad: atomic publish retry %d for %s failed. Error=%d",
+                  attempt + 1, file_name, error_code);
+      if(attempt < 5)
+         Sleep(15 * (attempt + 1));
+   }
+
+   PrintFormat("Mirsad: atomic publish failed for %s; previous snapshot was preserved.",
+               file_name);
+   return false;
 }
 
 string ReadCommonText(const string file_name)

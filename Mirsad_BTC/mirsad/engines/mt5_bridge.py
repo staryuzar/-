@@ -11,21 +11,30 @@ from typing import Any
 from ..config import ENABLE_ORDER_PUBLISH, MT5_COMMON_FILES, MT5_HEARTBEAT_MAX_AGE_SECONDS
 
 
-def _read_object(path: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return {}
+def _read_json_snapshot(path: Path) -> Any:
+    """Read one complete JSON snapshot, tolerating a brief rename/lock race."""
+    for attempt in range(6):
+        try:
+            raw = path.read_text(encoding="utf-8-sig")
+            if not raw.strip():
+                raise json.JSONDecodeError("empty snapshot", raw, 0)
+            return json.loads(raw)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            if attempt < 5:
+                # Bounded consistency retry only; heartbeat age is still checked
+                # against the original strict MT5_HEARTBEAT_MAX_AGE_SECONDS.
+                time.sleep(0.015 * (attempt + 1))
+    return None
 
+
+def _read_object(path: Path) -> dict[str, Any]:
+    data = _read_json_snapshot(path)
+    return data if isinstance(data, dict) else {}
 
 
 def _read_json_array(path: Path) -> list[Any] | None:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else None
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return None
+    data = _read_json_snapshot(path)
+    return data if isinstance(data, list) else None
 
 
 def _validate_positions_snapshot(raw: Any) -> tuple[list[dict[str, Any]], bool, str | None]:
@@ -253,9 +262,29 @@ class MT5BridgeEngine:
         if self.root is None:
             return {**base, "status": "NOT_CONFIGURED",
                     "message": "Set MIRSAD_MT5_COMMON_FILES to the terminal Common\\\\Files directory."}
-        payload = _read_object(self.root / "status.json")
+        status_path = self.root / "status.json"
+        payload = _read_object(status_path)
         if not payload:
-            return {**base, "status": "WAITING_FOR_EXPERT", "message": "No EA heartbeat file received yet."}
+            exists = status_path.is_file()
+            try:
+                size_bytes = status_path.stat().st_size if exists else 0
+            except OSError:
+                size_bytes = None
+            return {
+                **base,
+                "status": "WAITING_FOR_EXPERT",
+                "status_file_exists": exists,
+                "status_file_size_bytes": size_bytes,
+                "bridge_diagnostics": {
+                    "status_file_state": "INVALID_OR_PARTIAL_JSON" if exists else "MISSING",
+                    "status_file_path": str(status_path),
+                    "json_read_retries": 6,
+                },
+                "message": (
+                    "MIR1 status file exists but did not yield complete JSON after bounded read retries."
+                    if exists else "No EA heartbeat file received yet."
+                ),
+            }
         # Telemetry is an external file boundary. Malformed fields must make
         # Engine 5 stale rather than raising and aborting the entire runtime cycle.
         now_ms = int(time.time() * 1000)
@@ -282,9 +311,28 @@ class MT5BridgeEngine:
             _validate_positions_snapshot(positions_value)
         )
         schema_ok = payload.get("schema") == "MIR1"
+        terminal_connected = payload.get("terminal_connected") is True
+        heartbeat_fresh = (
+            age is not None and 0 <= age <= MT5_HEARTBEAT_MAX_AGE_SECONDS
+        )
+        if not schema_ok:
+            connection_reason = "MIR1 schema mismatch."
+        elif not terminal_connected:
+            connection_reason = "MT5 terminal_connected is false in the latest EA heartbeat."
+        elif age is None:
+            connection_reason = "Heartbeat timestamp is missing or invalid."
+        elif age < 0:
+            connection_reason = "Heartbeat timestamp is in the future."
+        elif age > MT5_HEARTBEAT_MAX_AGE_SECONDS:
+            connection_reason = (
+                f"Heartbeat is stale ({age:.2f}s; maximum {MT5_HEARTBEAT_MAX_AGE_SECONDS}s)."
+            )
+        elif not positions_snapshot_valid:
+            connection_reason = positions_snapshot_reason or "Position snapshot is invalid."
+        else:
+            connection_reason = None
         alive = (
-            payload.get("terminal_connected") is True and schema_ok
-            and age is not None and 0 <= age <= MT5_HEARTBEAT_MAX_AGE_SECONDS
+            terminal_connected and schema_ok and heartbeat_fresh
             and positions_snapshot_valid
         )
         ack = _read_object(self.root / "ack.json")
@@ -325,7 +373,20 @@ class MT5BridgeEngine:
         return {
             **base, "status": "CONNECTED" if alive else "STALE",
             "schema": payload.get("schema"),
-            "terminal_connected": payload.get("terminal_connected") is True,
+            "terminal_connected": terminal_connected,
+            "bridge_diagnostics": {
+                "status_file_state": "VALID_JSON",
+                "schema_valid": schema_ok,
+                "heartbeat_age_seconds": round(age, 3) if age is not None else None,
+                "heartbeat_max_age_seconds": MT5_HEARTBEAT_MAX_AGE_SECONDS,
+                "heartbeat_fresh": heartbeat_fresh,
+                "positions_snapshot_valid": positions_snapshot_valid,
+                "positions_file_valid": positions_file_valid,
+                "execution_enabled": execution_enabled,
+                "execution_input_enabled": execution_input_enabled,
+                "trade_permissions_available": trade_permissions_available,
+                "reason": connection_reason,
+            },
             "execution_enabled": execution_enabled,
             "execution_input_enabled": execution_input_enabled,
             "trade_permissions_available": trade_permissions_available,
@@ -351,7 +412,7 @@ class MT5BridgeEngine:
             "common_files_files": files,
             "message": (
                 "Fresh EA telemetry received." if alive
-                else positions_snapshot_reason or "EA heartbeat missing, stale or protocol schema mismatch."
+                else connection_reason or "EA heartbeat missing, stale or protocol schema mismatch."
             ),
             "account_type_classification": "NOT_PERFORMED",
             "risk_calculation": "OWNED_BY_ENGINE_4",

@@ -293,10 +293,17 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
             },
             "engine5": {
                 "status": bridge_state.get("status"),
+                "terminal_connected": bridge_state.get("terminal_connected"),
                 "execution_enabled": bridge_state.get("execution_enabled"),
                 "execution_input_enabled": bridge_state.get("execution_input_enabled"),
                 "trade_permissions_available": bridge_state.get("trade_permissions_available"),
+                "heartbeat_age_seconds": bridge_state.get("heartbeat_age_seconds"),
                 "quote_age_seconds": bridge_state.get("quote_age_seconds"),
+                "positions_snapshot_valid": bridge_state.get("positions_snapshot_valid"),
+                "positions_file_valid": bridge_state.get("positions_file_valid"),
+                "bridge_diagnostics": bridge_state.get("bridge_diagnostics"),
+                "message": bridge_state.get("message"),
+                "common_files_files": bridge_state.get("common_files_files"),
             },
         },
         "validated_mir1_envelopes": captured_commands,
@@ -319,7 +326,17 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     if summary["status"] != "PASS":
-        raise RuntimeError("Integrated runtime cycle or decision gate was inconsistent: " + json.dumps(checks, ensure_ascii=False))
+        failure_detail = {
+            "checks": checks,
+            "engine5": summary["engines"]["engine5"],
+            "source_feeds": summary["source_feeds"],
+            "decision_readiness": summary["decision_readiness"],
+            "engine4": summary["engines"]["engine4"],
+        }
+        raise RuntimeError(
+            "Integrated runtime cycle or decision gate was inconsistent: "
+            + json.dumps(failure_detail, ensure_ascii=False)
+        )
     return summary
 
 
@@ -336,6 +353,17 @@ def main() -> int:
             "status": "FAIL",
             "error": f"{type(exc).__name__}: {exc}",
         }
+        # run() writes a detailed report before raising. Preserve its checks,
+        # engine state and source diagnostics instead of replacing it with a
+        # minimal error object.
+        if args.report.is_file():
+            try:
+                existing = json.loads(args.report.read_text(encoding="utf-8"))
+                if isinstance(existing, dict) and existing.get("schema") == payload["schema"]:
+                    existing["error"] = payload["error"]
+                    payload = existing
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                pass
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps(payload, ensure_ascii=False))
