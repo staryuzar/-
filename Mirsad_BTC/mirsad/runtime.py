@@ -26,9 +26,15 @@ from .engines.daily_risk import evaluate_daily_risk
 from .health import build_component_health,summarize_component_health
 
 def _daily_risk_guard_ready(report:Any)->bool:
- """A risk guard is ready only when its enabled baseline is valid and persistent."""
+ """Return whether the configured daily-risk policy is internally consistent.
+
+ An explicitly disabled development cap is ready as configured; when enabled,
+ it must have a valid persistent UTC-day equity baseline.
+ """
  if not isinstance(report,dict) or report.get("status")!="READY":
   return False
+ if report.get("enabled") is False and report.get("mode")=="DISABLED_FOR_DEVELOPMENT":
+  return report.get("locked") is False and report.get("new_entries_blocked") is False
  if report.get("enabled") is not True or report.get("mode")!="ENABLED":
   return False
  try:
@@ -279,7 +285,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "Engine 5 quote updates describe broker quote movement only; they are not represented as executed trades, taker flow or consolidated order-book depth.",
    "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
    "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
-   "Engine 4 daily loss cap is enabled by default at 2% (MIRSAD_DAILY_LOSS_LIMIT_ENABLED=1); new entries fail closed if account equity or a persistent UTC-day baseline is unavailable. Protective CLOSE and MODIFY management remain available.",
+   "Engine 4 daily loss cap is intentionally disabled by default during development (MIRSAD_DAILY_LOSS_LIMIT_ENABLED=0); the 2% cap can be re-enabled by configuration. Per-trade sizing, quote validity, signal-quality gates and position protections remain active.",
    "No market simulation or simulated order is used.",
    "Chart-image extraction and pixel calibration are outside the live runtime and cannot affect Engine 2 readiness, score, direction or Engine 4 decisions.",
    "Engine 5 owns the fresh MT5 broker quote feed and execution bridge. Engine 4 validates broker symbol, account server, quote age, spread and price agreement; Engine 1 independently collects public intelligence and does not consume MT5 or other-engine data.",
