@@ -471,7 +471,15 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         chart = self._chart()
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         result = DecisionEngine().analyze(
-            self._market(), chart, self._daily_risk_bridge(locked=True), indicators
+            self._market(), chart, self._daily_risk_bridge(locked=True), indicators,
+            market_intelligence={
+                "status": "PARTIAL",
+                "economic_calendar": {
+                    "status": "EMPTY",
+                    "high_impact_window_active": False,
+                    "events": [],
+                },
+            },
         )
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertEqual(result["action"], "WAIT")
