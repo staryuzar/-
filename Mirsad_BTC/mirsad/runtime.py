@@ -18,7 +18,10 @@ from .engines.indicators import IndicatorsEngine
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
 from .engines.mt5_chart_pipeline import Engine2MT5ChartImagePipeline
-from .storage import save_market_snapshot,save_market_intelligence_snapshot,write_json_atomic,read_json
+from .storage import (
+ save_market_snapshot,save_market_intelligence_snapshot,save_mt5_deal_history,
+ write_json_atomic,read_json,
+)
 from .engines.daily_risk import evaluate_daily_risk
 from .health import build_component_health,summarize_component_health
 
@@ -79,6 +82,14 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  started=int(time.time()*1000)
  bridge_adapter=bridge_engine or MT5BridgeEngine()
  bridge=bridge_adapter.inspect()
+ deal_history_snapshot=bridge.get("deal_history")
+ deal_ledger_persistence=save_mt5_deal_history(deal_history_snapshot)
+ bridge["deal_ledger_persistence"]=deal_ledger_persistence
+ if isinstance(deal_history_snapshot,dict):
+  bridge["deal_history"]={
+   key:value for key,value in deal_history_snapshot.items() if key!="deals"
+  } | {"deal_count":len(deal_history_snapshot.get("deals",[]))
+       if isinstance(deal_history_snapshot.get("deals"),list) else 0}
  risk_previous=read_json(RISK_STATE_PATH,{})
  if not isinstance(risk_previous,dict):
   risk_previous={}
@@ -241,7 +252,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   },
   "indicators":indicators,
   "mt5_native_indicators":native_indicators,
-  "bridge":bridge,"daily_risk":bridge.get("daily_risk"),"decision":decision,"command_publish":command_publish,
+  "bridge":bridge,"mt5_deal_ledger":deal_ledger_persistence,
+  "daily_risk":bridge.get("daily_risk"),"decision":decision,"command_publish":command_publish,
   "wiring":{"engine_5_execution_quote_feed_to_engine_4":True,"engine_1_standalone_report_to_engine_4":True,
    "engine_2_chart_to_engine_4":True,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
