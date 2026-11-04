@@ -22,7 +22,7 @@ jobs:
       - name: Checkout Mirsad project
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Set up Python for the real MT5 Engine 1/2 validators
         uses: actions/setup-python@v5
