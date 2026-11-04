@@ -46,7 +46,12 @@ def build_report(result: dict[str, Any]) -> dict[str, Any]:
             "funding_directional_status": diagnostic.get("funding_directional_status"),
             "long_short_directional_status": diagnostic.get("long_short_directional_status"),
             "funding_rate": raw.get("funding_rate"),
+            "funding_timestamp_basis": raw.get("funding_timestamp_basis"),
             "long_short_ratio": raw.get("long_short_ratio"),
+            "long_short_ratio_scope": raw.get("long_short_ratio_scope"),
+            "top_trader_long_short_account_ratio": raw.get("top_trader_long_short_account_ratio"),
+            "top_trader_long_short_position_ratio": raw.get("top_trader_long_short_position_ratio"),
+            "taker_long_short_ratio": raw.get("taker_long_short_ratio"),
             "open_interest_change_pct_35m": raw.get("open_interest_change_pct_35m"),
             "timestamp_basis": raw.get("timestamp_basis"),
         }
