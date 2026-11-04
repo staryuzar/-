@@ -558,6 +558,12 @@ def render_engine_dashboard():
   if source_rows:
    st.markdown("**صحة مصادر استخبارات السوق**")
    st.dataframe(pd.DataFrame(source_rows),use_container_width=True,hide_index=True)
+  news_data=intel.get("news",{}) if isinstance(intel.get("news"),dict) else {}
+  feed_statuses=news_data.get("sources",{}) if isinstance(news_data.get("sources"),dict) else {}
+  if feed_statuses:
+   st.markdown("**حالة كل موجز إخباري**")
+   feed_rows=[{"الموجز":name,"الحالة":ar(status)} for name,status in feed_statuses.items()]
+   st.dataframe(pd.DataFrame(feed_rows),use_container_width=True,hide_index=True)
   components=intel.get("components",{}) if isinstance(intel.get("components"),dict) else {}
   comp_rows=[{"المكوّن":name,"الحالة":ar(value.get("status")),"الدرجة":value.get("score"),"الوزن":value.get("weight"),"الثقة":value.get("confidence"),"يساهم في السياق":("نعم" if value.get("contributes") else "لا")} for name,value in components.items() if isinstance(value,dict)]
   if comp_rows: st.dataframe(pd.DataFrame(comp_rows),use_container_width=True,hide_index=True)
@@ -567,7 +573,12 @@ def render_engine_dashboard():
   for name,row in (derivatives.get("venues",{}) or {}).items():
    if isinstance(row,dict):
     diagnostic=venue_scores.get(name,{}) if isinstance(venue_scores.get(name),dict) else {}
-    derivative_rows.append({"المنصة":name,"الحالة":ar(row.get("status")),"حداثة الدرجة":ar(diagnostic.get("directional_status","NOT_REPORTED")),"عمر الدليل ث":diagnostic.get("age_seconds"),"درجة المساهمة":diagnostic.get("directional_score"),"Funding Rate":row.get("funding_rate"),"Open Interest":row.get("open_interest"),"تغير OI %":row.get("open_interest_change_pct_35m"),"Long/Short":row.get("long_short_ratio"),"Mark Price":row.get("mark_price")})
+    funding_stamp=row.get("funding_timestamp_ms")
+    ratio_stamp=row.get("long_short_timestamp_ms")
+    now_ms=int(time.time()*1000)
+    funding_age=round((now_ms-float(funding_stamp))/1000.0,1) if isinstance(funding_stamp,(int,float)) else None
+    ratio_age=round((now_ms-float(ratio_stamp))/1000.0,1) if isinstance(ratio_stamp,(int,float)) else None
+    derivative_rows.append({"المنصة":name,"الحالة":ar(row.get("status")),"حداثة الدرجة":ar(diagnostic.get("directional_status","NOT_REPORTED")),"حالة التمويل":ar(diagnostic.get("funding_directional_status","NOT_REPORTED")),"عمر التمويل ث":funding_age,"حالة Long/Short":ar(diagnostic.get("long_short_directional_status","NOT_REPORTED")),"عمر Long/Short ث":ratio_age,"عمر الدليل ث":diagnostic.get("age_seconds"),"درجة المساهمة":diagnostic.get("directional_score"),"Funding Rate":row.get("funding_rate"),"Open Interest":row.get("open_interest"),"تغير OI %":row.get("open_interest_change_pct_35m"),"Long/Short":row.get("long_short_ratio"),"Mark Price":row.get("mark_price")})
   if derivative_rows:
    st.markdown("**المشتقات والتموضع — ليس دفتر أوامر السوق الفوري**")
    st.dataframe(pd.DataFrame(derivative_rows),use_container_width=True,hide_index=True)
@@ -579,9 +590,11 @@ def render_engine_dashboard():
   g2.metric("هيمنة BTC %",metrics.get("bitcoin_dominance_pct","—"))
   g3.metric("القيمة السوقية الكلية $",f"{metrics.get('total_market_cap_usd'):,.0f}" if isinstance(metrics.get("total_market_cap_usd"),(int,float)) else "—")
   g4.metric("حجم السوق 24h $",f"{metrics.get('total_24h_volume_usd'):,.0f}" if isinstance(metrics.get("total_24h_volume_usd"),(int,float)) else "—")
-  st.caption(sentiment.get("attribution", "") + " | المؤشر يُستخدم كسياق contrarian وليس كإشارة منفردة.")
+  st.caption(f"حالة Fear & Greed: {ar(sentiment.get('status','NOT_REPORTED'))} · عمر المعلومة: {sentiment.get('freshness_age_seconds','—')} ثانية · {sentiment.get('attribution','')} | المؤشر سياقي contrarian وليس إشارة منفردة.")
+  st.caption(f"السوق الكلي: {ar(global_metrics.get('status','NOT_REPORTED'))} · حداثة البيانات: {ar(global_metrics.get('freshness_status','NOT_REPORTED'))} · العمر: {global_metrics.get('freshness_age_seconds','—')} ثانية.")
   st.markdown("**آخر العناوين ذات الصلة**")
-  headlines=(intel.get("news",{}) or {}).get("items",[]) if isinstance(intel.get("news"),dict) else []
+  headlines=news_data.get("items",[]) if isinstance(news_data.get("items"),list) else []
+  st.caption(f"الأخبار: {ar(news_data.get('status','NOT_REPORTED'))} · عناوين حديثة خلال 72 ساعة: {news_data.get('fresh_count_72h',0)} · عمر أحدث عنوان: {news_data.get('freshest_age_seconds','—')} ثانية · ناشرون مستقلون: {news_data.get('headline_source_count',0)}")
   news_rows=[]
   for item in headlines[:15]:
    if not isinstance(item,dict): continue
@@ -592,6 +605,9 @@ def render_engine_dashboard():
   else: st.info("لم تصل عناوين أخبار صالحة من المصادر المستقلة بعد.")
   calendar=intel.get("economic_calendar",{}) if isinstance(intel.get("economic_calendar"),dict) else {}
   c_events=calendar.get("events",[]) if isinstance(calendar.get("events"),list) else []
+  if calendar.get("countries_covered"):
+   st.caption("تغطية تقويم Trading Economics: "+"، ".join(calendar.get("countries_covered",[])))
+  st.caption("مصادر التقويم: "+", ".join(f"{name}: {ar(status)}" for name,status in (calendar.get("sources",{}) or {}).items()))
   if c_events:
    st.markdown("**الأحداث الاقتصادية القادمة والحديثة**")
    event_rows=[]
