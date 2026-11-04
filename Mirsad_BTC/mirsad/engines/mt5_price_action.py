@@ -141,12 +141,41 @@ def _validate_frame(
 
     interval_count = max(1, len(closed_bars) - 1)
     gap_fraction = missing_intervals / (interval_count + missing_intervals)
-    # Never build a pattern or direction across a missing candle. Even one
-    # missing interval makes the timeframe visible but ineligible for consensus.
-    status = "PARTIAL" if gaps else "READY"
+
+    # Never build a pattern or direction across a missing candle. A historical
+    # gap must not invalidate hundreds of newer continuous bars, however: keep
+    # only the newest uninterrupted closed-bar segment after the last gap.
+    last_gap_index = gaps[-1]["after_closed_bar_index"] if gaps else None
+    excluded_closed_bars = last_gap_index + 1 if last_gap_index is not None else 0
+    analysis_bars = closed_bars[excluded_closed_bars:]
+    if len(analysis_bars) < MIN_CLOSED_BARS:
+        return None, {
+            "status": "PARTIAL",
+            "closed_bars": len(analysis_bars),
+            "source_closed_bars": len(closed_bars),
+            "required_closed_bars": MIN_CLOSED_BARS,
+            "forming_bar_open_time_ms": forming_bar["open_time_ms"],
+            "last_closed_bar_open_time_ms": closed_bars[-1]["open_time_ms"],
+            "last_closed_bar_close_time_ms": last_close_ms,
+            "staleness_ms": staleness_ms,
+            "gap_count": len(gaps),
+            "estimated_missing_intervals": missing_intervals,
+            "gap_fraction": round(gap_fraction, 5),
+            "excluded_closed_bars_before_latest_gap": excluded_closed_bars,
+            "analysis_start_open_time_ms": (
+                analysis_bars[0]["open_time_ms"] if analysis_bars else None
+            ),
+            "gaps": gaps[-10:],
+            "reason": (
+                f"The latest uninterrupted OHLC segment has {len(analysis_bars)} closed bars; "
+                f"{MIN_CLOSED_BARS} are required after the most recent data gap."
+            ),
+        }, forming_bar
+
     health = {
-        "status": status,
-        "closed_bars": len(closed_bars),
+        "status": "READY",
+        "closed_bars": len(analysis_bars),
+        "source_closed_bars": len(closed_bars),
         "forming_bar_open_time_ms": forming_bar["open_time_ms"],
         "last_closed_bar_open_time_ms": closed_bars[-1]["open_time_ms"],
         "last_closed_bar_close_time_ms": last_close_ms,
@@ -154,13 +183,17 @@ def _validate_frame(
         "gap_count": len(gaps),
         "estimated_missing_intervals": missing_intervals,
         "gap_fraction": round(gap_fraction, 5),
+        "historical_gaps_excluded": bool(gaps),
+        "excluded_closed_bars_before_latest_gap": excluded_closed_bars,
+        "analysis_start_open_time_ms": analysis_bars[0]["open_time_ms"],
         "gaps": gaps[-10:],
         "reason": (
-            "One or more candle intervals are missing; this timeframe is excluded from direction consensus."
-            if status == "PARTIAL" else None
+            f"Excluded {excluded_closed_bars} older closed bars before the latest historical gap; "
+            f"analyzed only the newest uninterrupted segment ({len(analysis_bars)} closed bars)."
+            if gaps else None
         ),
     }
-    return closed_bars, health, forming_bar
+    return analysis_bars, health, forming_bar
 
 
 def _stamp_indexed_items(
@@ -700,10 +733,13 @@ def analyze_mt5_native_price_action(
         else "NO_CLEAR_STRUCTURE_CONFLUENCE"
     )
     directional_total = len(bullish) + len(bearish)
+    mixed_total = len(mixed)
     agreement = (
         max(len(bullish), len(bearish)) / directional_total
         if directional_total else 0.0
     )
+    directional_frame_coverage = directional_total / len(eligible) if eligible else 0.0
+    mixed_frame_coverage = mixed_total / len(eligible) if eligible else 0.0
     expected_weight = sum(TIMEFRAME_WEIGHTS.values())
     available_weight = sum(TIMEFRAME_WEIGHTS[name] for name in eligible)
     weight_coverage = available_weight / expected_weight if expected_weight else 0.0
@@ -778,6 +814,10 @@ def analyze_mt5_native_price_action(
             "bearish_structure_timeframes": bearish,
             "mixed_or_unconfirmed_timeframes": mixed,
             "directional_structure_agreement": round(agreement, 4),
+            "directional_frame_count": directional_total,
+            "directional_frame_coverage": round(directional_frame_coverage, 4),
+            "mixed_or_unconfirmed_frame_count": mixed_total,
+            "mixed_or_unconfirmed_frame_coverage": round(mixed_frame_coverage, 4),
             "timeframe_weight_coverage": round(weight_coverage, 4),
             "directional_evidence_coverage": round(evidence_coverage, 4),
             "latest_candle_pattern_alignment": pattern_alignment,
@@ -787,6 +827,10 @@ def analyze_mt5_native_price_action(
         },
         "timeframes": reports,
         "timeframe_errors": timeframe_errors,
+        "historical_gap_timeframes": [
+            timeframe for timeframe in eligible
+            if (reports[timeframe].get("data_quality") or {}).get("historical_gaps_excluded") is True
+        ],
         "multi_timeframe_structure": {
             "status": "READY" if analysis_ready else "PARTIAL",
             "source": "NATIVE_MT5_OHLC",
