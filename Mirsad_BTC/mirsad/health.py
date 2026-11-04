@@ -23,6 +23,7 @@ _STATUS_AR = {
     "NO_OPEN_POSITIONS": "لا توجد مراكز مفتوحة حالياً",
     "PUBLISH_DISABLED": "نشر الأوامر معطّل",
     "DISABLED_FOR_DEVELOPMENT": "معطّل خلال التطوير",
+    "OPTIONAL_DISABLED": "مسار اختياري معطّل بأمان ولا يؤثر في القرار",
     "WAITING_FOR_CAPTURE": "بانتظار صورة من MT5",
     "WAITING_FOR_IMAGE": "بانتظار صورة الرسم",
     "WAITING_FOR_EXPERT": "بانتظار نبض الخبير",
@@ -57,7 +58,7 @@ def _health(value: Any) -> str:
         "VERIFIED",
     }:
         return "HEALTHY"
-    if status in {"PUBLISH_DISABLED", "DISABLED_FOR_DEVELOPMENT", "LOCKED"}:
+    if status in {"PUBLISH_DISABLED", "DISABLED_FOR_DEVELOPMENT", "LOCKED", "OPTIONAL_DISABLED"}:
         return "SAFE_DISABLED"
     if (
         status in {
@@ -145,10 +146,18 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     add("المحرك الأول — استخبارات السوق", "التقويم الاقتصادي العام المستقل", "LOCKED" if intel_calendar.get("high_impact_window_active") else intel_calendar.get("status"),
         f"المزودون: {', '.join(f'{name}={status}' for name, status in calendar_sources.items()) or 'لا يوجد'} | بوابة المداخل: {intel_calendar.get('new_entry_gate', 'NOT_REPORTED')} | الأحداث النشطة: {len(intel_calendar.get('active_high_impact_events', []))}.")
 
-    # Engine 2
+    # Engine 2 native OHLC is the required path; chart-image tooling is optional.
     observer_chart = _dict(observer.get("chart"))
-    add("المحرك الثاني — التحليل البصري والسعري", "استقبال صور الشارت من خبير MT5", observer.get("status"),
-        f"الرمز/الإطار: {observer_chart.get('symbol', '—')} / {observer_chart.get('timeframe', '—')} | عمر اللقطة: {observer.get('age_seconds', '—')} ثانية | شموع OHLC: {observer.get('bar_count', '—')}.")
+    observer_status_raw = observer.get("status")
+    visual_status_raw = chart.get("status")
+    visual_missing = (
+        observer_status_raw in {None, "WAITING_FOR_CAPTURE", "NOT_CONFIGURED"}
+        and visual_status_raw in {None, "WAITING_FOR_IMAGE", "WAITING_FOR_CAPTURE", "NOT_REPORTED"}
+    )
+    observer_status = "OPTIONAL_DISABLED" if visual_missing else observer_status_raw
+    add("المحرك الثاني — التحليل البصري والسعري", "استقبال صور الشارت الاختياري من خبير MT5", observer_status,
+        f"المسار البصري اختياري؛ الرمز/الإطار: {observer_chart.get('symbol', '—')} / {observer_chart.get('timeframe', '—')} | عمر اللقطة: {observer.get('age_seconds', '—')} ثانية | شموع OHLC المباشرة تُعرض في بند مستقل.",
+        "SAFE_DISABLED" if visual_missing else None)
     capture = _dict(chart.get("observer_capture"))
     inbox_id = str(observer.get("capture_id") or "").strip()
     analyzed_id = str(capture.get("capture_id") or chart.get("observer_capture_id") or "").strip()
@@ -163,24 +172,34 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     elif inbox_id and analyzed_id and inbox_id == analyzed_id:
         identity_status, identity_detail = "HASH_NOT_REPORTED", "تطابق Capture ID، لكن بصمة الصورة في التحليل غير متاحة؛ الهوية غير مكتملة."
     else:
-        identity_status, identity_detail = "NOT_REPORTED", "لا توجد هوية لقطة وبصمتان مكتملتان في تقرير الدورة نفسه."
-    add("المحرك الثاني — التحليل البصري والسعري", "تطابق هوية الصورة مع بيانات التحليل", identity_status, identity_detail)
+        identity_status, identity_detail = (
+            ("OPTIONAL_DISABLED", "لم تُنشأ صورة أو manifest؛ وهذا لا يمنع مسار OHLC الأصلي.")
+            if visual_missing else
+            ("NOT_REPORTED", "لا توجد هوية لقطة وبصمتان مكتملتان في تقرير الدورة نفسه.")
+        )
+    add("المحرك الثاني — التحليل البصري والسعري", "تطابق هوية الصورة مع بيانات التحليل", identity_status, identity_detail,
+        "SAFE_DISABLED" if identity_status == "OPTIONAL_DISABLED" else None)
 
     visual_status = chart.get("status", "NOT_REPORTED")
     visual_ok = visual_status == "READY" and chart.get("decision_eligible") is True
-    add("المحرك الثاني — التحليل البصري والسعري", "تحليل الصورة وأهلية المعايرة", "READY" if visual_ok else visual_status,
-        f"أهلية القرار: {'نعم' if visual_ok else 'لا'} | الشموع المكتشفة: {chart.get('detected_bar_count', '—')} | مصدر المعايرة: {_dict(chart.get('calibration')).get('source', '—')}.")
+    visual_display_status = "READY" if visual_ok else "OPTIONAL_DISABLED" if visual_missing else visual_status
+    add("المحرك الثاني — التحليل البصري والسعري", "تحليل الصورة وأهلية المعايرة", visual_display_status,
+        f"هذا الفحص بصري اختياري ولا يدخل القرار. الحالة التشخيصية: {visual_status} | الشموع المكتشفة: {chart.get('detected_bar_count', '—')} | مصدر المعايرة: {_dict(chart.get('calibration')).get('source', '—')}.",
+        "SAFE_DISABLED" if visual_missing else None)
     reference = _dict(chart.get("reference_multi_calibration"))
     axis = _dict(chart.get("reference_axis_validation"))
     geometry_status = "READY" if reference.get("status") == "READY" and axis.get("status") == "READY" else reference.get("status") or axis.get("status") or "NOT_REPORTED"
-    add("المحرك الثاني — التحليل البصري والسعري", "معايرة محور السعر والهندسة", geometry_status,
-        f"ملاءمة المراجع: {reference.get('status', '—')} | تحقق المحور: {axis.get('status', '—')} | أهلية الصورة: {'نعم' if visual_ok else 'لا'}.")
+    add("المحرك الثاني — التحليل البصري والسعري", "معايرة محور السعر والهندسة", "OPTIONAL_DISABLED" if visual_missing else geometry_status,
+        f"مسار اختياري؛ ملاءمة المراجع: {reference.get('status', '—')} | تحقق المحور: {axis.get('status', '—')} | أهلية الصورة: {'نعم' if visual_ok else 'لا'}.",
+        "SAFE_DISABLED" if visual_missing else None)
     native_ohlc = _dict(chart.get("native_ohlc_analysis"))
-    add("المحرك الثاني — التحليل البصري والسعري", "مطابقة OHLC مع شموع MT5 الأصلية", native_ohlc.get("status"),
-        native_ohlc.get("reason") or "نتيجة مقارنة هندسة الصورة مع OHLC الأصلي؛ لا تتجاوز بوابات المعايرة.")
+    add("المحرك الثاني — التحليل البصري والسعري", "مطابقة OHLC مع شموع MT5 الأصلية", "OPTIONAL_DISABLED" if visual_missing else native_ohlc.get("status"),
+        native_ohlc.get("reason") or "مقارنة بصرية اختيارية بين الصورة وOHLC الأصلي؛ ليست مصدر الشموع ولا شرطاً للقرار.",
+        "SAFE_DISABLED" if visual_missing else None)
     patterns = _dict(chart.get("reference_patterns"))
-    add("المحرك الثاني — التحليل البصري والسعري", "مرجع الأنماط الحسابي TA-Lib", patterns.get("status"),
-        f"التعريفات: {patterns.get('pattern_definition_count', '—')} | الأحداث: {patterns.get('event_count', '—')}.")
+    add("المحرك الثاني — التحليل البصري والسعري", "مرجع الأنماط الحسابي TA-Lib", "OPTIONAL_DISABLED" if visual_missing else patterns.get("status"),
+        f"تعريفات الأنماط على OHLC المستخرج بصرياً؛ التعريفات: {patterns.get('pattern_definition_count', '—')} | الأحداث: {patterns.get('event_count', '—')}.",
+        "SAFE_DISABLED" if visual_missing else None)
     frames = _dict(candles.get("timeframes"))
     add("المحرك الثاني — التحليل البصري والسعري", "سجل الشموع الأصلية متعددة الأطر", candles.get("status"),
         f"الأطر المستلمة: {len(frames)} | " + (", ".join(f"{tf}: {count}" for tf, count in frames.items()) or "لا توجد شموع."))
