@@ -185,7 +185,9 @@ Period=M1
     [int64]$dealHistory.server_utc_offset_seconds_at_query -lt -86400 -or
     [int64]$dealHistory.server_utc_offset_seconds_at_query -gt 86400 -or
     [int64]$dealHistory.window_end_server_ms -lt [int64]$dealHistory.window_start_server_ms -or
-    [int]$dealHistory.returned_count -ne $dealRows.Count){
+    [int]$dealHistory.returned_count -ne $dealRows.Count -or
+    [int]$dealHistory.history_matching_total -lt $dealRows.Count -or
+    [bool]$dealHistory.truncated -ne ([int]$dealHistory.history_matching_total -gt $dealRows.Count)){
   throw 'MIR1 broker deal-history envelope failed schema, identity, time or count validation.'
  }
  foreach($deal in $dealRows){

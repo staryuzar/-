@@ -13,11 +13,14 @@ input int    InpTimerSeconds       = 1;
 input ulong  InpMagicNumber        = 26110201;
 input int    InpDeviationPoints    = 20;
 input int    InpHistoryDays         = 90;          // Bounded broker deal history window
-input int    InpHistoryDealLimit    = 1000;         // Maximum recent Mirsad deals exported per cycle
+input int    InpHistoryDealLimit    = 1000;         // Maximum recent Mirsad deals retained after filtering
+input int    InpDealHistoryRefreshSeconds = 60;     // Full history scan interval; heartbeat remains one second
 input bool   InpAllowExecution     = false;        // Explicitly enable only after all Mirsad acceptance gates pass
 
 string g_broker_symbol = "";
 bool   g_processing = false;
+ulong  g_next_deal_history_refresh_at_ms = 0;
+string g_cached_deal_history_json = "";
 
 string CommonPath(const string name)
 {
@@ -247,16 +250,30 @@ string BuildDealHistoryJson()
    }
 
    int total_selected = HistoryDealsTotal();
-   int first_index = total_selected - InpHistoryDealLimit;
-   if(first_index < 0)
-      first_index = 0;
-   int returned_count = 0;
-   string deals = "[";
-   bool first = true;
+   int max_retained = InpHistoryDealLimit;
+   if(max_retained < 1)
+      max_retained = 1000;
 
-   // Only Mirsad-owned deals for the configured broker symbol enter this
-   // ledger. Manual trades and other EAs remain outside Mirsad accounting.
-   for(int index = first_index; index < total_selected; index++)
+   // Filter by Mirsad magic and broker symbol before applying the output cap.
+   // A busy account must not hide older Mirsad deals behind unrelated manual
+   // trades or other Expert Advisors.
+   string retained_deals[];
+   int retained_source_indices[];
+   if(ArrayResize(retained_deals, max_retained) != max_retained ||
+      ArrayResize(retained_source_indices, max_retained) != max_retained)
+   {
+      return StringFormat(
+         "{\"schema\":\"MIR1-DEALS-1\",\"status\":\"UNAVAILABLE\","
+         "\"queried_at_utc_ms\":%I64d,\"history_error\":%d,\"deals\":[]}",
+         queried_at_utc_ms, GetLastError()
+      );
+   }
+
+   int retained_count = 0;
+   int matching_total = 0;
+   int next_write = 0;
+
+   for(int index = 0; index < total_selected; index++)
    {
       ulong deal_ticket = HistoryDealGetTicket(index);
       if(deal_ticket == 0)
@@ -288,10 +305,7 @@ string BuildDealHistoryJson()
          !MathIsValidNumber(net_cashflow))
          continue;
 
-      if(!first)
-         deals += ",";
-      first = false;
-      deals += StringFormat(
+      string deal_json = StringFormat(
          "{\"deal_ticket\":%I64u,\"order_ticket\":%I64d,\"position_id\":%I64d,"
          "\"magic\":%I64d,\"symbol\":\"%s\",\"type\":%I64d,\"entry\":%I64d,"
          "\"reason\":%I64d,\"time_server_ms\":%I64d,\"volume\":%s,\"price\":%s,"
@@ -305,14 +319,45 @@ string BuildDealHistoryJson()
          NumberJson(net_cashflow, 2), JsonEscape(AccountInfoString(ACCOUNT_CURRENCY)),
          JsonEscape(deal_comment)
       );
-      returned_count++;
+
+      int slot = 0;
+      if(retained_count < max_retained)
+      {
+         slot = retained_count;
+         retained_count++;
+      }
+      else
+      {
+         slot = next_write;
+         next_write = (next_write + 1) % max_retained;
+      }
+      retained_deals[slot] = deal_json;
+      retained_source_indices[slot] = index;
+      matching_total++;
+   }
+
+   // The circular buffer holds the newest Mirsad-owned deals in chronological
+   // order. truncated now describes Mirsad's own matching history, not all
+   // trading activity on the broker account.
+   int oldest_slot = (matching_total > retained_count ? next_write : 0);
+   int history_start_index = (retained_count > 0 ? retained_source_indices[oldest_slot] : 0);
+   string deals = "[";
+   bool first = true;
+   for(int offset = 0; offset < retained_count; offset++)
+   {
+      int slot = (oldest_slot + offset) % retained_count;
+      if(!first)
+         deals += ",";
+      deals += retained_deals[slot];
+      first = false;
    }
    deals += "]";
 
    return StringFormat(
       "{\"schema\":\"MIR1-DEALS-1\",\"status\":\"READY\","
       "\"queried_at_utc_ms\":%I64d,\"window_start_server_ms\":%I64d,"
-      "\"window_end_server_ms\":%I64d,\"server_utc_offset_seconds_at_query\":%I64d,\"history_total_selected\":%d,"
+      "\"window_end_server_ms\":%I64d,\"server_utc_offset_seconds_at_query\":%I64d,"
+      "\"history_total_selected\":%d,\"history_matching_total\":%d,"
       "\"history_start_index\":%d,\"returned_count\":%d,"
       "\"truncated\":%s,\"symbol\":\"%s\",\"magic\":%I64u,"
       "\"currency\":\"%s\",\"time_basis\":\"MT5_SERVER_TIME\","
@@ -321,8 +366,8 @@ string BuildDealHistoryJson()
       (long)from_server * 1000,
       (long)to_server * 1000,
       server_utc_offset_seconds,
-      total_selected, first_index, returned_count,
-      (first_index > 0 ? "true" : "false"),
+      total_selected, matching_total, history_start_index, retained_count,
+      (matching_total > retained_count ? "true" : "false"),
       JsonEscape(g_broker_symbol), InpMagicNumber,
       JsonEscape(AccountInfoString(ACCOUNT_CURRENCY)), deals
    );
@@ -398,7 +443,20 @@ void PublishTelemetry()
 
    WriteCommonText("status.json", payload);
    WriteCommonText("positions.json", BuildPositionsJson());
-   WriteCommonText("deals.json", BuildDealHistoryJson());
+
+   // The 1-second MIR1 heartbeat must stay light. HistorySelect scans the
+   // broker's requested window, so refresh the filtered ledger separately.
+   ulong deal_now_ms = GetTickCount64();
+   if(g_cached_deal_history_json == "" ||
+      deal_now_ms >= g_next_deal_history_refresh_at_ms)
+   {
+      g_cached_deal_history_json = BuildDealHistoryJson();
+      int refresh_seconds = InpDealHistoryRefreshSeconds;
+      if(StringFind(g_cached_deal_history_json, "\"status\":\"READY\"") < 0)
+         refresh_seconds = 10;
+      g_next_deal_history_refresh_at_ms = deal_now_ms + (ulong)refresh_seconds * 1000;
+   }
+   WriteCommonText("deals.json", g_cached_deal_history_json);
 }
 
 void PublishAck(const string command_id, const string state,
@@ -800,7 +858,8 @@ int OnInit()
    if(InpTimerSeconds < 1 || InpTimerSeconds > 60)
       return INIT_PARAMETERS_INCORRECT;
    if(InpHistoryDays < 1 || InpHistoryDays > 365 ||
-      InpHistoryDealLimit < 100 || InpHistoryDealLimit > 5000)
+      InpHistoryDealLimit < 100 || InpHistoryDealLimit > 5000 ||
+      InpDealHistoryRefreshSeconds < 10 || InpDealHistoryRefreshSeconds > 3600)
       return INIT_PARAMETERS_INCORRECT;
    if(InpMarketSymbol == "")
       return INIT_PARAMETERS_INCORRECT;

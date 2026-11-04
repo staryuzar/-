@@ -42,6 +42,7 @@ def make_deal_history(**overrides):
         "window_end_server_ms": now,
         "server_utc_offset_seconds_at_query": 0,
         "history_total_selected": 1,
+        "history_matching_total": 1,
         "history_start_index": 0,
         "returned_count": 1,
         "truncated": False,
@@ -85,6 +86,57 @@ class MT5DealHistoryBridgeTests(unittest.TestCase):
             self.assertEqual(len(result["deal_history"]["deals"]), 1)
             self.assertEqual(result["deal_history"]["deals"][0]["deal_ticket"], "10001")
             self.assertTrue(result["common_files_files"]["deals.json"])
+
+    def test_large_account_history_does_not_mark_small_mirsad_subset_truncated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "MirsadBTC"
+            root.mkdir(parents=True)
+            now = int(time.time() * 1000)
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1", "terminal_connected": True,
+                "execution_enabled": False, "heartbeat_at_ms": now,
+                "symbol": "BTC", "market_symbol": "BTCUSDT",
+                "magic_number": 26110201, "account": {"server": "Headway-Demo"},
+                "quote": {"time_ms": now}, "symbol_spec": {}, "positions": [],
+            }), encoding="utf-8")
+            history = make_deal_history(
+                history_total_selected=6000,
+                history_matching_total=12,
+                history_start_index=4200,
+                truncated=False,
+            )
+            (root / "deals.json").write_text(json.dumps(history), encoding="utf-8")
+
+            result = MT5BridgeEngine(str(directory)).inspect()
+
+            self.assertEqual(result["deal_history"]["status"], "READY")
+            self.assertEqual(result["deal_history"]["history_matching_total"], 12)
+            self.assertFalse(result["deal_history"]["truncated"])
+            self.assertEqual(len(result["deal_history"]["deals"]), 1)
+
+    def test_bridge_rejects_inconsistent_filtered_deal_truncation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "MirsadBTC"
+            root.mkdir(parents=True)
+            now = int(time.time() * 1000)
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1", "terminal_connected": True,
+                "execution_enabled": False, "heartbeat_at_ms": now,
+                "symbol": "BTC", "market_symbol": "BTCUSDT",
+                "magic_number": 26110201, "account": {"server": "Headway-Demo"},
+                "quote": {"time_ms": now}, "symbol_spec": {}, "positions": [],
+            }), encoding="utf-8")
+            history = make_deal_history(
+                history_total_selected=6000,
+                history_matching_total=1001,
+                truncated=False,
+            )
+            (root / "deals.json").write_text(json.dumps(history), encoding="utf-8")
+
+            result = MT5BridgeEngine(str(directory)).inspect()
+
+            self.assertEqual(result["deal_history"]["status"], "INVALID")
+            self.assertEqual(result["deal_history"]["deals"], [])
 
     def test_bridge_rejects_manual_or_other_ea_magic_in_deal_file(self):
         with tempfile.TemporaryDirectory() as directory:

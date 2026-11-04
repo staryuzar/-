@@ -56,6 +56,7 @@ def _read_mt5_deal_history(
         history_total = int(payload["history_total_selected"])
         start_index = int(payload["history_start_index"])
         returned_count = int(payload["returned_count"])
+        history_matching_total = int(payload.get("history_matching_total", returned_count))
         magic = int(payload["magic"])
     except (KeyError, TypeError, ValueError, OverflowError):
         return {"status": "INVALID", "deals": [], "reason": "Deal-history metadata is incomplete."}
@@ -64,6 +65,7 @@ def _read_mt5_deal_history(
     if (
         queried_at <= 0 or window_start <= 0 or window_end < window_start
         or history_total < 0 or start_index < 0 or returned_count < 0
+        or history_matching_total < returned_count
         or not isinstance(raw_deals, list) or returned_count != len(raw_deals)
         or server_utc_offset < -86400 or server_utc_offset > 86400
         or magic <= 0 or magic != expected_magic
@@ -129,8 +131,10 @@ def _read_mt5_deal_history(
             "currency": currency,
             "comment": str(raw.get("comment", "")),
         })
-    if returned_count > history_total or start_index > history_total:
+    if returned_count > history_total or history_matching_total > history_total or start_index > history_total:
         return {"status": "INVALID", "deals": [], "reason": "Deal-history pagination counters are inconsistent."}
+    if "history_matching_total" in payload and bool(payload.get("truncated")) != (history_matching_total > returned_count):
+        return {"status": "INVALID", "deals": [], "reason": "Deal-history truncation flag does not match filtered Mirsad deal counts."}
     return {
         **payload,
         "status": "READY",
@@ -138,6 +142,7 @@ def _read_mt5_deal_history(
         "symbol": symbol,
         "magic": magic,
         "deals": validated,
+        "history_matching_total": history_matching_total,
         "truncated": bool(payload.get("truncated")),
         "reason": None,
     }
