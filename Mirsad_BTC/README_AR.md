@@ -176,14 +176,14 @@ python scripts/run_structure_study.py --venue "Binance Spot" --timeframe 1h --as
 
 ## آخر اعتماد على فرع mini
 
-- **خط الأساس البرمجي الذي اجتاز اختبارات المجموعة:** `cfda136a82c5e9ed93220d680f96f2145cfcc7cf`. التوثيق المحلي يجري تحديثه في هذا الفرع؛ لا يُنقل إلى الجهاز إلا SHA الذي تجتاز به البوابة الشاملة النهائية.
-- [القبول الشامل للمحركات الخمسة على cfda136](https://github.com/staryuzar/-/actions/runs/41848731399).
-- [فحص البيانات الحية — PASS](https://github.com/staryuzar/-/actions/runs/41848731211).
-- [تكامل Observer وExecutionBridge على MT5 — PASS](https://github.com/staryuzar/-/actions/runs/41848731212).
-- اجتازت مجموعة Python عدد **399 اختبارًا**. واجتازت ترجمة خبير MT5 بصفر أخطاء وصفر تحذيرات.
-- تقويم Forex Factory وShowMyTrades ظهرا `READY`. ظهر Hyperliquid `READY` مع `funding_timestamp_basis=HTTP_PROVIDER_DATE`. بقي Trading Economics `NOT_CONFIGURED` لأنه يتطلب مفتاحًا اختياريًا.
-- في دورة MT5 المتكاملة كانت المحركات 1 و2 و3 بحالة `READY`، والخامس `CONNECTED`، لكن الرابع أعاد `WAIT` بسبب `MIXED_CANDLE_PATTERN_EVIDENCE` في المحرك الثاني. لم يُرسل هذا الاختبار أمرًا للوسيط، ولم تكن أهلية الدخول متحققة.
-- أظهر أرشيف المعايرة 20 عينة تراكمية؛ 14 منها على ملف v6.1 الحالي، وجميعها `WAIT`. لا توجد عينة BUY/SELL كافية لقياس الأداء؛ تبقى المعايرة `UNVALIDATED`. تقرير التكامل يعرض الآن أعداد الأرشيف الحقيقية وتوزيع القرارات من SQLite.
-- اختبار BUY/CLOSE التقني السابق على Headway-Demo موثق هنا: [نتيجة دورة التنفيذ](https://github.com/staryuzar/-/actions/runs/41843251249). صافي التدفق المسجل `-0.25 USD`، وهو تكلفة اختبار التنفيذ وليس مقياس ربحية الاستراتيجية.
-- لم يتم تثبيت البرنامج على جهاز المستخدم بعد؛ القبول المحلي المستمر ونشر MT5 الدائم هما مرحلة الانتقال التالية. عامل GitHub مؤقت ولا يمثل خدمة تشغيل 24/7.
-- دفتر الانتقال المحلي المحدّث: [DESKTOP_COMPLETION_NOTEBOOK_AR.md](reports/DESKTOP_COMPLETION_NOTEBOOK_AR.md).
+- **آخر التزام اجتاز البوابة الشاملة وحزمة التسليم:** `d353e7ff495b00f4f1cf77a3a7f8386d81fd7c29`.
+- [القبول الشامل النهائي — PASS](https://github.com/staryuzar/-/actions/runs/41851117111). اجتازت وظائف القبول الست: Python، بيانات BTC التاريخية، MT5 المباشر، تكامل المحركات الخمسة، حزمة Windows، والبوابة النهائية.
+- [فحص بيانات المحرك الأول الحية — PASS](https://github.com/staryuzar/-/actions/runs/41851116988)، و[فحص MT5 المباشر الخالي من الصور — PASS](https://github.com/staryuzar/-/actions/runs/41851116916)، و[تكامل المحركات الخمسة على MT5 — PASS](https://github.com/staryuzar/-/actions/runs/41851117400).
+- اجتازت مجموعة Python عدد **399 اختبارًا**. تُرجم Observer وExecutionBridge من الالتزام نفسه بصفر أخطاء وصفر تحذيرات لكل ملف.
+- ظهر ShowMyTrades وForex Factory بحالة `READY`، وظهر Hyperliquid بحالة `READY` وتمويل `FRESH` وختم `HTTP_PROVIDER_DATE`. بقي Trading Economics `NOT_CONFIGURED`؛ ورُصدت قيود وصول على بعض نقاط Binance (451) وBybit (403)، ولم تُعامل تلك الاستجابات كدليل صالح.
+- المحركان 1 و2 و3 بحالة `READY`، والخامس `CONNECTED`، لكن الرابع أعاد `WAITING_FOR_ENGINE_2` بسبب اتجاهات وأدلة شموع مختلطة في المحرك الثاني. أهلية الدخول `false` ولم يرسل اختبار التكامل أمرًا للوسيط. هذا منع دخول صحيح، وليس صفقة منفذة.
+- أظهر الأرشيف التراكمي في تشغيل التكامل المنفصل 21 عينة، منها 15 على ملف v6.1 الحالي، وجميع القرارات النهائية `WAIT`. لا توجد عينة BUY/SELL تكفي لقياس أداء الاستراتيجية؛ تبقى المعايرة `UNVALIDATED`.
+- **حزمة Windows جاهزة:** Artifact باسم `mirsad-windows-handoff` في [تشغيل القبول النهائي](https://github.com/staryuzar/-/actions/runs/41851117111). تحتوي ZIP على المصدر وملفي `Mirsad_ChartObserver.ex5` و`Mirsad_BTC_ExecutionBridge.ex5` المترجمين من SHA نفسه، مع Manifest وبصمة SHA-256. جرى التحقق من 122 ملفًا وعدم وجود قواعد بيانات تشغيل أو ملفات `.env` سرية.
+- اختبار BUY/CLOSE التقني السابق على Headway-Demo موثق هنا: [نتيجة دورة التنفيذ](https://github.com/staryuzar/-/actions/runs/41843251249). صافي التدفق المسجل `-0.25 USD`، وهو تكلفة اختبار التنفيذ وليس قياس ربحية الاستراتيجية.
+- لم يتم تثبيت البرنامج على جهازك بعد. المتبقي هو النقل والتثبيت والقبول المحلي المستمر على MT5؛ عامل GitHub مؤقت ولا يمثل خدمة تشغيل 24/7.
+- دفتر الانتقال المحلي: [DESKTOP_COMPLETION_NOTEBOOK_AR.md](reports/DESKTOP_COMPLETION_NOTEBOOK_AR.md).
