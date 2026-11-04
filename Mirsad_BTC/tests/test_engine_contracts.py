@@ -723,6 +723,42 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(mixed_pattern_veto["chart_gate"], "WAITING_FOR_ENGINE_2_CANDLE_PATTERN_CONFLUENCE")
 
 
+    def test_engine4_waits_when_live_like_engine2_structure_has_no_timeframe_confluence(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["trend_score"] = -0.60
+        indicators["signal_score"] = -0.341163
+        indicators["signal_quality"] = 1.0
+        price_action = {
+            "engine": "engine_2_native_price_action",
+            "source": "MT5_COPYRATES_CLOSED_BARS",
+            "status": "READY",
+            "direction": "BULLISH",
+            "structure_score": 0.3077,
+            "summary": {
+                "eligible_timeframes": ["5m", "15m", "1h", "4h"],
+                "timeframe_alignment": "NO_CLEAR_STRUCTURE_CONFLUENCE",
+                "timeframe_weight_coverage": 0.6842,
+                "directional_structure_agreement": 1.0,
+                "latest_candle_pattern_alignment": "NO_LATEST_DIRECTIONAL_CANDLE_PATTERN",
+            },
+            "decision_eligible": False,
+        }
+
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators, engine2_price_action=price_action
+        )
+
+        self.assertEqual(result["candidate_action"], "WAIT")
+        self.assertEqual(result["action"], "WAIT")
+        self.assertEqual(result["engine_2_native_price_action_context"]["gate"], "MIXED_OR_NO_CONFLUENCE")
+        self.assertEqual(result["chart_gate"], "WAITING_FOR_ENGINE_2_PRICE_ACTION_CONFLUENCE")
+        self.assertIsNone(result["decision_scores"]["combined_score"])
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_indicators"], -0.341163)
+        self.assertFalse(result["command_ready"])
+
+
+
 class DecisionBoundaryTests(unittest.TestCase):
     def test_one_verified_mt5_source_passes_market_quorum_but_still_needs_engine3_history(self) -> None:
         result = DecisionEngine().analyze(
