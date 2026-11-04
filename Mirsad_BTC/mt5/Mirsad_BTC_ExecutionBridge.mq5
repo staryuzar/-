@@ -312,7 +312,7 @@ string BuildDealHistoryJson()
    return StringFormat(
       "{\"schema\":\"MIR1-DEALS-1\",\"status\":\"READY\","
       "\"queried_at_utc_ms\":%I64d,\"window_start_server_ms\":%I64d,"
-      "\"window_end_server_ms\":%I64d,\"history_total_selected\":%d,"
+      "\"window_end_server_ms\":%I64d,\"server_utc_offset_seconds_at_query\":%I64d,\"history_total_selected\":%d,"
       "\"history_start_index\":%d,\"returned_count\":%d,"
       "\"truncated\":%s,\"symbol\":\"%s\",\"magic\":%I64u,"
       "\"currency\":\"%s\",\"time_basis\":\"MT5_SERVER_TIME\","
