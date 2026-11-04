@@ -37,15 +37,21 @@ class NativeEngine2RuntimeContractTests(unittest.TestCase):
         self.assertIn("analyze_mt5_native_price_action(candle_history)", source)
         self.assertIn("IndicatorsEngine().analyze(candle_history)", source)
         compact = source.replace(" ", "")
-        self.assertIn('"engine_2_chart_images_to_engine_4":False', compact)
         self.assertIn('"engine_2_candles_to_engine_3":True', compact)
+        self.assertIn(
+            '"engine_2_price_action_to_engine_4":"weighted_directional_vote_50_percent_after_native_ohlc_quality_gates"',
+            compact,
+        )
+        self.assertNotIn("chart_observer", source)
+        self.assertNotIn("engine_2_visual_analysis", source)
+        self.assertNotIn("engine_2_visual_chart", source)
 
-    def test_image_capture_is_not_a_runtime_readiness_gate(self) -> None:
+    def test_runtime_has_no_chart_image_readiness_or_observer_payload(self) -> None:
         source = Path(runtime.__file__).read_text(encoding="utf-8")
-        compact = source.replace(" ", "")
-        self.assertIn('"engine_2_visual_analysis"', source)
-        self.assertIn('"required_for_native_direction_analysis":False', compact)
-        self.assertIn('"engine_2_visual_chart":"OPTIONAL_DISABLED"', compact)
+        self.assertNotIn("WAITING_FOR_IMAGE", source)
+        self.assertNotIn("image_capture", source)
+        self.assertNotIn("chart_observer", source)
+        self.assertNotIn("engine_2_visual_analysis", source)
 
 
 if __name__ == "__main__":

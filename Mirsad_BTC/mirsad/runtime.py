@@ -217,9 +217,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "notices":[
    "Engine 1 directional context is an explainable evidence score with source coverage, not a calibrated probability or profit forecast. News sentiment is a keyword heuristic; headline risk is exposed for review.",
    "High-importance macro events create a bounded new-entry WAIT window; CLOSE and protective MODIFY management remain available.",
-   "Engine 2 price action: determines BTC direction from candle formations and confirmed peaks/troughs, BOS/CHOCH, liquidity-sweep candidates and multi-timeframe structure. It calculates no technical indicators and requires no chart image.",
-   "Native MT5 OHLC is the sole live input for Engine 2 candle and price-structure analysis; no chart-image capture or pixel extraction is part of the runtime.",
-   "Engine 2 price-action analysis uses only completed native MT5 OHLC bars at a common snapshot cutoff; its eligible directional score contributes the configured 50% Engine 4 baseline weight, subject to structure, freshness and multi-timeframe quality gates.",
+   "Engine 2 determines BTC direction from completed OHLC candle formations, confirmed peaks/troughs, BOS/CHOCH, liquidity sweeps and multi-timeframe structure; its directional contribution is weighted at 50% in Engine 4.",
+      "Engine 2 price-action analysis uses only completed native MT5 OHLC bars at a common snapshot cutoff; its eligible directional score contributes the configured 50% Engine 4 baseline weight, subject to structure, freshness and multi-timeframe quality gates.",
    "Engine 3: EMA/RSI/ATR and multi-timeframe technical measures calculated exclusively from Engine 2 completed candles. Native MT5 CopyBuffer indicator values are separately attached for comparison and validation.",
    "Native MT5 indicator snapshots are read independently every market-feed cycle; closed-bar and forming-bar values remain separate and are not decision-eligible until independently validated."
    "Engine 4: central synthesis, decision, position monitoring and risk ownership. Engine 5: MT5 communication bridge.",
@@ -228,7 +227,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
    "Engine 4 daily loss cap is intentionally disabled by default during development (MIRSAD_DAILY_LOSS_LIMIT_ENABLED=0); the 2% cap can be re-enabled by configuration. Per-trade sizing, quote validity, signal-quality gates and position protections remain active.",
    "No market simulation or simulated order is used.",
-   "Engine 2 direction and score come exclusively from validated native OHLC evidence and cannot be overridden by a visual input.",
+   "Engine 2 direction and score come from validated native OHLC evidence, independently of the Engine 1 intelligence report and Engine 3 indicator calculations.",
    "Engine 5 owns the fresh MT5 broker quote feed and execution bridge. Engine 4 validates broker symbol, account server, quote age, spread and price agreement; Engine 1 independently collects public intelligence and does not consume MT5 or other-engine data.",
    "A broker quote must be fresh, close to the spot reference and within the configured spread threshold.",
    "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions through Engine 5; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
