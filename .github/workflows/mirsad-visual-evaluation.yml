@@ -43,7 +43,7 @@ on:
       - ".github/workflows/mirsad-visual-evaluation.yml"
   pull_request:
     branches:
-      - main
+      - mini
     paths:
       - "Mirsad_BTC/mirsad/engines/chart_structure_evaluation.py"
       - "Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py"
