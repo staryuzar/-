@@ -1058,6 +1058,82 @@ class MarketIntelligenceEngine:
             "observed_at_ms": observed_at,
         }
 
+    def _collect_deribit_derivatives(self) -> dict[str, Any]:
+        """Collect public BTC inverse-perpetual funding with its provider timestamp."""
+        base_currency = self.symbol.upper().replace("USDT", "").replace("USD", "")
+        instrument = "BTC-PERPETUAL"
+        if base_currency != "BTC":
+            return {
+                "status": "NOT_APPLICABLE",
+                "source": "Deribit public BTC perpetual",
+                "instrument": instrument,
+                "reason": "Deribit fallback is currently defined only for BTC symbols.",
+            }
+
+        url = "https://www.deribit.com/api/v2/public/ticker?" + urllib.parse.urlencode({
+            "instrument_name": instrument,
+        })
+        observed_at = int(time.time() * 1000)
+        try:
+            payload = self._json(url, ttl_seconds=30)
+        except Exception as exc:
+            return {
+                "status": "OFFLINE",
+                "source": "Deribit public BTC perpetual",
+                "instrument": instrument,
+                "funding_rate": None,
+                "funding_timestamp_ms": None,
+                "long_short_ratio": None,
+                "long_short_timestamp_ms": None,
+                "endpoint_statuses": {"ticker": "OFFLINE"},
+                "endpoint_errors": { "ticker": f"{type(exc).__name__}: {str(exc)[:240]}" },
+                "observed_at_ms": observed_at,
+            }
+
+        row = payload.get("result") if isinstance(payload, dict) else None
+        if not isinstance(row, dict) or (isinstance(payload, dict) and payload.get("error")):
+            error = payload.get("error") if isinstance(payload, dict) else None
+            message = error.get("message", "Malformed Deribit ticker response.") if isinstance(error, dict) else "Malformed Deribit ticker response."
+            return {
+                "status": "OFFLINE",
+                "source": "Deribit public BTC perpetual",
+                "instrument": instrument,
+                "funding_rate": None,
+                "funding_timestamp_ms": None,
+                "long_short_ratio": None,
+                "long_short_timestamp_ms": None,
+                "endpoint_statuses": {"ticker": "API_ERROR"},
+                "endpoint_errors": {"ticker": str(message)[:240]},
+                "observed_at_ms": observed_at,
+            }
+
+        provider_timestamp = _parse_time(row.get("timestamp"))
+        # funding8h is the provider's normalized 8-hour rate. Keep currentFunding
+        # as context only; do not mix rates with different measurement windows.
+        funding = _finite(row.get("funding8h"))
+        open_interest = _finite(row.get("openInterest"))
+        status = "READY" if funding is not None or open_interest is not None else "OFFLINE"
+        return {
+            "status": status,
+            "source": "Deribit inverse BTC perpetual futures",
+            "instrument": instrument,
+            "funding_rate": funding,
+            "funding_rate_basis": "8H_RATE" if funding is not None else "UNAVAILABLE",
+            "funding_timestamp_ms": provider_timestamp if funding is not None else None,
+            "long_short_ratio": None,
+            "long_short_timestamp_ms": None,
+            "open_interest": open_interest,
+            "open_interest_unit": "BTC_CONTRACTS",
+            "mark_price": _finite(row.get("markPrice")),
+            "index_price": _finite(row.get("indexPrice")),
+            "timestamp_ms": provider_timestamp,
+            "timestamp_basis": "PROVIDER_TIMESTAMP" if provider_timestamp is not None else "UNKNOWN",
+            "endpoint_statuses": {"ticker": "RESPONSE"},
+            "endpoint_errors": {},
+            "observed_at_ms": observed_at,
+            "directional_scope": "Funding-only directional input; open interest remains context, not a vote.",
+        }
+
     def _collect_derivatives(self) -> dict[str, Any]:
         venues: dict[str, Any] = {}
         collectors = {
@@ -1065,6 +1141,7 @@ class MarketIntelligenceEngine:
             "Bybit": self._collect_bybit_derivatives,
             "OKX": self._collect_okx_derivatives,
             "Gate.io": self._collect_gateio_derivatives,
+            "Deribit": self._collect_deribit_derivatives,
         }
         with ThreadPoolExecutor(max_workers=len(collectors)) as pool:
             futures = {pool.submit(fn): name for name, fn in collectors.items()}

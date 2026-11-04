@@ -529,5 +529,72 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertNotIn("api_key", result["endpoint_errors"]["premium"].lower())
 
 
+
+    def test_deribit_fallback_collects_eight_hour_funding_with_provider_timestamp(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCUSDT")
+        stamp = 1_798_000_000_000
+        captured_urls = []
+
+        def fake_json(url: str, *, ttl_seconds: int = 30):
+            captured_urls.append((url, ttl_seconds))
+            return {
+                "jsonrpc": "2.0",
+                "result": {
+                    "instrument_name": "BTC-PERPETUAL",
+                    "timestamp": stamp,
+                    "funding8h": "0.00016",
+                    "currentFunding": "0.00002",
+                    "openInterest": "12345",
+                    "markPrice": "90010",
+                    "indexPrice": "90000",
+                },
+            }
+
+        engine._json = fake_json
+        result = engine._collect_deribit_derivatives()
+        self.assertIn("BTC-PERPETUAL", captured_urls[0][0])
+        self.assertEqual(captured_urls[0][1], 30)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["funding_timestamp_ms"], stamp)
+        self.assertEqual(result["funding_rate_basis"], "8H_RATE")
+        self.assertIsNone(result["long_short_ratio"])
+        self.assertEqual(result["open_interest"], 12345.0)
+
+        scored = score_derivatives({"Deribit": result}, now_ms=stamp)
+        self.assertEqual(scored["status"], "PARTIAL")
+        self.assertEqual(scored["venue_count"], 1)
+        self.assertTrue(scored["venues"]["Deribit"]["directional_inputs_used"]["funding_rate"])
+        self.assertFalse(scored["venues"]["Deribit"]["directional_inputs_used"]["long_short_ratio"])
+
+    def test_deribit_ticker_without_provider_timestamp_is_not_directional(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCUSDT")
+        engine._json = lambda *args, **kwargs: {
+            "result": {"funding8h": "0.0002", "openInterest": "1000"}
+        }
+        result = engine._collect_deribit_derivatives()
+        self.assertIsNone(result["funding_timestamp_ms"])
+        scored = score_derivatives({"Deribit": result}, now_ms=1_798_000_000_000)
+        self.assertEqual(scored["status"], "UNAVAILABLE")
+        self.assertEqual(scored["venues"]["Deribit"]["funding_directional_status"], "FRESHNESS_UNKNOWN")
+
+    def test_derivatives_collector_registers_deribit_as_an_independent_venue(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCUSDT")
+        engine._collect_binance_derivatives = lambda: {"status": "OFFLINE"}
+        engine._collect_bybit_derivatives = lambda: {"status": "OFFLINE"}
+        engine._collect_okx_derivatives = lambda: {"status": "OFFLINE"}
+        engine._collect_gateio_derivatives = lambda: {"status": "OFFLINE"}
+        engine._collect_deribit_derivatives = lambda: {
+            "status": "READY",
+            "funding_rate": 0.0001,
+            "funding_timestamp_ms": 1_798_000_000_000,
+            "long_short_ratio": None,
+            "long_short_timestamp_ms": None,
+        }
+        result = engine._collect_derivatives()
+        self.assertIn("Deribit", result["venues"])
+        self.assertEqual(result["venue_count"], 1)
+        self.assertEqual(result["status"], "PARTIAL")
+
+
 if __name__ == "__main__":
     unittest.main()
