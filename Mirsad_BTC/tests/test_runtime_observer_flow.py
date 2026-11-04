@@ -118,6 +118,36 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                     "MT5 Broker": {"status": "LIVE", "price": 90_100.0},
                 },
             }
+            deal_history_payload = {
+                "schema": "MIR1-DEALS-1",
+                "status": "READY",
+                "queried_at_utc_ms": now_ms,
+                "window_start_server_ms": now_ms - 90 * 86400 * 1000,
+                "window_end_server_ms": now_ms,
+                "server_utc_offset_seconds_at_query": 0,
+                "history_total_selected": 1,
+                "history_start_index": 0,
+                "returned_count": 1,
+                "truncated": False,
+                "symbol": "BTC",
+                "magic": 26110201,
+                "currency": "USD",
+                "time_basis": "MT5_SERVER_TIME",
+                "deals": [{
+                    "deal_ticket": "10001", "order_ticket": "20001",
+                    "position_id": "30001", "magic": 26110201,
+                    "symbol": "BTC", "type": 0, "entry": 0, "reason": 3,
+                    "time_server_ms": now_ms - 1000, "volume": 0.01,
+                    "price": 65000.0, "profit": 0.0, "commission": -0.25,
+                    "swap": 0.0, "fee": 0.0, "net_cashflow": -0.25,
+                    "currency": "USD", "comment": "MIR-test",
+                }],
+            }
+            deal_persistence_result = {
+                "status": "READY", "received": 1, "stored": 1,
+                "queried_at_utc_ms": now_ms, "magic": 26110201, "symbol": "BTC",
+                "currency": "USD", "truncated": False,
+            }
             bridge_snapshot = {
                 "engine": "engine_5_communication_bridge",
                 "status": "CONNECTED",
@@ -125,7 +155,9 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                 "execution_enabled": False,
                 "symbol": "BTC",
                 "market_symbol": "BTCUSDT",
-                "account": {"server": "Headway-Demo"},
+                "magic_number": 26110201,
+                "account": {"server": "Headway-Demo", "currency": "USD"},
+                "deal_history": deal_history_payload,
             }
             analysis = {
                 "status": "READY",
@@ -188,6 +220,7 @@ class RuntimeObserverFlowTests(unittest.TestCase):
                 patch.object(runtime, "analyze_chart_image", return_value=analysis) as visual_analyzer,
                 patch.object(runtime, "save_market_snapshot"),
                 patch.object(runtime, "save_market_intelligence_snapshot"),
+                patch.object(runtime, "save_mt5_deal_history", return_value=deal_persistence_result) as persist_deals,
                 patch.object(runtime, "write_json_atomic"),
                 patch.object(runtime, "ENABLE_ORDER_PUBLISH", False),
             ):
@@ -223,6 +256,11 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             self.assertTrue(report["readiness"]["engine_2_candles"])
             self.assertEqual(report["engine_2_multi_timeframe_structure"]["source"], "NATIVE_MT5_OHLC")
             self.assertEqual(report["chart"]["engine_2_multi_timeframe_structure"]["source"], "NATIVE_MT5_OHLC")
+            persist_deals.assert_called_once_with(deal_history_payload)
+            self.assertEqual(report["mt5_deal_ledger"], deal_persistence_result)
+            self.assertEqual(report["bridge"]["deal_history"]["deal_count"], 1)
+            self.assertNotIn("deals", report["bridge"]["deal_history"])
+            self.assertEqual(report["bridge"]["deal_ledger_persistence"]["status"], "READY")
             bridge_engine.publish_decision.assert_not_called()
 
 

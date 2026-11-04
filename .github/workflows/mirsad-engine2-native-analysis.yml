@@ -115,6 +115,7 @@ jobs:
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_market_candle_timezones.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_market_intelligence.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_market.py' -v
+          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_deal_ledger.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_run_structure_study.py' -v
 
       - name: Smoke-test Mirsad dashboard startup and health endpoint

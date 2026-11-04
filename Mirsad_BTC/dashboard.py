@@ -14,7 +14,7 @@ ROOT=Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
 from mirsad.config import (ROOT,DATA_DIR,DB_PATH,CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH,RISK_STATE_PATH,SYMBOL,PROVIDERS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,COLLECT_INTERVAL_SECONDS,RISK_PER_TRADE,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,MARKET_MAX_AGE_SECONDS,MT5_HEARTBEAT_MAX_AGE_SECONDS,MT5_QUOTE_MAX_AGE_SECONDS,MT5_MARKET_DATA_MAX_AGE_SECONDS,MT5_MARKET_DIVERGENCE_MAX_PCT,MT5_MAX_SPREAD_PCT,CHART_MAX_AGE_SECONDS)
-from mirsad.storage import read_json,write_json_atomic
+from mirsad.storage import read_json,write_json_atomic,load_mt5_deal_history
 from mirsad.engines.visual_knowledge import visual_knowledge_summary
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
 from mirsad.engines.position_management import BREAK_EVEN_TRIGGER_ATR,TRAILING_ACTIVATION_ATR,TRAILING_DISTANCE_ATR,TRAILING_STEP_ATR
@@ -474,7 +474,7 @@ def render_engine_dashboard():
  state=read_json(STATUS_PATH,{})
  market=read_json(SNAPSHOT_PATH,{})
  st.title("₿ مرصاد البيتكوين")
- st.caption("مرصاد منظومة بخمسة محركات مترابطة: السوق، التحليل البصري، المؤشرات، القرار ومتابعة الصفقات، وربط التواصل مع خبير MT5. لا يستخدم الخبير لاتخاذ القرار؛ دوره تنفيذ التوجيهات المعتمدة وإعادة حالة التنفيذ.")
+ st.caption("مرصاد منظومة بخمسة محركات مترابطة: استخبارات سوق مستقلة، شموع وحركة سعر من OHLC الأصلي، مؤشرات فنية، قرار ومخاطر، وجسر MT5. صور المخططات اختيارية للتشخيص فقط ولا تدخل التصويت أو القرار.")
  if state:
   st.metric("الحالة العامة",ar(state.get("overall_status","PARTIAL_OR_WAITING")))
   st.caption(age_text(state.get("heartbeat_at_ms")))
@@ -483,7 +483,7 @@ def render_engine_dashboard():
  if state:
   labels=[
    ("1 — استخبارات السوق","engine_1_market_intelligence"),
-   ("2 — التحليل البصري","engine_2_chart"),
+   ("2 — الشموع وبنية السعر","engine_2_price_action"),
    ("3 — المؤشرات","engine_3_indicators"),
    ("4 — القرار ومتابعة الصفقات","engine_4_decision"),
    ("5 — ربط البرنامج بالخبير","engine_5_communication_bridge")]
@@ -1045,8 +1045,8 @@ def render_engine_dashboard():
   observer=state.get("chart_observer",{})
   observer_pipeline=observer.get("pipeline_component","engine2_mt5_chart_image_pipeline")
   visual_result=chart
-  st.subheader("استقبال صور MT5 داخل المحرك الثاني")
-  st.caption(f"المكوّن المسؤول: {observer_pipeline} | مصدر الصور: مجلد خبير MT5 الحالي")
+  st.subheader("صور المخططات — مسار تشخيصي اختياري خارج القرار")
+  st.caption(f"المكوّن المسؤول: {observer_pipeline} | مصدر الصور: مجلد خبير MT5 الحالي | لا تؤثر هذه الصورة في تصويت المحركات أو جاهزية تحليل OHLC.")
   o1,o2,o3,o4=st.columns(4)
   o1.metric("حالة حزمة الصورة",ar(observer.get("status","NOT_CONFIGURED")))
   o2.metric("عمر آخر لقطة (ثانية)",observer.get("age_seconds","—"))
@@ -1082,6 +1082,48 @@ def render_engine_dashboard():
   if quote:
    st.caption(f"سعر MT5 الحي: Bid {quote.get('bid','—')} / Ask {quote.get('ask','—')} | الرمز: {bridge.get('symbol','—')} | مربوط بسوق: {bridge.get('market_symbol','—')}")
 
+  st.subheader("دفتر صفقات Mirsad الموثّق من MT5")
+  deal_meta=bridge.get("deal_history",{}) if isinstance(bridge.get("deal_history"),dict) else {}
+  deal_store=state.get("mt5_deal_ledger",{}) if isinstance(state.get("mt5_deal_ledger"),dict) else {}
+  l1,l2,l3,l4=st.columns(4)
+  l1.metric("حالة سجل الوسيط",ar(deal_meta.get("status","NOT_REPORTED")))
+  l2.metric("صفقات Mirsad في آخر قراءة",deal_meta.get("deal_count",0))
+  l3.metric("حفظ SQLite",ar(deal_store.get("status","NOT_REPORTED")))
+  l4.metric("التاريخ مقطوع؟","نعم" if deal_meta.get("truncated") else "لا")
+  if deal_meta.get("reason"):
+   st.caption(str(deal_meta.get("reason")))
+  if deal_store.get("reason"):
+   st.caption(str(deal_store.get("reason")))
+  try:
+   ledger_magic=int(bridge.get("magic_number",0) or 0)
+   ledger_symbol=str(bridge.get("symbol") or "").strip()
+  except (TypeError,ValueError,OverflowError):
+   ledger_magic=0;ledger_symbol=""
+  if ledger_magic>0 and ledger_symbol:
+   try:
+    deal_rows=load_mt5_deal_history(magic_number=ledger_magic,symbol=ledger_symbol,limit=1000)
+   except (OSError,ValueError,RuntimeError) as exc:
+    st.warning(f"تعذر قراءة دفتر صفقات Mirsad المحفوظ: {type(exc).__name__}: {exc}")
+   else:
+    if deal_rows:
+     deal_frame=pd.DataFrame(deal_rows)
+     deal_frame["وقت خادم MT5"]=pd.to_datetime(deal_frame["time_server_ms"],unit="ms",utc=True,errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
+     deal_frame["نوع العملية"]=deal_frame["deal_type"].map({0:"شراء",1:"بيع",2:"رصيد",3:"ائتمان",4:"رسوم",5:"تصحيح",6:"مكافأة",7:"عمولة",8:"عمولة يومية",9:"عمولة شهرية",10:"عمولة وكيل",11:"فائدة",12:"شراء ملغى",13:"بيع ملغى",14:"توزيع",15:"توزيع معفى",16:"ضريبة"}).fillna("نوع آخر")
+     deal_frame["نوع الدخول"]=deal_frame["deal_entry"].map({0:"دخول",1:"خروج",2:"عكس",3:"إغلاق مقابل"}).fillna("غير محدد")
+     deal_frame["صافي التدفق"]=pd.to_numeric(deal_frame["net_cashflow"],errors="coerce")
+     currency=str(deal_rows[0].get("currency") or (bridge.get("account") or {}).get("currency") or "عملة الحساب")
+     total_net=float(deal_frame["صافي التدفق"].fillna(0).sum())
+     st.metric(f"صافي التدفقات في السجل المحفوظ (حتى 1000 صفقة) — {currency}",f"{total_net:,.2f}")
+     display_columns=["وقت خادم MT5","deal_ticket","position_id","نوع العملية","نوع الدخول","volume","price","profit","commission","swap","fee","صافي التدفق","currency"]
+     st.dataframe(deal_frame.sort_values("time_server_ms",ascending=False)[display_columns].head(50),use_container_width=True,hide_index=True)
+     st.caption("يعرض الدفتر الصفقات المرتبطة برقم Magic الخاص بمرصاد والرمز المحدد فقط، ولا يضم الصفقات اليدوية أو مستشاري الخبراء الآخرين. الأوقات محفوظة كما وردت من خادم MT5 وليست معروضة على أنها UTC.")
+     if deal_meta.get("truncated"):
+      st.warning("سجل الوسيط محدود من طرف MT5؛ المحصلة المعروضة تخص السجل المحفوظ فقط وليست ضماناً بأنها تشمل كامل التاريخ القديم.")
+    else:
+     st.caption("لا توجد صفقات Mirsad محفوظة لهذا الرمز ورقم Magic حتى الآن.")
+  else:
+   st.caption("سيظهر دفتر الصفقات بعد وصول نبضة MIR1 مكتملة تتضمن رمز الوسيط ورقم Magic.")
+
   decision=state.get("decision",{})
   st.subheader("المحرك الرابع — اتخاذ القرار ومتابعة الصفقات وإدارة المخاطر")
   d1,d2,d3,d4=st.columns(4)
@@ -1103,7 +1145,7 @@ def render_engine_dashboard():
    help="الأخبار والتقويم والمشتقات والخوف والطمع والسياق الكلي. لا يقرأ الشموع أو الصور.")
   s2.metric(f"المحرك 2 · {_weight_label('engine_2_price_action')}",
    _score_label(scores.get("engine_2_score")),
-   help="درجة بنية OHLC متعددة الأطر، مع إضافة الصورة فقط عندما تجتاز المعايرة والتحقق.")
+   help="درجة بنية السعر من شموع MT5 الأصلية المكتملة فقط؛ الصور التشخيصية لا تدخل القرار.")
   s3.metric(f"المحرك 3 · {_weight_label('engine_3_indicators')}",
    _score_label(scores.get("engine_3_indicators")),
    help="المؤشرات المحسوبة من سجل الشموع المغلقة الذي يملكه المحرك الثاني.")
@@ -1116,8 +1158,8 @@ def render_engine_dashboard():
    "الأوزان الفعالة تتغير بحسب جودة وتغطية الدليل وتُعاد معايرتها إلى 100%. "
    f"داخل المحرك 2: التوزيع المطبق OHLC {float(e2_applied.get('native_ohlc_price_action',1.0))*100:.0f}% "
    f"/ الصورة المعايرة {float(e2_applied.get('calibrated_visual_chart',0.0))*100:.0f}% "
-   f"(الأساس {float(e2_configured.get('native_ohlc_price_action',0.70))*100:.0f}% / "
-   f"{float(e2_configured.get('calibrated_visual_chart',0.30))*100:.0f}%)."
+   f"(الأساس {float(e2_configured.get('native_ohlc_price_action',1.0))*100:.0f}% / "
+   f"{float(e2_configured.get('calibrated_visual_chart',0.0))*100:.0f}%). الصور خارج معادلة القرار."
   )
   e1,e2,e3,e4=st.columns(4)
   e1.metric("دخول مرجعي",f"{decision.get('entry_reference'):,.2f}" if decision.get("entry_reference") else "—")
@@ -1149,8 +1191,8 @@ def render_engine_dashboard():
  render_execution_console(state)
 
  st.divider()
- st.subheader("تهيئة صورة الرسم للمحرك الثاني")
- st.caption("ارفع لقطة حقيقية من الشارت. أدخل أعلى وأدنى سعر ظاهرين على المحور؛ ويمكنك تحديد منطقة الشموع بالبكسل أو تركها افتراضياً على الصورة كلها.")
+ st.subheader("تهيئة المسار البصري الاختياري للمخطط")
+ st.caption("رفع الصورة ومعايرتها مخصصان للتشخيص ومراجعة الاستخراج البصري فقط. لا تدخل نتائج الصورة في تصويت المحركات أو قرار التداول؛ ويستمر تحليل OHLC الأصلي دون الحاجة إلى صورة.")
  saved_meta=read_json(CHART_METADATA_PATH,{})
  with st.form("chart_calibration_form",clear_on_submit=False):
   uploaded=st.file_uploader("صورة الرسم",type=["png","jpg","jpeg","webp"])
@@ -1249,7 +1291,7 @@ def render_engine_dashboard():
     st.success("تم حفظ الصورة والتحقق من سلامتها ومعايرة مقياسها. ستدخل نتيجة التحليل في الدورة التالية.")
 
  with st.expander("قواعد وضوابط النظام"):
-  st.write("المحرك 1 يقرأ نبض السوق والسبريد وتقويم MT5 الاقتصادي ولا يقرأ أي شموع. المحرك 2 يملك المخططات والصور وسجل OHLC متعدد الأطر. المحرك 3 يحسب المؤشرات من شموع المحرك 2 فقط. المحرك 4 يتخذ القرار ويتابع الصفقات ويدير المخاطر. المحرك 5 يربط البرنامج بخبير MT5 للتنفيذ وإعادة بيانات الحالة.")
+  st.write("المحرك 1 يجمع استخبارات السوق والتقويمات العامة والأخبار والمشتقات بصورة مستقلة، ولا يقرأ MT5 أو الشموع أو المؤشرات. المحرك 2 يملك الشموع الأصلية OHLC وبنية السعر والقمم والقيعان والأنماط؛ الصور مسار تشخيص اختياري لا يدخل القرار. المحرك 3 يحسب المؤشرات من الشموع المكتملة للمحرك 2. المحرك 4 يدمج أوزان 20/50/30 ويتخذ القرار ويدير المخاطر والمراكز. المحرك 5 يملك تغذية سعر الوسيط وجسر MIR1 وسجل صفقات Mirsad.")
   st.write("لا يوجد نموذج توليدي أو نموذج ذكاء اصطناعي لاتخاذ قرار التداول. RapidOCR المحلي يقرأ تدريجات محور السعر عند تفعيله، ويمكنه اقتراح بيانات عنوان الصورة اختيارياً؛ لا يعتمد المحرك السعر أو القرار على هذه الاقتراحات. الاتجاه والأنماط تُحلّل بقواعد هندسية واضحة.")
 
  st.divider()
