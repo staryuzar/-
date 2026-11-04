@@ -176,16 +176,19 @@ Period=M1
  if(!(Test-Path $dealHistoryPath)){throw 'MIR1 broker deal-history file was not published.'}
  try{$dealHistory=Get-Content -LiteralPath $dealHistoryPath -Raw|ConvertFrom-Json -ErrorAction Stop}
  catch{throw 'MIR1 broker deal-history JSON could not be parsed.'}
+ $dealRows=@($dealHistory.deals)
  if($dealHistory.schema -ne 'MIR1-DEALS-1' -or $dealHistory.status -ne 'READY' -or
     $dealHistory.time_basis -ne 'MT5_SERVER_TIME' -or
     [int64]$dealHistory.magic -ne [int64]$telemetry.magic_number -or
     $dealHistory.symbol -ne $telemetry.symbol -or
     [int64]$dealHistory.queried_at_utc_ms -le 0 -or
+    [int64]$dealHistory.server_utc_offset_seconds_at_query -lt -86400 -or
+    [int64]$dealHistory.server_utc_offset_seconds_at_query -gt 86400 -or
     [int64]$dealHistory.window_end_server_ms -lt [int64]$dealHistory.window_start_server_ms -or
-    [int]$dealHistory.returned_count -ne @($dealHistory.deals).Count){
+    [int]$dealHistory.returned_count -ne $dealRows.Count){
   throw 'MIR1 broker deal-history envelope failed schema, identity, time or count validation.'
  }
- foreach($deal in @($dealHistory.deals)){
+ foreach($deal in $dealRows){
   if([int64]$deal.deal_ticket -le 0 -or [int64]$deal.position_id -le 0 -or
      [int64]$deal.magic -ne [int64]$telemetry.magic_number -or
      $deal.symbol -ne $telemetry.symbol -or
