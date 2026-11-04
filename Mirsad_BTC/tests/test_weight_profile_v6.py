@@ -119,7 +119,7 @@ class MirsadWeightProfileV6Tests(unittest.TestCase):
     def test_weight_changes_use_a_new_calibration_profile(self) -> None:
         self.assertEqual(
             DECISION_CALIBRATION_PROFILE_VERSION,
-            "mirsad-engine-weights-fixed-share-v6-2026-11-04",
+            "mirsad-engine-weights-fixed-share-v6.1-gap-aware-2026-11-04",
         )
 
 
