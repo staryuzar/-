@@ -709,8 +709,10 @@ def analyze_mt5_native_price_action(
     weight_coverage = available_weight / expected_weight if expected_weight else 0.0
     evidence_coverage = (
         sum(
-            TIMEFRAME_WEIGHTS[name] * _valid_number(
-                (reports[name].get("directional_evidence") or {}).get("evidence_coverage")
+            TIMEFRAME_WEIGHTS[name] * (
+                _valid_number(
+                    (reports[name].get("directional_evidence") or {}).get("evidence_coverage")
+                ) or 0.0
             )
             for name in eligible
         ) / available_weight
