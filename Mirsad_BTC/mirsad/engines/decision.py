@@ -7,7 +7,10 @@ from typing import Any
 
 from ..config import (RISK_PER_TRADE, MT5_QUOTE_MAX_AGE_SECONDS, MT5_MARKET_DIVERGENCE_MAX_PCT, MT5_MAX_SPREAD_PCT, MT5_MARKET_DATA_MAX_AGE_SECONDS)
 
-from .indicators import IndicatorsEngine, TIMEFRAME_WEIGHTS, _ema, _rsi, _atr, _timeframe_trend
+from .indicators import (
+    IndicatorsEngine, TIMEFRAME_WEIGHTS, MIN_INDICATOR_SIGNAL_QUALITY,
+    _ema, _rsi, _atr, _timeframe_trend,
+)
 from .position_management import plan_atr_stop_update
 
 
@@ -496,15 +499,22 @@ class DecisionEngine:
         try:
             normalized_values = {name: float(indicator_values[name]) for name in required_indicator_values}
             trend_score = float(indicator_data["trend_score"])
+            signal_score = float(indicator_data["signal_score"])
+            signal_quality = float(indicator_data["signal_quality"])
             last_closed_candle_time_ms = int(indicator_data["last_closed_candle_time_ms"])
         except (KeyError, TypeError, ValueError, OverflowError):
             normalized_values = {}
             trend_score = float("nan")
+            signal_score = float("nan")
+            signal_quality = 0.0
             last_closed_candle_time_ms = 0
         if (
             len(normalized_values) != len(required_indicator_values)
             or any(not math.isfinite(value) for value in normalized_values.values())
             or not math.isfinite(trend_score) or not -1.0 <= trend_score <= 1.0
+            or not math.isfinite(signal_score) or not -1.0 <= signal_score <= 1.0
+            or not math.isfinite(signal_quality)
+            or not MIN_INDICATOR_SIGNAL_QUALITY <= signal_quality <= 1.0
             or last_closed_candle_time_ms <= 0
             or not 0.0 <= normalized_values.get("rsi14_1m", -1.0) <= 100.0
             or normalized_values.get("atr14_1m", 0.0) <= 0.0
@@ -665,8 +675,8 @@ class DecisionEngine:
             if engine2_score is not None and math.isfinite(float(engine2_score))
             else None
         )
-        engine3_score = trend_score
-        engine3_quality = 1.0  # Engine 3 is accepted only after its strict READY/provenance/value checks above.
+        engine3_score = signal_score
+        engine3_quality = signal_quality
         weighted_score, effective_weights = _weighted_three_engine_score(
             engine1_score=engine1_score,
             engine2_score=engine2_score,
@@ -881,7 +891,10 @@ class DecisionEngine:
             "entry_reference": entry if action in {"BUY", "SELL"} else 0.0,
             "stop_loss": stop_loss if action in {"BUY", "SELL"} else 0.0,
             "take_profit": take_profit if action in {"BUY", "SELL"} else 0.0,
-            "trend_score": round(trend_score, 4), "timeframes": timeframe_data,
+            "trend_score": round(trend_score, 4),
+            "engine_3_signal_score": round(signal_score, 4),
+            "engine_3_signal_quality": round(signal_quality, 4),
+            "timeframes": timeframe_data,
             "decision_weights": {
                 **effective_weights,
                 "configured": {
@@ -908,7 +921,8 @@ class DecisionEngine:
                 "engine_2_native_ohlc_score": round(float(engine2_structure_score), 4) if engine2_structure_score is not None else None,
                 "engine_2_visual_score": round(chart_score, 4) if engine2_visual_used else None,
                 "engine_2_quality": round(engine2_quality, 4),
-                "engine_3_indicators": round(trend_score, 4),
+                "engine_3_indicators": round(signal_score, 4),
+                "engine_3_ema_trend_score": round(trend_score, 4),
                 "engine_3_quality": round(engine3_quality, 4),
                 "chart_score": round(chart_score, 4),
                 "chart_confidence": round(chart_confidence, 4),
