@@ -544,14 +544,30 @@ def render_engine_dashboard():
   i3.metric("درجة السياق",score_label)
   i4.metric("تغطية الأدلة",f"{float(intel.get('evidence_coverage',0) or 0)*100:.0f}%")
   i5.metric("الثقة التفسيرية",f"{float(intel.get('confidence',0) or 0)*100:.0f}%")
-  st.caption("درجة السياق والثقة تقيس تغطية الأدلة المتاحة، ولا تمثل احتمال ربح أو توقعاً إحصائياً معايراً.")
+  risk_assessment=intel.get("market_risk_assessment",{}) if isinstance(intel.get("market_risk_assessment"),dict) else {}
+  r1,r2,r3=st.columns(3)
+  risk_label={"HIGH":"مرتفع","ELEVATED":"متوسط / يحتاج حذراً","NORMAL":"اعتيادي وفق البيانات المتاحة","UNKNOWN":"غير كافٍ للتقييم"}.get(risk_assessment.get("level"),"غير متاح")
+  r1.metric("تقييم مخاطر السياق",risk_label)
+  r2.metric("عوامل المخاطر",len(risk_assessment.get("drivers",[])))
+  r3.metric("عناوين مخاطرة حديثة",risk_assessment.get("recent_risk_headline_count",0))
+  if risk_assessment.get("drivers"):
+   st.caption("عوامل التقييم: "+" · ".join(risk_assessment.get("drivers",[])))
+  st.caption("درجة السياق والثقة تقيس تغطية الأدلة المتاحة، ولا تمثل احتمال ربح أو توقعاً إحصائياً معايراً. تقييم المخاطر وصفي ولا ينشئ حاجز دخول مستقل؛ الحاجز التنفيذي الصريح هو تقويم الأحداث عالي الأهمية في المحرك الرابع.")
+  source_statuses=intel.get("source_statuses",{}) if isinstance(intel.get("source_statuses"),dict) else {}
+  source_rows=[{"المصدر":name,"الحالة":ar(status)} for name,status in source_statuses.items()]
+  if source_rows:
+   st.markdown("**صحة مصادر استخبارات السوق**")
+   st.dataframe(pd.DataFrame(source_rows),use_container_width=True,hide_index=True)
   components=intel.get("components",{}) if isinstance(intel.get("components"),dict) else {}
   comp_rows=[{"المكوّن":name,"الحالة":ar(value.get("status")),"الدرجة":value.get("score"),"الوزن":value.get("weight"),"الثقة":value.get("confidence"),"يساهم في السياق":("نعم" if value.get("contributes") else "لا")} for name,value in components.items() if isinstance(value,dict)]
   if comp_rows: st.dataframe(pd.DataFrame(comp_rows),use_container_width=True,hide_index=True)
   derivatives=intel.get("derivatives",{}) if isinstance(intel.get("derivatives"),dict) else {}
   derivative_rows=[]
+  venue_scores=derivatives.get("venue_scores",{}) if isinstance(derivatives.get("venue_scores"),dict) else {}
   for name,row in (derivatives.get("venues",{}) or {}).items():
-   if isinstance(row,dict): derivative_rows.append({"المنصة":name,"الحالة":ar(row.get("status")),"Funding Rate":row.get("funding_rate"),"Open Interest":row.get("open_interest"),"تغير OI %":row.get("open_interest_change_pct_35m"),"Long/Short":row.get("long_short_ratio"),"Mark Price":row.get("mark_price")})
+   if isinstance(row,dict):
+    diagnostic=venue_scores.get(name,{}) if isinstance(venue_scores.get(name),dict) else {}
+    derivative_rows.append({"المنصة":name,"الحالة":ar(row.get("status")),"حداثة الدرجة":ar(diagnostic.get("directional_status","NOT_REPORTED")),"عمر الدليل ث":diagnostic.get("age_seconds"),"درجة المساهمة":diagnostic.get("directional_score"),"Funding Rate":row.get("funding_rate"),"Open Interest":row.get("open_interest"),"تغير OI %":row.get("open_interest_change_pct_35m"),"Long/Short":row.get("long_short_ratio"),"Mark Price":row.get("mark_price")})
   if derivative_rows:
    st.markdown("**المشتقات والتموضع — ليس دفتر أوامر السوق الفوري**")
    st.dataframe(pd.DataFrame(derivative_rows),use_container_width=True,hide_index=True)
@@ -571,7 +587,7 @@ def render_engine_dashboard():
    if not isinstance(item,dict): continue
    published=item.get("published_at_ms")
    published_label=time.strftime("%Y-%m-%d %H:%M UTC",time.gmtime(published/1000)) if isinstance(published,(int,float)) and published>0 else "وقت غير متاح"
-   news_rows.append({"وقت النشر":published_label,"المصدر":item.get("source"),"العنوان":item.get("title"),"قراءة الكلمات":item.get("sentiment_score"),"علامات المخاطر":", ".join(item.get("risk_flags",[])) or "—","الرابط":item.get("url")})
+   news_rows.append({"وقت النشر":published_label,"الناشرون":"، ".join(item.get("sources") or [item.get("source","")]),"التكرار":item.get("duplicate_count",1),"العنوان":item.get("title"),"قراءة الكلمات":item.get("sentiment_score"),"علامات المخاطر":", ".join(item.get("risk_flags",[])) or "—","الرابط":item.get("url")})
   if news_rows: st.dataframe(pd.DataFrame(news_rows),use_container_width=True,hide_index=True)
   else: st.info("لم تصل عناوين أخبار صالحة من المصادر المستقلة بعد.")
   calendar=intel.get("economic_calendar",{}) if isinstance(intel.get("economic_calendar"),dict) else {}
@@ -581,7 +597,7 @@ def render_engine_dashboard():
    event_rows=[]
    for event in c_events[:30]:
     stamp=event.get("event_time_utc_ms")
-    event_rows.append({"الحدث":event.get("name"),"المصدر":event.get("provider"),"الدولة":event.get("country"),"العملة":event.get("currency"),"الأهمية":event.get("importance"),"وقت UTC":time.strftime("%Y-%m-%d %H:%M",time.gmtime(stamp/1000)) if isinstance(stamp,(int,float)) else "—","التوقع":event.get("forecast"),"السابق":event.get("previous")})
+    event_rows.append({"الحدث":event.get("name"),"المصدر":event.get("provider"),"الدولة":event.get("country"),"العملة":event.get("currency"),"الأهمية":event.get("importance"),"وقت UTC":time.strftime("%Y-%m-%d %H:%M",time.gmtime(stamp/1000)) if isinstance(stamp,(int,float)) else "—","التوقع":event.get("forecast"),"السابق":event.get("previous"),"الفعلي":event.get("actual"),"جهة الإصدار":event.get("source")})
    st.dataframe(pd.DataFrame(event_rows),use_container_width=True,hide_index=True)
   if calendar.get("high_impact_window_active"):
    st.error("حاجز الحدث الاقتصادي عالي الأهمية نشط: المحرك الرابع يوقف المداخل الجديدة مؤقتاً، ولا يوقف الإغلاق أو الحماية.")

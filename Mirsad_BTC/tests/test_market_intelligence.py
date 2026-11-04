@@ -5,10 +5,13 @@ from datetime import datetime, timezone
 
 from mirsad.engines.market_intelligence import (
     MarketIntelligenceEngine,
+    assess_market_risk,
     compose_directional_context,
+    deduplicate_news_items,
     parse_rss,
     score_derivatives,
     score_headline_text,
+    score_news_items,
 )
 
 
@@ -44,13 +47,13 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         result = score_derivatives({
             "Binance": {
                 "status": "READY", "funding_rate": 0.0005,
-                "long_short_ratio": 3.0,
+                "long_short_ratio": 3.0, "timestamp_ms": 1_798_000_000_000,
             },
             "Bybit": {
                 "status": "READY", "funding_rate": -0.0005,
-                "long_short_ratio": 1.0,
+                "long_short_ratio": 1.0, "timestamp_ms": 1_798_000_000_000,
             },
-        })
+        }, now_ms=1_798_000_000_000)
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["venue_count"], 2)
         self.assertLess(result["score"], 0)
@@ -161,6 +164,74 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(result["source_statuses"]["news"], "READY")
         self.assertIn("confidence_basis", result)
         self.assertTrue(any("chart images" in item and "EMA" in item for item in result["boundaries"]))
+
+
+    def test_duplicate_headlines_are_counted_once_but_keep_both_publishers(self) -> None:
+        now = 1_798_000_000_000
+        items = deduplicate_news_items([
+            {"source": "CoinDesk", "title": "Bitcoin ETF inflows rise after institutional adoption",
+             "url": "https://one.example/story", "published_at_ms": now, "sentiment_score": 0.5},
+            {"source": "Decrypt", "title": "Bitcoin ETF inflows rise after institutional adoption!",
+             "url": "https://two.example/story", "published_at_ms": now - 30_000, "sentiment_score": 0.5},
+        ])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["duplicate_count"], 2)
+        self.assertEqual(set(items[0]["sources"]), {"CoinDesk", "Decrypt"})
+        score = score_news_items(items)
+        self.assertEqual(score["source_count"], 2)
+
+    def test_stale_derivatives_are_excluded_from_directional_score(self) -> None:
+        now = 1_798_000_000_000
+        result = score_derivatives({
+            "Binance": {"status": "READY", "funding_rate": 0.001,
+                        "long_short_ratio": 3.0, "timestamp_ms": now - 901_000},
+        }, now_ms=now, max_age_seconds=900)
+        self.assertEqual(result["status"], "UNAVAILABLE")
+        self.assertEqual(result["stale_venue_count"], 1)
+        self.assertEqual(result["venues"]["Binance"]["directional_status"], "STALE")
+
+    def test_fear_greed_stale_daily_observation_is_not_directional(self) -> None:
+        now = 1_798_000_000_000
+        engine = MarketIntelligenceEngine()
+        engine._json = lambda *args, **kwargs: {"data": [{
+            "value": "95", "value_classification": "Extreme Greed",
+            "timestamp": str((now - 48 * 60 * 60_000) // 1000),
+        }]}
+        result = engine._collect_fear_greed(now_ms=now)
+        self.assertEqual(result["status"], "STALE")
+        self.assertIsNone(result["score"])
+        self.assertEqual(result["confidence"], 0.0)
+
+    def test_trading_economics_calendar_requests_multiple_btc_relevant_countries(self) -> None:
+        from datetime import datetime, timezone
+        engine = MarketIntelligenceEngine(
+            trading_economics_api_key="test-key",
+            calendar_countries=["United States", "China", "Euro Area"],
+        )
+        captured_urls = []
+        engine._json = lambda url, **kwargs: captured_urls.append(url) or [{
+            "CalendarId": 77, "Date": "11/05/2026 12:30:00 PM",
+            "Event": "CPI", "Country": "United States", "Currency": "USD",
+            "Importance": 3, "Forecast": "2.5%", "Previous": "2.6%",
+        }]
+        result = engine._collect_trading_economics(now=datetime(2026, 11, 4, tzinfo=timezone.utc))
+        self.assertIn("/united%20states,china,euro%20area/", captured_urls[0])
+        self.assertEqual(result["countries"], ["united states", "china", "euro area"])
+        self.assertEqual(result["events"][0]["importance"], "HIGH")
+        self.assertEqual(result["events"][0]["forecast"], "2.5%")
+
+    def test_market_risk_overlay_is_descriptive_and_never_blocks_entries(self) -> None:
+        now = 1_798_000_000_000
+        result = assess_market_risk(
+            news={"items": [], "sentiment": {"status": "READY"}},
+            fear_greed={"status": "READY", "value": 90},
+            derivatives={"status": "UNAVAILABLE", "venue_scores": {}},
+            calendar={"high_impact_window_active": False},
+            now_ms=now,
+        )
+        self.assertEqual(result["level"], "ELEVATED")
+        self.assertIn("EXTREME_CROWD_SENTIMENT", result["drivers"])
+        self.assertFalse(result["automatic_entry_block"])
 
 
 if __name__ == "__main__":

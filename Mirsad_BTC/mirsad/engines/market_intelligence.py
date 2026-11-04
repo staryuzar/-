@@ -15,6 +15,10 @@ from typing import Any
 
 from ..config import (
     MARKET_INTELLIGENCE_TIMEOUT_SECONDS,
+    MARKET_INTELLIGENCE_DERIVATIVES_MAX_AGE_SECONDS,
+    MARKET_INTELLIGENCE_FEAR_GREED_MAX_AGE_SECONDS,
+    MARKET_INTELLIGENCE_GLOBAL_METRICS_MAX_AGE_SECONDS,
+    TRADING_ECONOMICS_CALENDAR_COUNTRIES,
     SYMBOL,
     TRADING_ECONOMICS_API_KEY,
 )
@@ -160,6 +164,36 @@ def score_headline_text(text: str) -> tuple[float, list[str], list[str]]:
     return round(score, 4), positive, negative
 
 
+def deduplicate_news_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse identical headlines across publishers without losing source breadth."""
+    selected: dict[str, dict[str, Any]] = {}
+    ordered = sorted(
+        (item for item in items if isinstance(item, dict)),
+        key=lambda value: value.get("published_at_ms") or 0,
+        reverse=True,
+    )
+    for raw in ordered:
+        item = dict(raw)
+        title_key = re.sub(r"[^a-z0-9]+", " ", str(item.get("title", "")).casefold()).strip()
+        url_key = str(item.get("url") or "").strip().casefold()
+        key = title_key if len(title_key) >= 12 else url_key
+        if not key:
+            continue
+        source = str(item.get("source") or "").strip()
+        if key not in selected:
+            item["sources"] = [source] if source else []
+            item["duplicate_count"] = 1
+            selected[key] = item
+            continue
+        current = selected[key]
+        sources = list(current.get("sources") or [])
+        if source and source not in sources:
+            sources.append(source)
+        current["sources"] = sources
+        current["duplicate_count"] = int(current.get("duplicate_count", 1)) + 1
+    return list(selected.values())
+
+
 def score_news_items(items: list[dict[str, Any]]) -> dict[str, Any]:
     directional = [
         item for item in items
@@ -169,7 +203,12 @@ def score_news_items(items: list[dict[str, Any]]) -> dict[str, Any]:
         return {"status": "INSUFFICIENT", "score": None, "classified_count": 0,
                 "confidence": 0.0, "scope": "Explainable headline keyword signal; not an AI fact-check or calibrated forecast."}
     values = [_clamp(float(item["sentiment_score"])) for item in directional]
-    sources = {str(item.get("source", "")) for item in directional if item.get("source")}
+    sources = {
+        str(source)
+        for item in directional
+        for source in (item.get("sources") or [item.get("source", "")])
+        if source
+    }
     score = sum(values) / len(values)
     source_factor = min(1.0, len(sources) / 3.0)
     sample_factor = min(1.0, len(values) / 10.0)
@@ -184,11 +223,28 @@ def score_news_items(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def score_derivatives(venues: dict[str, Any]) -> dict[str, Any]:
+def score_derivatives(
+    venues: dict[str, Any], *, now_ms: int | None = None,
+    max_age_seconds: int = MARKET_INTELLIGENCE_DERIVATIVES_MAX_AGE_SECONDS,
+) -> dict[str, Any]:
+    """Score only derivative observations with a verifiable, recent observation timestamp."""
+    captured = int(time.time() * 1000) if now_ms is None else int(now_ms)
     observations: list[tuple[float, float, str]] = []
     diagnostics: dict[str, Any] = {}
+    stale_count = 0
     for name, raw in venues.items():
         if not isinstance(raw, dict) or raw.get("status") not in {"READY", "PARTIAL"}:
+            continue
+        stamp = _parse_time(raw.get("timestamp_ms"))
+        age_seconds = (captured - stamp) / 1000.0 if stamp is not None else None
+        if stamp is None or age_seconds is None or age_seconds < -120.0 or age_seconds > max_age_seconds:
+            stale_count += 1
+            diagnostics[name] = {
+                **raw,
+                "directional_status": "FRESHNESS_UNKNOWN" if stamp is None else "STALE",
+                "directional_score": None,
+                "age_seconds": round(age_seconds, 2) if age_seconds is not None else None,
+            }
             continue
         funding = _finite(raw.get("funding_rate"))
         ratio = _finite(raw.get("long_short_ratio"))
@@ -206,10 +262,17 @@ def score_derivatives(venues: dict[str, Any]) -> dict[str, Any]:
             score = sum(venue_parts) / max(0.0001, total_weight)
             confidence = 1.0 if funding is not None and ratio is not None else 0.55
             observations.append((score, confidence, name))
-            diagnostics[name] = {**raw, "directional_score": round(_clamp(score), 4)}
+            diagnostics[name] = {
+                **raw, "directional_status": "FRESH",
+                "directional_score": round(_clamp(score), 4),
+                "age_seconds": round(age_seconds, 2) if age_seconds is not None else None,
+            }
     if not observations:
         return {"status": "UNAVAILABLE", "score": None, "confidence": 0.0,
-                "venues": diagnostics, "scope": "Perpetual futures positioning; exchange-specific, not the full crypto market."}
+                "venue_count": 0, "stale_venue_count": stale_count,
+                "venues": diagnostics,
+                "freshness_max_age_seconds": max_age_seconds,
+                "scope": "Perpetual futures positioning; stale or untimestamped exchange observations are excluded."}
     weights = [item[1] for item in observations]
     score = sum(item[0] * item[1] for item in observations) / sum(weights)
     confidence = min(1.0, len(observations) / 2.0) * (sum(weights) / len(weights))
@@ -218,8 +281,66 @@ def score_derivatives(venues: dict[str, Any]) -> dict[str, Any]:
         "score": round(_clamp(score), 4),
         "confidence": round(confidence, 4),
         "venue_count": len(observations),
+        "stale_venue_count": stale_count,
+        "freshness_max_age_seconds": max_age_seconds,
         "venues": diagnostics,
-        "scope": "Funding and long/short positioning are interpreted contrarily; open-interest change is context/intensity, not direction by itself.",
+        "scope": "Funding and long/short positioning are interpreted contrarily; open-interest change is context/intensity, not direction by itself. Stale or untimestamped observations do not contribute.",
+    }
+
+
+def assess_market_risk(
+    *, news: dict[str, Any], fear_greed: dict[str, Any],
+    derivatives: dict[str, Any], calendar: dict[str, Any],
+    now_ms: int | None = None,
+) -> dict[str, Any]:
+    """Descriptive non-directional risk overlay; it never creates an order or hidden gate."""
+    captured = int(time.time() * 1000) if now_ms is None else int(now_ms)
+    drivers: list[str] = []
+    fresh_risk_items = []
+    for item in news.get("items", []) if isinstance(news.get("items"), list) else []:
+        if not isinstance(item, dict) or not item.get("risk_flags"):
+            continue
+        stamp = _parse_time(item.get("published_at_ms"))
+        if stamp is not None and -2 * 60 * 60_000 <= captured - stamp <= 72 * 60 * 60_000:
+            fresh_risk_items.append(item)
+    if calendar.get("high_impact_window_active") is True:
+        drivers.append("HIGH_IMPACT_MACRO_EVENT_WINDOW")
+    if fresh_risk_items:
+        drivers.append("RECENT_HEADLINE_RISK")
+    crowded = []
+    venues = derivatives.get("venue_scores") if isinstance(derivatives.get("venue_scores"), dict) else {}
+    if not venues:
+        venues = derivatives.get("venues") if isinstance(derivatives.get("venues"), dict) else {}
+    for venue, raw in venues.items():
+        if not isinstance(raw, dict) or raw.get("directional_status") != "FRESH":
+            continue
+        funding = _finite(raw.get("funding_rate"))
+        ratio = _finite(raw.get("long_short_ratio"))
+        if (funding is not None and abs(funding) >= 0.0005) or (ratio is not None and (ratio >= 2.0 or ratio <= 0.5)):
+            crowded.append(str(venue))
+    if crowded:
+        drivers.append("EXTREME_DERIVATIVES_POSITIONING")
+    sentiment_value = _finite(fear_greed.get("value"))
+    if fear_greed.get("status") == "READY" and sentiment_value is not None and (sentiment_value >= 80 or sentiment_value <= 20):
+        drivers.append("EXTREME_CROWD_SENTIMENT")
+    news_sentiment = news.get("sentiment") if isinstance(news.get("sentiment"), dict) else {}
+    if calendar.get("high_impact_window_active") is True or len(fresh_risk_items) >= 2:
+        level = "HIGH"
+    elif drivers:
+        level = "ELEVATED"
+    elif derivatives.get("status") == "READY" and news_sentiment.get("status") in {"READY", "PARTIAL"}:
+        level = "NORMAL"
+    else:
+        level = "UNKNOWN"
+    return {
+        "status": "READY" if level != "UNKNOWN" else "PARTIAL",
+        "level": level,
+        "drivers": drivers,
+        "recent_risk_headline_count": len(fresh_risk_items),
+        "crowded_derivatives_venues": crowded,
+        "automatic_entry_block": False,
+        "policy": "Context-only overlay. Only the explicit high-impact economic-calendar gate in Engine 4 pauses new entries; this descriptive heuristic does not independently block or authorize trades.",
+        "scope": "Rule-based context classification, not a forecast, calibrated probability or replacement for Engine 4 risk controls.",
     }
 
 
@@ -297,10 +418,15 @@ class MarketIntelligenceEngine:
         symbol: str = SYMBOL,
         timeout_seconds: float = MARKET_INTELLIGENCE_TIMEOUT_SECONDS,
         trading_economics_api_key: str = TRADING_ECONOMICS_API_KEY,
+        calendar_countries: tuple[str, ...] | list[str] | str = TRADING_ECONOMICS_CALENDAR_COUNTRIES,
     ) -> None:
         self.symbol = str(symbol or "BTCUSDT").strip().upper()
         self.timeout_seconds = max(2.0, min(15.0, float(timeout_seconds)))
         self.trading_economics_api_key = str(trading_economics_api_key or "").strip()
+        raw_countries = calendar_countries.split(",") if isinstance(calendar_countries, str) else calendar_countries
+        self.calendar_countries = tuple(dict.fromkeys(
+            str(country).strip().lower() for country in (raw_countries or ()) if str(country).strip()
+        )) or ("united states",)
 
     def _fetch(self, url: str, *, ttl_seconds: int, accept: str) -> bytes:
         now = time.time()
@@ -342,13 +468,7 @@ class MarketIntelligenceEngine:
                     source_statuses[name] = "READY" if parsed else "EMPTY"
                 except Exception as exc:
                     source_statuses[name] = f"ERROR_{type(exc).__name__}"
-        seen: set[str] = set()
-        unique: list[dict[str, Any]] = []
-        for item in sorted(items, key=lambda value: value.get("published_at_ms") or 0, reverse=True):
-            key = str(item.get("url") or item.get("title") or "").strip().casefold()
-            if key and key not in seen:
-                seen.add(key)
-                unique.append(item)
+        unique = deduplicate_news_items(items)
         now_ms = int(time.time() * 1000)
         fresh = [
             item for item in unique
@@ -360,12 +480,15 @@ class MarketIntelligenceEngine:
             "items": unique[:MAX_HEADLINES],
             "count": len(unique),
             "fresh_count_72h": len(fresh),
+            "latest_published_at_ms": max((item["published_at_ms"] for item in fresh), default=None),
+            "freshest_age_seconds": round((now_ms - max((item["published_at_ms"] for item in fresh), default=now_ms)) / 1000.0, 2) if fresh else None,
+            "headline_source_count": len({source for item in fresh for source in (item.get("sources") or [item.get("source", "")]) if source}),
             "sources": source_statuses,
             "sentiment": score_news_items(fresh),
-            "scope": "Headlines and short RSS summaries; directional sentiment uses timestamps from the last 72 hours; no article body scraping or claim verification.",
+            "scope": "Deduplicated headlines and short RSS summaries; directional sentiment uses timestamps from the last 72 hours and distinct stories across publishers; no article body scraping or claim verification.",
         }
 
-    def _collect_fear_greed(self) -> dict[str, Any]:
+    def _collect_fear_greed(self, *, now_ms: int | None = None) -> dict[str, Any]:
         payload = self._json("https://api.alternative.me/fng/?limit=2&format=json", ttl_seconds=300)
         rows = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(rows, list) or not rows:
@@ -375,6 +498,17 @@ class MarketIntelligenceEngine:
         stamp = _parse_time(latest.get("timestamp"))
         if value is None or not 0 <= value <= 100 or stamp is None:
             raise ValueError("Fear and Greed response is missing a valid value or timestamp.")
+        captured = int(time.time() * 1000) if now_ms is None else int(now_ms)
+        age_seconds = (captured - stamp) / 1000.0
+        if age_seconds < -120.0:
+            return {"status": "INVALID", "score": None, "confidence": 0.0,
+                    "timestamp_ms": stamp, "freshness_age_seconds": round(age_seconds, 2),
+                    "reason": "Fear & Greed provider timestamp is future-dated."}
+        if age_seconds > MARKET_INTELLIGENCE_FEAR_GREED_MAX_AGE_SECONDS:
+            return {"status": "STALE", "score": None, "confidence": 0.0,
+                    "timestamp_ms": stamp, "freshness_age_seconds": round(age_seconds, 2),
+                    "freshness_max_age_seconds": MARKET_INTELLIGENCE_FEAR_GREED_MAX_AGE_SECONDS,
+                    "reason": "Fear & Greed observation is older than the configured daily-data freshness limit."}
         score = _clamp((50.0 - value) / 50.0)
         return {
             "status": "READY",
@@ -382,6 +516,8 @@ class MarketIntelligenceEngine:
             "value": int(value),
             "classification": str(latest.get("value_classification", "UNKNOWN")),
             "timestamp_ms": stamp,
+            "freshness_age_seconds": round(age_seconds, 2),
+            "freshness_max_age_seconds": MARKET_INTELLIGENCE_FEAR_GREED_MAX_AGE_SECONDS,
             "score": round(score, 4),
             "confidence": 0.70,
             "interpretation": "Contrarian sentiment context only; extreme fear/greed is not a standalone trade signal.",
@@ -393,6 +529,8 @@ class MarketIntelligenceEngine:
         if not isinstance(payload, dict):
             raise ValueError("Global market metrics response is not an object.")
         updated = _parse_time(payload.get("last_updated"))
+        captured = int(time.time() * 1000)
+        age_seconds = (captured - updated) / 1000.0 if updated is not None else None
         metrics = {
             "total_market_cap_usd": _finite(payload.get("total_market_cap_usd")),
             "total_24h_volume_usd": _finite(payload.get("total_24h_volume_usd")),
@@ -401,8 +539,22 @@ class MarketIntelligenceEngine:
         }
         if not any(value is not None for value in metrics.values()):
             raise ValueError("Global market metrics contain no usable fields.")
-        return {"status": "READY", "source": "Alternative.me global market data",
-                "timestamp_ms": updated, "metrics": metrics}
+        if age_seconds is not None and age_seconds < -120.0:
+            freshness = "INVALID"
+        elif age_seconds is not None and age_seconds > MARKET_INTELLIGENCE_GLOBAL_METRICS_MAX_AGE_SECONDS:
+            freshness = "STALE"
+        elif age_seconds is None:
+            freshness = "UNKNOWN"
+        else:
+            freshness = "FRESH"
+        return {
+            "status": "READY" if freshness == "FRESH" else "STALE" if freshness == "STALE" else "PARTIAL",
+            "source": "Alternative.me global market data",
+            "timestamp_ms": updated, "freshness_status": freshness,
+            "freshness_age_seconds": round(age_seconds, 2) if age_seconds is not None else None,
+            "freshness_max_age_seconds": MARKET_INTELLIGENCE_GLOBAL_METRICS_MAX_AGE_SECONDS,
+            "metrics": metrics,
+        }
 
     def _collect_binance_derivatives(self) -> dict[str, Any]:
         params = urllib.parse.urlencode({"symbol": self.symbol})
@@ -436,7 +588,14 @@ class MarketIntelligenceEngine:
             if first is not None and last is not None and first > 0:
                 oi_change = (last - first) / first * 100.0
         ratio = _finite(ratio_history[-1].get("longShortRatio")) if ratio_history and isinstance(ratio_history[-1], dict) else None
-        stamp = _parse_time(premium.get("time")) or _parse_time(interest.get("time"))
+        source_stamps = [
+            _parse_time(premium.get("time")),
+            _parse_time(interest.get("time")),
+            *[_parse_time(row.get("timestamp")) for row in oi_history + ratio_history if isinstance(row, dict)],
+        ]
+        source_stamps = [stamp for stamp in source_stamps if stamp is not None]
+        observed_at = int(time.time() * 1000)
+        stamp = max(source_stamps) if source_stamps else observed_at
         status = "READY" if funding is not None or current_oi is not None else "OFFLINE"
         return {
             "status": status, "source": "Binance USD-M perpetual futures",
@@ -444,8 +603,11 @@ class MarketIntelligenceEngine:
             "mark_price": _finite(premium.get("markPrice")),
             "index_price": _finite(premium.get("indexPrice")),
             "open_interest": current_oi, "open_interest_change_pct_35m": round(oi_change, 5) if oi_change is not None else None,
-            "long_short_ratio": ratio, "timestamp_ms": stamp,
+            "long_short_ratio": ratio,
             "long_short_sample_count": len(ratio_history), "open_interest_sample_count": len(oi_history),
+            "timestamp_ms": stamp,
+            "timestamp_basis": "PROVIDER_TIMESTAMP" if source_stamps else "LOCAL_FETCH_TIME",
+            "observed_at_ms": observed_at,
         }
 
     def _collect_bybit_derivatives(self) -> dict[str, Any]:
@@ -517,7 +679,23 @@ class MarketIntelligenceEngine:
             "open_interest_sample_count": len(interest_rows),
             "turnover_24h": _finite(row.get("turnover24h")),
             "volume_24h": _finite(row.get("volume24h")),
-            "timestamp_ms": int(time.time() * 1000),
+            "timestamp_ms": max(
+                [stamp for stamp in (
+                    _parse_time(ticker_payload.get("time")),
+                    _parse_time(ticker_payload.get("retTime")),
+                    _parse_time(row.get("ts")),
+                    *[_parse_time(item.get("timestamp")) for item in interest_rows + ratio_rows if isinstance(item, dict)],
+                ) if stamp is not None] or [int(time.time() * 1000)]
+            ),
+            "timestamp_basis": "PROVIDER_TIMESTAMP" if any(
+                stamp is not None for stamp in (
+                    _parse_time(ticker_payload.get("time")),
+                    _parse_time(ticker_payload.get("retTime")),
+                    _parse_time(row.get("ts")),
+                    *[_parse_time(item.get("timestamp")) for item in interest_rows + ratio_rows if isinstance(item, dict)],
+                )
+            ) else "LOCAL_FETCH_TIME",
+            "observed_at_ms": int(time.time() * 1000),
         }
 
     def _collect_derivatives(self) -> dict[str, Any]:
@@ -533,21 +711,27 @@ class MarketIntelligenceEngine:
                     venues[name] = future.result()
                 except Exception as exc:
                     venues[name] = {"status": "OFFLINE", "reason": f"{type(exc).__name__}: {exc}"}
-        score = score_derivatives(venues)
-        return {**score, "venues": venues}
+        observed_at = int(time.time() * 1000)
+        score = score_derivatives(venues, now_ms=observed_at)
+        return {**score, "venue_scores": score.get("venues", {}), "venues": venues}
 
-    def _collect_trading_economics(self) -> dict[str, Any]:
+    def _collect_trading_economics(self, *, now: datetime | None = None) -> dict[str, Any]:
         if not self.trading_economics_api_key:
             return {"status": "NOT_CONFIGURED", "source": "Trading Economics",
-                    "events": [], "reason": "Optional API key is not configured."}
+                    "countries": list(self.calendar_countries), "events": [],
+                    "reason": "Optional API key is not configured."}
         from datetime import timedelta
-        now = datetime.now(timezone.utc)
+        now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        now = now.astimezone(timezone.utc)
         start = now.replace(hour=0, minute=0, second=0, microsecond=0).date().isoformat()
         end = (now.date() + timedelta(days=7)).isoformat()
-        # TE calendar values are returned in UTC. The API key is supplied via
-        # an environment variable and is never written into logs or snapshots.
+        # Trading Economics supports comma-separated country names in this route.
+        # The API key is supplied via environment and never copied into snapshots.
+        country_path = ",".join(urllib.parse.quote(country, safe="") for country in self.calendar_countries)
         url = (
-            "https://api.tradingeconomics.com/calendar/country/united%20states/"
+            "https://api.tradingeconomics.com/calendar/country/" + country_path + "/"
             + start + "/" + end + "?"
             + urllib.parse.urlencode({"c": self.trading_economics_api_key})
         )
@@ -570,14 +754,17 @@ class MarketIntelligenceEngine:
                 "country": str(item.get("Country") or "United States"),
                 "currency": str(item.get("Currency") or "USD"),
                 "importance": "HIGH" if importance is not None and importance >= 3 else "MODERATE" if importance is not None and importance >= 2 else "LOW",
-                "forecast": item.get("Forecast"),
+                "forecast": item.get("Forecast") or item.get("TEForecast"),
+                "te_forecast": item.get("TEForecast"),
                 "previous": item.get("Previous"),
                 "actual": item.get("Actual"),
+                "category": str(item.get("Category") or "")[:160],
+                "source": str(item.get("Source") or "")[:200],
                 "provider": "Trading Economics",
-                "source_url": item.get("SourceURL"),
+                "source_url": item.get("SourceURL") or item.get("URL"),
             })
         return {"status": "READY" if events else "EMPTY", "source": "Trading Economics",
-                "events": events}
+                "countries": list(self.calendar_countries), "events": events}
 
     @staticmethod
     def _calendar_context(market: dict[str, Any], external: dict[str, Any], now_ms: int) -> dict[str, Any]:
@@ -644,7 +831,16 @@ class MarketIntelligenceEngine:
             "active_high_impact_events": active,
             "new_entry_gate": "WAIT" if active else "CLEAR",
             "gate_window_minutes": {"before": 15, "after": 10},
-            "scope": "Macro releases from the connected MT5 broker calendar plus optional Trading Economics; not a crypto-project token unlock calendar.",
+            "next_24h_high_impact_events": [
+                {"name": item["name"], "country": item.get("country"), "currency": item.get("currency"),
+                 "provider": item.get("provider"), "event_time_utc_ms": item["event_time_utc_ms"],
+                 "minutes_to_event": round((int(item["event_time_utc_ms"]) - now_ms) / 60_000, 1)}
+                for item in events
+                if str(item.get("importance", "")).upper() in {"HIGH", "3"}
+                and 0 <= int(item["event_time_utc_ms"]) - now_ms <= 24 * 60 * 60_000
+            ][:30],
+            "countries_covered": list(external.get("countries") or []),
+            "scope": "Macro releases from the connected MT5 broker calendar plus optional multi-country Trading Economics; not a crypto-project token unlock calendar.",
         }
 
     def collect(self, market: dict[str, Any] | None = None, *, now_ms: int | None = None) -> dict[str, Any]:
@@ -683,6 +879,16 @@ class MarketIntelligenceEngine:
             for name, value in results.items()
         }
         source_statuses["mt5_broker_calendar"] = calendar["sources"]["mt5_broker"]
+        source_statuses["trading_economics_calendar"] = calendar["sources"]["trading_economics"]
+        risk_assessment = assess_market_risk(
+            news=news, fear_greed=fear_greed, derivatives=derivatives,
+            calendar=calendar, now_ms=captured,
+        )
+        fresh_news = [
+            item for item in (news.get("items", []) if isinstance(news.get("items"), list) else [])
+            if isinstance(item, dict) and isinstance(item.get("published_at_ms"), int)
+            and -2 * 60 * 60_000 <= captured - item["published_at_ms"] <= 72 * 60 * 60_000
+        ]
         overall = composite["status"]
         return {
             "schema": ENGINE_SCHEMA,
@@ -705,20 +911,34 @@ class MarketIntelligenceEngine:
             "global_metrics": global_metrics,
             "derivatives": derivatives,
             "economic_calendar": calendar,
+            "market_risk_assessment": risk_assessment,
+            "outlook": {
+                "directional_bias": composite.get("direction", "UNKNOWN"),
+                "evidence_status": composite.get("status"),
+                "risk_level": risk_assessment.get("level", "UNKNOWN"),
+                "horizon": "CONTEXT_ONLY_NOT_CALIBRATED",
+                "monitor_next": calendar.get("next_24h_high_impact_events", [])[:8],
+                "interpretation": "Qualitative scenario context for Engine 4; not a price target or statistical forecast.",
+            },
             "source_statuses": source_statuses,
             "risk_alerts": {
                 "high_impact_event_window": calendar["high_impact_window_active"],
-                "headline_risk_count": sum(bool(item.get("risk_flags")) for item in news.get("items", [])),
+                "headline_risk_count": sum(bool(item.get("risk_flags")) for item in fresh_news),
                 "headline_risk_items": [
                     {"title": item.get("title"), "source": item.get("source"),
+                     "sources": item.get("sources", []), "published_at_ms": item.get("published_at_ms"),
                      "url": item.get("url"), "risk_flags": item.get("risk_flags", [])}
-                    for item in news.get("items", []) if item.get("risk_flags")
+                    for item in fresh_news if item.get("risk_flags")
                 ][:10],
+                "market_risk_level": risk_assessment.get("level"),
+                "market_risk_drivers": risk_assessment.get("drivers", []),
             },
             "boundaries": [
                 "No chart images, OHLC candles, swing highs/lows, EMA, RSI or ATR are read or calculated by Engine 1.",
                 "Funding/long-short indicators are exchange-specific derivatives positioning, not spot order flow.",
-                "Headline sentiment is a transparent keyword heuristic and is not article verification.",
+                "Headline sentiment is a transparent keyword heuristic; duplicate headlines are grouped across publishers and the content is not fact-checked.",
+                "Provider timestamps and maximum ages are checked before Fear & Greed and derivatives evidence contributes; stale evidence is excluded.",
+                "Market risk classification and outlook are descriptive context only; the explicit macro event gate remains separate.",
                 "Directional score and confidence are contextual evidence scores, not calibrated probabilities or profit forecasts.",
             ],
         }
