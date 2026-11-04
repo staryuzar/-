@@ -255,8 +255,8 @@ def _protective_position_management_decision(
         "broker_quote": quote,
         "broker_spread_pct": round(spread_pct * 100.0, 4),
         "engine_inputs": {
-            "engine_1_market": market.get("status", "UNAVAILABLE"),
-            "engine_1_required_for_protective_management": False,
+            "engine_5_execution_quote_feed": market.get("status", "UNAVAILABLE"),
+            "engine_1_intelligence_required_for_protective_management": False,
             "engine_2_chart": "NOT_REQUIRED_FOR_PROTECTIVE_MANAGEMENT",
             "engine_3_indicators": "READY",
             "engine_5_bridge": "CONNECTED",
@@ -284,52 +284,22 @@ MIN_ENGINE2_DIRECTIONAL_AGREEMENT = 0.60
 MIN_CHART_CONFIDENCE = 0.55
 
 
-def _market_intelligence_signal(market: dict[str, Any]) -> tuple[float | None, float, dict[str, Any]]:
-    """Return Engine 1's contextual score and evidence quality, without chart data."""
-    context = market.get("market_context") if isinstance(market.get("market_context"), dict) else {}
-    pulse = context.get("microstructure") if isinstance(context.get("microstructure"), dict) else {}
-    quote_balance = _finite_value(pulse.get("quote_direction_balance")) if pulse.get("status") == "READY" else None
-    if quote_balance is not None and not -1.0 <= quote_balance <= 1.0:
-        quote_balance = None
-
-    intelligence = market.get("market_intelligence") if isinstance(market.get("market_intelligence"), dict) else {}
-    intelligence_score = _finite_intelligence_score(intelligence)
+def _market_intelligence_signal(intelligence: dict[str, Any] | None) -> tuple[float | None, float, dict[str, Any]]:
+    """Accept only Engine 1's independent report; do not blend broker quote telemetry."""
+    intelligence = intelligence if isinstance(intelligence, dict) else {}
+    score = _finite_intelligence_score(intelligence)
     confidence = _finite_value(intelligence.get("confidence"))
     coverage = _finite_value(intelligence.get("evidence_coverage"))
-
-    if intelligence_score is not None:
-        score = (
-            0.90 * intelligence_score + 0.10 * quote_balance
-            if quote_balance is not None else intelligence_score
-        )
-        quality = min(
-            confidence if confidence is not None else 0.0,
-            coverage if coverage is not None else 0.0,
-        )
-        source = "MARKET_INTELLIGENCE"
-        if quote_balance is not None:
-            source = "MARKET_INTELLIGENCE_PLUS_MINOR_QUOTE_CONTEXT"
-    elif quote_balance is not None:
-        # Quote updates are only a low-quality fallback: they are not trades,
-        # taker flow or independent market-wide order flow.
-        score = quote_balance
-        quality = 0.20
-        source = "QUOTE_PULSE_FALLBACK_ONLY"
-    else:
-        score = None
-        quality = 0.0
-        source = "UNAVAILABLE"
-
-    return score, max(0.0, min(1.0, quality)), {
+    quality = min(confidence, coverage) if confidence is not None and coverage is not None else 0.0
+    quality = max(0.0, min(1.0, quality))
+    return score, quality, {
         "score": round(score, 4) if score is not None else None,
         "quality": round(quality, 4),
-        "source": source,
+        "source": "ENGINE1_STANDALONE_REPORT" if score is not None else "UNAVAILABLE",
         "intelligence_status": intelligence.get("status", "NOT_AVAILABLE"),
         "intelligence_confidence": confidence,
         "evidence_coverage": coverage,
-        "quote_pulse_status": pulse.get("status", "NOT_AVAILABLE"),
-        "quote_direction_balance": round(quote_balance, 4) if quote_balance is not None else None,
-        "quote_pulse_scope": "Bid/Ask quote updates only; not executed trades, taker flow or order-book depth.",
+        "only_engine1_report_used": True,
     }
 
 
@@ -408,11 +378,13 @@ class DecisionEngine:
         self, market: dict[str, Any], chart: dict[str, Any] | None,
         bridge: dict[str, Any] | None, indicators: dict[str, Any] | None = None,
         engine2_price_action: dict[str, Any] | None = None,
+        market_intelligence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         base = {
             "engine": "engine_4_decision_trade_monitor", "method": "rules_only",
             "direction_inputs": ["engine_1_market_intelligence", "engine_2_price_action_and_calibrated_visual", "engine_3_indicators"],
             "calculation_inputs": ["engine_1_market_intelligence", "engine_2_native_ohlc_price_action", "engine_3_indicators"],
+            "engine_1_input_contract": "standalone report only; no Engine 2, 3 or 5 data is blended into Engine 1",
             "bridge_role": "engine_5 transports commands and supplies live quote/account/specifications only",
             "risk_owner": "Mirsad_BTC_program",
         }
@@ -550,7 +522,8 @@ class DecisionEngine:
         # Engine 1 is contextual intelligence (news, macro events, sentiment,
         # derivatives and global market context). Quote pulse is only a minor
         # corroborator or low-quality fallback.
-        engine1_score, engine1_quality, engine1_parts = _market_intelligence_signal(market)
+        intelligence = market_intelligence if isinstance(market_intelligence, dict) else {}
+        engine1_score, engine1_quality, engine1_parts = _market_intelligence_signal(intelligence)
         market_score = engine1_score
         market_score_parts = engine1_parts
 
@@ -843,10 +816,7 @@ class DecisionEngine:
             daily_risk_required
             and (daily_risk_status != "READY" or daily_risk_locked)
         )
-        intelligence = market.get("market_intelligence") if isinstance(market.get("market_intelligence"), dict) else {}
         economic_calendar = intelligence.get("economic_calendar") if isinstance(intelligence.get("economic_calendar"), dict) else {}
-        if not economic_calendar:
-            economic_calendar = market_context.get("economic_calendar") if isinstance(market_context.get("economic_calendar"), dict) else {}
         macro_event_window_active = economic_calendar.get("high_impact_window_active") is True
         if action in {"BUY", "SELL"} and quote_ok and macro_event_window_active:
             action = "WAIT"
@@ -937,7 +907,7 @@ class DecisionEngine:
             "engine_3_indicator_status": indicator_data.get("status"),
             "orderflow": orderflow,
             "market_microstructure": microstructure,
-            "economic_calendar": economic_calendar or market_context.get("economic_calendar", {"status": "NOT_AVAILABLE", "events": []}),
+            "economic_calendar": economic_calendar or {"status": "NOT_AVAILABLE", "events": []},
             "market_intelligence": intelligence,
             "macro_event_gate": {
                 "status": "ACTIVE" if macro_event_window_active else "CLEAR",
@@ -962,7 +932,8 @@ class DecisionEngine:
                 "close_ticket": close_ticket,
             },
             "engine_inputs": {
-                "market_context_from_engine_1": market.get("status"),
+                "engine_1_market_intelligence": intelligence.get("status", "NOT_PROVIDED"),
+                "engine_5_execution_quote_feed": market.get("status"),
                 "chart_and_candles_from_engine_2": "READY" if engine2_decision_eligible else price_action.get("status", chart.get("status", "NOT_READY")) ,
                 "indicators_from_engine_3": indicator_data.get("status"),
                 "engine_5_bridge_for_quote_account_specs_and_transport": bridge.get("status", "NOT_CONFIGURED"),

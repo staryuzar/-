@@ -947,6 +947,75 @@ class MarketIntelligenceEngine:
         score = score_derivatives(venues, now_ms=observed_at)
         return {**score, "venue_scores": score.get("venues", {}), "venues": venues}
 
+    def _collect_public_calendar(self, *, now_ms: int | None = None) -> dict[str, Any]:
+        """Read public macro releases with provider timestamps and a 15-minute cache."""
+        params = urllib.parse.urlencode({
+            "currency": "USD,EUR,GBP,JPY,AUD,CAD,CHF,CNY,NZD",
+            "impact": "high,medium,low", "days": 7, "format": "json",
+        })
+        payload = self._json(
+            "https://showmytrades.com/api/public/calendar/v1?" + params,
+            ttl_seconds=900,
+        )
+        if not isinstance(payload, dict):
+            raise ValueError("Public economic calendar response is not an object.")
+        captured = int(time.time() * 1000) if now_ms is None else int(now_ms)
+        server_stamp = _parse_time(payload.get("server_time"))
+        age = (captured - server_stamp) / 1000.0 if server_stamp is not None else None
+        if server_stamp is None or age is None or age < -120.0 or age > 1800.0:
+            return {
+                "status": "STALE" if server_stamp is not None else "INVALID",
+                "source": "ShowMyTrades public economic calendar",
+                "server_time_ms": server_stamp,
+                "freshness_age_seconds": round(age, 2) if age is not None else None,
+                "freshness_max_age_seconds": 1800,
+                "events": [],
+                "reason": "Calendar provider clock is missing, future-dated or older than 30 minutes.",
+            }
+        rows = payload.get("events")
+        if not isinstance(rows, list):
+            raise ValueError("Public economic calendar response has no events array.")
+        importance_map = {"HIGH": "HIGH", "MEDIUM": "MODERATE", "LOW": "LOW", "HOLIDAY": "HOLIDAY"}
+        events = []
+        for item in rows[:1000]:
+            if not isinstance(item, dict):
+                continue
+            stamp = _parse_time(item.get("ts") or item.get("time"))
+            name = str(item.get("title") or "").strip()
+            impact = str(item.get("impact") or "").upper()
+            if stamp is None or not name or impact not in importance_map:
+                continue
+            if stamp < server_stamp - 7 * 24 * 60 * 60_000 or stamp > server_stamp + 31 * 24 * 60 * 60_000:
+                continue
+            events.append({
+                "event_id": str(item.get("id") or ""),
+                "event_time_utc_ms": stamp,
+                "name": name[:240],
+                "country": str(item.get("country") or ""),
+                "currency": str(item.get("currency") or "").upper()[:8],
+                "importance": importance_map[impact],
+                "forecast": item.get("forecast") or None,
+                "previous": item.get("previous") or None,
+                "actual": item.get("actual") or None,
+                "provider": "ShowMyTrades",
+                "source_url": "https://showmytrades.com/tools/economic-calendar",
+                "provider_confidence": item.get("confidence"),
+                "provider_status": item.get("status"),
+            })
+        attribution = payload.get("attribution") if isinstance(payload.get("attribution"), dict) else {}
+        return {
+            "status": "READY" if events else "EMPTY",
+            "source": "ShowMyTrades public economic calendar",
+            "server_time_ms": server_stamp,
+            "freshness_age_seconds": round(age, 2),
+            "freshness_max_age_seconds": 1800,
+            "event_count": len(events),
+            "events": events,
+            "attribution_required": bool(attribution.get("required", False)),
+            "attribution": attribution.get("text"),
+            "scope": "Public macro releases for USD, EUR, GBP, JPY, AUD, CAD, CHF, CNY and NZD; cached locally for 15 minutes.",
+        }
+
     def _collect_trading_economics(self, *, now: datetime | None = None) -> dict[str, Any]:
         if not self.trading_economics_api_key:
             return {"status": "NOT_CONFIGURED", "source": "Trading Economics",
@@ -999,84 +1068,89 @@ class MarketIntelligenceEngine:
                 "countries": list(self.calendar_countries), "events": events}
 
     @staticmethod
-    def _calendar_context(market: dict[str, Any], external: dict[str, Any], now_ms: int) -> dict[str, Any]:
-        context = market.get("market_context") if isinstance(market.get("market_context"), dict) else {}
-        broker = context.get("economic_calendar") if isinstance(context.get("economic_calendar"), dict) else {}
+    def _calendar_context(sources: dict[str, Any], now_ms: int) -> dict[str, Any]:
+        """Merge independent public macro-calendar providers owned by Engine 1."""
         events: list[dict[str, Any]] = []
-        for item in broker.get("events", []) if isinstance(broker.get("events"), list) else []:
-            if not isinstance(item, dict):
-                continue
-            stamp = _parse_time(item.get("event_time_utc_ms"))
-            name = str(item.get("name") or "").strip()
-            if not stamp or not name:
-                continue
-            events.append({
-                "event_id": str(item.get("event_id") or ""),
-                "event_time_utc_ms": stamp,
-                "name": name[:240],
-                "country": str(item.get("country_code") or "US"),
-                "currency": str(item.get("currency") or "USD"),
-                "importance": str(item.get("importance") or "NONE").upper(),
-                "provider": "MT5 Broker Calendar",
-            })
-        for item in external.get("events", []) if isinstance(external.get("events"), list) else []:
-            if not isinstance(item, dict):
-                continue
-            # Avoid duplicate TE/MT5 events for the same release within 5 minutes.
-            stamp = _parse_time(item.get("event_time_utc_ms"))
-            name = str(item.get("name") or "").strip()
-            if not stamp or not name:
-                continue
-            duplicate = any(
-                abs(int(existing["event_time_utc_ms"]) - stamp) <= 300_000
-                and str(existing["name"]).casefold() == name.casefold()
-                for existing in events
-            )
-            if not duplicate:
-                events.append(item)
-        events.sort(key=lambda item: item["event_time_utc_ms"])
-        before_ms = 15 * 60_000
-        after_ms = 10 * 60_000
+        provider_statuses: dict[str, str] = {}
+        for provider, raw in sources.items():
+            raw = raw if isinstance(raw, dict) else {}
+            provider_statuses[provider] = str(raw.get("status", "NOT_AVAILABLE")).upper()
+            for item in raw.get("events", []) if isinstance(raw.get("events"), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                stamp = _parse_time(item.get("event_time_utc_ms"))
+                name = str(item.get("name") or "").strip()
+                importance = str(item.get("importance") or "NONE").upper()
+                if not stamp or not name or importance not in {"HIGH", "MODERATE", "LOW", "NONE", "HOLIDAY"}:
+                    continue
+                normalized = {
+                    "event_id": str(item.get("event_id") or ""),
+                    "event_time_utc_ms": stamp,
+                    "name": name[:240],
+                    "country": str(item.get("country") or ""),
+                    "currency": str(item.get("currency") or "").upper()[:8],
+                    "importance": importance,
+                    "forecast": item.get("forecast"),
+                    "previous": item.get("previous"),
+                    "actual": item.get("actual"),
+                    "provider": str(item.get("provider") or provider),
+                    "source_url": item.get("source_url"),
+                }
+                duplicate = any(
+                    abs(int(existing["event_time_utc_ms"]) - stamp) <= 300_000
+                    and str(existing["name"]).casefold() == name.casefold()
+                    and str(existing.get("currency") or "").casefold()
+                        == str(normalized.get("currency") or "").casefold()
+                    for existing in events
+                )
+                if not duplicate:
+                    events.append(normalized)
+        events.sort(key=lambda row: row["event_time_utc_ms"])
+        before_ms, after_ms = 15 * 60_000, 10 * 60_000
         active = []
         for item in events:
-            importance = str(item.get("importance", "")).upper()
-            high = importance in {"HIGH", "3"}
             delta = int(item["event_time_utc_ms"]) - now_ms
-            if high and -after_ms <= delta <= before_ms:
+            if item["importance"] == "HIGH" and -after_ms <= delta <= before_ms:
                 active.append({
                     "name": item["name"],
                     "provider": item.get("provider"),
+                    "currency": item.get("currency"),
                     "event_time_utc_ms": item["event_time_utc_ms"],
                     "minutes_to_event": round(delta / 60_000, 1),
                 })
+        has_provider = any(value in {"READY", "EMPTY"} for value in provider_statuses.values())
         return {
-            "status": "READY" if events else (
-                "NOT_AVAILABLE" if broker.get("status") == "NOT_AVAILABLE" else "EMPTY"
-            ),
+            "status": "READY" if events else "EMPTY" if has_provider else "NOT_AVAILABLE",
+            "source": "ENGINE1_INDEPENDENT_PUBLIC_CALENDARS",
             "events": events[:500],
             "event_count": len(events),
-            "sources": {
-                "mt5_broker": broker.get("status", "NOT_REPORTED"),
-                "trading_economics": external.get("status", "NOT_CONFIGURED"),
-            },
+            "sources": provider_statuses,
             "high_impact_window_active": bool(active),
             "active_high_impact_events": active,
             "new_entry_gate": "WAIT" if active else "CLEAR",
             "gate_window_minutes": {"before": 15, "after": 10},
             "next_24h_high_impact_events": [
-                {"name": item["name"], "country": item.get("country"), "currency": item.get("currency"),
-                 "provider": item.get("provider"), "event_time_utc_ms": item["event_time_utc_ms"],
-                 "minutes_to_event": round((int(item["event_time_utc_ms"]) - now_ms) / 60_000, 1)}
+                {
+                    "name": item["name"],
+                    "country": item.get("country"),
+                    "currency": item.get("currency"),
+                    "provider": item.get("provider"),
+                    "event_time_utc_ms": item["event_time_utc_ms"],
+                    "minutes_to_event": round((int(item["event_time_utc_ms"]) - now_ms) / 60_000, 1),
+                }
                 for item in events
-                if str(item.get("importance", "")).upper() in {"HIGH", "3"}
+                if item["importance"] == "HIGH"
                 and 0 <= int(item["event_time_utc_ms"]) - now_ms <= 24 * 60 * 60_000
             ][:30],
-            "countries_covered": list(external.get("countries") or []),
-            "scope": "Macro releases from the connected MT5 broker calendar plus optional multi-country Trading Economics; not a crypto-project token unlock calendar.",
+            "countries_covered": sorted({
+                str(item.get("country") or item.get("currency") or "")
+                for item in events if item.get("country") or item.get("currency")
+            }),
+            "scope": "Independent public macro calendars only; no MT5 or other-engine input is consumed.",
         }
 
-    def collect(self, market: dict[str, Any] | None = None, *, now_ms: int | None = None) -> dict[str, Any]:
-        market = market if isinstance(market, dict) else {}
+    def collect(self, *, now_ms: int | None = None) -> dict[str, Any]:
+        """Collect Engine 1 evidence from its own providers; accepts no engine payload."""
         captured = int(time.time() * 1000) if now_ms is None else int(now_ms)
         tasks = {
             "news": self._collect_news,
@@ -1084,9 +1158,10 @@ class MarketIntelligenceEngine:
             "global_metrics": self._collect_global_metrics,
             "derivatives": self._collect_derivatives,
             "trading_economics": self._collect_trading_economics,
+            "public_calendar": lambda: self._collect_public_calendar(now_ms=captured),
         }
         results: dict[str, dict[str, Any]] = {}
-        with ThreadPoolExecutor(max_workers=5) as pool:
+        with ThreadPoolExecutor(max_workers=6) as pool:
             futures = {pool.submit(fn): name for name, fn in tasks.items()}
             for future in as_completed(futures):
                 name = futures[future]
@@ -1100,7 +1175,10 @@ class MarketIntelligenceEngine:
         fear_greed = results.get("fear_greed", {"status": "OFFLINE"})
         global_metrics = results.get("global_metrics", {"status": "OFFLINE"})
         derivatives = results.get("derivatives", {"status": "OFFLINE", "score": None, "confidence": 0.0})
-        calendar = self._calendar_context(market, results.get("trading_economics", {}), captured)
+        calendar = self._calendar_context({
+            "showmytrades": results.get("public_calendar", {}),
+            "trading_economics": results.get("trading_economics", {}),
+        }, captured)
         composite = compose_directional_context(
             news=news_score,
             fear_greed=fear_greed,
@@ -1110,7 +1188,7 @@ class MarketIntelligenceEngine:
             name: str(value.get("status", "NOT_REPORTED"))
             for name, value in results.items()
         }
-        source_statuses["mt5_broker_calendar"] = calendar["sources"]["mt5_broker"]
+        source_statuses["showmytrades_calendar"] = calendar["sources"]["showmytrades"]
         source_statuses["trading_economics_calendar"] = calendar["sources"]["trading_economics"]
         risk_assessment = assess_market_risk(
             news=news, fear_greed=fear_greed, derivatives=derivatives,
@@ -1166,6 +1244,7 @@ class MarketIntelligenceEngine:
                 "market_risk_drivers": risk_assessment.get("drivers", []),
             },
             "boundaries": [
+                "Engine 1 is standalone and accepts no MT5 market snapshot or payload from Engines 2, 3 or 5.",
                 "No chart images, OHLC candles, swing highs/lows, EMA, RSI or ATR are read or calculated by Engine 1.",
                 "Funding/long-short indicators are exchange-specific derivatives positioning, not spot order flow.",
                 "Headline sentiment is a transparent keyword heuristic; duplicate headlines are grouped across publishers and the content is not fact-checked.",

@@ -20,10 +20,9 @@ MAX_TICK_ROWS = 512
 
 
 class MT5MarketDataEngine:
-    """Engine 1: MT5 quote pulse, market conditions and economic-event context.
+    """Engine 5 support: broker quote/microstructure telemetry for execution safety.
 
-    This adapter deliberately does not read, parse, store or expose OHLC candles.
-    Chart images and all candle history belong to Engine 2.
+    This adapter does not collect Engine 1 intelligence, calendars, charts or indicators.
     """
 
     def __init__(
@@ -57,7 +56,7 @@ class MT5MarketDataEngine:
         feed_health: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
-            "engine": "engine_1_market",
+            "engine": "engine_5_execution_quote_feed",
             "source": "MT5_TERMINAL",
             "status": status,
             "symbol": self.symbol,
@@ -73,12 +72,10 @@ class MT5MarketDataEngine:
                     "bid": None,
                     "ask": None,
                     "microstructure": {},
-                    "economic_calendar": {"status": "NOT_AVAILABLE", "events": []},
                 }
             },
             "market_context": {
                 "microstructure": {"status": "NOT_AVAILABLE"},
-                "economic_calendar": {"status": "NOT_AVAILABLE", "events": []},
             },
             "feed_health": feed_health or {},
             "reason": reason,
@@ -290,58 +287,11 @@ class MT5MarketDataEngine:
             "levels": levels,
         }
 
-    def _economic_calendar(self, raw: Any) -> dict[str, Any]:
-        if not isinstance(raw, dict):
-            return {"status": "NOT_AVAILABLE", "source": "MT5_ECONOMIC_CALENDAR", "events": []}
-        status = str(raw.get("status", "NOT_AVAILABLE")).upper()
-        if status != "AVAILABLE":
-            return {
-                "status": "NOT_AVAILABLE",
-                "source": "MT5_ECONOMIC_CALENDAR",
-                "currency": str(raw.get("currency", "USD")),
-                "error_code": raw.get("error_code"),
-                "events": [],
-                "reason": "The connected broker terminal did not provide its economic calendar.",
-            }
-        raw_events = raw.get("events")
-        if not isinstance(raw_events, list):
-            return {"status": "INVALID", "source": "MT5_ECONOMIC_CALENDAR", "events": []}
-        events: list[dict[str, Any]] = []
-        for item in raw_events[:128]:
-            if not isinstance(item, dict):
-                continue
-            try:
-                event_time = int(item["event_time_utc_ms"])
-                event_id = int(item["event_id"])
-                name = str(item["name"]).strip()
-                importance = str(item["importance"]).upper()
-            except (KeyError, TypeError, ValueError, OverflowError):
-                continue
-            if event_time <= 0 or event_id <= 0 or not name:
-                continue
-            if importance not in {"NONE", "LOW", "MODERATE", "HIGH"}:
-                continue
-            events.append({
-                "event_id": event_id,
-                "event_time_utc_ms": event_time,
-                "name": name[:240],
-                "currency": str(item.get("currency", "USD")).upper()[:8],
-                "country_code": str(item.get("country_code", "US")).upper()[:4],
-                "importance": importance,
-            })
-        events.sort(key=lambda item: item["event_time_utc_ms"])
-        return {
-            "status": "AVAILABLE",
-            "source": "MT5_ECONOMIC_CALENDAR",
-            "currency": str(raw.get("currency", "USD")).upper(),
-            "events": events,
-        }
-
     def collect(self, bridge: dict[str, Any] | None = None) -> dict[str, Any]:
         if self.root is None:
             return self._blocked(
                 "NOT_CONFIGURED",
-                "MIRSAD_MT5_COMMON_FILES is not configured; Engine 1 requires the user's MT5 Common Files feed.",
+                "MIRSAD_MT5_COMMON_FILES is not configured; Engine 5 execution quote telemetry requires the user's MT5 Common Files feed.",
             )
         path = self.root / "market.json"
         try:
@@ -438,7 +388,7 @@ class MT5MarketDataEngine:
         ticks, tick_status = self._parse_ticks(payload.get("ticks"), captured_at_ms=captured_at_ms)
         tick_window = self._finite(payload.get("tick_window_seconds")) or 30.0
         microstructure = self._microstructure(ticks, bid, ask, tick_window, tick_status)
-        calendar = self._economic_calendar(payload.get("economic_calendar"))
+        # Embedded Observer economic_calendar data is intentionally ignored by this quote adapter.
         order_book = self._market_depth(payload.get("depth_of_market"))
         price = (bid + ask) / 2.0
         venue = {
@@ -451,12 +401,11 @@ class MT5MarketDataEngine:
             "account_server": server,
             "tick_age_seconds": tick_age,
             "microstructure": microstructure,
-            "economic_calendar": calendar,
             "order_book": order_book,
             "error": None,
         }
         return {
-            "engine": "engine_1_market",
+            "engine": "engine_5_execution_quote_feed",
             "source": "MT5_TERMINAL",
             "status": "LIVE",
             "symbol": self.symbol,
@@ -467,8 +416,7 @@ class MT5MarketDataEngine:
             "venues": {VENUE_NAME: venue},
             "market_context": {
                 "microstructure": microstructure,
-                "economic_calendar": calendar,
-                "order_book": order_book,
+                    "order_book": order_book,
             },
             "feed_health": {
                 "terminal_connected": True,

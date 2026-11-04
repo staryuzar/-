@@ -93,17 +93,16 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  bridge["daily_risk_required"]=True
  if risk_evaluation["report"].get("status")=="READY":
   write_json_atomic(RISK_STATE_PATH,risk_evaluation["state"])
- # Live Engine 1 reads only the locally published MT5 market snapshot. The
- # public-venue MarketEngine remains available for research, never runtime decisions.
+ # Broker quote telemetry is the Engine 5 execution feed, separate from intelligence.
  market=(market_engine.collect() if market_engine is not None
          else MT5MarketDataEngine().collect(bridge=bridge))
+ # Engine 1 independently collects its public sources and accepts no engine payload.
  try:
-  market_intelligence=MarketIntelligenceEngine().collect(market)
+  market_intelligence=MarketIntelligenceEngine().collect()
  except Exception as exc:
   market_intelligence={"engine":"engine_1_market_intelligence","status":"OFFLINE",
    "direction":"UNKNOWN","directional_score":None,"confidence":0.0,
    "reason":f"{type(exc).__name__}: {exc}","source_statuses":{}}
- market["market_intelligence"]=market_intelligence
  save_market_intelligence_snapshot(market_intelligence)
  save_market_snapshot(market)
  write_json_atomic(SNAPSHOT_PATH,market)
@@ -164,7 +163,11 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "reason":candle_history.get("reason"),
  }
  chart["engine_2_multi_timeframe_structure"]=engine2_multitimeframe
- decision=DecisionEngine().analyze(market,chart,bridge,indicators,engine2_price_action=engine2_price_action)
+ decision=DecisionEngine().analyze(
+  market,chart,bridge,indicators,
+  engine2_price_action=engine2_price_action,
+  market_intelligence=market_intelligence,
+ )
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
  if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
   command_publish=bridge_adapter.publish_decision(decision,bridge)
@@ -175,7 +178,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  market_status=market.get("status","OFFLINE")
  if age>MARKET_MAX_AGE_SECONDS: market_status="STALE"
  readiness={
-  "engine_1_market":market_status=="LIVE",
+  "engine_5_execution_quote_feed":market_status=="LIVE",
   "engine_1_market_intelligence":market_intelligence.get("status")=="READY",
   "engine_2_visual_chart":chart.get("status")=="READY" and chart.get("decision_eligible") is True,
   "engine_2_candles":candle_history.get("status")=="READY",
@@ -189,7 +192,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  }
  overall="FULLY_OPERATIONAL" if all(readiness.values()) else "PARTIAL_OR_WAITING"
  engine_states={
-  "engine_1_market":market_status,"engine_1_market_intelligence":market_intelligence.get("status","NOT_STARTED"),
+  "engine_5_execution_quote_feed":market_status,"engine_1_market_intelligence":market_intelligence.get("status","NOT_STARTED"),
   "engine_2_chart":chart.get("status","NOT_STARTED"),
   "engine_2_visual_chart":chart.get("status","NOT_STARTED"),
   "engine_2_price_action":engine2_price_action.get("status","NOT_STARTED"),
@@ -223,7 +226,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
     "error":v.get("error"),
     "microstructure":v.get("microstructure",{}),
     "order_book":v.get("order_book",{}),
-    "economic_calendar_status":(v.get("economic_calendar") or {}).get("status")} for n,v in market.get("venues",{}).items()}},
+    "order_book_status":(v.get("order_book") or {}).get("status")} for n,v in market.get("venues",{}).items()}},
   "market_intelligence":market_intelligence,
   "chart":chart,"chart_observer":chart_observer,"engine_2_candles":{
    "status":candle_history.get("status"),"timeframes":candle_history.get("timeframes",{}),
@@ -239,7 +242,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "indicators":indicators,
   "mt5_native_indicators":native_indicators,
   "bridge":bridge,"daily_risk":bridge.get("daily_risk"),"decision":decision,"command_publish":command_publish,
-  "wiring":{"engine_1_market_to_engine_4":True,"engine_1_market_intelligence_to_engine_4":True,
+  "wiring":{"engine_5_execution_quote_feed_to_engine_4":True,"engine_1_standalone_report_to_engine_4":True,
    "engine_2_chart_to_engine_4":True,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
    "engine_2_price_action_to_engine_4":"fail_closed_confluence_gate_not_an_independent_directional_vote",
