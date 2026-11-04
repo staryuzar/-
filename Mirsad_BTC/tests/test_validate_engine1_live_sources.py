@@ -13,16 +13,7 @@ from scripts.validate_engine1_live_sources import main
 
 
 class Engine1LiveSourceValidatorTests(unittest.TestCase):
-    def test_cli_passes_real_mt5_market_snapshot_into_market_intelligence(self) -> None:
-        market = {
-            "schema": "MIR-MT5-MARKET-2",
-            "status": "LIVE",
-            "economic_calendar": {
-                "status": "AVAILABLE",
-                "source": "MT5_ECONOMIC_CALENDAR",
-                "events": [],
-            },
-        }
+    def test_cli_collects_standalone_engine1_intelligence_without_mt5_input(self) -> None:
         result = {
             "schema": "MIR-ENGINE1-INTELLIGENCE-1",
             "status": "READY",
@@ -43,24 +34,21 @@ class Engine1LiveSourceValidatorTests(unittest.TestCase):
             "derivatives": {"status": "UNAVAILABLE", "venues": {}, "venue_scores": {}},
             "economic_calendar": {
                 "status": "READY",
-                "sources": {"mt5_broker": "AVAILABLE", "trading_economics": "NOT_CONFIGURED"},
-                "countries_covered": [], "event_count": 0,
+                "sources": {"showmytrades": "READY", "trading_economics": "NOT_CONFIGURED"},
+                "countries_covered": ["US"], "event_count": 0,
                 "next_24h_high_impact_events": [],
             },
             "market_risk_assessment": {"status": "READY", "level": "NORMAL", "drivers": []},
-            "source_statuses": {"news": "READY", "fear_greed": "READY", "global_metrics": "READY", "derivatives": "OFFLINE"},
+            "source_statuses": {
+                "news": "READY", "fear_greed": "READY", "global_metrics": "READY",
+                "derivatives": "OFFLINE", "showmytrades_calendar": "READY",
+                "trading_economics_calendar": "NOT_CONFIGURED",
+            },
         }
 
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            market_path = root / "market.json"
-            output_path = root / "engine1-report.json"
-            market_path.write_text(json.dumps(market), encoding="utf-8")
-            args = [
-                "validate_engine1_live_sources.py",
-                "--market-snapshot", str(market_path),
-                "--output", str(output_path),
-            ]
+            output_path = Path(directory) / "engine1-report.json"
+            args = ["validate_engine1_live_sources.py", "--output", str(output_path)]
             with (
                 patch.object(sys, "argv", args),
                 patch(
@@ -72,37 +60,27 @@ class Engine1LiveSourceValidatorTests(unittest.TestCase):
                 exit_code = main()
 
             self.assertEqual(exit_code, 0)
-            collect.assert_called_once()
-            normalized_market = collect.call_args.args[0]
-            self.assertEqual(normalized_market["schema"], "MIR-MT5-MARKET-2")
-            self.assertEqual(
-                normalized_market["market_context"]["economic_calendar"]["status"],
-                "AVAILABLE",
-            )
-            self.assertEqual(
-                normalized_market["market_context"]["economic_calendar"]["source"],
-                "MT5_ECONOMIC_CALENDAR",
-            )
+            collect.assert_called_once_with()
             report = json.loads(output_path.read_text(encoding="utf-8"))
-            self.assertEqual(report["economic_calendar"]["source_statuses"]["mt5_broker"], "AVAILABLE")
-            self.assertEqual(report["economic_calendar"]["status"], "READY")
-            self.assertEqual(report["provider_response_count"], 3)
+            self.assertEqual(report["overall_status"], "READY")
+            self.assertEqual(report["economic_calendar"]["source_statuses"]["showmytrades"], "READY")
+            self.assertEqual(report["provider_response_count"], 4)
+            self.assertNotIn("mt5_broker", report["economic_calendar"]["source_statuses"])
+            self.assertIn("standalone", report["scope"].lower())
+            self.assertIn("no MT5 quote", report["scope"])
 
-    def test_cli_rejects_non_mirsad_market_snapshot_schema(self) -> None:
+    def test_cli_rejects_legacy_mt5_snapshot_argument(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            market_path = root / "wrong.json"
-            market_path.write_text(json.dumps({"schema": "WRONG"}), encoding="utf-8")
             with (
                 patch.object(sys, "argv", [
                     "validate_engine1_live_sources.py",
-                    "--market-snapshot", str(market_path),
-                    "--output", str(root / "report.json"),
+                    "--market-snapshot", str(Path(directory) / "market.json"),
                 ]),
                 contextlib.redirect_stderr(io.StringIO()),
             ):
-                with self.assertRaises(SystemExit):
+                with self.assertRaises(SystemExit) as raised:
                     main()
+            self.assertEqual(raised.exception.code, 2)
 
 
 if __name__ == "__main__":
