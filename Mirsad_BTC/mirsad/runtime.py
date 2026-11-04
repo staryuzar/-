@@ -14,7 +14,7 @@ from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
 from .storage import (
  save_market_snapshot,save_market_intelligence_snapshot,save_mt5_deal_history,
- write_json_atomic,read_json,
+ write_json_atomic,read_json,save_decision_calibration_sample,
 )
 from .engines.daily_risk import evaluate_daily_risk
 from .engines.position_ledger import build_position_management_history
@@ -134,6 +134,17 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   command_publish=bridge_adapter.publish_decision(decision,bridge)
  elif decision.get("command_ready"):
   command_publish={"status":"PUBLISH_DISABLED","message":"Decision is sized but the bridge command switch is disabled."}
+ # Non-executing research archive: one sample per completed M1 signal bar.
+ # Storage failures must never change the live decision or execution path.
+ try:
+  decision_calibration_persistence=save_decision_calibration_sample(
+   market=market,candle_history=candle_history,
+   market_intelligence=market_intelligence,
+   engine2_price_action=engine2_price_action,
+   indicators=indicators,decision=decision,
+  )
+ except Exception as exc:
+  decision_calibration_persistence={"status":"ERROR","reason":f"{type(exc).__name__}: {exc}"}
  now=int(time.time()*1000)
  age=max(0,(now-int(market.get("captured_at_ms",now)))/1000)
  market_status=market.get("status","OFFLINE")
@@ -210,6 +221,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "mt5_native_indicators":native_indicators,
   "bridge":bridge,"mt5_deal_ledger":deal_ledger_persistence,
   "daily_risk":bridge.get("daily_risk"),"decision":decision,"command_publish":command_publish,
+  "decision_calibration_persistence":decision_calibration_persistence,
   "wiring":{"engine_5_execution_quote_feed_to_engine_4":True,"engine_1_standalone_report_to_engine_4":True,
    "engine_2_native_price_action_to_engine_4":True,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
@@ -232,6 +244,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
    "Engine 4 daily loss cap is intentionally disabled by default during development (MIRSAD_DAILY_LOSS_LIMIT_ENABLED=0); the 2% cap can be re-enabled by configuration. Per-trade sizing, quote validity, signal-quality gates and position protections remain active.",
    "No market simulation or simulated order is used.",
+   "Decision calibration samples archive Engine 1/2/3 scores, quality, effective weights, parity evidence and matching closed OHLC bars; this archive does not modify live weights or authorize orders.",
    "Engine 2 direction and score come from validated native OHLC evidence, independently of the Engine 1 intelligence report and Engine 3 indicator calculations.",
    "Engine 5 owns the fresh MT5 broker quote feed and execution bridge. Engine 4 validates broker symbol, account server, quote age, spread and price agreement; Engine 1 independently collects public intelligence and does not consume MT5 or other-engine data.",
    "A broker quote must be fresh, close to the spot reference and within the configured spread threshold.",
