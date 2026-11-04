@@ -1,0 +1,274 @@
+name: Mirsad BTC — Program-wide Full Acceptance (All 5 Engines)
+
+on:
+  push:
+    branches: [mini]
+    paths:
+      - 'Mirsad_BTC/**'
+      - '.github/workflows/mirsad-btc-full-acceptance.yml'
+      - '.github/workflows/mirsad-btc-live-validation.yml'
+      - '.github/workflows/mirsad-engine2-native-analysis.yml'
+      - '.github/workflows/mirsad-direct-feed-validation.yml'
+      - '.github/workflows/mirsad-live-runtime-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-program-wide-full-acceptance
+  cancel-in-progress: false
+
+jobs:
+  python_full_system:
+    name: Full application build and every automated test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout mini branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: Mirsad_BTC/requirements.txt
+
+      - name: Install complete application dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r Mirsad_BTC/requirements.txt
+
+      - name: Compile every application Python module, script and test
+        run: python -m compileall -q Mirsad_BTC
+
+      - name: Run the complete test suite across all five engines and the application
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: python -m unittest discover -s Mirsad_BTC/tests -v
+
+      - name: Run Engine 1 live-source diagnostics (reported separately from deterministic acceptance)
+        continue-on-error: true
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: python Mirsad_BTC/scripts/validate_engine1_live_sources.py --output "${{ runner.temp }}/engine1-live-source-report.json"
+
+      - name: Smoke-test application health without a broker order
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: python Mirsad_BTC/scripts/live_smoke.py
+
+      - name: Upload complete Python test and Engine 1 diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-full-python-system-evidence
+          path: |
+            ${{ runner.temp }}/engine1-live-source-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  engine2_public_btc:
+    name: Independent public BTC history and multi-timeframe validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout mini branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install complete application dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r Mirsad_BTC/requirements.txt
+
+      - name: Compile public-data validation modules
+        run: python -m compileall -q Mirsad_BTC/mirsad/engines Mirsad_BTC/scripts/validate_engine2_public_btc.py
+
+      - name: Validate independent public BTC OHLC and historical structure events
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: |
+          python Mirsad_BTC/scripts/validate_engine2_public_btc.py \
+            --timeframe-limit 1000 \
+            --history-bars 3000 \
+            --output-json "${{ runner.temp }}/engine2-public-btc-validation.json"
+
+      - name: Upload independent BTC validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-full-engine2-public-btc-evidence
+          path: ${{ runner.temp }}/engine2-public-btc-validation.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  mt5_direct_feed:
+    name: Real MT5 direct-feed verification (read-only)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    needs: [python_full_system, engine2_public_btc]
+    steps:
+      - name: Checkout mini branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python for direct MT5 readers
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Compile Observer and validate direct-feed contracts
+        env:
+          PYTHONPATH: Mirsad_BTC
+        shell: pwsh
+        run: |
+          python -m compileall -q Mirsad_BTC/mirsad Mirsad_BTC/scripts/validate_mt5_direct_feed.py Mirsad_BTC/scripts/analyze_mt5_native_price_action.py
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_direct_feed_validator.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_market.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_chart_candles.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_native_indicators.py" -v
+          python -m unittest discover -s Mirsad_BTC/tests -p "test_engine3_mt5_indicator_parity.py" -v
+
+      - name: Connect to MT5 demo and validate live feed with images and trading disabled
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+          MIRSAD_MT5_SERVER: 'mt5.demo.trade-hw.online'
+          MIRSAD_MT5_EXPECTED_ACCOUNT_SERVER: 'Headway-Demo'
+          MIRSAD_MT5_OBSERVER_SYMBOL: 'BTC'
+          MIRSAD_MT5_OBSERVER_TIMEFRAME: 'M1'
+          MIRSAD_MT5_MARKET_SYMBOL: 'BTCUSDT'
+        shell: pwsh
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_direct_feed_run.ps1
+
+      - name: Upload sanitized live-feed and native-parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-full-mt5-direct-feed-evidence
+          path: |
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/direct-feed-validation.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/market-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/candles-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/indicators-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/engine3-indicator-parity.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/engine2-price-action-analysis.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/engine1-live-source-report.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  five_engine_runtime:
+    name: Live five-engine MT5 runtime and command-capture integration
+    runs-on: windows-2022
+    timeout-minutes: 60
+    needs: [mt5_direct_feed]
+    steps:
+      - name: Checkout mini branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run all five engines together on shared MT5 Common Files
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+          MIRSAD_MT5_SERVER: 'mt5.demo.trade-hw.online'
+          MIRSAD_MT5_EXPECTED_ACCOUNT_SERVER: 'Headway-Demo'
+          MIRSAD_MT5_OBSERVER_SYMBOL: 'BTC'
+          MIRSAD_MT5_OBSERVER_TIMEFRAME: 'M1'
+          MIRSAD_MT5_MARKET_SYMBOL: 'BTCUSDT'
+        shell: pwsh
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_integrated_runtime_run.ps1
+
+      - name: Upload end-to-end five-engine evidence (command capture only; no broker order)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-full-five-engine-runtime-evidence
+          path: |
+            ${{ runner.temp }}/mirsad-mt5-integrated-runtime/observer-stdout.log
+            ${{ runner.temp }}/mirsad-mt5-integrated-runtime/observer-stderr.log
+            ${{ runner.temp }}/mirsad-mt5-integrated-runtime/execution-runtime.log
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/direct-feed-validation.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/market-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/candles-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/indicators-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-execution-report.txt
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/Mirsad_BTC_ExecutionBridge_compile.log
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-telemetry.json
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-runtime-integration.json
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-runtime-integration.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  full_program_acceptance:
+    name: Final gate — every required layer must pass
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - python_full_system
+      - engine2_public_btc
+      - mt5_direct_feed
+      - five_engine_runtime
+    steps:
+      - name: Write a single full-program acceptance result
+        env:
+          PYTHON_SYSTEM: ${{ needs.python_full_system.result }}
+          PUBLIC_BTC: ${{ needs.engine2_public_btc.result }}
+          MT5_DIRECT_FEED: ${{ needs.mt5_direct_feed.result }}
+          FIVE_ENGINE_RUNTIME: ${{ needs.five_engine_runtime.result }}
+          ACCEPTANCE_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          checks = {
+              "complete_python_build_and_all_tests": os.environ["PYTHON_SYSTEM"],
+              "independent_public_btc_validation": os.environ["PUBLIC_BTC"],
+              "real_mt5_direct_feed_read_only": os.environ["MT5_DIRECT_FEED"],
+              "live_five_engine_runtime_integration": os.environ["FIVE_ENGINE_RUNTIME"],
+          }
+          passed = all(value == "success" for value in checks.values())
+          report = {
+              "schema": "MIRSAD-FULL-PROGRAM-ACCEPTANCE-1",
+              "commit": os.environ["ACCEPTANCE_SHA"],
+              "status": "PASS" if passed else "FAIL",
+              "required_checks": checks,
+              "broker_acceptance_orders_sent": False,
+              "simulated_open_ack_position_reconciliation": "covered by full Python test suite",
+              "local_post_install_acceptance": "required for persistent runtime and the intended local terminal/account",
+          }
+          output = Path("mirsad-full-program-acceptance.json")
+          output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          if not passed:
+              raise SystemExit("Mirsad full-program acceptance failed; inspect each required job and artifact.")
+          PY
+
+      - name: Upload single program-wide acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-full-program-acceptance
+          path: mirsad-full-program-acceptance.json
+          if-no-files-found: error
+          retention-days: 90
