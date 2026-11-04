@@ -272,10 +272,10 @@ ENGINE1_DECISION_WEIGHT = 0.20
 ENGINE2_DECISION_WEIGHT = 0.50
 ENGINE3_DECISION_WEIGHT = 0.30
 
-# Engine 2 owns both native OHLC price structure and calibrated image analysis.
-# Native OHLC is the primary sub-input; image analysis is supporting evidence.
-ENGINE2_NATIVE_OHLC_WEIGHT = 0.70
-ENGINE2_VISUAL_WEIGHT = 0.30
+# Engine 2 is a native MT5 OHLC price-action engine. Images are diagnostic
+# only and never enter its score or Engine 4's directional decision.
+ENGINE2_NATIVE_OHLC_WEIGHT = 1.0
+ENGINE2_VISUAL_WEIGHT = 0.0
 
 DIRECTIONAL_SCORE_THRESHOLD = 0.40
 MIN_ENGINE2_DIRECTION_SCORE = 0.20
@@ -388,7 +388,7 @@ class DecisionEngine:
     ) -> dict[str, Any]:
         base = {
             "engine": "engine_4_decision_trade_monitor", "method": "rules_only",
-            "direction_inputs": ["engine_1_market_intelligence", "engine_2_price_action_and_calibrated_visual", "engine_3_indicators"],
+            "direction_inputs": ["engine_1_market_intelligence", "engine_2_native_ohlc_price_action", "engine_3_indicators"],
             "calculation_inputs": ["engine_1_market_intelligence", "engine_2_native_ohlc_price_action", "engine_3_indicators"],
             "engine_1_input_contract": "standalone report only; no Engine 2, 3 or 5 data is blended into Engine 1",
             "bridge_role": "engine_5 transports commands and supplies live quote/account/specifications only",
@@ -416,7 +416,7 @@ class DecisionEngine:
             "mixed_pattern_timeframes": price_action_summary.get("mixed_pattern_timeframes", []),
             "decision_eligible": False,
             "gate": "NOT_EVALUATED",
-            "role": "PRIMARY_ENGINE_2_DIRECTIONAL_INPUT_WITH_OPTIONAL_CALIBRATED_VISUAL_CONFIRMATION",
+            "role": "PRIMARY_ENGINE_2_NATIVE_OHLC_ONLY_NO_IMAGE_DEPENDENCY",
         }
         base["engine_2_native_price_action_context"] = price_action_context
         indicator_data = indicators if isinstance(indicators, dict) else IndicatorsEngine().analyze(
@@ -523,7 +523,7 @@ class DecisionEngine:
             chart_score = chart_confidence = 0.0
         chart_score = max(-1.0, min(1.0, chart_score))
         chart_confidence = max(0.0, min(1.0, chart_confidence))
-        visual_evidence_usable = chart_eligible and chart_confidence >= MIN_CHART_CONFIDENCE
+        # Visual chart metadata is retained for diagnostics only and is not scored.
 
         # Engine 1 contributes only its standalone public-intelligence report.
         # Engine 5 quote telemetry is checked separately for price/execution safety
@@ -533,9 +533,8 @@ class DecisionEngine:
         market_score = engine1_score
         market_score_parts = engine1_parts
 
-        # Engine 2: native multi-timeframe OHLC structure is the primary vote.
-        # A calibrated image contributes only as supporting evidence; an
-        # uncalibrated/mismatched image is omitted, never used as a fake score.
+        # Engine 2 directional evidence is native MT5 OHLC only.
+        # Chart screenshots are diagnostic and cannot add, replace, or veto a vote.
         native_pa_gate = "NOT_PROVIDED"
         native_pa_allows_candidate = True
         engine2_direction = "UNKNOWN"
@@ -610,22 +609,9 @@ class DecisionEngine:
             )
             if engine2_decision_eligible:
                 engine2_direction = native_pa_direction
-                engine2_visual_used = visual_evidence_usable
-                if engine2_visual_used:
-                    engine2_visual_weight = ENGINE2_VISUAL_WEIGHT
-                    engine2_score = (
-                        ENGINE2_NATIVE_OHLC_WEIGHT * float(engine2_structure_score)
-                        + ENGINE2_VISUAL_WEIGHT * chart_score
-                    )
-                    engine2_quality = (
-                        ENGINE2_NATIVE_OHLC_WEIGHT * min(float(timeframe_coverage), float(directional_agreement))
-                        + ENGINE2_VISUAL_WEIGHT * chart_confidence
-                    )
-                    engine2_source = "NATIVE_OHLC_PLUS_CALIBRATED_VISUAL"
-                else:
-                    engine2_score = float(engine2_structure_score)
-                    engine2_quality = min(float(timeframe_coverage), float(directional_agreement))
-                    engine2_source = "NATIVE_OHLC_ONLY_VISUAL_NOT_ELIGIBLE"
+                engine2_score = float(engine2_structure_score)
+                engine2_quality = min(float(timeframe_coverage), float(directional_agreement))
+                engine2_source = "NATIVE_MT5_OHLC_ONLY"
             price_action_context["decision_eligible"] = engine2_decision_eligible
             price_action_context["gate"] = native_pa_gate
             price_action_context["timeframe_weight_coverage"] = timeframe_coverage
@@ -633,21 +619,16 @@ class DecisionEngine:
             price_action_context["visual_evidence_used"] = engine2_visual_used
             price_action_context["visual_evidence_weight_inside_engine_2"] = engine2_visual_weight
         else:
-            # Backwards-compatible isolated visual contract for callers that do
-            # not yet provide the native Engine 2 price-action report. Runtime
-            # always supplies the native report and therefore never takes this
-            # fallback in normal operation.
-            engine2_direction = (
-                "BULLISH" if visual_bias == "BULLISH"
-                else "BEARISH" if visual_bias == "BEARISH"
-                else "UNKNOWN"
-            )
-            engine2_decision_eligible = bool(visual_evidence_usable and engine2_direction != "UNKNOWN")
-            if engine2_decision_eligible:
-                engine2_score = chart_score
-                engine2_quality = chart_confidence
-                engine2_source = "CALIBRATED_VISUAL_ONLY_COMPATIBILITY"
-            price_action_context["gate"] = "NOT_PROVIDED_VISUAL_COMPATIBILITY"
+            # No image-only compatibility path: without native Engine 2
+            # OHLC price-action evidence, directional decisions fail closed.
+            engine2_direction = "UNKNOWN"
+            engine2_decision_eligible = False
+            engine2_score = None
+            engine2_quality = 0.0
+            engine2_source = "NATIVE_OHLC_NOT_PROVIDED"
+            native_pa_gate = "NOT_PROVIDED"
+            native_pa_allows_candidate = False
+            price_action_context["gate"] = "NATIVE_OHLC_NOT_PROVIDED"
 
         engine2_score = (
             max(-1.0, min(1.0, float(engine2_score)))
@@ -694,10 +675,7 @@ class DecisionEngine:
         elif engine2_price_action is not None and not engine2_decision_eligible:
             chart_gate = "WAITING_FOR_ENGINE_2_PRICE_ACTION_CONFLUENCE"
         elif engine2_price_action is None and not engine2_decision_eligible:
-            chart_gate = (
-                "WAITING_FOR_ENGINE_2_CALIBRATION"
-                if not chart_eligible else "INSUFFICIENT_ANALYSIS_CONFIDENCE"
-            )
+            chart_gate = "WAITING_FOR_ENGINE_2_NATIVE_OHLC"
         elif candidate == "WAIT":
             chart_gate = "20_50_30_SCORE_BELOW_THRESHOLD_OR_CONFLICT"
         elif engine2_visual_used:
@@ -897,8 +875,8 @@ class DecisionEngine:
                         "calibrated_visual_chart": ENGINE2_VISUAL_WEIGHT,
                     },
                     "applied": {
-                        "native_ohlc_price_action": ENGINE2_NATIVE_OHLC_WEIGHT if engine2_visual_used else 1.0,
-                        "calibrated_visual_chart": ENGINE2_VISUAL_WEIGHT if engine2_visual_used else 0.0,
+                        "native_ohlc_price_action": ENGINE2_NATIVE_OHLC_WEIGHT,
+                        "calibrated_visual_chart": ENGINE2_VISUAL_WEIGHT,
                     },
                 },
                 "normalization": "configured base weight multiplied by evidence quality, then active weights normalized to 100 percent",
@@ -969,7 +947,7 @@ class DecisionEngine:
             },
             "reason": (
                 "BUY/SELL combines Engine 1 market intelligence (20%), Engine 2 native multi-timeframe OHLC price action (50%), and Engine 3 indicators (30%). "
-                "Inside Engine 2, native OHLC structure carries 70% and calibrated image analysis may add 30%; when the image is uncalibrated, only native OHLC is used. "
+                "Engine 2 uses only validated native MT5 OHLC candle formations and confirmed price structure; chart images are not decision inputs. "
                 "Evidence-quality weighting re-normalizes available contributions; the resulting score is not a calibrated probability of profit. Engine 5 supplies execution and account facts only."
             ),
         }
