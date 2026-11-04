@@ -284,6 +284,8 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         self.assertIsNone(result["decision_scores"]["engine_2_score"])
         self.assertEqual(result["engine_2_score_source"], "NATIVE_OHLC_NOT_PROVIDED")
         self.assertEqual(result["chart_gate"], "WAITING_FOR_ENGINE_2_NATIVE_OHLC")
+        self.assertNotIn("re-normalizes", result["reason"].lower())
+        self.assertIn("without redistributing missing weight", result["reason"].lower())
 
     def test_high_impact_macro_window_pauses_new_entries_but_not_position_close(self) -> None:
         now = int(time.time() * 1000)
