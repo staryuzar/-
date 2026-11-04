@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from mirsad.engines.mt5_chart_pipeline import Engine2MT5ChartImagePipeline
+from mirsad.engines.mt5_chart_pipeline import (
+    Engine2MT5ChartImagePipeline,
+    analyze_mt5_observer_chart,
+)
 
 
 class Engine2MT5ChartImagePipelineTests(unittest.TestCase):
@@ -37,8 +41,14 @@ class Engine2MT5ChartImagePipelineTests(unittest.TestCase):
     def test_missing_capture_allows_manual_chart_fallback(self) -> None:
         pipeline = Engine2MT5ChartImagePipeline(common_files="C:/MT5/Common/Files")
         self.assertIsNone(pipeline.analyze_capture(
-            {"status": "WAITING_FOR_CAPTURE"}, {}, {}
+            {"status": "WAITING_FOR_CAPTURE"}, {}
         ))
+
+    def test_engine2_observer_pipeline_has_no_engine1_market_input(self) -> None:
+        self.assertNotIn("market", inspect.signature(analyze_mt5_observer_chart).parameters)
+        self.assertNotIn("market", inspect.signature(
+            Engine2MT5ChartImagePipeline.analyze_capture
+        ).parameters)
 
     def test_stale_or_invalid_newest_capture_blocks_fallback(self) -> None:
         analyzer = Mock()
@@ -48,7 +58,7 @@ class Engine2MT5ChartImagePipelineTests(unittest.TestCase):
         )
         result = pipeline.analyze_capture(
             {"status": "STALE", "reason": "newest capture is old"},
-            {}, {},
+            {},
         )
         analyzer.assert_not_called()
         self.assertEqual(result["status"], "OBSERVER_INBOX_VALIDATION_BLOCKED")
