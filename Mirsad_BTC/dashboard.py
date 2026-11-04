@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
 from mirsad.config import (ROOT,DATA_DIR,DB_PATH,CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH,RISK_STATE_PATH,SYMBOL,PROVIDERS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,COLLECT_INTERVAL_SECONDS,RISK_PER_TRADE,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,MARKET_MAX_AGE_SECONDS,MT5_HEARTBEAT_MAX_AGE_SECONDS,MT5_QUOTE_MAX_AGE_SECONDS,MT5_MARKET_DATA_MAX_AGE_SECONDS,MT5_MARKET_DIVERGENCE_MAX_PCT,MT5_MAX_SPREAD_PCT,CHART_MAX_AGE_SECONDS)
 from mirsad.storage import read_json,write_json_atomic,load_mt5_deal_history
+from mirsad.engines.position_ledger import aggregate_position_cycles
 from mirsad.engines.visual_knowledge import visual_knowledge_summary
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
 from mirsad.engines.position_management import BREAK_EVEN_TRIGGER_ATR,TRAILING_ACTIVATION_ATR,TRAILING_DISTANCE_ATR,TRAILING_STEP_ATR
@@ -1107,6 +1108,32 @@ def render_engine_dashboard():
     st.warning(f"تعذر قراءة دفتر صفقات Mirsad المحفوظ: {type(exc).__name__}: {exc}")
    else:
     if deal_rows:
+     cycles=aggregate_position_cycles(deal_rows)
+     if cycles:
+      cycle_frame=pd.DataFrame(cycles)
+      cycle_frame["حالة المركز"]=cycle_frame["state"].map({
+       "CLOSED":"مغلق — سجل دورة مكتمل",
+       "OPEN_FROM_CAPTURED_ENTRY":"مفتوح — من دخول مرصود",
+       "INCOMPLETE_HISTORY":"سجل ناقص — لا يُستنتج الإغلاق",
+      }).fillna("غير محدد")
+      cycle_frame["الاتجاه"]=cycle_frame["direction"].map({
+       "LONG":"شراء","SHORT":"بيع","FLAT":"مغلق",
+      }).fillna("غير محدد")
+      cycle_columns={
+       "position_id":"معرّف المركز","حالة المركز":"الحالة","الاتجاه":"الاتجاه",
+       "opened_volume":"حجم الدخول","closed_deal_volume":"حجم الخروج",
+       "remaining_signed_volume":"الحجم الصافي المتبقي",
+       "realized_deal_profit":"ربح تنفيذات الخروج",
+       "commission":"العمولة","swap":"المقايضة","fee":"الرسوم",
+       "net_deal_cashflow":"صافي التدفق النقدي","currency":"العملة",
+       "deal_count":"عدد التنفيذات",
+      }
+      st.subheader("دورات المراكز المستنتجة من سجل الوسيط")
+      st.dataframe(
+       cycle_frame.rename(columns=cycle_columns)[list(cycle_columns.values())].head(50),
+       use_container_width=True,hide_index=True,
+      )
+      st.caption("الدورة المفتوحة تعرض أرباح التنفيذات المحققة حتى الآن فقط ولا تشمل الربح العائم. السجل الذي يبدأ بخروج دون دخول مرصود يُعلّم كسجل ناقص ولا يُعرض كدورة مكتملة.")
      deal_frame=pd.DataFrame(deal_rows)
      deal_frame["أساس الوقت"]=deal_frame["time_basis"].map({"MT5_SERVER_TIME":"توقيت خادم MT5","LEGACY_UTC_NORMALIZED":"UTC — سجل قديم"}).fillna("غير محدد")
      deal_frame["وقت السجل"]=pd.to_datetime(deal_frame["time_server_ms"],unit="ms",errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
