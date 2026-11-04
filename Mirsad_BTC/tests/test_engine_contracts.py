@@ -863,6 +863,21 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertAlmostEqual(result["decision_scores"]["engine_2_evidence_coverage"], 0.70)
         self.assertAlmostEqual(result["decision_scores"]["engine_2_quality"], 0.70)
 
+    def test_engine4_blocks_engine2_direction_below_core_evidence_coverage(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = make_engine2_price_action()
+        price_action["summary"]["directional_evidence_coverage"] = 0.69
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=price_action,
+        )
+        self.assertFalse(result["engine_2_native_price_action_context"]["decision_eligible"])
+        self.assertEqual(result["engine_2_native_price_action_context"]["gate"],
+                         "INSUFFICIENT_STRUCTURE_EVIDENCE_QUALITY")
+        self.assertEqual(result["candidate_action"], "WAIT")
+        self.assertIsNone(result["decision_scores"]["combined_score"])
+
     def test_engine2_native_price_action_is_primary_only_after_multitimeframe_confluence(self) -> None:
         chart = self._chart()
         chart["status"] = "READY"
