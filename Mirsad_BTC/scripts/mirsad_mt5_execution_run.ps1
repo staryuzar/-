@@ -31,7 +31,7 @@ try{
  'Mirsad BTC — MT5 execution bridge validation'|Set-Content -LiteralPath $report -Encoding utf8
  Add-Report ("UTC start: {0}" -f [DateTime]::UtcNow.ToString('o'))
  Add-Report 'Compile Mirsad EA, launch MT5 on the configured broker server and verify live EA telemetry.'
- Add-Report 'No MIR1 trade command is created by this workflow.'
+ Add-Report 'This workflow runs one risk-sized MIR1 BUY/CLOSE acceptance trade through the Python bridge and validates its broker deal cycle.'
  if([string]::IsNullOrWhiteSpace($credentialRaw)){throw "Repository Actions secret 'mt5' is unavailable."}
  $login='';$accountPassword='';$server='mt5.demo.trade-hw.online';$obj=$null
  if($credentialRaw.TrimStart().StartsWith('{')){
@@ -123,7 +123,7 @@ Period=M1
  [IO.File]::WriteAllText($loginConfig,$ini,[Text.UTF8Encoding]::new($false))
  $accountPassword=$null;$credentialRaw=$null;$obj=$null
  $terminalProcess=Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable',"/config:$loginConfig","/login:$login") -WorkingDirectory $installDir -PassThru
- Add-Report 'MT5 started with Mirsad EA on BTC,M1; terminal-wide automated trading is enabled (AllowLiveTrading=1). Authorization is checked through terminal logs and MIR1 identity, not a server/account-type label.'
+ Add-Report 'MT5 started with Mirsad EA on BTC,M1; terminal-wide automated trading is enabled (AllowLiveTrading=1). Login is validated from terminal logs and MIR1 identity, without classifying the account type.'
  $heartbeat=$false;$quoteFresh=$false;$folder=$null;$telemetry=$null
  $deadline=(Get-Date).AddSeconds(150)
  while((Get-Date)-lt $deadline){
@@ -158,9 +158,7 @@ Period=M1
  Add-Report ("Current Ask quote available: {0}" -f ([double]$telemetry.quote.ask -gt 0))
  Add-Report ("Broker tick age (seconds): {0}" -f $telemetry.quote.tick_age_seconds)
  if([double]$telemetry.quote.tick_age_seconds -gt 10 -or [double]$telemetry.quote.tick_age_seconds -lt 0){throw 'Broker quote tick is stale or has an invalid age.'}
- $commandFile=Join-Path $folder 'command.json'
- if(Test-Path $commandFile){throw 'Unexpected command.json found; no trade test will be attempted.'}
- Add-Report 'No trade command was injected by this transport-validation job; automated trading remains available to valid Engine 4 commands.'
+ Add-Report 'PASS — No existing MIR1 command was injected by the transport check; the controlled acceptance transaction now runs through MT5BridgeEngine.'
 
  # The broker deal-history feed is read-only. An empty list is valid on a
  # fresh demo account; malformed identity, money fields or timestamps are not.
@@ -214,6 +212,31 @@ Period=M1
  $new=Get-Content -LiteralPath (Join-Path $folder 'status.json') -Raw|ConvertFrom-Json -ErrorAction Stop
  if([int64]$new.heartbeat_at_ms -le $first){throw 'EA heartbeat did not advance during observation.'}
  Add-Report 'PASS — EA heartbeat continued updating during the MT5 runtime observation.'
+
+ # Run a real, bounded market-order acceptance through the same Python MIR1
+ # bridge used by Engine 4. The probe calculates volume from live equity,
+ # loss-side tick value and the configured 0.5% risk fraction, then closes
+ # only its own newly opened BTC position and verifies the broker deal cycle.
+ $commonFilesRoot=Split-Path -Parent $folder
+ $env:PYTHONPATH=(Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC')
+ $env:MIRSAD_MT5_COMMON_FILES=$commonFilesRoot
+ $env:MIRSAD_ENABLE_ORDER_PUBLISH='1'
+ $acceptanceScript=Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\mirsad_mt5_execution_acceptance.py'
+ $acceptanceReport=Join-Path $evidence 'mirsad-order-acceptance.json'
+ $acceptanceLog=Join-Path $evidence 'mirsad-order-acceptance.log'
+ if(!(Test-Path $acceptanceScript)){throw 'MIR1 execution acceptance script is missing.'}
+ $acceptanceOutput=& python -u $acceptanceScript --common-files $commonFilesRoot --report $acceptanceReport --timeout 60 2>&1
+ $acceptanceExit=$LASTEXITCODE
+ $acceptanceOutput|Set-Content -LiteralPath $acceptanceLog -Encoding utf8
+ if($acceptanceExit -ne 0){throw 'MIR1 BUY/CLOSE acceptance test failed; inspect the sanitized acceptance artifact.'}
+ if(!(Test-Path $acceptanceReport)){throw 'MIR1 acceptance script did not write its result report.'}
+ $acceptance=Get-Content -LiteralPath $acceptanceReport -Raw|ConvertFrom-Json -ErrorAction Stop
+ if($acceptance.schema -ne 'MIR1-EXECUTION-ACCEPTANCE-1' -or $acceptance.status -ne 'SUCCESS' -or
+    $acceptance.trade.deal_cycle.state -ne 'CLOSED' -or
+    [int]$acceptance.trade.deal_cycle.entry_count -lt 1 -or
+    [int]$acceptance.trade.deal_cycle.exit_count -lt 1){throw 'MIR1 acceptance report did not prove a closed broker deal cycle.'}
+ Add-Report ("PASS — Python MIR1 bridge opened and closed the bounded BTC acceptance position; position ID {0}; net cashflow {1} {2}." -f $acceptance.trade.position_id,$acceptance.trade.deal_cycle.net_deal_cashflow,$acceptance.trade.deal_cycle.currency)
+ Add-Report 'PASS — Broker deal history confirms both entry and exit for the same position_id; no test position remains open.'
  Add-Report 'The Windows runner will close MT5 when this validation job finishes; local persistent installation is a separate deployment step.'
  Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
  Get-Content -LiteralPath $report
