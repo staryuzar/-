@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS mt5_deals (
  deal_type INTEGER NOT NULL,
  deal_entry INTEGER NOT NULL,
  deal_reason INTEGER NOT NULL,
- time_utc_ms INTEGER NOT NULL,
+ time_server_ms INTEGER NOT NULL,
  volume REAL NOT NULL,
  price REAL NOT NULL,
  profit REAL NOT NULL,
@@ -63,9 +63,9 @@ CREATE TABLE IF NOT EXISTS mt5_deals (
  observed_at_ms INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_mt5_deals_position_time
- ON mt5_deals(magic,symbol,position_id,time_utc_ms);
+ ON mt5_deals(magic,symbol,position_id,time_server_ms);
 CREATE INDEX IF NOT EXISTS ix_mt5_deals_time
- ON mt5_deals(magic,symbol,time_utc_ms);
+ ON mt5_deals(magic,symbol,time_server_ms);
 CREATE TABLE IF NOT EXISTS storage_migrations (
  migration_id TEXT PRIMARY KEY,
  applied_at_ms INTEGER NOT NULL
@@ -521,7 +521,7 @@ def save_mt5_deal_history(
                 "deal_type": int(row["type"]),
                 "deal_entry": int(row["entry"]),
                 "deal_reason": int(row.get("reason", 0) or 0),
-                "time_utc_ms": int(row["time_utc_ms"]),
+                "time_server_ms": int(row["time_server_ms"]),
                 "volume": float(row["volume"]),
                 "price": float(row["price"]),
                 "profit": float(row["profit"]),
@@ -542,7 +542,7 @@ def save_mt5_deal_history(
         if (
             int(item["deal_ticket"]) <= 0 or int(item["position_id"]) <= 0
             or item["magic"] != magic or item["symbol"] != symbol
-            or item["time_utc_ms"] <= 0 or not item["currency"]
+            or item["time_server_ms"] <= 0 or not item["currency"]
             or item["deal_ticket"] in seen
             or any(not math.isfinite(value) for value in numeric)
             or item["volume"] < 0 or item["price"] < 0
@@ -562,7 +562,7 @@ def save_mt5_deal_history(
                 conn.execute(
                     """INSERT INTO mt5_deals
                        (deal_ticket,order_ticket,position_id,magic,symbol,deal_type,
-                        deal_entry,deal_reason,time_utc_ms,volume,price,profit,
+                        deal_entry,deal_reason,time_server_ms,volume,price,profit,
                         commission,swap,fee,net_cashflow,currency,comment,
                         payload_json,observed_at_ms)
                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -574,7 +574,7 @@ def save_mt5_deal_history(
                         deal_type=excluded.deal_type,
                         deal_entry=excluded.deal_entry,
                         deal_reason=excluded.deal_reason,
-                        time_utc_ms=excluded.time_utc_ms,
+                        time_server_ms=excluded.time_server_ms,
                         volume=excluded.volume,
                         price=excluded.price,
                         profit=excluded.profit,
@@ -589,7 +589,7 @@ def save_mt5_deal_history(
                     (
                         item["deal_ticket"], item["order_ticket"], item["position_id"],
                         item["magic"], item["symbol"], item["deal_type"],
-                        item["deal_entry"], item["deal_reason"], item["time_utc_ms"],
+                        item["deal_entry"], item["deal_reason"], item["time_server_ms"],
                         item["volume"], item["price"], item["profit"],
                         item["commission"], item["swap"], item["fee"],
                         item["net_cashflow"], item["currency"], item["comment"],
@@ -618,7 +618,7 @@ def load_mt5_deal_history(
     *,
     magic_number: int,
     symbol: str,
-    from_ms: int = 0,
+    from_server_ms: int = 0,
     limit: int = 1000,
     db_path: Path | str = DB_PATH,
 ) -> list[dict[str, Any]]:
@@ -626,20 +626,20 @@ def load_mt5_deal_history(
     clean_symbol = str(symbol).strip().upper()
     if int(magic_number) <= 0 or not clean_symbol:
         raise ValueError("A positive Mirsad magic number and symbol are required.")
-    if not isinstance(from_ms, int) or from_ms < 0:
-        raise ValueError("from_ms must be a non-negative Unix timestamp in milliseconds.")
+    if not isinstance(from_server_ms, int) or from_server_ms < 0:
+        raise ValueError("from_server_ms must be a non-negative Unix timestamp in milliseconds.")
     if not isinstance(limit, int) or not 1 <= limit <= 10000:
         raise ValueError("limit must be between 1 and 10000.")
     conn = connect(db_path)
     try:
         rows = conn.execute(
             """SELECT deal_ticket,order_ticket,position_id,magic,symbol,deal_type,
-                      deal_entry,deal_reason,time_utc_ms,volume,price,profit,
+                      deal_entry,deal_reason,time_server_ms,volume,price,profit,
                       commission,swap,fee,net_cashflow,currency,comment
                FROM mt5_deals
-               WHERE magic=? AND symbol=? AND time_utc_ms>=?
-               ORDER BY time_utc_ms DESC, deal_ticket DESC LIMIT ?""",
-            (int(magic_number), clean_symbol, from_ms, limit),
+               WHERE magic=? AND symbol=? AND time_server_ms>=?
+               ORDER BY time_server_ms DESC, deal_ticket DESC LIMIT ?""",
+            (int(magic_number), clean_symbol, from_server_ms, limit),
         ).fetchall()
         return [
             {key: row[key] for key in row.keys()}
