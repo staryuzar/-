@@ -200,6 +200,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   and bridge.get("status")=="CONNECTED"
   and bridge.get("terminal_connected") is True
   and bridge.get("execution_enabled") is True
+  and bridge.get("execution_input_enabled") is True
+  and bridge.get("trade_permissions_available") is True
  )
  readiness={
   "engine_5_execution_quote_feed":market_status=="LIVE",
@@ -238,6 +240,8 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "daily_loss_limit_enabled":bool(DAILY_LOSS_LIMIT_ENABLED),
    "terminal_connected":bridge.get("terminal_connected"),
    "expert_execution_enabled":bridge.get("execution_enabled"),
+   "expert_execution_input_enabled":bridge.get("execution_input_enabled"),
+   "expert_trade_permissions_available":bridge.get("trade_permissions_available"),
    "expert_execution_telemetry":(
     "REPORTED_ENABLED" if bridge.get("execution_enabled") is True
     else "REPORTED_DISABLED" if bridge.get("execution_enabled") is False

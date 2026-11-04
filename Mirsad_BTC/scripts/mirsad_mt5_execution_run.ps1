@@ -146,6 +146,8 @@ Period=M1
     $telemetry=Get-Content -LiteralPath (Join-Path $folder 'status.json') -Raw|ConvertFrom-Json -ErrorAction Stop
     $heartbeat=($telemetry.schema -eq 'MIR1' -and [bool]$telemetry.terminal_connected -and
       [bool]$telemetry.execution_enabled -and
+      [bool]$telemetry.execution_input_enabled -and
+      [bool]$telemetry.trade_permissions_available -and
       [int64]$telemetry.heartbeat_at_ms -gt 0 -and $telemetry.symbol -eq 'BTC')
     $tickAgeValue=$telemetry.quote.tick_age_seconds
     $tickAge=[double]$tickAgeValue

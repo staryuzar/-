@@ -1060,6 +1060,8 @@ class BridgeProtocolTests(unittest.TestCase):
                 "schema": "MIR1",
                 "terminal_connected": True,
                 "execution_enabled": False,
+                "execution_input_enabled": False,
+                "trade_permissions_available": True,
                 "heartbeat_at_ms": now,
                 "symbol": "BTC",
                 "market_symbol": "BTCUSDT",
@@ -1082,6 +1084,8 @@ class BridgeProtocolTests(unittest.TestCase):
             self.assertEqual(bridge["status"], "CONNECTED")
             self.assertIs(bridge["terminal_connected"], True)
             self.assertIs(bridge["execution_enabled"], False)
+            self.assertIs(bridge["execution_input_enabled"], False)
+            self.assertIs(bridge["trade_permissions_available"], True)
             self.assertEqual(bridge["current_command"]["command_id"], command["command_id"])
             self.assertEqual(bridge["last_order_ack"]["state"], "REJECTED")
             self.assertTrue(bridge["positions_file_valid"])
@@ -1138,11 +1142,11 @@ class BridgeProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             engine = MT5BridgeEngine(common_files=temp)
             with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
-                first = engine.publish_decision(make_open_decision(), {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True})
+                first = engine.publish_decision(make_open_decision(), {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True, "execution_input_enabled": True, "trade_permissions_available": True})
                 self.assertEqual(first["status"], "PUBLISHED")
 
                 second = make_open_decision("MIR-" + "c" * 24)
-                blocked = engine.publish_decision(second, {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True})
+                blocked = engine.publish_decision(second, {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True, "execution_input_enabled": True, "trade_permissions_available": True})
                 self.assertEqual(blocked["status"], "PENDING_COMMAND_BLOCKED")
 
                 command_path = Path(temp) / "MirsadBTC" / "command.json"
@@ -1154,12 +1158,14 @@ class BridgeProtocolTests(unittest.TestCase):
                     "state": "FILLED",
                 }), encoding="utf-8")
 
-                unconfirmed = engine.publish_decision(second, {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True})
+                unconfirmed = engine.publish_decision(second, {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True, "execution_input_enabled": True, "trade_permissions_available": True})
                 self.assertEqual(unconfirmed["status"], "PENDING_COMMAND_BLOCKED")
                 published = engine.publish_decision(second, {
                     "status": "CONNECTED",
                     "terminal_connected": True,
                     "execution_enabled": True,
+                    "execution_input_enabled": True,
+                    "trade_permissions_available": True,
                     "position_reconciliation": {
                         "status": "CONFIRMED",
                         "command_id": command["command_id"],
@@ -1188,6 +1194,36 @@ class BridgeProtocolTests(unittest.TestCase):
                 unknown = engine.publish_decision(make_open_decision(), base)
             self.assertEqual(disabled["status"], "EXECUTION_DISABLED")
             self.assertEqual(unknown["status"], "EXECUTION_STATE_UNKNOWN")
+            self.assertFalse((Path(temp) / "MirsadBTC" / "command.json").exists())
+
+    def test_publish_requires_explicit_execution_input_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            state = {
+                "status": "CONNECTED",
+                "terminal_connected": True,
+                "execution_enabled": True,
+                "execution_input_enabled": False,
+                "trade_permissions_available": True,
+            }
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                result = engine.publish_decision(make_open_decision(), state)
+            self.assertEqual(result["status"], "EXECUTION_INPUT_DISABLED")
+            self.assertFalse((Path(temp) / "MirsadBTC" / "command.json").exists())
+
+    def test_publish_requires_explicit_mt5_trading_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            state = {
+                "status": "CONNECTED",
+                "terminal_connected": True,
+                "execution_enabled": True,
+                "execution_input_enabled": True,
+                "trade_permissions_available": False,
+            }
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                result = engine.publish_decision(make_open_decision(), state)
+            self.assertEqual(result["status"], "TRADE_PERMISSIONS_UNAVAILABLE")
             self.assertFalse((Path(temp) / "MirsadBTC" / "command.json").exists())
 
     def test_publish_requires_terminal_connected_flag(self) -> None:

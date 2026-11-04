@@ -249,6 +249,10 @@ class MT5BridgeEngine:
         )
         execution_value = payload.get("execution_enabled")
         execution_enabled = execution_value if isinstance(execution_value, bool) else None
+        input_value = payload.get("execution_input_enabled")
+        execution_input_enabled = input_value if isinstance(input_value, bool) else None
+        permissions_value = payload.get("trade_permissions_available")
+        trade_permissions_available = permissions_value if isinstance(permissions_value, bool) else None
         positions_file = _read_json_array(self.root / "positions.json")
         positions_file_valid = positions_file is not None and all(isinstance(item, dict) for item in positions_file)
         event_log = _read_jsonl_tail(self.root / "events.jsonl")
@@ -278,6 +282,8 @@ class MT5BridgeEngine:
             "schema": payload.get("schema"),
             "terminal_connected": payload.get("terminal_connected") is True,
             "execution_enabled": execution_enabled,
+            "execution_input_enabled": execution_input_enabled,
+            "trade_permissions_available": trade_permissions_available,
             "heartbeat_at_ms": heartbeat if heartbeat > 0 else None,
             "heartbeat_age_seconds": round(age, 2) if age is not None else None,
             "quote_age_seconds": round(quote_age, 2) if quote_age is not None else None,
@@ -587,6 +593,26 @@ class MT5BridgeEngine:
                 else "The EA execution_enabled telemetry is missing or invalid; no MIR1 command was written."
             )
             return {"status": status, "message": message}
+        if bridge_state.get("execution_input_enabled") is not True:
+            status = (
+                "EXECUTION_INPUT_DISABLED"
+                if bridge_state.get("execution_input_enabled") is False
+                else "EXECUTION_INPUT_STATE_UNKNOWN"
+            )
+            return {
+                "status": status,
+                "message": "The latest MIR1 heartbeat must explicitly confirm that the EA execution input is enabled.",
+            }
+        if bridge_state.get("trade_permissions_available") is not True:
+            status = (
+                "TRADE_PERMISSIONS_UNAVAILABLE"
+                if bridge_state.get("trade_permissions_available") is False
+                else "TRADE_PERMISSIONS_STATE_UNKNOWN"
+            )
+            return {
+                "status": status,
+                "message": "The latest MIR1 heartbeat must explicitly confirm terminal, MQL, account and Expert Advisor trading permissions.",
+            }
 
         self.root.mkdir(parents=True, exist_ok=True)
         ack = _read_object(self.root / "ack.json")
