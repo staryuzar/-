@@ -681,6 +681,7 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertAlmostEqual(result["funding_rate"], 0.00008)
         self.assertEqual(result["funding_rate_basis"], "8H_EQUIVALENT_FROM_HOURLY")
         self.assertEqual(result["funding_timestamp_ms"], stamp)
+        self.assertEqual(result["funding_timestamp_basis"], "HTTP_PROVIDER_DATE")
         self.assertAlmostEqual(result["open_interest"], 123.5)
         scored = score_derivatives({"Hyperliquid": result}, now_ms=stamp)
         self.assertEqual(scored["status"], "PARTIAL")

@@ -1285,6 +1285,7 @@ class MarketIntelligenceEngine:
             "funding_rate_hourly": hourly_funding,
             "funding_rate_basis": "8H_EQUIVALENT_FROM_HOURLY" if hourly_funding is not None else "UNAVAILABLE",
             "funding_timestamp_ms": provider_timestamp if funding_8h_equivalent is not None else None,
+            "funding_timestamp_basis": "HTTP_PROVIDER_DATE" if provider_timestamp is not None else "UNKNOWN",
             "long_short_ratio": None,
             "long_short_timestamp_ms": None,
             "open_interest": open_interest,

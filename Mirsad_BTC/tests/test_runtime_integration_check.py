@@ -4,6 +4,7 @@ import unittest
 
 from scripts.mirsad_runtime_integration_check import (
     evaluate_engine4_runtime,
+    summarize_calibration_archive,
     summarize_calibration_persistence,
 )
 
@@ -18,9 +19,47 @@ class Engine4IntegrationReadinessTests(unittest.TestCase):
             "candles_inserted": 12,
         })
         self.assertEqual(summary["status"], "STORED")
-        self.assertEqual(summary["sample_count"], 42)
+        self.assertEqual(summary["write_reported_sample_count"], 42)
         self.assertEqual(summary["candles_inserted"], 12)
         self.assertEqual(summarize_calibration_persistence(None)["status"], "NOT_REPORTED")
+
+    def test_archive_summary_counts_current_profile_and_actions_independently(self) -> None:
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+        from mirsad.storage import DECISION_CALIBRATION_PROFILE_VERSION
+
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "decision_calibration.sqlite3"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "CREATE TABLE decision_calibration_samples "
+                    "(profile_version TEXT, final_action TEXT)"
+                )
+                conn.executemany(
+                    "INSERT INTO decision_calibration_samples VALUES (?,?)",
+                    [
+                        (DECISION_CALIBRATION_PROFILE_VERSION, "WAIT"),
+                        (DECISION_CALIBRATION_PROFILE_VERSION, "WAIT"),
+                        (DECISION_CALIBRATION_PROFILE_VERSION, "BUY"),
+                        ("old-profile", "SELL"),
+                    ],
+                )
+            summary = summarize_calibration_archive(db_path)
+        self.assertEqual(summary["status"], "READY")
+        self.assertEqual(summary["total_samples"], 4)
+        self.assertEqual(summary["current_profile_sample_count"], 3)
+        self.assertEqual(summary["current_profile_final_action_counts"], {"WAIT": 2, "BUY": 1})
+        self.assertEqual(summary["profiles"][DECISION_CALIBRATION_PROFILE_VERSION], 3)
+
+    def test_missing_calibration_archive_is_reported_without_failing_runtime(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            summary = summarize_calibration_archive(Path(directory) / "missing.sqlite3")
+        self.assertEqual(summary["status"], "MISSING")
+        self.assertEqual(summary["total_samples"], 0)
 
     def test_directional_entry_requires_engine2_eligibility_and_ready_status(self) -> None:
         result = evaluate_engine4_runtime({

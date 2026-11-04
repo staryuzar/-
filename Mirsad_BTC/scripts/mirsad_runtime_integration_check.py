@@ -3,12 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
 
 from mirsad import runtime
+from mirsad.config import DECISION_CALIBRATION_DB_PATH
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
+from mirsad.storage import DECISION_CALIBRATION_PROFILE_VERSION
 
 
 def read_object(path: Path) -> dict[str, Any]:
@@ -130,7 +133,7 @@ def summarize_calibration_persistence(persistence: Any) -> dict[str, Any]:
     return {
         "status": str(persistence.get("status", "NOT_REPORTED")),
         "profile_version": persistence.get("profile_version"),
-        "sample_count": count,
+        "write_reported_sample_count": count,
         "candidate_action": persistence.get("candidate_action"),
         "final_action": persistence.get("final_action"),
         "decision_status": persistence.get("decision_status"),
@@ -138,6 +141,80 @@ def summarize_calibration_persistence(persistence: Any) -> dict[str, Any]:
         "candles_inserted": candles_inserted,
         "reason": persistence.get("reason"),
     }
+
+
+def summarize_calibration_archive(
+    db_path: Path = DECISION_CALIBRATION_DB_PATH,
+) -> dict[str, Any]:
+    """Read cumulative archive counts independently of the most recent INSERT result."""
+    if not db_path.is_file():
+        return {
+            "status": "MISSING",
+            "database_path": str(db_path),
+            "total_samples": 0,
+            "current_profile_sample_count": 0,
+            "current_profile_final_action_counts": {},
+            "profiles": {},
+        }
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            tables = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "decision_calibration_samples" not in tables:
+                return {
+                    "status": "INVALID",
+                    "database_path": str(db_path),
+                    "reason": "decision_calibration_samples table is missing.",
+                    "total_samples": 0,
+                    "current_profile_sample_count": 0,
+                    "current_profile_final_action_counts": {},
+                    "profiles": {},
+                }
+            total = int(conn.execute(
+                "SELECT COUNT(*) FROM decision_calibration_samples"
+            ).fetchone()[0])
+            profiles = {
+                str(row[0]): int(row[1])
+                for row in conn.execute(
+                    "SELECT profile_version, COUNT(*) "
+                    "FROM decision_calibration_samples GROUP BY profile_version"
+                ).fetchall()
+            }
+            current_count = int(conn.execute(
+                "SELECT COUNT(*) FROM decision_calibration_samples WHERE profile_version=?",
+                (DECISION_CALIBRATION_PROFILE_VERSION,),
+            ).fetchone()[0])
+            action_counts = {
+                str(row[0]).upper(): int(row[1])
+                for row in conn.execute(
+                    "SELECT final_action, COUNT(*) FROM decision_calibration_samples "
+                    "WHERE profile_version=? GROUP BY final_action",
+                    (DECISION_CALIBRATION_PROFILE_VERSION,),
+                ).fetchall()
+            }
+        return {
+            "status": "READY" if total else "EMPTY",
+            "database_path": str(db_path),
+            "total_samples": total,
+            "current_profile_version": DECISION_CALIBRATION_PROFILE_VERSION,
+            "current_profile_sample_count": current_count,
+            "current_profile_final_action_counts": action_counts,
+            "profiles": profiles,
+        }
+    except (sqlite3.Error, OSError, TypeError, ValueError) as exc:
+        return {
+            "status": "ERROR",
+            "database_path": str(db_path),
+            "reason": f"{type(exc).__name__}: {str(exc)[:240]}",
+            "total_samples": None,
+            "current_profile_sample_count": None,
+            "current_profile_final_action_counts": {},
+            "profiles": {},
+        }
 
 
 def run(common_root: Path, output: Path) -> dict[str, Any]:
@@ -243,6 +320,7 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
     calibration_persistence = summarize_calibration_persistence(
         report.get("decision_calibration_persistence")
     )
+    calibration_archive = summarize_calibration_archive()
     summary = {
         "schema": "MIRSAD-LIVE-RUNTIME-INTEGRATION-1",
         "status": "PASS" if all(checks.values()) else "FAIL",
@@ -312,7 +390,10 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
         "validated_mir1_envelopes": captured_commands,
         "decision_readiness": engine4_runtime["readiness"],
         "directional_entry_eligible": engine4_runtime["entry_eligible"],
-        "decision_calibration": calibration_persistence,
+        "decision_calibration": {
+            **calibration_persistence,
+            "archive": calibration_archive,
+        },
         "overall_runtime_status": report.get("overall_status"),
         "notes": [
             "All five engines were evaluated in one runtime.collect_once cycle against one live MT5 Common Files directory.",
