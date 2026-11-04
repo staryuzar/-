@@ -37,8 +37,9 @@ DAILY_LOSS_LIMIT_ENABLED=os.getenv("MIRSAD_DAILY_LOSS_LIMIT_ENABLED","0").strip(
 MAX_DAILY_LOSS_FRACTION=float(os.getenv("MIRSAD_MAX_DAILY_LOSS_FRACTION","0.02"))
 RISK_STATE_PATH=DATA_DIR/"daily_risk_state.json"
 MT5_COMMON_FILES=os.getenv("MIRSAD_MT5_COMMON_FILES","").strip()
-# Command publication stays opt-in until the separate MT5 execution gate is enabled.
-ENABLE_ORDER_PUBLISH=os.getenv("MIRSAD_ENABLE_ORDER_PUBLISH","0").strip().lower() in {"1","true","yes","on"}
+# User-requested default: publish Engine 4 commands when a decision is ready and the MT5 bridge reports execution enabled.
+# Set MIRSAD_ENABLE_ORDER_PUBLISH=0 only for an intentional read-only run.
+ENABLE_ORDER_PUBLISH=os.getenv("MIRSAD_ENABLE_ORDER_PUBLISH","1").strip().lower() in {"1","true","yes","on"}
 
 PROVIDERS={
  "Binance Spot":"https://api.binance.com",
