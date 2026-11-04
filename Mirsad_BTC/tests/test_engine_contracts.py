@@ -827,7 +827,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         )
         self.assertEqual(
             with_context["engine_2_native_price_action_context"]["role"],
-            "PRIMARY_ENGINE_2_NATIVE_OHLC_ONLY_NO_IMAGE_DEPENDENCY",
+            "PRIMARY_ENGINE_2_NATIVE_OHLC_DIRECTIONAL_VOTE",
         )
         self.assertEqual(without_context["candidate_action"], "WAIT")
         self.assertIsNone(without_context["decision_scores"]["engine_2_score"])
