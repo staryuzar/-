@@ -12,8 +12,8 @@ class DecisionCalibrationEvaluationTests(unittest.TestCase):
   with self.assertRaisesRegex(ValueError,"positive"): parse_horizons("1,0,5")
 
  def test_chronological_splits_enforce_embargo(self):
-  windows=[SplitWindow("train",60_000,900_000),SplitWindow("validation",930_000,1_800_000),
-           SplitWindow("test",1_830_000,2_700_000)]
+  windows=[SplitWindow("train",60_000,4_000_000),SplitWindow("validation",4_030_000,8_000_000),
+           SplitWindow("test",8_030_000,12_000_000)]
   with self.assertRaisesRegex(ValueError,"begin at least"):
    validate_split_windows(windows,max_horizon=20,embargo_bars=20)
 
@@ -30,7 +30,7 @@ class DecisionCalibrationEvaluationTests(unittest.TestCase):
   candles={120_000:{"open":100.0,"high":101.0,"low":98.0,"close":99.0}}
   sell=forward_markout_bps(signal_bar_time_ms=60_000,action="SELL",candles_by_open_ms=candles,
     horizon=1,fee_bps_per_side=0.0,slippage_bps_per_side=0.0,spread_pct=0.0)
-  self.assertLess(sell["gross_bps"],0.0)
+  self.assertGreater(sell["gross_bps"],0.0)
   self.assertIsNone(forward_markout_bps(signal_bar_time_ms=60_000,action="WAIT",
     candles_by_open_ms=candles,horizon=1,fee_bps_per_side=0.0,
     slippage_bps_per_side=0.0,spread_pct=0.0))
