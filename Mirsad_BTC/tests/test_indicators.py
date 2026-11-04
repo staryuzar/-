@@ -184,7 +184,7 @@ class IndicatorsEngineTests(unittest.TestCase):
         self.assertEqual(result["timeframes"]["1d"]["status"], "INSUFFICIENT")
         self.assertIsNone(result["indicators_by_timeframe"]["1d"]["ema50"])
 
-    def test_engine1_market_quote_without_engine2_candles_is_not_ready(self) -> None:
+    def test_engine5_broker_quote_without_engine2_candles_is_not_ready(self) -> None:
         result = IndicatorsEngine().analyze({
             "status": "LIVE",
             "source": "MT5_TERMINAL",
