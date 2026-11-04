@@ -1,8 +1,17 @@
 name: Mirsad BTC — MT5 OPEN/CLOSE EA runtime and execution permissions
 
 on:
-  # Broker BUY/CLOSE acceptance is intentionally never triggered by a code push.
-  # This workflow defaults to read-only; broker orders need an explicit manual opt-in.
+  # Pushes run the Windows compile/heartbeat check in read-only mode only.
+  # Broker BUY/CLOSE acceptance requires an explicit manual opt-in.
+  push:
+    branches: [mini]
+    paths:
+      - 'Mirsad_BTC/mt5/Mirsad_BTC_ExecutionBridge.mq5'
+      - 'Mirsad_BTC/scripts/mirsad_mt5_execution_run.ps1'
+      - 'Mirsad_BTC/scripts/mirsad_mt5_execution_acceptance.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_bridge.py'
+      - 'Mirsad_BTC/mirsad/engines/position_ledger.py'
+      - '.github/workflows/mirsad-btc-mt5-execution.yml'
   workflow_dispatch:
     inputs:
       run_broker_acceptance_trade:
@@ -44,7 +53,7 @@ jobs:
       - name: Compile MIR1 EA and verify MT5 heartbeat (broker orders disabled unless explicitly requested)
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
-          MIRSAD_RUN_BROKER_ACCEPTANCE: ${{ inputs.run_broker_acceptance_trade }}
+          MIRSAD_RUN_BROKER_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.run_broker_acceptance_trade || false }}
         shell: pwsh
         run: ./Mirsad_BTC/scripts/mirsad_mt5_execution_run.ps1
 
