@@ -644,6 +644,56 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertFalse(result["command_ready"])
         self.assertEqual(result["daily_risk_gate"]["status"], "ACCOUNT_EQUITY_UNAVAILABLE")
 
+    def test_engine4_partial_take_profit_requires_complete_history_and_precedes_stop_update(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        atr5 = float(indicators["values"]["atr14_5m"])
+        market = self._market()
+        bid = 100.0 + 1.8 * atr5
+        bridge = self._daily_risk_bridge(
+            locked=False,
+            positions=[{
+                "ticket": 123456, "position_id": 501, "symbol": "BTC", "type": 0,
+                "magic": 26110201, "volume": 0.10, "price_open": 100.0,
+                "stop_loss": 90.0, "take_profit": 130.0,
+            }],
+        )
+        bridge["quote"] = {
+            "bid": bid, "ask": bid + 0.1,
+            "time_ms": int(time.time() * 1000), "tick_age_seconds": 1.0,
+        }
+        bridge["position_management_history"] = {
+            "status": "READY",
+            "cycles": {"501": {
+                "state": "OPEN_FROM_CAPTURED_ENTRY", "direction": "LONG",
+                "entry_count": 1, "exit_count": 0, "reversal_count": 0,
+                "history_starts_with_entry": True,
+                "opened_volume": 0.10, "remaining_signed_volume": 0.10,
+            }},
+        }
+
+        result = DecisionEngine().analyze(market, chart, bridge, indicators)
+
+        self.assertEqual(result["action"], "CLOSE")
+        self.assertTrue(result["command_ready"])
+        self.assertEqual(result["position_ticket"], 123456)
+        self.assertEqual(result["risk_plan"]["purpose"], "one_time_partial_take_profit")
+        self.assertAlmostEqual(result["risk_plan"]["volume"], 0.05)
+        self.assertEqual(result["position_management"]["stage"], "PARTIAL_TAKE_PROFIT")
+        self.assertTrue(result["position_management"]["history_verified"])
+
+        # Once any exit is recorded, that position is never offered another
+        # partial take-profit; its remaining exposure returns to stop management.
+        bridge["positions"][0]["volume"] = 0.05
+        bridge["position_management_history"]["cycles"]["501"].update({
+            "exit_count": 1, "opened_volume": 0.10, "remaining_signed_volume": 0.05,
+        })
+        repeated = DecisionEngine().analyze(market, chart, bridge, indicators)
+        self.assertNotEqual(repeated["action"], "CLOSE")
+        self.assertFalse(
+            repeated.get("position_management", {}).get("stage") == "PARTIAL_TAKE_PROFIT"
+        )
+
     def test_engine4_protective_stop_management_has_priority_over_visual_chart_gate(self) -> None:
         chart = self._chart()
         chart["status"] = "WAITING_FOR_IMAGE"
