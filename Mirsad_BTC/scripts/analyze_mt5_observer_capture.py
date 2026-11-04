@@ -370,10 +370,19 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str, *, debu
             "native_geometry_slot_center_count": native_slot_center_result.get("native_slot_count", 0),
             "native_geometry_slot_assignment": result.get("native_geometry_slot_assignment", {}),
             "native_pixel_geometry": {
-                key: native_pixel_geometry.get(key) for key in (
-                    "status", "decision_eligible", "validated_bars", "visible_bars",
-                    "minimum_visible_bars", "mapping_status", "scale_x", "scale_y", "reason"
-                )
+                **{
+                    key: native_pixel_geometry.get(key) for key in (
+                        "status", "decision_eligible", "validated_bars", "visible_bars",
+                        "minimum_visible_bars", "mapping_status", "scale_x", "scale_y", "reason"
+                    )
+                },
+                # Expose the MT5 inverse transform result so live evidence can
+                # separate ChartTimePriceToXY errors from PNG/image alignment.
+                "roundtrip_validation": native_pixel_geometry.get("roundtrip_validation", {
+                    "status": "NOT_AVAILABLE",
+                    "reason": "Inverse ChartXYToTimePrice evidence is missing from this capture.",
+                    "decision_eligible": False,
+                }),
             },
             "native_geometry_overlay": {
                 **{
