@@ -9,7 +9,7 @@ def main() -> int:
     print("Mirsad BTC — MT5-only market feed smoke check. No external exchange APIs are queried.")
     market = MT5MarketDataEngine().collect()
     print(
-        f"Engine 1: {market['status']} | source={market.get('source')} "
+        f"Engine 5: {market['status']} | source={market.get('source')} "
         f"| venue_count={market.get('venue_count')} | reason={market.get('reason')}"
     )
     if market.get("status") == "LIVE" and market.get("source") == "MT5_TERMINAL":
