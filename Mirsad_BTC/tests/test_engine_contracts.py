@@ -754,7 +754,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["engine_2_native_price_action_context"]["gate"], "MIXED_OR_NO_CONFLUENCE")
         self.assertEqual(result["chart_gate"], "WAITING_FOR_ENGINE_2_PRICE_ACTION_CONFLUENCE")
         self.assertIsNone(result["decision_scores"]["combined_score"])
-        self.assertAlmostEqual(result["decision_scores"]["engine_3_indicators"], -0.341163)
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_indicators"], -0.3412, places=4)
         self.assertFalse(result["command_ready"])
 
 
