@@ -346,8 +346,8 @@ def assess_market_risk(
     for venue, raw in venues.items():
         if not isinstance(raw, dict) or raw.get("directional_status") != "FRESH":
             continue
-        funding = _finite(raw.get("funding_rate"))
-        ratio = _finite(raw.get("long_short_ratio"))
+        funding = _finite(raw.get("funding_rate")) if raw.get("funding_directional_status") == "FRESH" else None
+        ratio = _finite(raw.get("long_short_ratio")) if raw.get("long_short_directional_status") == "FRESH" else None
         if (funding is not None and abs(funding) >= 0.0005) or (ratio is not None and (ratio >= 2.0 or ratio <= 0.5)):
             crowded.append(str(venue))
     if crowded:

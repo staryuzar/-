@@ -273,5 +273,30 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(result["venues"]["Bybit"]["directional_status"], "FRESHNESS_UNKNOWN")
 
 
+    def test_risk_overlay_does_not_use_stale_long_short_for_crowding_alert(self) -> None:
+        now = 1_798_000_000_000
+        result = assess_market_risk(
+            news={"items": [], "sentiment": {"status": "READY"}},
+            fear_greed={"status": "READY", "value": 50},
+            derivatives={
+                "status": "READY",
+                "venue_scores": {
+                    "Binance": {
+                        "directional_status": "FRESH",
+                        "funding_directional_status": "FRESH",
+                        "long_short_directional_status": "STALE",
+                        "funding_rate": 0.00001,
+                        "long_short_ratio": 3.0,
+                    }
+                },
+            },
+            calendar={"high_impact_window_active": False},
+            now_ms=now,
+        )
+        self.assertNotIn("EXTREME_DERIVATIVES_POSITIONING", result["drivers"])
+        self.assertEqual(result["level"], "NORMAL")
+
+
+
 if __name__ == "__main__":
     unittest.main()
