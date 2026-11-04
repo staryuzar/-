@@ -65,6 +65,9 @@ class ExecutionAcceptanceSizingTests(unittest.TestCase):
 
     def test_acceptance_order_refuses_broker_minimum_above_notional_cap(self) -> None:
         state = valid_mt5_state()
+        # Give the risk budget room for the broker minimum so this case
+        # isolates the independent USD 1,000 notional cap.
+        state["account"]["equity"] = 20_000.0
         state["symbol_spec"]["volume_min"] = 0.02
         state["symbol_spec"]["volume_step"] = 0.02
         with self.assertRaisesRegex(RuntimeError, "minimum lot exceeds"):
