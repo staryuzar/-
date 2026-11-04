@@ -50,8 +50,9 @@ def _read_mt5_deal_history(
         }
     try:
         queried_at = int(payload["queried_at_utc_ms"])
-        window_start = int(payload["window_start_utc_ms"])
-        window_end = int(payload["window_end_utc_ms"])
+        window_start = int(payload["window_start_server_ms"])
+        window_end = int(payload["window_end_server_ms"])
+        server_utc_offset = int(payload["server_utc_offset_seconds_at_query"])
         history_total = int(payload["history_total_selected"])
         start_index = int(payload["history_start_index"])
         returned_count = int(payload["returned_count"])
@@ -64,9 +65,10 @@ def _read_mt5_deal_history(
         queried_at <= 0 or window_start <= 0 or window_end < window_start
         or history_total < 0 or start_index < 0 or returned_count < 0
         or not isinstance(raw_deals, list) or returned_count != len(raw_deals)
+        or server_utc_offset < -86400 or server_utc_offset > 86400
         or magic <= 0 or magic != expected_magic
         or symbol.casefold() != expected_symbol.casefold()
-        or payload.get("time_basis") != "UTC_NORMALIZED_FROM_MT5_SERVER_TIME"
+        or payload.get("time_basis") != "MT5_SERVER_TIME"
     ):
         return {
             "status": "INVALID",
@@ -87,7 +89,7 @@ def _read_mt5_deal_history(
             order_ticket = str(int(raw.get("order_ticket", 0) or 0))
             position_id = str(int(raw["position_id"]))
             row_magic = int(raw["magic"])
-            deal_time = int(raw["time_utc_ms"])
+            deal_time = int(raw["time_server_ms"])
             deal_type = int(raw["type"])
             deal_entry = int(raw["entry"])
             deal_reason = int(raw.get("reason", 0) or 0)
@@ -122,7 +124,7 @@ def _read_mt5_deal_history(
             "type": deal_type,
             "entry": deal_entry,
             "reason": deal_reason,
-            "time_utc_ms": deal_time,
+            "time_server_ms": deal_time,
             **values,
             "currency": currency,
             "comment": str(raw.get("comment", "")),
@@ -132,6 +134,7 @@ def _read_mt5_deal_history(
     return {
         **payload,
         "status": "READY",
+        "server_utc_offset_seconds_at_query": server_utc_offset,
         "symbol": symbol,
         "magic": magic,
         "deals": validated,
