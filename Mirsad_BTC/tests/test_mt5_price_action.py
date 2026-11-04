@@ -73,6 +73,7 @@ class DirectionalEvidenceScoringTests(unittest.TestCase):
         self.assertAlmostEqual(score, 1.0)
         self.assertEqual(evidence["evidence_count"], 1)
         self.assertEqual(evidence["applied_weights"], {"confirmed_swing_structure": 1.0})
+        self.assertAlmostEqual(evidence["evidence_coverage"], 0.70)
 
     def test_candles_bos_choch_and_liquidity_sweeps_contribute_to_engine2_score(self) -> None:
         score, evidence = _directional_evidence_score(
