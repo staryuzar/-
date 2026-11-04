@@ -115,7 +115,6 @@ class MT5ChartCandleHistory:
         self,
         *,
         bridge: dict[str, Any] | None = None,
-        market: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if self.path is None:
             return self._blocked(
