@@ -60,7 +60,8 @@ class Engine4IntegrationReadinessTests(unittest.TestCase):
         self.assertTrue(result["gate_consistent"])
         self.assertTrue(result["safe_wait"])
         self.assertFalse(result["entry_eligible"])
-        self.assertEqual(result["readiness"], "INCONSISTENT_OR_INCOMPLETE")
+        self.assertTrue(result["engine2_entry_eligible"])
+        self.assertEqual(result["readiness"], "SAFE_WAIT_ENGINE3_PARITY_NOT_VERIFIED")
 
     def test_engine2_not_ready_must_not_be_reported_as_a_directional_entry(self) -> None:
         result = evaluate_engine4_runtime({
