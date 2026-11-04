@@ -125,44 +125,19 @@ def build_report(result: dict[str, Any]) -> dict[str, Any]:
             "drivers": risk.get("drivers", []),
             "automatic_entry_block": risk.get("automatic_entry_block", False),
         },
-        "scope": "Read-only live provider diagnostic. No MT5 orders or position operations are sent. Provider outages are diagnostic warnings, not model evidence.",
+        "scope": "Read-only standalone public-provider diagnostic for Engine 1. No MT5 quote, account, broker-calendar or other-engine payload is consumed; no orders or position operations are sent. Provider outages are diagnostic warnings, not model evidence.",
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only live diagnostics for Mirsad Engine 1 providers.")
     parser.add_argument("--output", default="engine1-live-source-report.json")
-    parser.add_argument(
-        "--market-snapshot",
-        type=Path,
-        default=None,
-        help="Optional sanitized MIR-MT5-MARKET-2 JSON snapshot to include the live broker calendar/context.",
-    )
     args = parser.parse_args()
 
-    market: dict[str, Any] = {}
-    if args.market_snapshot is not None:
-        try:
-            loaded_market = json.loads(args.market_snapshot.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise SystemExit(f"Cannot read MT5 market snapshot: {type(exc).__name__}: {exc}")
-        if not isinstance(loaded_market, dict):
-            raise SystemExit("MT5 market snapshot must be a JSON object.")
-        if loaded_market.get("schema") != "MIR-MT5-MARKET-2":
-            raise SystemExit("MT5 market snapshot does not match MIR-MT5-MARKET-2.")
-        # The Observer writes the broker calendar at the snapshot root.
-        # Runtime's MT5MarketDataEngine nests it under market_context; mirror
-        # that normalized shape here so this CLI exercises the same collector.
-        market = dict(loaded_market)
-        context = market.get("market_context")
-        context = dict(context) if isinstance(context, dict) else {}
-        if not isinstance(context.get("economic_calendar"), dict):
-            root_calendar = loaded_market.get("economic_calendar")
-            if isinstance(root_calendar, dict):
-                context["economic_calendar"] = root_calendar
-        market["market_context"] = context
-
-    result = MarketIntelligenceEngine().collect(market)
+    # Engine 1 is standalone: this diagnostic only samples its public providers.
+    # MT5 quotes, account identity, broker calendar and other-engine payloads
+    # belong to the separate Engine 5 feed and are never passed into this collector.
+    result = MarketIntelligenceEngine().collect()
     report = build_report(result)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
