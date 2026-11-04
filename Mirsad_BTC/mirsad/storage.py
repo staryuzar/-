@@ -244,13 +244,11 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
     # Recreate indexes after schema migration so existing databases with the
     # old column names cannot block application startup.
     with conn:
-        conn.execute("DROP INDEX IF EXISTS ix_mt5_deals_position_time")
-        conn.execute("DROP INDEX IF EXISTS ix_mt5_deals_time")
         conn.execute(
-            "CREATE INDEX ix_mt5_deals_position_time ON mt5_deals(magic,symbol,position_id,time_server_ms)"
+            "CREATE INDEX IF NOT EXISTS ix_mt5_deals_position_time ON mt5_deals(magic,symbol,position_id,time_server_ms)"
         )
         conn.execute(
-            "CREATE INDEX ix_mt5_deals_time ON mt5_deals(magic,symbol,time_server_ms)"
+            "CREATE INDEX IF NOT EXISTS ix_mt5_deals_time ON mt5_deals(magic,symbol,time_server_ms)"
         )
     # Separate legacy OKX UTC+8 daily bars before new UTC (1Dutc) bars are
     # written into the canonical '1d' interval. Preserve the old data under a
