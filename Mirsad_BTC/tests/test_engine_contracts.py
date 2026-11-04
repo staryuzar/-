@@ -207,7 +207,7 @@ class WeightedDecisionTests(unittest.TestCase):
         self.assertAlmostEqual(weights["engine_1_market_intelligence"], 0.10)
         self.assertAlmostEqual(weights["engine_2_price_action"], 0.55)
         self.assertAlmostEqual(weights["engine_3_indicators"], 0.25)
-        self.assertAlmostEqual(score, 0.90 * 0.10 + 0.50 * 0.50 + 0.10 * 0.30)
+        self.assertAlmostEqual(score, 0.90 * 0.10 + 0.50 * 0.55 + 0.10 * 0.25)
         self.assertAlmostEqual(sum(weights.values()), 0.90)
 
     def test_engine1_uses_only_its_standalone_report_and_never_quote_pulse(self) -> None:
