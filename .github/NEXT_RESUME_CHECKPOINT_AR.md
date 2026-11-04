@@ -3,7 +3,7 @@
 ## المستودع والفرع
 - Repository: `staryuzar/-`
 - فرع العمل الوحيد: `mini`
-- آخر SHA موثق: `a0461b13ecd71abeb0a2e95c6659c988187f16c3`
+- آخر SHA للشيفرة التي اجتازت الاختبارات وMT5 compile: `a0461b13ecd71abeb0a2e95c6659c988187f16c3`؛ قد يكون HEAD الحالي أحدث بسبب تحديثات وثائقية.
 - اقرأ أولاً [سياق المشروع الدائم](MIRSAD_BTC_PROJECT_CONTEXT_AR.md) و[تقرير التدقيق التنفيذي](../Mirsad_BTC/reports/ENGINE_READINESS_AUDIT_AR_20261104.md).
 
 ## ما أُصلح في آخر التحديث
