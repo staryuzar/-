@@ -72,7 +72,17 @@ class Engine1LiveSourceValidatorTests(unittest.TestCase):
                 exit_code = main()
 
             self.assertEqual(exit_code, 0)
-            collect.assert_called_once_with(market)
+            collect.assert_called_once()
+            normalized_market = collect.call_args.args[0]
+            self.assertEqual(normalized_market["schema"], "MIR-MT5-MARKET-2")
+            self.assertEqual(
+                normalized_market["market_context"]["economic_calendar"]["status"],
+                "AVAILABLE",
+            )
+            self.assertEqual(
+                normalized_market["market_context"]["economic_calendar"]["source"],
+                "MT5_ECONOMIC_CALENDAR",
+            )
             report = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(report["economic_calendar"]["source_statuses"]["mt5_broker"], "AVAILABLE")
             self.assertEqual(report["economic_calendar"]["status"], "READY")
