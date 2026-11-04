@@ -195,6 +195,12 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  age=max(0,(now-int(market.get("captured_at_ms",now)))/1000)
  market_status=market.get("status","OFFLINE")
  if age>MARKET_MAX_AGE_SECONDS: market_status="STALE"
+ execution_ready=(
+  bool(ENABLE_ORDER_PUBLISH)
+  and bridge.get("status")=="CONNECTED"
+  and bridge.get("terminal_connected") is True
+  and bridge.get("execution_enabled") is True
+ )
  readiness={
   "engine_5_execution_quote_feed":market_status=="LIVE",
   "engine_1_market_intelligence":market_intelligence.get("status")=="READY",
@@ -207,6 +213,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "engine_4_daily_risk_guard":_daily_risk_guard_ready(bridge.get("daily_risk")),
   "engine_4_decision":decision.get("status")=="READY",
   "engine_5_communication_bridge":bridge.get("status")=="CONNECTED",
+  "engine_5_command_execution_gate":execution_ready,
  }
  overall="FULLY_OPERATIONAL" if all(readiness.values()) else "PARTIAL_OR_WAITING"
  engine_states={
@@ -227,6 +234,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "daily_loss_limit_mode":("ENABLED" if DAILY_LOSS_LIMIT_ENABLED else "DISABLED_FOR_DEVELOPMENT"),
   "execution_controls":{
    "order_publish_enabled":bool(ENABLE_ORDER_PUBLISH),
+   "order_execution_ready":execution_ready,
    "daily_loss_limit_enabled":bool(DAILY_LOSS_LIMIT_ENABLED),
    "terminal_connected":bridge.get("terminal_connected"),
    "expert_execution_enabled":bridge.get("execution_enabled"),
