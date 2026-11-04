@@ -213,30 +213,33 @@ Period=M1
  if([int64]$new.heartbeat_at_ms -le $first){throw 'EA heartbeat did not advance during observation.'}
  Add-Report 'PASS — EA heartbeat continued updating during the MT5 runtime observation.'
 
- # Run a real, bounded market-order acceptance through the same Python MIR1
- # bridge used by Engine 4. The probe calculates volume from live equity,
- # loss-side tick value and the configured 0.5% risk fraction, then closes
- # only its own newly opened BTC position and verifies the broker deal cycle.
+ # A broker transaction is an explicit manual opt-in. Normal validation is
+ # read-only: compile, attach, observe the MIR1 heartbeat/quote and validate
+ # the broker deal-history envelope without creating a position.
  $commonFilesRoot=Split-Path -Parent $folder
- $env:PYTHONPATH=(Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC')
- $env:MIRSAD_MT5_COMMON_FILES=$commonFilesRoot
- $env:MIRSAD_ENABLE_ORDER_PUBLISH='1'
- $acceptanceScript=Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\mirsad_mt5_execution_acceptance.py'
- $acceptanceReport=Join-Path $evidence 'mirsad-order-acceptance.json'
- $acceptanceLog=Join-Path $evidence 'mirsad-order-acceptance.log'
- if(!(Test-Path $acceptanceScript)){throw 'MIR1 execution acceptance script is missing.'}
- $acceptanceOutput=& python -u $acceptanceScript --common-files $commonFilesRoot --report $acceptanceReport --timeout 60 2>&1
- $acceptanceExit=$LASTEXITCODE
- $acceptanceOutput|Set-Content -LiteralPath $acceptanceLog -Encoding utf8
- if($acceptanceExit -ne 0){throw 'MIR1 BUY/CLOSE acceptance test failed; inspect the sanitized acceptance artifact.'}
- if(!(Test-Path $acceptanceReport)){throw 'MIR1 acceptance script did not write its result report.'}
- $acceptance=Get-Content -LiteralPath $acceptanceReport -Raw|ConvertFrom-Json -ErrorAction Stop
- if($acceptance.schema -ne 'MIR1-EXECUTION-ACCEPTANCE-1' -or $acceptance.status -ne 'SUCCESS' -or
-    $acceptance.trade.deal_cycle.state -ne 'CLOSED' -or
-    [int]$acceptance.trade.deal_cycle.entry_count -lt 1 -or
-    [int]$acceptance.trade.deal_cycle.exit_count -lt 1){throw 'MIR1 acceptance report did not prove a closed broker deal cycle.'}
- Add-Report ("PASS — Python MIR1 bridge opened and closed the bounded BTC acceptance position; position ID {0}; net cashflow {1} {2}." -f $acceptance.trade.position_id,$acceptance.trade.deal_cycle.net_deal_cashflow,$acceptance.trade.deal_cycle.currency)
- Add-Report 'PASS — Broker deal history confirms both entry and exit for the same position_id; no test position remains open.'
+ if ($env:MIRSAD_RUN_BROKER_ACCEPTANCE -eq 'true' -or $env:MIRSAD_RUN_BROKER_ACCEPTANCE -eq '1') {
+  $env:PYTHONPATH=(Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC')
+  $env:MIRSAD_MT5_COMMON_FILES=$commonFilesRoot
+  $env:MIRSAD_ENABLE_ORDER_PUBLISH='1'
+  $acceptanceScript=Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\mirsad_mt5_execution_acceptance.py'
+  $acceptanceReport=Join-Path $evidence 'mirsad-order-acceptance.json'
+  $acceptanceLog=Join-Path $evidence 'mirsad-order-acceptance.log'
+  if(!(Test-Path $acceptanceScript)){throw 'MIR1 execution acceptance script is missing.'}
+  $acceptanceOutput=& python -u $acceptanceScript --common-files $commonFilesRoot --report $acceptanceReport --timeout 60 2>&1
+  $acceptanceExit=$LASTEXITCODE
+  $acceptanceOutput|Set-Content -LiteralPath $acceptanceLog -Encoding utf8
+  if($acceptanceExit -ne 0){throw 'MIR1 BUY/CLOSE acceptance test failed; inspect the sanitized acceptance artifact.'}
+  if(!(Test-Path $acceptanceReport)){throw 'MIR1 acceptance script did not write its result report.'}
+  $acceptance=Get-Content -LiteralPath $acceptanceReport -Raw|ConvertFrom-Json -ErrorAction Stop
+  if($acceptance.schema -ne 'MIR1-EXECUTION-ACCEPTANCE-1' -or $acceptance.status -ne 'SUCCESS' -or
+     $acceptance.trade.deal_cycle.state -ne 'CLOSED' -or
+     [int]$acceptance.trade.deal_cycle.entry_count -lt 1 -or
+     [int]$acceptance.trade.deal_cycle.exit_count -lt 1){throw 'MIR1 acceptance report did not prove a closed broker deal cycle.'}
+  Add-Report ("PASS — Python MIR1 bridge opened and closed the bounded BTC acceptance position; net cashflow {0} {1}." -f $acceptance.trade.deal_cycle.net_deal_cashflow,$acceptance.trade.deal_cycle.currency)
+  Add-Report 'PASS — Broker deal history confirms both entry and exit for the same position_id; no test position remains open.'
+ } else {
+  Add-Report 'SKIP — No broker order was requested. BUY/CLOSE acceptance requires workflow_dispatch with run_broker_acceptance_trade=true.'
+ }
  Add-Report 'The Windows runner will close MT5 when this validation job finishes; local persistent installation is a separate deployment step.'
  Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
  Get-Content -LiteralPath $report
