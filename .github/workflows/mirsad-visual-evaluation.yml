@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - mini
     paths:
       - "Mirsad_BTC/mirsad/engines/chart_structure_evaluation.py"
       - "Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py"
@@ -98,7 +98,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -167,7 +167,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
