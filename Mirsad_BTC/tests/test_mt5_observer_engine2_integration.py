@@ -45,7 +45,7 @@ class NativeEngine2RuntimeContractTests(unittest.TestCase):
         compact = source.replace(" ", "")
         self.assertIn('"engine_2_visual_analysis"', source)
         self.assertIn('"required_for_native_direction_analysis":False', compact)
-        self.assertNotIn('"engine_2_visual_chart":', source)
+        self.assertIn('"engine_2_visual_chart":"OPTIONAL_DISABLED"', compact)
 
 
 if __name__ == "__main__":

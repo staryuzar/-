@@ -211,7 +211,7 @@ class RuntimeObserverFlowTests(unittest.TestCase):
         self.assertTrue(report["execution_controls"]["terminal_connected"])
         self.assertIs(report["execution_controls"]["expert_execution_enabled"], True)
         self.assertTrue(report["execution_controls"]["order_publish_enabled"])
-    self.assertTrue(report["execution_controls"]["order_execution_ready"])
+        self.assertTrue(report["execution_controls"]["order_execution_ready"])
         self.assertTrue(report["readiness"]["engine_5_command_execution_gate"])
         self.assertEqual(report["overall_status"], "PARTIAL_OR_WAITING")
         self.assertEqual(report["execution_controls"]["expert_execution_telemetry"], "REPORTED_ENABLED")

@@ -1,17 +1,7 @@
 name: Mirsad BTC - Public Chart Image Benchmark
 
 on:
-  push:
-    branches: [mini]
-    paths:
-      - 'Mirsad_BTC/mirsad/engines/chart*.py'
-      - 'Mirsad_BTC/dashboard.py'
-      - 'Mirsad_BTC/mirsad/runtime.py'
-      - 'Mirsad_BTC/scripts/public_chart_benchmark.py'
-      - 'Mirsad_BTC/tests/data/public_chart_manifest.json'
-      - '.github/workflows/mirsad-chart-image-benchmark.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
 

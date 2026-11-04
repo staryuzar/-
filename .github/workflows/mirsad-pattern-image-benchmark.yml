@@ -1,27 +1,7 @@
 name: Mirsad BTC - Held-out Candlestick Pattern Image Benchmark
 
 on:
-  push:
-    branches: [mini]
-    paths:
-      - 'Mirsad_BTC/mirsad/engines/chart*.py'
-      - 'Mirsad_BTC/dashboard.py'
-      - 'Mirsad_BTC/mirsad/runtime.py'
-      - 'Mirsad_BTC/scripts/candlestick_pattern_benchmark.py'
-      - '.github/workflows/mirsad-pattern-image-benchmark.yml'
   workflow_dispatch:
-    inputs:
-      batch_size:
-        description: Images per auditable batch
-        required: true
-        default: '25'
-        type: string
-      max_images:
-        description: 0 means all held-out images
-        required: true
-        default: '0'
-        type: string
-
 permissions:
   contents: read
 
