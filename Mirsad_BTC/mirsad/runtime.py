@@ -25,6 +25,24 @@ from .storage import (
 from .engines.daily_risk import evaluate_daily_risk
 from .health import build_component_health,summarize_component_health
 
+def _daily_risk_guard_ready(report:Any)->bool:
+ """A risk guard is ready only when its enabled baseline is valid and persistent."""
+ if not isinstance(report,dict) or report.get("status")!="READY":
+  return False
+ if report.get("enabled") is not True or report.get("mode")!="ENABLED":
+  return False
+ try:
+  starting_equity=float(report.get("starting_equity"))
+  baseline_at=int(report.get("baseline_at_ms",0) or 0)
+  cap=float(report.get("max_daily_loss_fraction"))
+ except (TypeError,ValueError,OverflowError):
+  return False
+ return (
+  math.isfinite(starting_equity) and starting_equity>0
+  and baseline_at>0 and math.isfinite(cap) and 0<cap<0.5
+ )
+
+
 def _analyze_engine2_multi_timeframe_structure(candle_history:dict[str,Any])->dict[str,Any]:
  if not isinstance(candle_history,dict) or candle_history.get("status")!="READY":
   return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
@@ -197,7 +215,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "engine_2_price_action":engine2_price_action.get("status")=="READY",
   "engine_3_indicators":indicators.get("status")=="READY",
   "mt5_native_indicator_feed":native_indicators.get("status")=="READY",
-  "engine_4_daily_risk_guard":(bridge.get("daily_risk") or {}).get("status")=="READY",
+  "engine_4_daily_risk_guard":_daily_risk_guard_ready(bridge.get("daily_risk")),
   "engine_4_decision":decision.get("status")=="READY",
   "engine_5_communication_bridge":bridge.get("status")=="CONNECTED",
  }
