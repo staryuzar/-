@@ -227,52 +227,83 @@ def score_derivatives(
     venues: dict[str, Any], *, now_ms: int | None = None,
     max_age_seconds: int = MARKET_INTELLIGENCE_DERIVATIVES_MAX_AGE_SECONDS,
 ) -> dict[str, Any]:
-    """Score only derivative observations with a verifiable, recent observation timestamp."""
+    """Score each derivative input only when that input has its own fresh timestamp."""
     captured = int(time.time() * 1000) if now_ms is None else int(now_ms)
     observations: list[tuple[float, float, str]] = []
     diagnostics: dict[str, Any] = {}
     stale_count = 0
+
+    def freshness(stamp: int | None) -> tuple[str, float | None]:
+        if stamp is None:
+            return "FRESHNESS_UNKNOWN", None
+        age = (captured - stamp) / 1000.0
+        if age < -120.0 or age > max_age_seconds:
+            return "STALE", age
+        return "FRESH", age
+
     for name, raw in venues.items():
         if not isinstance(raw, dict) or raw.get("status") not in {"READY", "PARTIAL"}:
             continue
-        stamp = _parse_time(raw.get("directional_timestamp_ms")) or _parse_time(raw.get("timestamp_ms"))
-        age_seconds = (captured - stamp) / 1000.0 if stamp is not None else None
-        if stamp is None or age_seconds is None or age_seconds < -120.0 or age_seconds > max_age_seconds:
-            stale_count += 1
-            diagnostics[name] = {
-                **raw,
-                "directional_status": "FRESHNESS_UNKNOWN" if stamp is None else "STALE",
-                "directional_score": None,
-                "age_seconds": round(age_seconds, 2) if age_seconds is not None else None,
-            }
-            continue
+
         funding = _finite(raw.get("funding_rate"))
         ratio = _finite(raw.get("long_short_ratio"))
+        funding_status, funding_age = freshness(_parse_time(raw.get("funding_timestamp_ms"))) if funding is not None else ("NOT_AVAILABLE", None)
+        ratio_status, ratio_age = freshness(_parse_time(raw.get("long_short_timestamp_ms"))) if ratio is not None else ("NOT_AVAILABLE", None)
+
+        valid_funding = funding is not None and funding_status == "FRESH"
+        valid_ratio = ratio is not None and ratio > 0 and ratio_status == "FRESH"
         venue_parts: list[float] = []
-        if funding is not None:
-            # Positive funding means longs pay shorts; extreme positive funding
-            # is treated as crowded-long risk, not as a bullish momentum signal.
-            venue_parts.append(_clamp(-funding / 0.0005) * 0.60)
-        if ratio is not None and ratio > 0:
-            venue_parts.append(_clamp(-math.log(ratio) / math.log(3.0)) * 0.40)
-        if venue_parts:
-            total_weight = 0.60 if funding is not None else 0.0
-            if ratio is not None and ratio > 0:
-                total_weight += 0.40
-            score = sum(venue_parts) / max(0.0001, total_weight)
-            confidence = 1.0 if funding is not None and ratio is not None else 0.55
-            observations.append((score, confidence, name))
+        total_weight = 0.0
+        if valid_funding:
+            # Positive funding means longs pay shorts; crowded long positioning
+            # is treated as contrarian risk, not as bullish momentum.
+            venue_parts.append(_clamp(-float(funding) / 0.0005) * 0.60)
+            total_weight += 0.60
+        if valid_ratio:
+            venue_parts.append(_clamp(-math.log(float(ratio)) / math.log(3.0)) * 0.40)
+            total_weight += 0.40
+
+        if not venue_parts:
+            if funding_status == "STALE" or ratio_status == "STALE":
+                stale_count += 1
             diagnostics[name] = {
-                **raw, "directional_status": "FRESH",
-                "directional_score": round(_clamp(score), 4),
-                "age_seconds": round(age_seconds, 2) if age_seconds is not None else None,
+                **raw,
+                "directional_status": "STALE" if stale_count else "FRESHNESS_UNKNOWN",
+                "funding_directional_status": funding_status,
+                "long_short_directional_status": ratio_status,
+                "directional_score": None,
+                "age_seconds": max(
+                    [age for age in (funding_age, ratio_age) if age is not None],
+                    default=None,
+                ),
             }
+            continue
+
+        score = sum(venue_parts) / max(0.0001, total_weight)
+        confidence = 1.0 if valid_funding and valid_ratio else 0.55
+        ages = [age for valid, age in ((valid_funding, funding_age), (valid_ratio, ratio_age)) if valid and age is not None]
+        observations.append((score, confidence, name))
+        diagnostics[name] = {
+            **raw,
+            "directional_status": "FRESH",
+            "funding_directional_status": funding_status,
+            "long_short_directional_status": ratio_status,
+            "directional_score": round(_clamp(score), 4),
+            "age_seconds": round(max(ages), 2) if ages else None,
+            "directional_inputs_used": {
+                "funding_rate": valid_funding,
+                "long_short_ratio": valid_ratio,
+            },
+        }
+
     if not observations:
-        return {"status": "UNAVAILABLE", "score": None, "confidence": 0.0,
-                "venue_count": 0, "stale_venue_count": stale_count,
-                "venues": diagnostics,
-                "freshness_max_age_seconds": max_age_seconds,
-                "scope": "Perpetual futures positioning; stale or untimestamped exchange observations are excluded."}
+        return {
+            "status": "UNAVAILABLE", "score": None, "confidence": 0.0,
+            "venue_count": 0, "stale_venue_count": stale_count,
+            "venues": diagnostics,
+            "freshness_max_age_seconds": max_age_seconds,
+            "scope": "Perpetual futures positioning; each funding and long/short input needs its own fresh provider timestamp.",
+        }
     weights = [item[1] for item in observations]
     score = sum(item[0] * item[1] for item in observations) / sum(weights)
     confidence = min(1.0, len(observations) / 2.0) * (sum(weights) / len(weights))
@@ -284,7 +315,7 @@ def score_derivatives(
         "stale_venue_count": stale_count,
         "freshness_max_age_seconds": max_age_seconds,
         "venues": diagnostics,
-        "scope": "Funding and long/short positioning are interpreted contrarily; open-interest change is context/intensity, not direction by itself. Stale or untimestamped observations do not contribute.",
+        "scope": "Funding and long/short positioning are interpreted contrarily. Each factor is freshness-gated independently; open-interest change is context/intensity, not direction by itself.",
     }
 
 

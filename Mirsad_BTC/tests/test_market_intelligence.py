@@ -48,10 +48,14 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
             "Binance": {
                 "status": "READY", "funding_rate": 0.0005,
                 "long_short_ratio": 3.0, "timestamp_ms": 1_798_000_000_000,
+                "funding_timestamp_ms": 1_798_000_000_000,
+                "long_short_timestamp_ms": 1_798_000_000_000,
             },
             "Bybit": {
                 "status": "READY", "funding_rate": -0.0005,
                 "long_short_ratio": 1.0, "timestamp_ms": 1_798_000_000_000,
+                "funding_timestamp_ms": 1_798_000_000_000,
+                "long_short_timestamp_ms": 1_798_000_000_000,
             },
         }, now_ms=1_798_000_000_000)
         self.assertEqual(result["status"], "READY")
@@ -185,7 +189,8 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         result = score_derivatives({
             "Binance": {"status": "READY", "funding_rate": 0.001,
                         "long_short_ratio": 3.0, "timestamp_ms": now,
-                        "directional_timestamp_ms": now - 901_000},
+                        "funding_timestamp_ms": now - 901_000,
+                        "long_short_timestamp_ms": now - 901_000},
         }, now_ms=now, max_age_seconds=900)
         self.assertEqual(result["status"], "UNAVAILABLE")
         self.assertEqual(result["stale_venue_count"], 1)
@@ -233,6 +238,38 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(result["level"], "ELEVATED")
         self.assertIn("EXTREME_CROWD_SENTIMENT", result["drivers"])
         self.assertFalse(result["automatic_entry_block"])
+
+
+    def test_fresh_funding_survives_stale_long_short_ratio(self) -> None:
+        now = 1_798_000_000_000
+        result = score_derivatives({
+            "Binance": {
+                "status": "READY", "funding_rate": 0.0005,
+                "long_short_ratio": 3.0,
+                "funding_timestamp_ms": now,
+                "long_short_timestamp_ms": now - 901_000,
+            },
+        }, now_ms=now, max_age_seconds=900)
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertEqual(result["venue_count"], 1)
+        details = result["venues"]["Binance"]
+        self.assertEqual(details["funding_directional_status"], "FRESH")
+        self.assertEqual(details["long_short_directional_status"], "STALE")
+        self.assertEqual(details["directional_inputs_used"], {
+            "funding_rate": True, "long_short_ratio": False,
+        })
+        self.assertAlmostEqual(result["score"], -1.0)
+
+    def test_derivative_values_without_per_factor_timestamps_are_not_directional(self) -> None:
+        now = 1_798_000_000_000
+        result = score_derivatives({
+            "Bybit": {
+                "status": "READY", "funding_rate": 0.001,
+                "long_short_ratio": 2.0, "timestamp_ms": now,
+            },
+        }, now_ms=now, max_age_seconds=900)
+        self.assertEqual(result["status"], "UNAVAILABLE")
+        self.assertEqual(result["venues"]["Bybit"]["directional_status"], "FRESHNESS_UNKNOWN")
 
 
 if __name__ == "__main__":
