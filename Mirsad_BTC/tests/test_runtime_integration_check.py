@@ -44,6 +44,24 @@ class Engine4IntegrationReadinessTests(unittest.TestCase):
         self.assertFalse(result["entry_eligible"])
         self.assertEqual(result["readiness"], "SAFE_WAIT_NO_ENGINE2_DIRECTION")
 
+    def test_engine3_parity_safe_wait_is_a_completed_non_entry_cycle(self) -> None:
+        result = evaluate_engine4_runtime({
+            "status": "WAITING_FOR_ENGINE_3_PARITY",
+            "action": "WAIT",
+            "candidate_action": "WAIT",
+            "command_ready": False,
+            "chart_gate": "WAITING_FOR_ENGINE_3_NATIVE_PARITY",
+            "engine_2_native_price_action_context": {
+                "decision_eligible": True,
+                "gate": "BULLISH_CONFLUENCE",
+            },
+        })
+        self.assertTrue(result["cycle_completed"])
+        self.assertTrue(result["gate_consistent"])
+        self.assertTrue(result["safe_wait"])
+        self.assertFalse(result["entry_eligible"])
+        self.assertEqual(result["readiness"], "INCONSISTENT_OR_INCOMPLETE")
+
     def test_engine2_not_ready_must_not_be_reported_as_a_directional_entry(self) -> None:
         result = evaluate_engine4_runtime({
             "status": "WAITING_FOR_ENGINE_2",
