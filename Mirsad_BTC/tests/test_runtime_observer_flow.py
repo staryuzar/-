@@ -219,7 +219,7 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             )
             indicators_engine.analyze.assert_called_once_with(candle_history)
             self.assertEqual(report["engine_2_candles"]["status"], "READY")
-            self.assertTrue(report["readiness"]["engine_2_visual_chart"])
+            self.assertNotIn("engine_2_visual_chart", report["readiness"])
             self.assertTrue(report["readiness"]["engine_2_candles"])
             self.assertEqual(report["engine_2_multi_timeframe_structure"]["source"], "NATIVE_MT5_OHLC")
             self.assertEqual(report["chart"]["engine_2_multi_timeframe_structure"]["source"], "NATIVE_MT5_OHLC")
