@@ -309,15 +309,21 @@ try {
     $eaSource = Join-Path $expertsDir 'Mirsad_ChartObserver.mq5'
     $eaBinary = Join-Path $expertsDir 'Mirsad_ChartObserver.ex5'
     $compileLog = Join-Path $expertsDir 'Mirsad_ChartObserver.log'
-    $directOnlySourceText = $sourceText.Replace(
-        'input bool InpEnableImageCapture = true;',
-        'input bool InpEnableImageCapture = false;'
-    )
-    if ($directOnlySourceText -eq $sourceText) {
-        throw 'Direct-only EA build could not disable InpEnableImageCapture.'
+    # The repository now defaults image capture to false. Accept that safe
+    # state as-is; only rewrite an explicitly true input for older revisions.
+    $directOnlySourceText = $sourceText
+    $imageEnabledPattern = '(?m)^([ \t]*input[ \t]+bool[ \t]+InpEnableImageCapture[ \t]*=[ \t]*)true([ \t]*;)'
+    $imageDisabledPattern = '(?m)^[ \t]*input[ \t]+bool[ \t]+InpEnableImageCapture[ \t]*=[ \t]*false[ \t]*;'
+    if ($sourceText -match $imageEnabledPattern) {
+        $directOnlySourceText = [regex]::Replace(
+            $sourceText, $imageEnabledPattern, '${1}false${2}', 1
+        )
+    }
+    if ($directOnlySourceText -notmatch $imageDisabledPattern) {
+        throw 'Direct-only EA build requires an explicit InpEnableImageCapture=false input.'
     }
     [IO.File]::WriteAllText($eaSource, $directOnlySourceText, [Text.UTF8Encoding]::new($false))
-    Add-Report 'PASS — Direct-only Observer build sets InpEnableImageCapture=false.'
+    Add-Report 'PASS — Direct-only Observer build verified InpEnableImageCapture=false (source default or forced override).'
 
     # Remove stale outputs and invoke MetaEditor with separately quoted arguments.
     Remove-Item -LiteralPath $compileLog,$eaBinary -Force -ErrorAction SilentlyContinue
