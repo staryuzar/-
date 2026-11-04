@@ -99,7 +99,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  write_json_atomic(SNAPSHOT_PATH,market)
  # Engine 2 consumes only native MT5 CopyRates in the live cycle.
  candle_history=MT5ChartCandleHistory().collect(bridge=bridge)
- chart={
+ engine2_data={
   "engine":"engine_2_native_price_action",
   "source":"NATIVE_MT5_OHLC",
   "status":candle_history.get("status","NOT_READY"),
