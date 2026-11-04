@@ -35,7 +35,7 @@ class DailyRiskBaselineTests(unittest.TestCase):
         )
         second = evaluate_daily_risk(
             self._account(978.0), first["state"], max_daily_loss_fraction=0.02,
-            now_ms=(1_799_971_200_000 + 60_000),
+            now_ms=(1_799_971_200_000 + 3_600_000),
         )
         report = second["report"]
         self.assertEqual(report["status"], "READY")
