@@ -370,7 +370,9 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             }],
         }
         close = DecisionEngine().analyze(
-            market, chart, bridge_with_short, indicators, market_intelligence=market["market_intelligence"]
+            market, chart, bridge_with_short, indicators,
+            engine2_price_action=make_engine2_price_action(),
+            market_intelligence=market["market_intelligence"],
         )
         self.assertEqual(close["action"], "CLOSE")
         self.assertEqual(close["position_ticket"], 778899)
@@ -379,6 +381,7 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         # Missing calendar data must not obstruct an existing protective close.
         close_unavailable_calendar = DecisionEngine().analyze(
             market, chart, bridge_with_short, indicators,
+            engine2_price_action=make_engine2_price_action(),
             market_intelligence=unavailable_calendar,
         )
         self.assertEqual(close_unavailable_calendar["action"], "CLOSE")
@@ -569,7 +572,10 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "magic": 26110201, "volume": 0.1,
             }],
         )
-        result = DecisionEngine().analyze(self._market(), chart, bridge, indicators)
+        result = DecisionEngine().analyze(
+            self._market(), chart, bridge, indicators,
+            engine2_price_action=make_engine2_price_action(),
+        )
         self.assertEqual(result["action"], "CLOSE")
         self.assertTrue(result["command_ready"])
         self.assertEqual(result["position_ticket"], 345678)
@@ -727,7 +733,10 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             with_context["engine_2_native_price_action_context"]["gate"],
             "MIXED_OR_NO_CONFLUENCE",
         )
-        self.assertNotEqual(with_context["decision_scores"]["engine_2_score"], without_context["decision_scores"]["engine_2_score"])
+        self.assertEqual(
+            without_context["engine_2_native_price_action_context"]["gate"],
+            "NATIVE_OHLC_NOT_PROVIDED",
+        )
 
         aligned_price_action = {
             **price_action,
