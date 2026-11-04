@@ -49,7 +49,7 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
             "Binance": {
                 "status": "READY", "funding_rate": 0.0005,
                 "long_short_ratio": 3.0, "timestamp_ms": 1_798_000_000_000,
-                "funding_timestamp_ms": current_stamp,
+                "funding_timestamp_ms": 1_798_000_000_000,
                 "long_short_timestamp_ms": 1_798_000_000_000,
             },
             "Bybit": {
