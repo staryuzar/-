@@ -174,7 +174,9 @@ def deduplicate_news_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
     for raw in ordered:
         item = dict(raw)
-        title_key = re.sub(r"[^a-z0-9]+", " ", str(item.get("title", "")).casefold()).strip()
+        # Unicode-aware normalization keeps Arabic/CJK and other non-Latin
+        # headlines eligible for cross-publisher story de-duplication.
+        title_key = re.sub(r"[\W_]+", " ", str(item.get("title", "")).casefold()).strip()
         url_key = str(item.get("url") or "").strip().casefold()
         key = title_key if len(title_key) >= 12 else url_key
         if not key:

@@ -327,5 +327,28 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertTrue(scored["venues"]["Binance"]["directional_inputs_used"]["long_short_ratio"])
 
 
+    def test_duplicate_non_latin_headlines_are_collapsed_across_publishers(self) -> None:
+        now = 1_798_000_000_000
+        items = deduplicate_news_items([
+            {
+                "source": "Arabic Publisher A",
+                "title": "بيتكوين ترتفع بعد تدفقات صناديق التداول",
+                "url": "https://one.example/bitcoin",
+                "published_at_ms": now,
+                "sentiment_score": 0.5,
+            },
+            {
+                "source": "Arabic Publisher B",
+                "title": "بيتكوين ترتفع بعد تدفقات صناديق التداول!",
+                "url": "https://two.example/bitcoin",
+                "published_at_ms": now - 30_000,
+                "sentiment_score": 0.5,
+            },
+        ])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["duplicate_count"], 2)
+        self.assertEqual(set(items[0]["sources"]), {"Arabic Publisher A", "Arabic Publisher B"})
+
+
 if __name__ == "__main__":
     unittest.main()
