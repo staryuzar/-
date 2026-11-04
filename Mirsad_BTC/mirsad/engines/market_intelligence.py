@@ -264,11 +264,12 @@ def score_derivatives(
             total_weight += 0.40
 
         if not venue_parts:
-            if funding_status == "STALE" or ratio_status == "STALE":
+            venue_stale = funding_status == "STALE" or ratio_status == "STALE"
+            if venue_stale:
                 stale_count += 1
             diagnostics[name] = {
                 **raw,
-                "directional_status": "STALE" if stale_count else "FRESHNESS_UNKNOWN",
+                "directional_status": "STALE" if venue_stale else "FRESHNESS_UNKNOWN",
                 "funding_directional_status": funding_status,
                 "long_short_directional_status": ratio_status,
                 "directional_score": None,

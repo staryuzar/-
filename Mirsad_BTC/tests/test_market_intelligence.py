@@ -191,10 +191,13 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
                         "long_short_ratio": 3.0, "timestamp_ms": now,
                         "funding_timestamp_ms": now - 901_000,
                         "long_short_timestamp_ms": now - 901_000},
+            "Bybit": {"status": "READY", "funding_rate": 0.0002,
+                      "long_short_ratio": 1.5, "timestamp_ms": now},
         }, now_ms=now, max_age_seconds=900)
         self.assertEqual(result["status"], "UNAVAILABLE")
         self.assertEqual(result["stale_venue_count"], 1)
         self.assertEqual(result["venues"]["Binance"]["directional_status"], "STALE")
+        self.assertEqual(result["venues"]["Bybit"]["directional_status"], "FRESHNESS_UNKNOWN")
 
     def test_fear_greed_stale_daily_observation_is_not_directional(self) -> None:
         now = 1_798_000_000_000

@@ -36,6 +36,8 @@ def build_report(result: dict[str, Any]) -> dict[str, Any]:
             "provider_status": _status(raw.get("status")),
             "directional_status": _status(diagnostic.get("directional_status")),
             "age_seconds": diagnostic.get("age_seconds"),
+            "funding_directional_status": diagnostic.get("funding_directional_status"),
+            "long_short_directional_status": diagnostic.get("long_short_directional_status"),
             "funding_rate": raw.get("funding_rate"),
             "long_short_ratio": raw.get("long_short_ratio"),
             "open_interest_change_pct_35m": raw.get("open_interest_change_pct_35m"),
