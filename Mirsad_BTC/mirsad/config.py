@@ -39,7 +39,7 @@ MAX_DAILY_LOSS_FRACTION=float(os.getenv("MIRSAD_MAX_DAILY_LOSS_FRACTION","0.02")
 RISK_STATE_PATH=DATA_DIR/"daily_risk_state.json"
 MT5_COMMON_FILES=os.getenv("MIRSAD_MT5_COMMON_FILES","").strip()
 # Engine 4 commands are published by default; the MT5 EA input must also be enabled.
-ENABLE_ORDER_PUBLISH=os.getenv("MIRSAD_ENABLE_ORDER_PUBLISH","1").strip().lower() in {"1","true","yes","on"}
+ENABLE_ORDER_PUBLISH=os.getenv("MIRSAD_ENABLE_ORDER_PUBLISH","0").strip().lower() in {"1","true","yes","on"}
 
 PROVIDERS={
  "Binance Spot":"https://api.binance.com",
