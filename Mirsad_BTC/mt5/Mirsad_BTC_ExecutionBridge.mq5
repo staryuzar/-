@@ -8,7 +8,7 @@
 #property description "Mirsad BTC command-driven MT5 execution and telemetry bridge"
 
 input string InpBrokerSymbol       = "";          // Empty = chart symbol
-input string InpMarketSymbol       = "BTCUSDT";   // Engine 1 market symbol mapping
+input string InpMarketSymbol       = "BTCUSDT";   // Engine 5 broker-to-Mirsad symbol mapping
 input int    InpTimerSeconds       = 1;
 input ulong  InpMagicNumber        = 26110201;
 input int    InpDeviationPoints    = 20;
