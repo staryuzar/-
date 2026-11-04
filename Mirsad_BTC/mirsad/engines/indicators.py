@@ -3,15 +3,22 @@ from __future__ import annotations
 import math
 from typing import Any
 
-TIMEFRAME_WEIGHTS = {"1m": 1.0, "5m": 2.0, "15m": 3.0, "1h": 4.0, "4h": 5.0, "1d": 5.0}
+TIMEFRAME_WEIGHTS = {"1m": 4.0, "5m": 8.0, "15m": 18.0, "1h": 25.0, "4h": 30.0, "1d": 15.0}
 REQUIRED_TIMEFRAMES = ("1m", "5m", "15m")
 CORE_INDICATORS = ("ema20", "ema50", "rsi14", "atr14")
 INDICATOR_SIGNAL_GROUP_WEIGHTS = {
-    "trend": 0.25,
+    "trend": 0.30,
     "momentum": 0.30,
-    "directional_strength": 0.15,
-    "oscillator": 0.15,
-    "volume_flow": 0.15,
+    "directional_strength": 0.20,
+    "oscillator": 0.10,
+    "volume_flow": 0.10,
+}
+INDICATOR_SIGNAL_FEATURE_WEIGHTS = {
+    "trend": {"ema_structure": 0.70, "bollinger_position": 0.30},
+    "momentum": {"rsi14": 0.30, "macd_family": 0.40, "momentum14": 0.30},
+    "directional_strength": {"adx_di": 1.00},
+    "oscillator": {"stochastic_family": 0.40, "cci20": 0.30, "wpr14": 0.30},
+    "volume_flow": {"mfi14": 0.55, "obv_flow": 0.45},
 }
 MIN_INDICATOR_SIGNAL_QUALITY = 0.60
 SIGNAL_VOLUME_BASIS = (
@@ -488,19 +495,29 @@ def _timeframe_indicator_signal(
     macd_family_score = family_mean([macd_score, osma_score])
     stochastic_family_score = family_mean([stochastic_k_score, stochastic_d_score])
     features = {
-        "trend": [trend_direction, bb_score],
-        "momentum": [rsi_score, macd_family_score, momentum_score],
-        "directional_strength": [dmi_score],
-        "oscillator": [stochastic_family_score, cci_score, wpr_score],
-        "volume_flow": [mfi_score, obv_score],
+        "trend": {"ema_structure": trend_direction, "bollinger_position": bb_score},
+        "momentum": {"rsi14": rsi_score, "macd_family": macd_family_score, "momentum14": momentum_score},
+        "directional_strength": {"adx_di": dmi_score},
+        "oscillator": {"stochastic_family": stochastic_family_score, "cci20": cci_score, "wpr14": wpr_score},
+        "volume_flow": {"mfi14": mfi_score, "obv_flow": obv_score},
     }
     groups: dict[str, dict[str, Any]] = {}
     effective_total = 0.0
     weighted_score = 0.0
     for name, expected_values in features.items():
-        valid = [float(value) for value in expected_values if value is not None and math.isfinite(float(value))]
-        coverage = len(valid) / len(expected_values) if expected_values else 0.0
-        group_score = sum(valid) / len(valid) if valid else None
+        configured_feature_weights = INDICATOR_SIGNAL_FEATURE_WEIGHTS[name]
+        if set(expected_values) != set(configured_feature_weights):
+            raise ValueError(f"Indicator feature-weight contract mismatch for {name}.")
+        valid = [
+            (feature, float(value), configured_feature_weights[feature])
+            for feature, value in expected_values.items()
+            if value is not None and math.isfinite(float(value))
+        ]
+        coverage = sum(weight for _, _, weight in valid)
+        group_score = (
+            sum(value * weight for _, value, weight in valid) / coverage
+            if coverage > 0.0 else None
+        )
         base_weight = INDICATOR_SIGNAL_GROUP_WEIGHTS[name]
         effective_weight = base_weight * coverage
         if group_score is not None:
@@ -513,6 +530,10 @@ def _timeframe_indicator_signal(
             "expected_features": len(expected_values),
             "base_weight": base_weight,
             "effective_weight": round(effective_weight, 6),
+            "configured_feature_weights": dict(configured_feature_weights),
+            "applied_feature_weights": {
+                feature: round(weight / coverage, 8) for feature, _, weight in valid
+            } if coverage > 0.0 else {},
         }
     if effective_total <= 0:
         return {
@@ -544,6 +565,9 @@ class IndicatorsEngine:
                 "cci20", "mfi14", "momentum14", "wpr14", "obv", "osma",
             ],
             "signal_group_weights": dict(INDICATOR_SIGNAL_GROUP_WEIGHTS),
+            "signal_feature_weights": {
+                name: dict(weights) for name, weights in INDICATOR_SIGNAL_FEATURE_WEIGHTS.items()
+            },
             "timeframe_weights": dict(TIMEFRAME_WEIGHTS),
             "signal_volume_basis": SIGNAL_VOLUME_BASIS,
         }
