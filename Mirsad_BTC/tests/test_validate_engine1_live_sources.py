@@ -31,7 +31,29 @@ class Engine1LiveSourceValidatorTests(unittest.TestCase):
             },
             "fear_greed": {"status": "READY", "value": 50},
             "global_metrics": {"status": "READY", "metrics": {}},
-            "derivatives": {"status": "UNAVAILABLE", "venues": {}, "venue_scores": {}},
+            "derivatives": {
+                "status": "PARTIAL",
+                "venues": {"Gate.io": {
+                    "status": "READY", "funding_rate": 0.0001,
+                    "funding_timestamp_ms": None,
+                    "funding_timestamp_basis": "UNSTAMPED_TICKER_SNAPSHOT_NOT_USED_DIRECTIONALLY",
+                    "long_short_ratio": 1.4,
+                    "long_short_ratio_scope": "Gate USDT-perpetual account-level position-user ratio (lsr_account)",
+                    "top_trader_long_short_account_ratio": 1.6,
+                    "top_trader_long_short_position_ratio": 1.7,
+                    "taker_long_short_ratio": 1.05,
+                    "open_interest_change_pct_35m": 5.0,
+                    "timestamp_basis": "PROVIDER_TIMESTAMP",
+                    "endpoint_statuses": {"ticker": "RESPONSE", "contract_stats": "RESPONSE"},
+                    "endpoint_errors": {},
+                }},
+                "venue_scores": {"Gate.io": {
+                    "directional_status": "FRESH",
+                    "age_seconds": 10,
+                    "funding_directional_status": "FRESHNESS_UNKNOWN",
+                    "long_short_directional_status": "FRESH",
+                }},
+            },
             "economic_calendar": {
                 "status": "READY",
                 "sources": {"showmytrades": "READY", "trading_economics": "NOT_CONFIGURED"},
@@ -64,6 +86,10 @@ class Engine1LiveSourceValidatorTests(unittest.TestCase):
             report = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(report["overall_status"], "READY")
             self.assertEqual(report["economic_calendar"]["source_statuses"]["showmytrades"], "READY")
+            gate = report["derivatives"]["venues"]["Gate.io"]
+            self.assertIn("lsr_account", gate["long_short_ratio_scope"])
+            self.assertEqual(gate["funding_timestamp_basis"], "UNSTAMPED_TICKER_SNAPSHOT_NOT_USED_DIRECTIONALLY")
+            self.assertEqual(gate["top_trader_long_short_account_ratio"], 1.6)
             self.assertEqual(report["provider_response_count"], 4)
             self.assertNotIn("mt5_broker", report["economic_calendar"]["source_statuses"])
             self.assertIn("standalone", report["scope"].lower())
