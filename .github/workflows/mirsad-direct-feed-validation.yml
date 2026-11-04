@@ -18,6 +18,7 @@ on:
       - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
+      - 'Mirsad_BTC/mirsad/runtime.py'
       - 'Mirsad_BTC/mirsad/engines/indicators.py'
       - 'Mirsad_BTC/scripts/validate_engine3_mt5_indicator_parity.py'
       - 'Mirsad_BTC/tests/test_mt5_native_indicators.py'
