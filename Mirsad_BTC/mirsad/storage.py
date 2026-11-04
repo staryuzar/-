@@ -739,6 +739,9 @@ def save_decision_calibration_sample(
             "candles_inserted": candles_inserted,
             "sample_count": sample_count,
             "profile_version": profile_version,
+            "candidate_action": str(decision.get("candidate_action", "WAIT")).upper(),
+            "final_action": str(decision.get("action", "WAIT")).upper(),
+            "decision_status": str(decision.get("status", "UNKNOWN")),
         }
     except (sqlite3.Error, TypeError, ValueError, OverflowError) as exc:
         return {"status": "ERROR", "reason": f"{type(exc).__name__}: {exc}"}

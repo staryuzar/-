@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import time
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from mirsad.engines.market_intelligence import (
     MarketIntelligenceEngine,
@@ -172,11 +174,15 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         engine._collect_public_calendar = lambda *, now_ms=None: {
             "status": "EMPTY", "events": [], "server_time_ms": now_ms,
         }
+        engine._collect_forex_factory_calendar = lambda *, now_ms=None: {
+            "status": "EMPTY", "events": [], "server_time_ms": now_ms,
+        }
         result = engine.collect(now_ms=1_798_000_000_000)
         self.assertEqual(result["schema"], "MIR-ENGINE1-INTELLIGENCE-1")
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["direction"], "BULLISH")
         self.assertEqual(result["source_statuses"]["news"], "READY")
+        self.assertEqual(result["source_statuses"]["forex_factory_calendar"], "EMPTY")
         self.assertIn("confidence_basis", result)
         self.assertTrue(any("chart images" in item and "EMA" in item for item in result["boundaries"]))
 
@@ -619,10 +625,138 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
             "long_short_ratio": None,
             "long_short_timestamp_ms": None,
         }
+        engine._collect_hyperliquid_derivatives = lambda: {"status": "OFFLINE"}
         result = engine._collect_derivatives()
         self.assertIn("Deribit", result["venues"])
         self.assertEqual(result["venue_count"], 1)
         self.assertEqual(result["status"], "PARTIAL")
+
+    def test_post_json_provider_timestamp_comes_from_http_date_header(self) -> None:
+        class FakeResponse:
+            status = 200
+            headers = {"Date": "Wed, 04 Nov 2026 12:30:00 GMT"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, limit: int) -> bytes:
+                return b'{"universe":[],"type":"test"}'
+
+        engine = MarketIntelligenceEngine()
+        with patch(
+            "mirsad.engines.market_intelligence.urllib.request.urlopen",
+            return_value=FakeResponse(),
+        ) as mocked:
+            payload, provider_time = engine._post_json_with_provider_time(
+                "https://example.test/info", {"type": "test"}, ttl_seconds=0
+            )
+        self.assertEqual(payload["type"], "test")
+        self.assertEqual(
+            provider_time,
+            int(datetime(2026, 11, 4, 12, 30, tzinfo=timezone.utc).timestamp() * 1000),
+        )
+        request = mocked.call_args.args[0]
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(json.loads(request.data), {"type": "test"})
+
+    def test_hyperliquid_hourly_funding_is_normalized_to_eight_hour_equivalent(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCUSDT")
+        stamp = int(time.time() * 1000)
+        engine._post_json_with_provider_time = lambda *args, **kwargs: (
+            [
+                {"universe": [{"name": "BTC"}, {"name": "ETH"}]},
+                [
+                    {"funding": "0.00001", "openInterest": "123.5", "markPx": "90010", "oraclePx": "90000"},
+                    {"funding": "0.00002", "openInterest": "456.0"},
+                ],
+            ],
+            stamp,
+        )
+        result = engine._collect_hyperliquid_derivatives()
+        self.assertEqual(result["status"], "READY")
+        self.assertAlmostEqual(result["funding_rate_hourly"], 0.00001)
+        self.assertAlmostEqual(result["funding_rate"], 0.00008)
+        self.assertEqual(result["funding_rate_basis"], "8H_EQUIVALENT_FROM_HOURLY")
+        self.assertEqual(result["funding_timestamp_ms"], stamp)
+        self.assertAlmostEqual(result["open_interest"], 123.5)
+        scored = score_derivatives({"Hyperliquid": result}, now_ms=stamp)
+        self.assertEqual(scored["status"], "PARTIAL")
+        self.assertEqual(scored["venues"]["Hyperliquid"]["funding_directional_status"], "FRESH")
+        self.assertTrue(scored["venues"]["Hyperliquid"]["directional_inputs_used"]["funding_rate"])
+
+    def test_hyperliquid_without_provider_date_is_not_used_directionally(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCUSDT")
+        engine._post_json_with_provider_time = lambda *args, **kwargs: (
+            [{"universe": [{"name": "BTC"}]}, [{"funding": "0.00002", "openInterest": "100"}]],
+            None,
+        )
+        result = engine._collect_hyperliquid_derivatives()
+        self.assertEqual(result["status"], "READY")
+        self.assertIsNone(result["funding_timestamp_ms"])
+        scored = score_derivatives({"Hyperliquid": result}, now_ms=1_798_000_000_000)
+        self.assertEqual(scored["status"], "UNAVAILABLE")
+        self.assertEqual(
+            scored["venues"]["Hyperliquid"]["funding_directional_status"],
+            "FRESHNESS_UNKNOWN",
+        )
+
+    def test_hyperliquid_unsupported_symbol_does_not_call_provider(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="ETHUSDT")
+        engine._post_json_with_provider_time = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Unsupported symbol must not call Hyperliquid.")
+        )
+        self.assertEqual(engine._collect_hyperliquid_derivatives()["status"], "NOT_APPLICABLE")
+
+    def test_forex_factory_calendar_uses_provider_date_and_normalizes_high_impact(self) -> None:
+        engine = MarketIntelligenceEngine()
+        now = int(time.time() * 1000)
+        event_time = datetime.fromtimestamp((now + 5 * 60_000) / 1000, tz=timezone.utc)
+        requested = []
+        engine._json_with_provider_time = lambda url, **kwargs: (
+            requested.append((url, kwargs)) or [{
+                "title": "US CPI",
+                "country": "USD",
+                "date": event_time.isoformat(),
+                "impact": "High",
+                "forecast": "2.5%",
+                "previous": "2.6%",
+            }],
+            now,
+        )
+        result = engine._collect_forex_factory_calendar(now_ms=now)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["events"][0]["name"], "US CPI")
+        self.assertEqual(result["events"][0]["importance"], "HIGH")
+        self.assertEqual(result["events"][0]["currency"], "USD")
+        self.assertEqual(result["events"][0]["provider"], "Forex Factory")
+        self.assertIn("nfs.faireconomy.media/ff_calendar_thisweek.json", requested[0][0])
+        self.assertEqual(requested[0][1]["ttl_seconds"], 900)
+        merged = MarketIntelligenceEngine._calendar_context(
+            {"showmytrades": {"status": "OFFLINE", "events": []},
+             "trading_economics": {"status": "NOT_CONFIGURED", "events": []},
+             "forex_factory": result},
+            now,
+        )
+        self.assertTrue(merged["high_impact_window_active"])
+        self.assertEqual(merged["new_entry_gate"], "WAIT")
+
+    def test_forex_factory_calendar_rejects_missing_or_stale_provider_date(self) -> None:
+        engine = MarketIntelligenceEngine()
+        now = int(time.time() * 1000)
+        payload = [{"title": "US CPI", "country": "USD",
+                    "date": datetime.fromtimestamp((now + 60_000) / 1000, tz=timezone.utc).isoformat(),
+                    "impact": "High"}]
+        engine._json_with_provider_time = lambda *args, **kwargs: (payload, None)
+        missing = engine._collect_forex_factory_calendar(now_ms=now)
+        self.assertEqual(missing["status"], "INVALID")
+        self.assertEqual(missing["events"], [])
+        engine._json_with_provider_time = lambda *args, **kwargs: (payload, now - 3_600_000)
+        stale = engine._collect_forex_factory_calendar(now_ms=now)
+        self.assertEqual(stale["status"], "STALE")
+        self.assertEqual(stale["events"], [])
 
 
 if __name__ == "__main__":

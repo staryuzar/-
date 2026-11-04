@@ -32,6 +32,7 @@ NEWS_FEEDS = (
     ("Decrypt", "https://decrypt.co/feed"),
 )
 CACHE: dict[str, tuple[float, bytes]] = {}
+CACHE_PROVIDER_TIMESTAMPS: dict[str, int | None] = {}
 CACHE_LOCK = threading.Lock()
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_HEADLINES = 40
@@ -478,16 +479,67 @@ class MarketIntelligenceEngine:
         with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
             if int(getattr(response, "status", 200)) != 200:
                 raise RuntimeError(f"HTTP {getattr(response, 'status', 'unknown')}")
+            date_header = response.headers.get("Date") if getattr(response, "headers", None) else None
+            provider_timestamp_ms = _parse_time(date_header)
             body = response.read(MAX_RESPONSE_BYTES + 1)
         if len(body) > MAX_RESPONSE_BYTES:
             raise ValueError("Provider response exceeds the configured size limit.")
         with CACHE_LOCK:
             CACHE[url] = (now, body)
+            CACHE_PROVIDER_TIMESTAMPS[url] = provider_timestamp_ms
         return body
 
     def _json(self, url: str, *, ttl_seconds: int = 30) -> Any:
         raw = self._fetch(url, ttl_seconds=ttl_seconds, accept="application/json")
         return json.loads(raw.decode("utf-8"))
+
+    def _json_with_provider_time(
+        self, url: str, *, ttl_seconds: int = 30
+    ) -> tuple[Any, int | None]:
+        raw = self._fetch(url, ttl_seconds=ttl_seconds, accept="application/json")
+        with CACHE_LOCK:
+            provider_timestamp_ms = CACHE_PROVIDER_TIMESTAMPS.get(url)
+        return json.loads(raw.decode("utf-8")), provider_timestamp_ms
+
+    def _post_json_with_provider_time(
+        self, url: str, payload: dict[str, Any], *, ttl_seconds: int = 30
+    ) -> tuple[Any, int | None]:
+        cache_key = "POST:" + url + ":" + json.dumps(
+            payload, sort_keys=True, separators=(",", ":")
+        )
+        now = time.time()
+        with CACHE_LOCK:
+            cached = CACHE.get(cache_key)
+            if cached and now - cached[0] <= ttl_seconds:
+                raw = cached[1]
+                provider_timestamp_ms = CACHE_PROVIDER_TIMESTAMPS.get(cache_key)
+            else:
+                raw = None
+                provider_timestamp_ms = None
+        if raw is None:
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            request = urllib.request.Request(
+                url,
+                data=body,
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                if int(getattr(response, "status", 200)) != 200:
+                    raise RuntimeError(f"HTTP {getattr(response, 'status', 'unknown')}")
+                date_header = response.headers.get("Date") if getattr(response, "headers", None) else None
+                provider_timestamp_ms = _parse_time(date_header)
+                raw = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_RESPONSE_BYTES:
+                raise ValueError("Provider response exceeds the configured size limit.")
+            with CACHE_LOCK:
+                CACHE[cache_key] = (now, raw)
+                CACHE_PROVIDER_TIMESTAMPS[cache_key] = provider_timestamp_ms
+        return json.loads(raw.decode("utf-8")), provider_timestamp_ms
 
     def _collect_news(self) -> dict[str, Any]:
         items: list[dict[str, Any]] = []
@@ -1144,6 +1196,112 @@ class MarketIntelligenceEngine:
             "directional_scope": "Funding-only directional input; open interest remains context, not a vote.",
         }
 
+    def _collect_hyperliquid_derivatives(self) -> dict[str, Any]:
+        """Collect public BTC perpetual funding; convert the hourly rate to an 8h equivalent."""
+        base_currency = self.symbol.upper().replace("USDT", "").replace("USD", "")
+        if base_currency != "BTC":
+            return {
+                "status": "NOT_APPLICABLE",
+                "source": "Hyperliquid public perpetuals",
+                "reason": "Hyperliquid fallback is currently defined only for BTC symbols.",
+            }
+        url = "https://api.hyperliquid.xyz/info"
+        observed_at = int(time.time() * 1000)
+        try:
+            payload, provider_timestamp = self._post_json_with_provider_time(
+                url, {"type": "metaAndAssetCtxs"}, ttl_seconds=20
+            )
+        except Exception as exc:
+            return {
+                "status": "OFFLINE",
+                "source": "Hyperliquid public perpetuals",
+                "funding_rate": None,
+                "funding_timestamp_ms": None,
+                "long_short_ratio": None,
+                "long_short_timestamp_ms": None,
+                "endpoint_statuses": {"meta_and_asset_contexts": "OFFLINE"},
+                "endpoint_errors": {
+                    "meta_and_asset_contexts": f"{type(exc).__name__}: {str(exc)[:240]}"
+                },
+                "observed_at_ms": observed_at,
+            }
+
+        if not isinstance(payload, list) or len(payload) != 2:
+            return {
+                "status": "OFFLINE",
+                "source": "Hyperliquid public perpetuals",
+                "funding_rate": None,
+                "funding_timestamp_ms": None,
+                "long_short_ratio": None,
+                "long_short_timestamp_ms": None,
+                "endpoint_statuses": {"meta_and_asset_contexts": "INVALID"},
+                "endpoint_errors": {"meta_and_asset_contexts": "Malformed metaAndAssetCtxs response."},
+                "observed_at_ms": observed_at,
+            }
+        metadata, contexts = payload
+        universe = metadata.get("universe") if isinstance(metadata, dict) else None
+        if not isinstance(universe, list) or not isinstance(contexts, list) or len(universe) != len(contexts):
+            return {
+                "status": "OFFLINE",
+                "source": "Hyperliquid public perpetuals",
+                "funding_rate": None,
+                "funding_timestamp_ms": None,
+                "long_short_ratio": None,
+                "long_short_timestamp_ms": None,
+                "endpoint_statuses": {"meta_and_asset_contexts": "INVALID"},
+                "endpoint_errors": {"meta_and_asset_contexts": "Universe and asset-context arrays do not align."},
+                "observed_at_ms": observed_at,
+            }
+        index = next(
+            (i for i, item in enumerate(universe)
+             if isinstance(item, dict) and str(item.get("name", "")).upper() == "BTC"),
+            None,
+        )
+        if index is None or not isinstance(contexts[index], dict):
+            return {
+                "status": "OFFLINE",
+                "source": "Hyperliquid public perpetuals",
+                "funding_rate": None,
+                "funding_timestamp_ms": None,
+                "long_short_ratio": None,
+                "long_short_timestamp_ms": None,
+                "endpoint_statuses": {"meta_and_asset_contexts": "BTC_NOT_FOUND"},
+                "endpoint_errors": {},
+                "observed_at_ms": observed_at,
+            }
+
+        row = contexts[index]
+        hourly_funding = _finite(row.get("funding"))
+        # Hyperliquid pays funding hourly at one eighth of its 8-hour formula.
+        # Convert to an 8-hour equivalent before applying cross-venue scoring.
+        funding_8h_equivalent = hourly_funding * 8.0 if hourly_funding is not None else None
+        open_interest = _finite(row.get("openInterest"))
+        status = "READY" if funding_8h_equivalent is not None or open_interest is not None else "OFFLINE"
+        return {
+            "status": status,
+            "source": "Hyperliquid public BTC perpetual futures",
+            "instrument": "BTC",
+            "funding_rate": funding_8h_equivalent,
+            "funding_rate_hourly": hourly_funding,
+            "funding_rate_basis": "8H_EQUIVALENT_FROM_HOURLY" if hourly_funding is not None else "UNAVAILABLE",
+            "funding_timestamp_ms": provider_timestamp if funding_8h_equivalent is not None else None,
+            "long_short_ratio": None,
+            "long_short_timestamp_ms": None,
+            "open_interest": open_interest,
+            "open_interest_unit": "BTC",
+            "mark_price": _finite(row.get("markPx")),
+            "index_price": _finite(row.get("oraclePx")),
+            "timestamp_ms": provider_timestamp,
+            "timestamp_basis": "HTTP_PROVIDER_DATE" if provider_timestamp is not None else "UNKNOWN",
+            "endpoint_statuses": {"meta_and_asset_contexts": "RESPONSE"},
+            "endpoint_errors": {},
+            "observed_at_ms": observed_at,
+            "directional_scope": (
+                "Hourly Hyperliquid funding is converted to an 8-hour equivalent; "
+                "HTTP Date is required for directional freshness. Open interest is context only."
+            ),
+        }
+
     def _collect_derivatives(self) -> dict[str, Any]:
         venues: dict[str, Any] = {}
         collectors = {
@@ -1152,6 +1310,7 @@ class MarketIntelligenceEngine:
             "OKX": self._collect_okx_derivatives,
             "Gate.io": self._collect_gateio_derivatives,
             "Deribit": self._collect_deribit_derivatives,
+            "Hyperliquid": self._collect_hyperliquid_derivatives,
         }
         with ThreadPoolExecutor(max_workers=len(collectors)) as pool:
             futures = {pool.submit(fn): name for name, fn in collectors.items()}
@@ -1232,6 +1391,81 @@ class MarketIntelligenceEngine:
             "attribution_required": bool(attribution.get("required", False)),
             "attribution": attribution.get("text"),
             "scope": "Public macro releases for USD, EUR, GBP, JPY, AUD, CAD, CHF, CNY and NZD; cached locally for 15 minutes.",
+        }
+
+    def _collect_forex_factory_calendar(self, *, now_ms: int | None = None) -> dict[str, Any]:
+        """Collect the public weekly macro calendar with CDN HTTP-Date freshness."""
+        url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+        captured = int(time.time() * 1000) if now_ms is None else int(now_ms)
+        try:
+            payload, server_stamp = self._json_with_provider_time(url, ttl_seconds=900)
+        except Exception as exc:
+            return {
+                "status": "OFFLINE",
+                "source": "Forex Factory public weekly calendar",
+                "events": [],
+                "reason": f"{type(exc).__name__}: {str(exc)[:240]}",
+            }
+        age = (captured - server_stamp) / 1000.0 if server_stamp is not None else None
+        if server_stamp is None or age is None or age < -120.0 or age > 1800.0:
+            return {
+                "status": "STALE" if server_stamp is not None else "INVALID",
+                "source": "Forex Factory public weekly calendar",
+                "server_time_ms": server_stamp,
+                "freshness_age_seconds": round(age, 2) if age is not None else None,
+                "freshness_max_age_seconds": 1800,
+                "events": [],
+                "reason": "CDN HTTP Date is missing, future-dated or older than 30 minutes.",
+            }
+        if not isinstance(payload, list):
+            return {
+                "status": "INVALID",
+                "source": "Forex Factory public weekly calendar",
+                "server_time_ms": server_stamp,
+                "events": [],
+                "reason": "Calendar response is not a list.",
+            }
+        importance_map = {
+            "HIGH": "HIGH",
+            "MEDIUM": "MODERATE",
+            "LOW": "LOW",
+            "HOLIDAY": "HOLIDAY",
+        }
+        events: list[dict[str, Any]] = []
+        for item in payload[:1000]:
+            if not isinstance(item, dict):
+                continue
+            stamp = _parse_time(item.get("date"))
+            name = str(item.get("title") or "").strip()
+            impact = str(item.get("impact") or "").strip().upper()
+            if stamp is None or not name or impact not in importance_map:
+                continue
+            if stamp < server_stamp - 7 * 24 * 60 * 60_000 or stamp > server_stamp + 9 * 24 * 60 * 60_000:
+                continue
+            currency = str(item.get("country") or "").strip().upper()[:8]
+            events.append({
+                "event_id": str(item.get("id") or ""),
+                "event_time_utc_ms": stamp,
+                "name": name[:240],
+                "country": currency,
+                "currency": currency,
+                "importance": importance_map[impact],
+                "forecast": item.get("forecast") or None,
+                "previous": item.get("previous") or None,
+                "actual": item.get("actual") or None,
+                "provider": "Forex Factory",
+                "source_url": url,
+            })
+        events.sort(key=lambda row: row["event_time_utc_ms"])
+        return {
+            "status": "READY" if events else "EMPTY",
+            "source": "Forex Factory public weekly calendar",
+            "server_time_ms": server_stamp,
+            "freshness_age_seconds": round(age, 2),
+            "freshness_max_age_seconds": 1800,
+            "event_count": len(events),
+            "events": events,
+            "scope": "Public weekly macro calendar; CDN HTTP Date is required and events are normalized to UTC.",
         }
 
     def _collect_trading_economics(self, *, now: datetime | None = None) -> dict[str, Any]:
@@ -1377,9 +1611,10 @@ class MarketIntelligenceEngine:
             "derivatives": self._collect_derivatives,
             "trading_economics": self._collect_trading_economics,
             "public_calendar": lambda: self._collect_public_calendar(now_ms=captured),
+            "forex_factory_calendar": lambda: self._collect_forex_factory_calendar(now_ms=captured),
         }
         results: dict[str, dict[str, Any]] = {}
-        with ThreadPoolExecutor(max_workers=6) as pool:
+        with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
             futures = {pool.submit(fn): name for name, fn in tasks.items()}
             for future in as_completed(futures):
                 name = futures[future]
@@ -1396,6 +1631,7 @@ class MarketIntelligenceEngine:
         calendar = self._calendar_context({
             "showmytrades": results.get("public_calendar", {}),
             "trading_economics": results.get("trading_economics", {}),
+            "forex_factory": results.get("forex_factory_calendar", {}),
         }, captured)
         composite = compose_directional_context(
             news=news_score,
@@ -1408,6 +1644,7 @@ class MarketIntelligenceEngine:
         }
         source_statuses["showmytrades_calendar"] = calendar["sources"]["showmytrades"]
         source_statuses["trading_economics_calendar"] = calendar["sources"]["trading_economics"]
+        source_statuses["forex_factory_calendar"] = calendar["sources"]["forex_factory"]
         risk_assessment = assess_market_risk(
             news=news, fear_greed=fear_greed, derivatives=derivatives,
             calendar=calendar, now_ms=captured,

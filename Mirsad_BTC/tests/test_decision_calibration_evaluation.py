@@ -4,6 +4,7 @@ from pathlib import Path
 from scripts.evaluate_decision_calibration import (
  SplitWindow,evaluate_database,forward_markout_bps,parse_horizons,validate_split_windows
 )
+from mirsad.storage import DECISION_CALIBRATION_PROFILE_VERSION
 
 class DecisionCalibrationEvaluationTests(unittest.TestCase):
  def test_horizons_are_sorted_unique_positive(self):
@@ -41,14 +42,15 @@ class DecisionCalibrationEvaluationTests(unittest.TestCase):
    with sqlite3.connect(db) as conn:
     conn.executescript("""
       CREATE TABLE decision_calibration_samples(sample_key TEXT,signal_bar_time_ms INTEGER,
-        symbol TEXT,profile_version TEXT,final_action TEXT,broker_spread_pct REAL);
+        symbol TEXT,profile_version TEXT,candidate_action TEXT,final_action TEXT,broker_spread_pct REAL);
       CREATE TABLE decision_calibration_candles(symbol TEXT,timeframe TEXT,open_time_ms INTEGER,
         open REAL,high REAL,low REAL,close REAL,volume REAL);
     """)
-    conn.executemany("INSERT INTO decision_calibration_samples VALUES(?,?,?,?,?,?)",[
-      ("tr",120_000,"BTCUSDT","v1","BUY",0.01),
-      ("va",1_200_000,"BTCUSDT","v1","SELL",0.01),
-      ("te",2_200_000,"BTCUSDT","v1","WAIT",0.01)])
+    conn.executemany("INSERT INTO decision_calibration_samples VALUES(?,?,?,?,?,?,?)",[
+      ("tr",120_000,"BTCUSDT",DECISION_CALIBRATION_PROFILE_VERSION,"BUY","BUY",0.01),
+      ("va",1_200_000,"BTCUSDT",DECISION_CALIBRATION_PROFILE_VERSION,"SELL","SELL",0.01),
+      ("te",2_200_000,"BTCUSDT",DECISION_CALIBRATION_PROFILE_VERSION,"WAIT","WAIT",0.01),
+      ("old",120_000,"BTCUSDT","obsolete-profile","BUY","BUY",0.01)])
     bars=[("BTCUSDT","1m",t,100.0,101.0,99.0,100.5,10.0)
           for t in range(60_000,3_000_001,60_000)]
     conn.executemany("INSERT INTO decision_calibration_candles VALUES(?,?,?,?,?,?,?,?)",bars)
@@ -58,6 +60,11 @@ class DecisionCalibrationEvaluationTests(unittest.TestCase):
      fee_bps_per_side=1.0,slippage_bps_per_side=0.5)
    self.assertEqual(result["status"],"UNVALIDATED")
    self.assertTrue(result["costs_applied"])
+   self.assertEqual(result["profile_version"],DECISION_CALIBRATION_PROFILE_VERSION)
+   self.assertEqual(result["sample_count"],3)
+   self.assertEqual(result["directional_signal_count"],2)
+   self.assertEqual(result["wait_signal_count"],1)
+   self.assertEqual(result["candidate_action_counts"],{"BUY":1,"SELL":1,"WAIT":1})
    self.assertEqual(result["splits"]["train"]["directional_signals"],1)
    self.assertEqual(result["splits"]["validation"]["directional_signals"],1)
    self.assertEqual(result["splits"]["test"]["wait_signals"],1)

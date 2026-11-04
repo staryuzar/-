@@ -5,6 +5,7 @@ from pathlib import Path
 from statistics import mean, median
 from typing import Any
 from mirsad.config import DECISION_CALIBRATION_DB_PATH
+from mirsad.storage import DECISION_CALIBRATION_PROFILE_VERSION
 
 M1_MS=60_000
 
@@ -71,14 +72,21 @@ def summarize(rows:list[dict[str,Any]])->dict[str,Any]:
             "profit_factor":round(gains/losses,4) if losses else None,
             "max_drawdown_bps":round(drawdown,4)}
 
-def read_calibration_rows(db_path:Path,windows:list[SplitWindow]):
+def read_calibration_rows(
+    db_path:Path,
+    windows:list[SplitWindow],
+    *,
+    profile_version:str=DECISION_CALIBRATION_PROFILE_VERSION,
+):
     if not db_path.is_file(): raise FileNotFoundError(f"Calibration archive does not exist: {db_path}")
     low=min(x.start_ms for x in windows); high=max(x.end_ms for x in windows)
     with sqlite3.connect(str(db_path)) as conn:
         conn.row_factory=sqlite3.Row
-        samples=conn.execute("""SELECT sample_key,signal_bar_time_ms,symbol,profile_version,final_action,broker_spread_pct
-          FROM decision_calibration_samples WHERE signal_bar_time_ms>=? AND signal_bar_time_ms<?
-          ORDER BY signal_bar_time_ms,sample_key""",(low,high)).fetchall()
+        samples=conn.execute("""SELECT sample_key,signal_bar_time_ms,symbol,profile_version,
+          candidate_action,final_action,broker_spread_pct
+          FROM decision_calibration_samples
+          WHERE signal_bar_time_ms>=? AND signal_bar_time_ms<? AND profile_version=?
+          ORDER BY signal_bar_time_ms,sample_key""",(low,high,profile_version)).fetchall()
         symbols=sorted({str(x["symbol"]) for x in samples})
         if len(symbols)>1: raise ValueError("Run one symbol per study.")
         candles={}
@@ -96,13 +104,23 @@ def read_calibration_rows(db_path:Path,windows:list[SplitWindow]):
                 candles[stamp]=item
     return [dict(x) for x in samples],candles
 
+def _action_counts(rows:list[dict[str,Any]], field:str)->dict[str,int]:
+    counts:dict[str,int]={}
+    for row in rows:
+        action=str(row.get(field,"UNKNOWN") or "UNKNOWN").upper()
+        counts[action]=counts.get(action,0)+1
+    return dict(sorted(counts.items()))
+
+
 def evaluate_database(db_path:Path,*,windows:list[SplitWindow],horizons:tuple[int,...],
                       embargo_bars:int,fee_bps_per_side:float,slippage_bps_per_side:float)->dict[str,Any]:
     if not horizons or tuple(sorted(set(horizons)))!=horizons: raise ValueError("horizons must be sorted, unique, and non-empty")
     validate_split_windows(windows,max_horizon=max(horizons),embargo_bars=embargo_bars)
     if not all(math.isfinite(x) and x>=0 for x in (fee_bps_per_side,slippage_bps_per_side)):
         raise ValueError("fee and slippage must be finite and non-negative")
-    samples,candles=read_calibration_rows(db_path,windows); reports={}
+    samples,candles=read_calibration_rows(
+        db_path,windows,profile_version=DECISION_CALIBRATION_PROFILE_VERSION
+    ); reports={}
     for window in windows:
         eligible=[x for x in samples if window.start_ms+embargo_bars*M1_MS<=int(x["signal_bar_time_ms"])
                   and int(x["signal_bar_time_ms"])+(max(horizons)+1)*M1_MS<=window.end_ms]
@@ -120,9 +138,26 @@ def evaluate_database(db_path:Path,*,windows:list[SplitWindow],horizons:tuple[in
             metrics[str(horizon)]={**summarize(rows),"skipped_missing_spread_or_future_bars":skipped}
         reports[window.name]={"start_ms":window.start_ms,"end_ms":window.end_ms,
             "eligible_samples":len(eligible),"directional_signals":len(directional),
+            "candidate_action_counts":_action_counts(eligible,"candidate_action"),
+            "final_action_counts":_action_counts(eligible,"final_action"),
             "wait_signals":sum(str(x["final_action"]).upper()=="WAIT" for x in eligible),
             "horizons":metrics}
+    directional_count=sum(
+        str(x["final_action"]).upper() in {"BUY","SELL"} for x in samples
+    )
+    insufficiency_reasons=[]
+    if not samples:
+        insufficiency_reasons.append("No samples exist for the current calibration profile in the requested windows.")
+    if directional_count == 0:
+        insufficiency_reasons.append("No final BUY/SELL decisions exist; WAIT observations cannot establish directional trading performance.")
     return {"schema":"MIRSAD-DECISION-FORWARD-MARKOUT-STUDY-1","status":"UNVALIDATED",
+        "profile_version":DECISION_CALIBRATION_PROFILE_VERSION,
+        "sample_count":len(samples),
+        "directional_signal_count":directional_count,
+        "wait_signal_count":sum(str(x["final_action"]).upper()=="WAIT" for x in samples),
+        "candidate_action_counts":_action_counts(samples,"candidate_action"),
+        "final_action_counts":_action_counts(samples,"final_action"),
+        "insufficiency_reasons":insufficiency_reasons,
         "profile_versions":sorted({str(x["profile_version"]) for x in samples}),
         "fee_bps_per_side":fee_bps_per_side,"slippage_bps_per_side":slippage_bps_per_side,
         "embargo_bars":embargo_bars,"horizons":list(horizons),"costs_applied":True,"splits":reports,
