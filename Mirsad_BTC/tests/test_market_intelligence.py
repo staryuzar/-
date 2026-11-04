@@ -588,7 +588,7 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         engine._collect_deribit_derivatives = lambda: {
             "status": "READY",
             "funding_rate": 0.0001,
-            "funding_timestamp_ms": 1_798_000_000_000,
+            "funding_timestamp_ms": current_stamp,
             "long_short_ratio": None,
             "long_short_timestamp_ms": None,
         }

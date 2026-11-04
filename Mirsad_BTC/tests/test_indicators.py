@@ -295,8 +295,11 @@ class IndicatorsEngineTests(unittest.TestCase):
     def test_invalid_required_timeframe_history_is_reported_not_used_as_ready(self) -> None:
         candles = make_chart_candles(count=90)
         candles["candles_by_tf"]["1m"][40]["close"] = float("nan")
-        with self.assertRaisesRegex(ValueError, "non-finite close"):
-            IndicatorsEngine().analyze(candles)
+        result = IndicatorsEngine().analyze(candles)
+        self.assertNotEqual(result["status"], "READY")
+        self.assertEqual(result["timeframes"]["1m"]["status"], "INVALID")
+        self.assertIsNone(result["values"]["ema20_1m"])
+        self.assertIn("1m", result["missing_timeframes"])
 
 
 
