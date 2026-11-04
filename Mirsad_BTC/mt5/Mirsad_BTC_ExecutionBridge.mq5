@@ -12,6 +12,8 @@ input string InpMarketSymbol       = "BTCUSDT";   // Engine 5 broker-to-Mirsad s
 input int    InpTimerSeconds       = 1;
 input ulong  InpMagicNumber        = 26110201;
 input int    InpDeviationPoints    = 20;
+input int    InpHistoryDays         = 90;          // Bounded broker deal history window
+input int    InpHistoryDealLimit    = 1000;         // Maximum recent Mirsad deals exported per cycle
 input bool   InpAllowExecution     = false;        // Explicitly enable only after all Mirsad acceptance gates pass
 
 string g_broker_symbol = "";
@@ -224,6 +226,108 @@ string BuildPositionsJson()
    return output;
 }
 
+string BuildDealHistoryJson()
+{
+   datetime to_server = TimeTradeServer();
+   if(to_server <= 0)
+      to_server = TimeCurrent();
+   datetime from_server = to_server - (datetime)(InpHistoryDays * 86400);
+   long server_utc_offset_seconds = (long)to_server - (long)TimeGMT();
+   long queried_at_utc_ms = NowUtcMs();
+
+   ResetLastError();
+   if(!HistorySelect(from_server, to_server))
+   {
+      int history_error = GetLastError();
+      return StringFormat(
+         "{\"schema\":\"MIR1-DEALS-1\",\"status\":\"UNAVAILABLE\","
+         "\"queried_at_utc_ms\":%I64d,\"history_error\":%d,\"deals\":[]}",
+         queried_at_utc_ms, history_error
+      );
+   }
+
+   int total_selected = HistoryDealsTotal();
+   int first_index = total_selected - InpHistoryDealLimit;
+   if(first_index < 0)
+      first_index = 0;
+   int returned_count = 0;
+   string deals = "[";
+   bool first = true;
+
+   // Only Mirsad-owned deals for the configured broker symbol enter this
+   // ledger. Manual trades and other EAs remain outside Mirsad accounting.
+   for(int index = first_index; index < total_selected; index++)
+   {
+      ulong deal_ticket = HistoryDealGetTicket(index);
+      if(deal_ticket == 0)
+         continue;
+
+      long deal_magic = HistoryDealGetInteger(deal_ticket, DEAL_MAGIC);
+      string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
+      if((ulong)deal_magic != InpMagicNumber || deal_symbol != g_broker_symbol)
+         continue;
+
+      long deal_time_msc = HistoryDealGetInteger(deal_ticket, DEAL_TIME_MSC);
+      long deal_time_utc_ms = deal_time_msc - server_utc_offset_seconds * 1000;
+      long deal_order = HistoryDealGetInteger(deal_ticket, DEAL_ORDER);
+      long position_id = HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID);
+      long deal_type = HistoryDealGetInteger(deal_ticket, DEAL_TYPE);
+      long deal_entry = HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+      long deal_reason = HistoryDealGetInteger(deal_ticket, DEAL_REASON);
+      double deal_volume = HistoryDealGetDouble(deal_ticket, DEAL_VOLUME);
+      double deal_price = HistoryDealGetDouble(deal_ticket, DEAL_PRICE);
+      double deal_profit = HistoryDealGetDouble(deal_ticket, DEAL_PROFIT);
+      double deal_commission = HistoryDealGetDouble(deal_ticket, DEAL_COMMISSION);
+      double deal_swap = HistoryDealGetDouble(deal_ticket, DEAL_SWAP);
+      double deal_fee = HistoryDealGetDouble(deal_ticket, DEAL_FEE);
+      double net_cashflow = deal_profit + deal_commission + deal_swap + deal_fee;
+      string deal_comment = HistoryDealGetString(deal_ticket, DEAL_COMMENT);
+
+      if(deal_time_utc_ms <= 0 ||
+         !MathIsValidNumber(deal_volume) || deal_volume < 0.0 ||
+         !MathIsValidNumber(deal_price) || deal_price < 0.0 ||
+         !MathIsValidNumber(net_cashflow))
+         continue;
+
+      if(!first)
+         deals += ",";
+      first = false;
+      deals += StringFormat(
+         "{\"deal_ticket\":%I64u,\"order_ticket\":%I64d,\"position_id\":%I64d,"
+         "\"magic\":%I64d,\"symbol\":\"%s\",\"type\":%I64d,\"entry\":%I64d,"
+         "\"reason\":%I64d,\"time_utc_ms\":%I64d,\"volume\":%s,\"price\":%s,"
+         "\"profit\":%s,\"commission\":%s,\"swap\":%s,\"fee\":%s,"
+         "\"net_cashflow\":%s,\"currency\":\"%s\",\"comment\":\"%s\"}",
+         deal_ticket, deal_order, position_id, deal_magic, JsonEscape(deal_symbol),
+         deal_type, deal_entry, deal_reason, deal_time_utc_ms,
+         NumberJson(deal_volume, 8), NumberJson(deal_price, 10),
+         NumberJson(deal_profit, 2), NumberJson(deal_commission, 2),
+         NumberJson(deal_swap, 2), NumberJson(deal_fee, 2),
+         NumberJson(net_cashflow, 2), JsonEscape(AccountInfoString(ACCOUNT_CURRENCY)),
+         JsonEscape(deal_comment)
+      );
+      returned_count++;
+   }
+   deals += "]";
+
+   return StringFormat(
+      "{\"schema\":\"MIR1-DEALS-1\",\"status\":\"READY\","
+      "\"queried_at_utc_ms\":%I64d,\"window_start_utc_ms\":%I64d,"
+      "\"window_end_utc_ms\":%I64d,\"history_total_selected\":%d,"
+      "\"history_start_index\":%d,\"returned_count\":%d,"
+      "\"truncated\":%s,\"symbol\":\"%s\",\"magic\":%I64u,"
+      "\"currency\":\"%s\",\"time_basis\":\"UTC_NORMALIZED_FROM_MT5_SERVER_TIME\","
+      "\"deals\":%s}",
+      queried_at_utc_ms,
+      ((long)from_server - server_utc_offset_seconds) * 1000,
+      ((long)to_server - server_utc_offset_seconds) * 1000,
+      total_selected, first_index, returned_count,
+      (first_index > 0 ? "true" : "false"),
+      JsonEscape(g_broker_symbol), InpMagicNumber,
+      JsonEscape(AccountInfoString(ACCOUNT_CURRENCY)), deals
+   );
+}
+
 void PublishTelemetry()
 {
    MqlTick tick;
@@ -294,6 +398,7 @@ void PublishTelemetry()
 
    WriteCommonText("status.json", payload);
    WriteCommonText("positions.json", BuildPositionsJson());
+   WriteCommonText("deals.json", BuildDealHistoryJson());
 }
 
 void PublishAck(const string command_id, const string state,
@@ -693,6 +798,9 @@ void ProcessCommand()
 int OnInit()
 {
    if(InpTimerSeconds < 1 || InpTimerSeconds > 60)
+      return INIT_PARAMETERS_INCORRECT;
+   if(InpHistoryDays < 1 || InpHistoryDays > 365 ||
+      InpHistoryDealLimit < 100 || InpHistoryDealLimit > 5000)
       return INIT_PARAMETERS_INCORRECT;
    if(InpMarketSymbol == "")
       return INIT_PARAMETERS_INCORRECT;
