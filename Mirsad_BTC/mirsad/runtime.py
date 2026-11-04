@@ -180,7 +180,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  readiness={
   "engine_5_execution_quote_feed":market_status=="LIVE",
   "engine_1_market_intelligence":market_intelligence.get("status")=="READY",
-  "engine_2_visual_chart":chart.get("status")=="READY" and chart.get("decision_eligible") is True,
+  # Screenshot/image analysis is diagnostic only and is not a readiness gate.
   "engine_2_candles":candle_history.get("status")=="READY",
   "engine_2_multi_timeframe_structure":engine2_multitimeframe.get("status")=="READY",
   "engine_2_price_action":engine2_price_action.get("status")=="READY",
