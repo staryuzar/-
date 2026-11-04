@@ -32,9 +32,10 @@ MT5_MARKET_DIVERGENCE_MAX_PCT=max(0.001,float(os.getenv("MIRSAD_MT5_MARKET_DIVER
 MT5_MAX_SPREAD_PCT=max(0.0001,float(os.getenv("MIRSAD_MT5_MAX_SPREAD_PCT","0.003")))
 CHART_MAX_AGE_SECONDS=max(30,int(os.getenv("MIRSAD_CHART_MAX_AGE","300")))
 RISK_PER_TRADE=float(os.getenv("MIRSAD_RISK_PER_TRADE","0.005"))
-# Daily drawdown protection is enabled by default. Disable only explicitly
-# for isolated development tests; order publishing remains separately OFF by default.
-DAILY_LOSS_LIMIT_ENABLED=os.getenv("MIRSAD_DAILY_LOSS_LIMIT_ENABLED","1").strip().lower() in {"1","true","yes","on"}
+# Keep the daily drawdown gate open during development and demo validation.
+# Enable explicitly with MIRSAD_DAILY_LOSS_LIMIT_ENABLED=1 for a later
+# controlled acceptance run; order publishing remains separately OFF by default.
+DAILY_LOSS_LIMIT_ENABLED=os.getenv("MIRSAD_DAILY_LOSS_LIMIT_ENABLED","0").strip().lower() in {"1","true","yes","on"}
 MAX_DAILY_LOSS_FRACTION=float(os.getenv("MIRSAD_MAX_DAILY_LOSS_FRACTION","0.02"))
 RISK_STATE_PATH=DATA_DIR/"daily_risk_state.json"
 MT5_COMMON_FILES=os.getenv("MIRSAD_MT5_COMMON_FILES","").strip()
