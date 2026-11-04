@@ -430,6 +430,36 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertFalse(result["command_ready"])
 
 
+    def test_engine4_requires_live_native_indicator_parity_before_using_engine3_vote(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["mt5_native"] = {"status": "READY"}
+        indicators["mt5_native_parity"] = {
+            "status": "FAIL", "passed_metrics": 119, "total_metrics": 120,
+            "failures": ["5m: rsi14 mismatch"],
+        }
+
+        blocked = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=make_engine2_price_action(),
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(blocked["status"], "WAITING_FOR_ENGINE_3_PARITY")
+        self.assertEqual(blocked["action"], "WAIT")
+        self.assertFalse(blocked["command_ready"])
+        self.assertEqual(blocked["engine_3_native_parity_status"], "FAIL")
+
+        indicators["mt5_native_parity"] = {
+            "status": "PASS", "passed_metrics": 120, "total_metrics": 120, "failures": []
+        }
+        accepted = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=make_engine2_price_action(),
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(accepted["candidate_action"], "BUY")
+        self.assertEqual(accepted["status"], "READY")
+
     def test_engine4_uses_grouped_indicator_signal_instead_of_ema_trend_score(self) -> None:
         chart = self._chart()
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
