@@ -75,7 +75,7 @@ class DailyRiskBaselineTests(unittest.TestCase):
         )
         other_account = evaluate_daily_risk(
             self._account(970.0, login="67890"), first["state"],
-            max_daily_loss_fraction=0.02, now_ms=(1_799_971_200_000 + 60_000),
+            max_daily_loss_fraction=0.02, now_ms=(1_799_971_200_000 + 3_600_000),
         )
         self.assertEqual(new_day["report"]["status"], "READY")
         self.assertEqual(new_day["report"]["baseline_reset_reason"], "NEW_UTC_DAY")
