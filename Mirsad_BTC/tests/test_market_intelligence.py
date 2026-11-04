@@ -330,6 +330,57 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertTrue(scored["venues"]["Binance"]["directional_inputs_used"]["long_short_ratio"])
 
 
+    def test_okx_derivatives_emit_provider_timestamps_and_mark_ratio_scope(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCUSDT")
+        stamp = 1_798_000_000_000
+
+        def fake_json(url: str, *, ttl_seconds: int = 30):
+            if "/public/funding-rate?" in url:
+                self.assertIn("instId=BTC-BTCUSDT-SWAP", url) if False else None
+                self.assertIn("instId=BTC-USDT-SWAP", url)
+                return {"code": "0", "data": [{
+                    "fundingRate": "0.0002", "settFundingRate": "0.00015",
+                    "settState": "processing", "nextFundingTime": str(stamp + 3_600_000),
+                    "ts": str(stamp),
+                }]}
+            if "/public/open-interest?" in url:
+                self.assertIn("instType=SWAP", url)
+                return {"code": "0", "data": [{
+                    "instId": "BTC-USDT-SWAP", "oi": "35000",
+                    "oiUsd": "3150000000", "ts": str(stamp),
+                }]}
+            if "/long-short-account-ratio?" in url:
+                self.assertIn("ccy=BTC", url)
+                return {"code": "0", "data": [
+                    [str(stamp), "1.35"],
+                    [str(stamp - 300_000), "1.30"],
+                ]}
+            raise AssertionError(f"Unexpected OKX endpoint: {url}")
+
+        engine._json = fake_json
+        result = engine._collect_okx_derivatives()
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["instrument_id"], "BTC-USDT-SWAP")
+        self.assertAlmostEqual(result["funding_rate"], 0.00015)
+        self.assertEqual(result["funding_basis"], "CURRENT_SETTLEMENT_RATE")
+        self.assertAlmostEqual(result["long_short_ratio"], 1.35)
+        self.assertEqual(result["funding_timestamp_ms"], stamp)
+        self.assertEqual(result["long_short_timestamp_ms"], stamp)
+        self.assertIn("currency aggregate", result["long_short_ratio_scope"])
+        scored = score_derivatives({"OKX": result}, now_ms=stamp)
+        self.assertEqual(scored["venue_count"], 1)
+        self.assertTrue(scored["venues"]["OKX"]["directional_inputs_used"]["funding_rate"])
+        self.assertTrue(scored["venues"]["OKX"]["directional_inputs_used"]["long_short_ratio"])
+
+    def test_okx_symbol_without_supported_quote_fails_closed_without_requests(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCXYZ")
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("Unsupported OKX symbol must not call any endpoint.")
+        engine._json = fail_if_called
+        result = engine._collect_okx_derivatives()
+        self.assertEqual(result["status"], "OFFLINE")
+        self.assertEqual(result["endpoint_statuses"]["funding"], "NOT_REQUESTED")
+
     def test_duplicate_non_latin_headlines_are_collapsed_across_publishers(self) -> None:
         now = 1_798_000_000_000
         items = deduplicate_news_items([

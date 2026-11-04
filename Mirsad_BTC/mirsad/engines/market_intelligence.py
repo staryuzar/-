@@ -796,13 +796,147 @@ class MarketIntelligenceEngine:
             "observed_at_ms": int(time.time() * 1000),
         }
 
+    def _collect_okx_derivatives(self) -> dict[str, Any]:
+        # OKX exposes public, unauthenticated market-data endpoints. Map the
+        # configured BTCUSDT-style symbol to the matching perpetual contract.
+        instrument_id = None
+        base_currency = None
+        for quote in ("USDT", "USDC", "USD"):
+            if self.symbol.endswith(quote) and len(self.symbol) > len(quote):
+                base_currency = self.symbol[:-len(quote)]
+                instrument_id = f"{base_currency}-{quote}-SWAP"
+                break
+        if not instrument_id or not base_currency:
+            return {
+                "status": "OFFLINE",
+                "source": "OKX public derivatives",
+                "reason": f"Unsupported symbol mapping for {self.symbol}.",
+                "endpoint_statuses": {
+                    "funding": "NOT_REQUESTED",
+                    "open_interest": "NOT_REQUESTED",
+                    "account_ratio": "NOT_REQUESTED",
+                },
+                "endpoint_errors": {},
+            }
+
+        base = "https://openapi.okx.com/api/v5"
+        urls = {
+            "funding": base + "/public/funding-rate?" + urllib.parse.urlencode({"instId": instrument_id}),
+            "open_interest": base + "/public/open-interest?" + urllib.parse.urlencode({
+                "instType": "SWAP", "instId": instrument_id,
+            }),
+            # This is OKX's BTC-wide contract account ratio, not a single
+            # instrument ratio; retain the scope in the returned evidence.
+            "account_ratio": base + "/rubik/stat/contracts/long-short-account-ratio?" + urllib.parse.urlencode({
+                "ccy": base_currency, "period": "5m", "limit": 8,
+            }),
+        }
+        payloads: dict[str, Any] = {}
+        endpoint_errors: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {
+                pool.submit(self._json, url, ttl_seconds=30 if key != "account_ratio" else 120): key
+                for key, url in urls.items()
+            }
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    payloads[key] = future.result()
+                except Exception as exc:
+                    payloads[key] = None
+                    endpoint_errors[key] = f"{type(exc).__name__}: {str(exc)[:240]}"
+
+        endpoint_statuses: dict[str, str] = {}
+        rows: dict[str, list[Any]] = {}
+        for key, payload in payloads.items():
+            if payload is None:
+                endpoint_statuses[key] = "OFFLINE"
+                rows[key] = []
+                continue
+            if not isinstance(payload, dict) or str(payload.get("code", "")) != "0":
+                endpoint_statuses[key] = "API_ERROR"
+                endpoint_errors[key] = str(
+                    payload.get("msg", "Malformed OKX response.")
+                    if isinstance(payload, dict) else "Malformed OKX response."
+                )[:240]
+                rows[key] = []
+                continue
+            data = payload.get("data")
+            if not isinstance(data, list) or not data:
+                endpoint_statuses[key] = "EMPTY"
+                rows[key] = []
+                continue
+            endpoint_statuses[key] = "RESPONSE"
+            rows[key] = data
+
+        funding_row = rows["funding"][0] if rows["funding"] and isinstance(rows["funding"][0], dict) else {}
+        # During settlement, settFundingRate is the rate actually used for
+        # the current cycle. Otherwise fundingRate is the provider's next
+        # settlement estimate; expose its basis rather than calling it a fill.
+        settled_rate = _finite(funding_row.get("settFundingRate"))
+        is_processing = str(funding_row.get("settState", "")).lower() == "processing"
+        predicted_rate = _finite(funding_row.get("fundingRate"))
+        if is_processing and settled_rate is not None:
+            funding_rate = settled_rate
+            funding_basis = "CURRENT_SETTLEMENT_RATE"
+        else:
+            funding_rate = predicted_rate
+            funding_basis = "PREDICTED_NEXT_SETTLEMENT" if predicted_rate is not None else "UNAVAILABLE"
+        funding_timestamp = _parse_time(funding_row.get("ts")) if funding_rate is not None else None
+
+        oi_row = rows["open_interest"][0] if rows["open_interest"] and isinstance(rows["open_interest"][0], dict) else {}
+        open_interest = _finite(oi_row.get("oi"))
+        open_interest_usd = _finite(oi_row.get("oiUsd"))
+        oi_timestamp = _parse_time(oi_row.get("ts")) if open_interest is not None or open_interest_usd is not None else None
+
+        ratio_row = rows["account_ratio"][0] if rows["account_ratio"] else None
+        long_short_ratio = None
+        ratio_timestamp = None
+        if isinstance(ratio_row, (list, tuple)) and len(ratio_row) >= 2:
+            ratio_timestamp = _parse_time(ratio_row[0])
+            long_short_ratio = _finite(ratio_row[1])
+        elif isinstance(ratio_row, dict):
+            ratio_timestamp = _parse_time(ratio_row.get("ts") or ratio_row.get("timestamp"))
+            long_short_ratio = _finite(ratio_row.get("longShortAcctRatio") or ratio_row.get("longShortRatio"))
+
+        observed_at = int(time.time() * 1000)
+        status = "READY" if any(value is not None for value in (
+            funding_rate, open_interest, open_interest_usd, long_short_ratio,
+        )) else "OFFLINE"
+        source_stamps = [stamp for stamp in (funding_timestamp, oi_timestamp, ratio_timestamp) if stamp is not None]
+        return {
+            "status": status,
+            "source": "OKX USDT/USD perpetual futures",
+            "instrument_id": instrument_id,
+            "funding_rate": funding_rate,
+            "funding_basis": funding_basis,
+            "next_funding_time_ms": _parse_time(funding_row.get("nextFundingTime")),
+            "open_interest": open_interest,
+            "open_interest_usd": open_interest_usd,
+            "long_short_ratio": long_short_ratio,
+            "long_short_ratio_scope": f"OKX {base_currency} futures and perpetual contracts (currency aggregate)",
+            "funding_timestamp_ms": funding_timestamp,
+            "long_short_timestamp_ms": ratio_timestamp,
+            "directional_timestamp_ms": min(
+                [stamp for stamp in (funding_timestamp, ratio_timestamp) if stamp is not None],
+                default=None,
+            ),
+            "timestamp_ms": max(source_stamps) if source_stamps else None,
+            "timestamp_basis": "PROVIDER_TIMESTAMP" if source_stamps else "UNKNOWN",
+            "endpoint_statuses": endpoint_statuses,
+            "endpoint_errors": endpoint_errors,
+            "observed_at_ms": observed_at,
+        }
+
     def _collect_derivatives(self) -> dict[str, Any]:
         venues: dict[str, Any] = {}
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = {
-                pool.submit(self._collect_binance_derivatives): "Binance",
-                pool.submit(self._collect_bybit_derivatives): "Bybit",
-            }
+        collectors = {
+            "Binance": self._collect_binance_derivatives,
+            "Bybit": self._collect_bybit_derivatives,
+            "OKX": self._collect_okx_derivatives,
+        }
+        with ThreadPoolExecutor(max_workers=len(collectors)) as pool:
+            futures = {pool.submit(fn): name for name, fn in collectors.items()}
             for future in as_completed(futures):
                 name = futures[future]
                 try:
