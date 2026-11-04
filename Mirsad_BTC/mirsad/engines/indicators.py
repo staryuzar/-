@@ -544,6 +544,7 @@ class IndicatorsEngine:
                 "cci20", "mfi14", "momentum14", "wpr14", "obv", "osma",
             ],
             "signal_group_weights": dict(INDICATOR_SIGNAL_GROUP_WEIGHTS),
+            "timeframe_weights": dict(TIMEFRAME_WEIGHTS),
             "signal_volume_basis": SIGNAL_VOLUME_BASIS,
         }
         if not isinstance(chart_candles, dict) or chart_candles.get("status") != "READY":
