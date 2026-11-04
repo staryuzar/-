@@ -32,15 +32,21 @@ def validate(
     # candle ingestion validates its own Observer payload against that bridge;
     # it must never receive Engine 5's quote snapshot or Engine 1 intelligence.
     bridge = MT5BridgeEngine(common_files=str(common_files)).inspect()
+    # This workflow intentionally installs only the read-only Observer, not
+    # the execution EA. Cross-check with Engine 5 when its bridge is present;
+    # otherwise validate the independent Observer symbol/server fields and
+    # keep decision_eligible=False. Runtime itself still requires a connected
+    # Engine 5 bridge before any decision can become eligible.
+    bridge_for_validation = bridge if bridge.get("status") == "CONNECTED" else None
     market = MT5MarketDataEngine(
         common_files=str(common_files),
         symbol=market_symbol,
-    ).collect(bridge=bridge)
+    ).collect(bridge=bridge_for_validation)
 
     candles = MT5ChartCandleHistory(
         common_files=str(common_files),
         symbol=market_symbol,
-    ).collect(bridge=bridge)
+    ).collect(bridge=bridge_for_validation)
 
     indicators = MT5NativeIndicatorHistory(
         common_files=str(common_files),
@@ -52,10 +58,6 @@ def validate(
     engine3_warnings: list[str] = []
     if market.get("status") != "LIVE":
         engine2_failures.append(f"market feed: {market.get('status')} — {market.get('reason')}")
-    if bridge.get("status") != "CONNECTED":
-        engine2_failures.append(
-            f"Engine 5 bridge: {bridge.get('status')} — {bridge.get('message')}"
-        )
     if candles.get("status") != "READY":
         engine2_failures.append(f"candle feed: {candles.get('status')} — {candles.get('reason')}")
 
@@ -174,6 +176,8 @@ def validate(
             "symbol": bridge.get("symbol"),
             "market_symbol": bridge.get("market_symbol"),
             "account_server": (bridge.get("account") or {}).get("server"),
+            "cross_check": "MATCHED" if bridge_for_validation is not None else "NOT_PART_OF_READ_ONLY_FEED_TEST",
+            "required_for_live_decision": True,
         },
         "market": {
             "status": market.get("status"),
@@ -246,6 +250,7 @@ def main() -> int:
         "engine2_status": report["engine2"]["status"],
         "engine3_status": report["engine3"]["status"],
         "image_capture_enabled": False,
+        "engine5_bridge": report["engine5_bridge"]["status"],
         "market": report["market"]["status"],
         "candles": report["candles"]["status"],
         "native_indicators": report["native_indicators"]["status"],
