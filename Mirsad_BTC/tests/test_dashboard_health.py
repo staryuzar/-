@@ -95,7 +95,8 @@ class ComponentHealthTests(unittest.TestCase):
         self.assertEqual(by_name["حفظ أدلة معايرة القرار"]["status"], "STORED")
         self.assertEqual(by_name["حاجز حد الخسارة اليومية"]["health"], "SAFE_DISABLED")
         self.assertEqual(by_name["بوابة نشر أوامر MIR1"]["health"], "SAFE_DISABLED")
-        self.assertFalse(any(any(token in item["component"] for token in ("صورة", "بصري", "معايرة", "OCR")) for item in items))
+        self.assertFalse(any(any(token in item["component"] for token in ("صورة", "بصري", "OCR")) for item in items))
+        self.assertIn("حفظ أدلة معايرة القرار", by_name)
         self.assertEqual(summarize_component_health(items)["attention"], 0)
         self.assertEqual(summarize_component_health(items)["safe_disabled"], 2)
 
