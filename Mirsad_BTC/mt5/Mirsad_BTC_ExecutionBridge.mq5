@@ -200,6 +200,75 @@ bool IsExecutionEnabled()
    return InpAllowExecution && AreTradePermissionsAvailable();
 }
 
+bool IsSupportedAccountMarginMode(const long margin_mode)
+{
+   return margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_NETTING
+          || margin_mode == ACCOUNT_MARGIN_MODE_EXCHANGE
+          || margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
+}
+
+bool HasOpenNettingSymbolExposure(const string symbol)
+{
+   long margin_mode = AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   if(margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
+      return false;
+   if(margin_mode != ACCOUNT_MARGIN_MODE_RETAIL_NETTING
+      && margin_mode != ACCOUNT_MARGIN_MODE_EXCHANGE)
+      return true; // Unknown accounting mode: fail closed.
+
+   for(int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) return true;
+      if(PositionGetString(POSITION_SYMBOL) == symbol)
+         return true;
+   }
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket == 0) return true;
+      if(OrderGetString(ORDER_SYMBOL) == symbol)
+         return true;
+   }
+   return false;
+}
+
+bool PositionHistoryIsMirsadOwned(const ulong ticket)
+{
+   if(!PositionSelectByTicket(ticket))
+      return false;
+   if((ulong)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
+      return false;
+
+   long margin_mode = AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   if(margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
+      return true;
+   if(margin_mode != ACCOUNT_MARGIN_MODE_RETAIL_NETTING
+      && margin_mode != ACCOUNT_MARGIN_MODE_EXCHANGE)
+      return false;
+
+   long position_identifier = PositionGetInteger(POSITION_IDENTIFIER);
+   if(position_identifier <= 0
+      || !HistorySelectByPosition((ulong)position_identifier))
+      return false;
+
+   int deals_total = HistoryDealsTotal();
+   if(deals_total <= 0)
+      return false;
+   for(int i = 0; i < deals_total; i++)
+   {
+      ulong deal_ticket = HistoryDealGetTicket(i);
+      if(deal_ticket == 0)
+         return false;
+      long deal_magic = HistoryDealGetInteger(deal_ticket, DEAL_MAGIC);
+      string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
+      if((ulong)deal_magic != InpMagicNumber || deal_symbol != g_broker_symbol)
+         return false;
+   }
+   return true;
+}
+
 string NumberJson(const double value, const int digits = 10)
 {
    return DoubleToString(value, digits);
@@ -413,12 +482,16 @@ void PublishTelemetry()
    long digits = SymbolInfoInteger(g_broker_symbol, SYMBOL_DIGITS);
    long trade_mode = SymbolInfoInteger(g_broker_symbol, SYMBOL_TRADE_MODE);
 
+   long account_margin_mode = AccountInfoInteger(ACCOUNT_MARGIN_MODE);
    string account = StringFormat(
       "\"account\":{\"login\":%I64d,\"server\":\"%s\",\"currency\":\"%s\","
+      "\"margin_mode\":%I64d,\"hedging_mode\":%s,"
       "\"balance\":%s,\"equity\":%s,\"free_margin\":%s}",
       AccountInfoInteger(ACCOUNT_LOGIN),
       JsonEscape(AccountInfoString(ACCOUNT_SERVER)),
       JsonEscape(AccountInfoString(ACCOUNT_CURRENCY)),
+      account_margin_mode,
+      account_margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING ? "true" : "false",
       NumberJson(AccountInfoDouble(ACCOUNT_BALANCE), 2),
       NumberJson(AccountInfoDouble(ACCOUNT_EQUITY), 2),
       NumberJson(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2)
@@ -608,6 +681,22 @@ void ProcessCommand()
       return;
    }
 
+   long account_margin_mode = AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   if(!IsSupportedAccountMarginMode(account_margin_mode))
+   {
+      RejectAndRemember(command_id, "Unsupported/unknown MT5 account margin mode; no position may be opened or managed.");
+      g_processing = false;
+      return;
+   }
+   if((action == "BUY" || action == "SELL")
+      && account_margin_mode != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING
+      && HasOpenNettingSymbolExposure(command_symbol))
+   {
+      RejectAndRemember(command_id, "Netting account already has an open position or pending order on this symbol; refusing to merge Mirsad exposure with another position.");
+      g_processing = false;
+      return;
+   }
+
    if(command_symbol == "" || command_symbol != g_broker_symbol)
    {
       RejectAndRemember(command_id, "Command symbol does not match the configured broker symbol.");
@@ -665,6 +754,12 @@ void ProcessCommand()
       if((ulong)position_magic != InpMagicNumber)
       {
          RejectAndRemember(command_id, "CLOSE/MODIFY is restricted to positions owned by this Mirsad EA magic number.");
+         g_processing = false;
+         return;
+      }
+      if(!PositionHistoryIsMirsadOwned(position_ticket))
+      {
+         RejectAndRemember(command_id, "CLOSE/MODIFY is blocked because the account's position history is mixed, unavailable or not exclusively owned by Mirsad.");
          g_processing = false;
          return;
       }

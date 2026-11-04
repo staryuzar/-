@@ -39,6 +39,20 @@ def valid_mt5_state() -> dict:
 
 
 class ExecutionAcceptanceSizingTests(unittest.TestCase):
+    def test_execution_ea_guards_netting_exposure_and_position_ownership(self) -> None:
+        source = (
+            PROJECT_ROOT / "mt5" / "Mirsad_BTC_ExecutionBridge.mq5"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("ACCOUNT_MARGIN_MODE_RETAIL_NETTING", source)
+        self.assertIn("ACCOUNT_MARGIN_MODE_EXCHANGE", source)
+        self.assertIn("ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", source)
+        self.assertIn("HasOpenNettingSymbolExposure(command_symbol)", source)
+        self.assertIn("PositionHistoryIsMirsadOwned(position_ticket)", source)
+        self.assertIn("HistorySelectByPosition((ulong)position_identifier)", source)
+        self.assertIn('"margin_mode\\":%I64d', source)
+        self.assertIn('"hedging_mode\\":%s', source)
+
     def test_acceptance_order_respects_risk_and_notional_caps(self) -> None:
         decision, sizing = build_open_decision(valid_mt5_state())
 
