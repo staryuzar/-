@@ -8,21 +8,23 @@
 - في Workflow قبول منفصل ومصرح به، نفّذ جسر Python دورة BUY ثم CLOSE محدودة على Headway-Demo، وأكد MT5 الدخول والخروج وسجل الوسيط دورة CLOSED دون مركز اختبار متبقٍ. صافي التدفق المسجل `-0.25 USD` (تكلفة/عمولة الاختبار)، وليس قياساً لربحية الاستراتيجية.
 - أُغلقت طرفية MT5 المؤقتة بانتهاء المهمة؛ لم يتم تثبيت البرنامج الدائم على جهاز المستخدم بعد.
 
-ملف EX5 وتقارير التنفيذ موجودة في Artifacts سير العمل:
-[اختبار BUY/CLOSE](https://github.com/staryuzar/-/actions/runs/41843251249)،
-[التكامل الحي للمحركات الخمسة](https://github.com/staryuzar/-/actions/runs/41843251185).
+تُنشأ بعد اجتياز القبول الشامل حزمة Windows باسم Artifact `mirsad-windows-handoff`. تحتوي الحزمة على المصدر وملفي الخبير المترجمين من الالتزام نفسه:
+- `Mirsad_BTC/mt5/build/Mirsad_ChartObserver.ex5`
+- `Mirsad_BTC/mt5/build/Mirsad_BTC_ExecutionBridge.ex5`
+
+وتتضمن ملف `HANDOFF_MANIFEST.json` مع SHA المصدر وبصمة ZIP. لا تحتوي الحزمة كلمات مرور أو قاعدة بيانات التشغيل. انقلها إلى الجهاز بعد اعتماد القبول ثم اتبع دفتر الانتقال المحلي.
 
 ## تثبيت النسخة على طرفية Windows المحلية
 
 1. افتح منصة MetaTrader 5.
 2. اختر File ثم Open Data Folder.
 3. افتح مجلد MQL5 ثم Experts.
-4. انسخ الملف Mirsad_BTC_ExecutionBridge.ex5 إلى هذا المجلد.
+4. انسخ `Mirsad_ChartObserver.ex5` و`Mirsad_BTC_ExecutionBridge.ex5` من مجلد `mt5/build` داخل الحزمة إلى هذا المجلد.
 5. ارجع إلى MT5 وافتح Navigator، ثم انقر بزر الفأرة الأيمن على Expert Advisors واختر Refresh.
-6. افتح رسم الرمز الذي تريد ربطه بحسابك، وفي حساب Headway الذي تم فحصه كان الرمز BTC.
-7. اسحب Mirsad_BTC_ExecutionBridge إلى الرسم.
-8. اجعل InpBrokerSymbol فارغاً ليأخذ رمز الرسم، أو أدخل رمز الوسيط حرفياً. اجعل InpMarketSymbol مطابقاً لرمز محرك السوق، وهو BTCUSDT في الإعداد الحالي.
-9. اسمح بتشغيل الخبراء (Algo Trading) في إعدادات MT5 وعلى شريط المنصة.
+6. افتح الرسم الذي سيستضيف Observer على الرمز BTC والإطار M1، وأرفق `Mirsad_ChartObserver` به.
+7. أرفق `Mirsad_BTC_ExecutionBridge` على الرسم/طرفية MT5 المخصصة للتنفيذ، وتحقق من أن Observer والجسر يقرآن مجلد Common Files نفسه.
+8. اجعل `InpBrokerSymbol` فارغاً ليأخذ رمز الرسم، أو أدخل رمز الوسيط حرفياً. اجعل `InpMarketSymbol` مطابقاً لرمز محرك السوق، وهو `BTCUSDT` في الإعداد الحالي.
+9. اسمح بتشغيل الخبراء (Algo Trading) في إعدادات MT5 وعلى شريط المنصة، ثم تحقق أولاً من النبض والبيانات وأهلية المحركات قبل الاعتماد على التشغيل الدائم.
 
 ## أين يكتب الخبير حالة الاتصال؟
 

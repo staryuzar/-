@@ -140,7 +140,7 @@ jobs:
           python -m unittest discover -s Mirsad_BTC/tests -p "test_mt5_native_indicators.py" -v
           python -m unittest discover -s Mirsad_BTC/tests -p "test_engine3_mt5_indicator_parity.py" -v
 
-      - name: Connect to MT5 demo and validate live feed with images and trading disabled
+      - name: Connect to MT5 demo and validate image-free native feeds (read-only)
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
           MIRSAD_MT5_SERVER: 'mt5.demo.trade-hw.online'
@@ -211,13 +211,156 @@ jobs:
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/candles-snapshot.json
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/indicators-snapshot.json
             ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-execution-report.txt
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/Mirsad_BTC_ExecutionBridge.ex5
             ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/Mirsad_BTC_ExecutionBridge_compile.log
             ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-telemetry.json
             ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-runtime-integration.json
             ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-runtime-integration.log
+            ${{ runner.temp }}/mirsad-mt5-execution-check/integrated-runtime-data/decision_calibration.sqlite3
           if-no-files-found: warn
           retention-days: 30
 
+  windows_handoff_bundle:
+    name: Windows handoff bundle — source and compiled MT5 experts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [five_engine_runtime]
+    steps:
+      - name: Checkout the exact accepted mini commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download same-commit five-engine runtime evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: mirsad-full-five-engine-runtime-evidence
+          path: ${{ runner.temp }}/mirsad-handoff-runtime-evidence
+
+      - name: Assemble and verify the Windows handoff bundle
+        env:
+          HANDOFF_COMMIT: ${{ github.sha }}
+          RUNTIME_EVIDENCE: ${{ runner.temp }}/mirsad-handoff-runtime-evidence
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          import zipfile
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          project = Path('Mirsad_BTC')
+          evidence = Path(os.environ['RUNTIME_EVIDENCE'])
+          commit = os.environ['HANDOFF_COMMIT']
+          if not project.is_dir():
+              raise SystemExit('Mirsad_BTC source directory is missing.')
+          observer_bins = list(evidence.rglob('Mirsad_ChartObserver.ex5'))
+          execution_bins = list(evidence.rglob('Mirsad_BTC_ExecutionBridge.ex5'))
+          if len(observer_bins) != 1 or len(execution_bins) != 1:
+              raise SystemExit(
+                  'Expected exactly one Observer EX5 and one ExecutionBridge EX5 '
+                  f'from this accepted runtime. Found observer={len(observer_bins)}, '
+                  f'execution={len(execution_bins)}.'
+              )
+
+          stage = Path('handoff-stage')
+          shutil.rmtree(stage, ignore_errors=True)
+          stage.mkdir(parents=True)
+          def ignore_project_files(directory, names):
+              ignored = {n for n in names if n in {'.venv', '__pycache__', '.streamlit', '.git'}}
+              ignored.update(n for n in names if n == '.env' or n.startswith('.env.') or n.endswith(('.sqlite3', '.db', '.pyc', '.ex5')))
+              if Path(directory).resolve() == (project.resolve() / 'data'):
+                  ignored.update(names)
+              if Path(directory).resolve() == project.resolve():
+                  ignored.add('data')
+              return ignored
+          shutil.copytree(project, stage / 'Mirsad_BTC', ignore=ignore_project_files)
+          build = stage / 'Mirsad_BTC' / 'mt5' / 'build'
+          build.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(observer_bins[0], build / 'Mirsad_ChartObserver.ex5')
+          shutil.copy2(execution_bins[0], build / 'Mirsad_BTC_ExecutionBridge.ex5')
+
+          manifest = {
+              'schema': 'MIRSAD-WINDOWS-HANDOFF-1',
+              'source_commit': commit,
+              'branch': 'mini',
+              'created_at_utc': datetime.now(timezone.utc).isoformat(),
+              'compiled_experts': {
+                  'observer': 'Mirsad_ChartObserver.ex5',
+                  'execution_bridge': 'Mirsad_BTC_ExecutionBridge.ex5'
+              },
+              'compiled_from_same_commit': True,
+              'contains_credentials': False,
+              'contains_runtime_databases': False,
+              'local_post_install_acceptance': 'REQUIRED',
+              'notes': [
+                  'Both MT5 expert binaries were produced by the Windows MetaEditor workflow for this exact commit.',
+                  'The package includes source, Arabic installation notes, and the current desktop handoff notebook.',
+                  'Install and validate on the target Windows/MT5 terminal before relying on persistent runtime.',
+                  'A passing GitHub acceptance run is not a profitability claim or a permanent local deployment.'
+              ]
+          }
+          (stage / 'HANDOFF_MANIFEST.json').write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + chr(10), encoding='utf-8'
+          )
+          handoff_readme = (
+              '# حزمة تسليم مرصاد إلى Windows' + chr(10) + chr(10)
+              + '- الفرع: mini' + chr(10)
+              + '- الالتزام: ' + commit + chr(10)
+              + '- يحتوي مجلد Mirsad_BTC على المصدر ووثائق التثبيت.' + chr(10)
+              + '- يحتوي Mirsad_BTC/mt5/build على ملف Observer وملف ExecutionBridge المترجمين من الالتزام نفسه.' + chr(10)
+              + '- ابدأ بقراءة Mirsad_BTC/reports/DESKTOP_COMPLETION_NOTEBOOK_AR.md وMirsad_BTC/mt5/INSTALL_AR.md.' + chr(10)
+              + '- لا تعدّل مفاتيح التنفيذ أو شروط القرار لفرض صفقات. يجب إتمام قبول MT5 المحلي بعد التثبيت.' + chr(10)
+              + '- لا تتضمن الحزمة كلمات مرور أو قواعد بيانات التشغيل أو ملفات البيئة السرية.' + chr(10)
+          )
+          (stage / 'WINDOWS_HANDOFF_AR.md').write_text(handoff_readme, encoding='utf-8')
+
+          output = Path('dist')
+          output.mkdir(exist_ok=True)
+          archive = output / 'Mirsad_BTC_Windows_Handoff.zip'
+          with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+              for file in sorted(stage.rglob('*')):
+                  if file.is_file():
+                      zf.write(file, file.relative_to(stage).as_posix())
+          with zipfile.ZipFile(archive) as zf:
+              names = set(zf.namelist())
+              for required in (
+                  'HANDOFF_MANIFEST.json',
+                  'WINDOWS_HANDOFF_AR.md',
+                  'Mirsad_BTC/mt5/build/Mirsad_ChartObserver.ex5',
+                  'Mirsad_BTC/mt5/build/Mirsad_BTC_ExecutionBridge.ex5',
+                  'Mirsad_BTC/mt5/INSTALL_AR.md',
+                  'Mirsad_BTC/reports/DESKTOP_COMPLETION_NOTEBOOK_AR.md',
+              ):
+                  if required not in names:
+                      raise SystemExit(f'Handoff bundle is missing required file: {required}')
+              forbidden = [n for n in names if n.endswith(('.sqlite3', '.db')) or n.endswith('/.env')]
+              if forbidden:
+                  raise SystemExit(f'Runtime/private files were unexpectedly packaged: {forbidden}')
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          (output / 'Mirsad_BTC_Windows_Handoff.zip.sha256').write_text(
+              f'{digest}  {archive.name}' + chr(10), encoding='utf-8'
+          )
+          print(json.dumps({
+              'status': 'PASS', 'archive': str(archive), 'sha256': digest,
+              'files': len(names), 'observer_ex5': True, 'execution_bridge_ex5': True,
+              'source_commit': commit
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload the Windows handoff bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-windows-handoff
+          path: |
+            dist/Mirsad_BTC_Windows_Handoff.zip
+            dist/Mirsad_BTC_Windows_Handoff.zip.sha256
+          if-no-files-found: error
+          retention-days: 90
   full_program_acceptance:
     name: Final gate — every required layer must pass
     runs-on: ubuntu-latest
@@ -227,6 +370,7 @@ jobs:
       - engine2_public_btc
       - mt5_direct_feed
       - five_engine_runtime
+      - windows_handoff_bundle
     steps:
       - name: Write a single full-program acceptance result
         env:
@@ -234,6 +378,7 @@ jobs:
           PUBLIC_BTC: ${{ needs.engine2_public_btc.result }}
           MT5_DIRECT_FEED: ${{ needs.mt5_direct_feed.result }}
           FIVE_ENGINE_RUNTIME: ${{ needs.five_engine_runtime.result }}
+          WINDOWS_HANDOFF: ${{ needs.windows_handoff_bundle.result }}
           ACCEPTANCE_SHA: ${{ github.sha }}
         run: |
           python - <<'PY'
@@ -246,6 +391,7 @@ jobs:
               "independent_public_btc_validation": os.environ["PUBLIC_BTC"],
               "real_mt5_direct_feed_read_only": os.environ["MT5_DIRECT_FEED"],
               "live_five_engine_runtime_integration": os.environ["FIVE_ENGINE_RUNTIME"],
+              "windows_handoff_bundle": os.environ["WINDOWS_HANDOFF"],
           }
           passed = all(value == "success" for value in checks.values())
           report = {
@@ -255,6 +401,7 @@ jobs:
               "required_checks": checks,
               "broker_acceptance_orders_sent": False,
               "simulated_open_ack_position_reconciliation": "covered by full Python test suite",
+              "windows_handoff_bundle": "source and both MT5 experts built from this commit" if checks["windows_handoff_bundle"] == "success" else "not available",
               "local_post_install_acceptance": "required for persistent runtime and the intended local terminal/account",
           }
           output = Path("mirsad-full-program-acceptance.json")

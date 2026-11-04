@@ -418,7 +418,7 @@ Period=$observerTimeframe
     $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable', "/config:$loginConfig", "/login:$login") -WorkingDirectory $installDir -PassThru
     Add-Report ("MT5 terminal launched with the read-only Observer on {0},{1}. Automated trading permission is disabled." -f $observerSymbol, $observerTimeframe)
 
-    # Maximize the hosted terminal before the Observer's delayed first capture.
+    # Maximize the hosted terminal before the Observer's first native-feed publication.
     if (-not ("MirsadNativeWindow" -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
