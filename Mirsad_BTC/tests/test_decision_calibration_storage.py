@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from mirsad.config import DB_PATH, DECISION_CALIBRATION_DB_PATH
 from mirsad.storage import (
     DECISION_CALIBRATION_PROFILE_VERSION,
     save_decision_calibration_sample,
@@ -95,9 +96,9 @@ def make_sample_inputs():
         "candidate_action": "WAIT",
         "broker_spread_pct": 0.08,
         "decision_weights": {
-            "engine_1_market_intelligence": 0.18,
+            "engine_1_market_intelligence": 0.16,
             "engine_2_price_action": 0.0,
-            "engine_3_indicators": 0.82,
+            "engine_3_indicators": 0.285,
             "configured": {
                 "engine_1_market_intelligence": 0.20,
                 "engine_2_price_action": 0.50,
@@ -111,6 +112,7 @@ def make_sample_inputs():
             "engine_2_quality": 0.0,
             "engine_3_indicators": -0.18,
             "engine_3_quality": 0.95,
+            "effective_weight_coverage": 0.445,
             "combined_score": None,
             "threshold": 0.40,
             "minimum_engine_2_direction_score": 0.20,
@@ -125,6 +127,10 @@ def make_sample_inputs():
 
 
 class DecisionCalibrationStorageTests(unittest.TestCase):
+    def test_calibration_database_is_separate_from_market_and_deal_database(self) -> None:
+        self.assertNotEqual(DB_PATH, DECISION_CALIBRATION_DB_PATH)
+        self.assertEqual(DECISION_CALIBRATION_DB_PATH.name, "decision_calibration.sqlite3")
+
     def test_stores_one_synchronized_sample_and_matching_closed_candles(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             db_path = Path(directory) / "calibration.sqlite3"
@@ -141,12 +147,13 @@ class DecisionCalibrationStorageTests(unittest.TestCase):
             self.assertEqual(result["status"], "STORED")
             self.assertEqual(result["profile_version"], DECISION_CALIBRATION_PROFILE_VERSION)
             self.assertEqual(result["candles_inserted"], 12)
+            self.assertEqual(result["sample_count"], 1)
 
             with sqlite3.connect(db_path) as conn:
                 sample = conn.execute(
                     "SELECT engine1_score,engine2_score,engine3_score,combined_score,"
                     "native_parity_status,candidate_action,final_action,evidence_json,"
-                    "calibration_config_json FROM decision_calibration_samples"
+                    "calibration_config_json,effective_weights_json FROM decision_calibration_samples"
                 ).fetchone()
                 candle_count = conn.execute(
                     "SELECT COUNT(*) FROM decision_calibration_candles"
@@ -160,8 +167,13 @@ class DecisionCalibrationStorageTests(unittest.TestCase):
             self.assertEqual(sample[6], "WAIT")
             evidence = json.loads(sample[7])
             config = json.loads(sample[8])
+            effective_weights = json.loads(sample[9])
             self.assertEqual(evidence["engine3"]["native_parity"]["passed_metrics"], 120)
             self.assertAlmostEqual(config["decision_weights"]["configured"]["engine_2_price_action"], 0.50)
+            self.assertAlmostEqual(effective_weights["engine_1_market_intelligence"], 0.16)
+            self.assertAlmostEqual(effective_weights["engine_2_price_action"], 0.0)
+            self.assertAlmostEqual(effective_weights["engine_3_indicators"], 0.285)
+            self.assertAlmostEqual(sum(effective_weights.values()), 0.445)
             self.assertEqual(candle_count, 12)
 
     def test_same_closed_m1_bar_is_idempotent(self) -> None:
@@ -179,7 +191,9 @@ class DecisionCalibrationStorageTests(unittest.TestCase):
                 db_path=db_path,
             )
             self.assertEqual(first["status"], "STORED")
+            self.assertEqual(first["sample_count"], 1)
             self.assertEqual(second["status"], "ALREADY_STORED")
+            self.assertEqual(second["sample_count"], 1)
             with sqlite3.connect(db_path) as conn:
                 count = conn.execute(
                     "SELECT COUNT(*) FROM decision_calibration_samples"

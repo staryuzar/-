@@ -117,6 +117,26 @@ def evaluate_engine4_runtime(decision: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_calibration_persistence(persistence: Any) -> dict[str, Any]:
+    """Expose archive persistence health without making it an execution gate."""
+    if not isinstance(persistence, dict):
+        persistence = {}
+    count = persistence.get("sample_count")
+    if not isinstance(count, int) or count < 0:
+        count = None
+    candles_inserted = persistence.get("candles_inserted")
+    if not isinstance(candles_inserted, int) or candles_inserted < 0:
+        candles_inserted = None
+    return {
+        "status": str(persistence.get("status", "NOT_REPORTED")),
+        "profile_version": persistence.get("profile_version"),
+        "sample_count": count,
+        "signal_bar_time_ms": persistence.get("signal_bar_time_ms"),
+        "candles_inserted": candles_inserted,
+        "reason": persistence.get("reason"),
+    }
+
+
 def run(common_root: Path, output: Path) -> dict[str, Any]:
     if runtime.ENABLE_ORDER_PUBLISH is not True:
         raise RuntimeError("MIRSAD_ENABLE_ORDER_PUBLISH must remain enabled for this integrated runtime check.")
@@ -217,6 +237,9 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
         "engine4_decision_gate_consistent": engine4_runtime["gate_consistent"],
     }
 
+    calibration_persistence = summarize_calibration_persistence(
+        report.get("decision_calibration_persistence")
+    )
     summary = {
         "schema": "MIRSAD-LIVE-RUNTIME-INTEGRATION-1",
         "status": "PASS" if all(checks.values()) else "FAIL",
@@ -278,6 +301,7 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
         "validated_mir1_envelopes": captured_commands,
         "decision_readiness": engine4_runtime["readiness"],
         "directional_entry_eligible": engine4_runtime["entry_eligible"],
+        "decision_calibration": calibration_persistence,
         "overall_runtime_status": report.get("overall_status"),
         "notes": [
             "All five engines were evaluated in one runtime.collect_once cycle against one live MT5 Common Files directory.",
@@ -288,6 +312,7 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
             "The independent broker BUY/CLOSE acceptance transaction is validated by the separate MT5 execution workflow.",
             "Engine 1 provider reachability is reported as observed and is not assumed to be complete from a hosted runner.",
             "Engine 3 directional votes are accepted by Engine 4 only after 120/120 numeric MT5 CopyBuffer parity metrics pass on the same closed Engine 2 bars.",
+            "Decision calibration samples are archived separately from broker deal/account history; archive health is diagnostic and never changes the live decision.",
         ],
     }
     output.parent.mkdir(parents=True, exist_ok=True)

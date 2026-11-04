@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from .config import DB_PATH
+from .config import DB_PATH, DECISION_CALIBRATION_DB_PATH
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -472,7 +472,7 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
         conn.close()
 
 
-DECISION_CALIBRATION_PROFILE_VERSION = "mirsad-engine-weights-evidence-gated-v4-2026-11-04"
+DECISION_CALIBRATION_PROFILE_VERSION = "mirsad-engine-weights-fixed-share-v5-2026-11-04"
 DECISION_CALIBRATION_RETENTION_DAYS = 180
 
 
@@ -492,7 +492,7 @@ def save_decision_calibration_sample(
     engine2_price_action: dict[str, Any],
     indicators: dict[str, Any],
     decision: dict[str, Any],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str = DECISION_CALIBRATION_DB_PATH,
 ) -> dict[str, Any]:
     """Persist one auditable, non-executing sample per completed M1 signal bar.
 
@@ -717,11 +717,20 @@ def save_decision_calibration_sample(
                 "DELETE FROM decision_calibration_candles WHERE open_time_ms < ?",
                 (cutoff,),
             )
+        sample_count = int(conn.execute(
+            "SELECT COUNT(*) FROM decision_calibration_samples WHERE profile_version=? AND symbol=?",
+            (profile_version, symbol),
+        ).fetchone()[0])
+        # Checkpoint WAL so the single-file cache contains every committed sample.
+        checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if checkpoint and int(checkpoint[0]) != 0:
+            raise sqlite3.OperationalError("Calibration database WAL checkpoint is busy.")
         return {
             "status": "STORED" if inserted else "ALREADY_STORED",
             "sample_key": sample_key,
             "signal_bar_time_ms": signal_bar_time_ms,
             "candles_inserted": candles_inserted,
+            "sample_count": sample_count,
             "profile_version": profile_version,
         }
     except (sqlite3.Error, TypeError, ValueError, OverflowError) as exc:

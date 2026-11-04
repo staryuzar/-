@@ -2,10 +2,26 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.mirsad_runtime_integration_check import evaluate_engine4_runtime
+from scripts.mirsad_runtime_integration_check import (
+    evaluate_engine4_runtime,
+    summarize_calibration_persistence,
+)
 
 
 class Engine4IntegrationReadinessTests(unittest.TestCase):
+    def test_calibration_archive_status_is_reported_as_diagnostic(self) -> None:
+        summary = summarize_calibration_persistence({
+            "status": "STORED",
+            "profile_version": "mirsad-engine-weights-fixed-share-v5-2026-11-04",
+            "sample_count": 42,
+            "signal_bar_time_ms": 1_798_000_000_000,
+            "candles_inserted": 12,
+        })
+        self.assertEqual(summary["status"], "STORED")
+        self.assertEqual(summary["sample_count"], 42)
+        self.assertEqual(summary["candles_inserted"], 12)
+        self.assertEqual(summarize_calibration_persistence(None)["status"], "NOT_REPORTED")
+
     def test_directional_entry_requires_engine2_eligibility_and_ready_status(self) -> None:
         result = evaluate_engine4_runtime({
             "status": "READY",

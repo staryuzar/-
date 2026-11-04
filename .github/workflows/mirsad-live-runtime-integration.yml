@@ -11,6 +11,8 @@ on:
       - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
       - 'Mirsad_BTC/mt5/Mirsad_BTC_ExecutionBridge.mq5'
       - 'Mirsad_BTC/mirsad/runtime.py'
+      - 'Mirsad_BTC/mirsad/config.py'
+      - 'Mirsad_BTC/mirsad/storage.py'
       - 'Mirsad_BTC/mirsad/engines/decision.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_bridge.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
@@ -42,6 +44,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Restore cumulative decision-calibration archive
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/mirsad-mt5-execution-check/integrated-runtime-data/decision_calibration.sqlite3
+          key: mirsad-decision-calibration-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            mirsad-decision-calibration-${{ runner.os }}-${{ github.ref_name }}-
 
       - name: Run Observer and ExecutionBridge on one shared MT5 Common Files directory
         env:
@@ -75,5 +85,6 @@ jobs:
             ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-telemetry.json
             ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-runtime-integration.json
             ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-runtime-integration.log
+            ${{ runner.temp }}/mirsad-mt5-execution-check/integrated-runtime-data/decision_calibration.sqlite3
           if-no-files-found: warn
           retention-days: 14

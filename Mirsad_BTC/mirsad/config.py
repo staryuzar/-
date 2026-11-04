@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 DATA_DIR=Path(os.getenv("MIRSAD_DATA_DIR",str(ROOT/"data"))).expanduser()
 DB_PATH=DATA_DIR/"mirsad.sqlite3"
+DECISION_CALIBRATION_DB_PATH=DATA_DIR/"decision_calibration.sqlite3"
 STATUS_PATH=DATA_DIR/"system_status.json"
 SNAPSHOT_PATH=DATA_DIR/"latest_market.json"
 CHART_DIR=DATA_DIR/"charts"
