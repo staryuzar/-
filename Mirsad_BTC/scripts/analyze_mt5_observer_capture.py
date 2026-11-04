@@ -417,6 +417,18 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str, *, debu
                 "fit_status": axis_fit.get("status", "NOT_RUN"),
                 "fit_inlier_ratio": axis_fit.get("inlier_ratio"),
                 "fit_rms_residual_px": axis_fit.get("rms_residual_px"),
+                "fit_price_top": axis_fit.get("price_top"),
+                "fit_price_bottom": axis_fit.get("price_bottom"),
+                "tick_sample": [
+                    {
+                        "y_px": tick.get("y_px"),
+                        "price": tick.get("price"),
+                        "score": tick.get("score"),
+                        "inlier": tick.get("inlier"),
+                    }
+                    for tick in axis_fit.get("ticks", [])[:24]
+                    if isinstance(tick, dict)
+                ],
                 "tick_y_min_px": min(
                     (float(tick["y_px"]) for tick in axis_fit.get("ticks", [])
                      if isinstance(tick, dict) and tick.get("inlier", True)),
@@ -452,6 +464,16 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str, *, debu
                                "mean_colour_purity", "legacy_mean_colour_purity", "mean_body_ratio",
                                "legacy_mean_body_ratio", "bars_with_both_wicks_separated",
                                "legacy_bars_with_both_wicks_separated", "adopted"}
+                },
+                "native_geometry_guided": {
+                    key: value for key, value in (
+                        (result.get("extraction_diagnostics") or {}).get("native_geometry_guided_extraction") or {}
+                    ).items()
+                    if key in {"status", "slots_considered", "occupied_slots", "rejected_empty_pixels",
+                               "rejected_components", "rejected_off_center", "rejected_body",
+                               "mean_colour_purity", "median_native_x_residual_px",
+                               "maximum_native_x_residual_px", "native_median_spacing_px",
+                               "minimum_recovery_threshold", "adopted", "reason"}
                 },
             },
             "quality_gates": result.get("quality_gates", {}),

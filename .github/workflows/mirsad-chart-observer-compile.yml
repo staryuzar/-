@@ -72,6 +72,7 @@ jobs:
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-live-capture-summary.json
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-engine2-analysis.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-engine2-geometry-overlay.png
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/observer-engine3-indicator-parity.json
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
           if-no-files-found: warn

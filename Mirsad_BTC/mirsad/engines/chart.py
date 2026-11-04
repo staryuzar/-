@@ -714,10 +714,20 @@ def analyze_chart_image(
             diagnostic["match_status"] = "MATCHED"
             diagnostic["matched_slot_index"] = reference_bar.get("slot_index")
             diagnostic["matched_x_px"] = reference_bar.get("x_px")
+            reference_ohlc_candidate = candidate["ohlc"]
+            diagnostic["matched_colour"] = reference_bar.get("colour")
+            diagnostic["matched_palette_mode"] = reference_bar.get("palette_mode")
+            diagnostic["matched_pixel_geometry"] = {
+                key: reference_bar.get(key)
+                for key in ("high_y_px", "low_y_px", "body_top_y_px", "body_bottom_y_px")
+            }
+            diagnostic["reference_ohlc"] = {
+                key: reference_ohlc_candidate.get(key)
+                for key in ("open", "high", "low", "close")
+            }
             if len(reference_slot_diagnostics) < 24:
                 reference_slot_diagnostics.append(diagnostic)
 
-            reference_ohlc_candidate = candidate["ohlc"]
             target_slot = (
                 _visible_slot_for_reference_offset(
                     offset, expected_count, first_visible_bar_shift
