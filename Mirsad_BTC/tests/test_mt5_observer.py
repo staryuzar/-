@@ -25,15 +25,21 @@ class MT5NativeObserverContractTests(unittest.TestCase):
         self.assertNotIn("image", parameters)
         self.assertNotIn("chart", parameters)
 
-    def test_mt5_observer_defaults_image_capture_off_and_publishes_native_feeds(self) -> None:
+    def test_mt5_observer_publishes_native_feeds_without_image_capture_code(self) -> None:
         source = (PROJECT_ROOT / "mt5" / "Mirsad_ChartObserver.mq5").read_text(encoding="utf-8")
-        self.assertRegex(
-            source,
-            r"(?im)^input\s+bool\s+InpEnableImageCapture\s*=\s*false\s*;",
-        )
+        for forbidden in (
+            "InpEnableImageCapture", "ChartScreenShot", "g_image_root",
+            "BeginCapture", "BuildCapturePayload", "observer_status.json",
+            "capture_", ".png", "screenshot",
+        ):
+            self.assertNotIn(forbidden.lower(), source.lower())
+        self.assertIn("market.json", source)
         self.assertIn("candles.json", source)
         self.assertIn("indicators.json", source)
-        self.assertNotRegex(source, r"(?i)\b(OrderSend|OrderSendAsync|CTrade|PositionOpen|PositionClose)\s*\(")
+        self.assertIn("CopyRates(", source)
+        self.assertIn("CopyBuffer(", source)
+        self.assertNotRegex(source, r"(?i)\\b(OrderSend|OrderSendAsync|CTrade|PositionOpen|PositionClose)\\s*\\(")
+
 
 
 if __name__ == "__main__":
