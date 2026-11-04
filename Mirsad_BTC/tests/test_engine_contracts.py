@@ -1381,6 +1381,81 @@ class BridgeProtocolTests(unittest.TestCase):
                 )
                 self.assertEqual(result["status"], "ACK_PENDING")
 
+    def test_partial_open_ack_reconciles_the_actual_filled_volume(self) -> None:
+        now = int(time.time() * 1000)
+        command = {
+            "command_id": "MIR-" + "e" * 24, "action": "BUY", "symbol": "BTC",
+            "magic_number": 26110201, "volume": 0.2, "volume_step": 0.01,
+            "position_snapshot_before": [],
+        }
+        ack = {
+            "command_id": command["command_id"], "state": "PARTIAL",
+            "filled_volume": 0.08, "ack_at_ms": now - 1500,
+        }
+        result = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack,
+            command,
+            [{"ticket": 22, "symbol": "BTC", "type": 0, "magic": 26110201, "volume": 0.08}],
+            now,
+        )
+        self.assertEqual(result["status"], "CONFIRMED_PARTIAL")
+        self.assertEqual(result["expected_volume"], 0.08)
+        self.assertEqual(result["observed_volume_delta"], 0.08)
+
+    def test_partial_close_ack_reconciles_the_actual_position_reduction(self) -> None:
+        now = int(time.time() * 1000)
+        before = {
+            "ticket": 654321, "symbol": "BTC", "type": 0, "magic": 26110201,
+            "volume": 0.2, "stop_loss": 90.0, "take_profit": 130.0,
+        }
+        command = {
+            "command_id": "MIR-" + "f" * 24, "action": "CLOSE", "symbol": "BTC",
+            "magic_number": 26110201, "position_ticket": 654321, "volume": 0.1,
+            "volume_step": 0.01, "position_snapshot_before": [before],
+        }
+        ack = {
+            "command_id": command["command_id"], "state": "PARTIAL",
+            "filled_volume": 0.05, "ack_at_ms": now - 1500,
+        }
+        result = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack, command, [{**before, "volume": 0.15}], now
+        )
+        self.assertEqual(result["status"], "CONFIRMED_PARTIAL")
+        self.assertEqual(result["expected_reduction"], 0.05)
+        self.assertEqual(result["observed_reduction"], 0.05)
+
+    def test_new_command_can_follow_a_reconciled_partial_fill(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            previous_id = "MIR-" + "1" * 24
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            previous = {
+                "schema": "MIR1", "command_id": previous_id, "action": "BUY",
+                "symbol": "BTC", "market_symbol": "BTCUSDT", "volume": 0.2,
+            }
+            (root / "command.json").write_text(json.dumps(previous), encoding="utf-8")
+            (root / "ack.json").write_text(json.dumps({
+                "schema": "MIR1", "command_id": previous_id, "state": "PARTIAL",
+                "filled_volume": 0.08,
+            }), encoding="utf-8")
+            decision = make_open_decision("MIR-" + "2" * 24)
+            bridge_state = {
+                "status": "CONNECTED", "terminal_connected": True,
+                "execution_enabled": True, "execution_input_enabled": True,
+                "trade_permissions_available": True, "magic_number": 26110201,
+                "symbol_spec": {"tick_size": 0.01, "volume_step": 0.01},
+                "positions": [],
+                "position_reconciliation": {
+                    "status": "CONFIRMED_PARTIAL", "command_id": previous_id,
+                },
+            }
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                result = engine.publish_decision(decision, bridge_state)
+            self.assertEqual(result["status"], "PUBLISHED")
+            current = json.loads((root / "command.json").read_text(encoding="utf-8"))
+            self.assertEqual(current["command_id"], decision["signal_id"])
+
     def test_bridge_reads_live_magic_and_position_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "MirsadBTC"
