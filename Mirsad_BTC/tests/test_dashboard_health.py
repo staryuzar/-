@@ -83,8 +83,12 @@ class ComponentHealthTests(unittest.TestCase):
 
     def test_missing_optional_image_capture_does_not_degrade_native_engine2_health(self) -> None:
         state = self.healthy_state()
-        state["chart_observer"] = {"status": "WAITING_FOR_CAPTURE"}
-        state["chart"] = {"status": "WAITING_FOR_IMAGE", "decision_eligible": False}
+        state["chart_observer"] = {"status": "OPTIONAL_DISABLED"}
+        state["chart"] = {
+            "status": "NATIVE_OHLC_ONLY",
+            "decision_eligible": False,
+            "visual_analysis": "OPTIONAL_DISABLED",
+        }
 
         items = build_component_health(state)
         by_name = {item["component"]: item for item in items}
