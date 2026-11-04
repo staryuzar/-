@@ -42,7 +42,12 @@ jobs:
       - name: Install open-source dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r Mirsad_BTC/requirements.txt
       - name: Compile Python modules
-        run: python -m compileall -q Mirsad_BTC/mirsad Mirsad_BTC/dashboard.py Mirsad_BTC/run_mirsad.py Mirsad_BTC/scripts/chart_ocr_smoke.py
+        run: python -m compileall -q Mirsad_BTC/mirsad Mirsad_BTC/dashboard.py Mirsad_BTC/run_mirsad.py Mirsad_BTC/scripts/chart_ocr_smoke.py Mirsad_BTC/scripts/validate_engine1_live_sources.py
+      - name: Run Engine 1 live public-intelligence diagnostics (read-only, non-gating)
+        continue-on-error: true
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: python Mirsad_BTC/scripts/validate_engine1_live_sources.py --output engine1-live-source-report.json
       - name: Verify RapidOCR price-axis calibration on a synthetic chart
         env:
           PYTHONPATH: Mirsad_BTC
@@ -57,6 +62,14 @@ jobs:
         env:
           PYTHONPATH: Mirsad_BTC
         run: python Mirsad_BTC/scripts/live_smoke.py
+      - name: Upload Engine 1 live-source diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-engine1-live-source-report
+          path: engine1-live-source-report.json
+          if-no-files-found: warn
+          retention-days: 30
 
   held-out-crypto-chart-images:
     # Benchmark data comes from a public external dataset; do not let a temporary
