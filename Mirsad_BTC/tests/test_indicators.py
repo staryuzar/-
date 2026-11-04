@@ -3,7 +3,10 @@ from __future__ import annotations
 import math
 import unittest
 
-from mirsad.engines.indicators import IndicatorsEngine, _adx, _atr, _ema_series, _macd, _rsi, _stochastic, _timeframe_trend
+from mirsad.engines.indicators import (
+    INDICATOR_SIGNAL_GROUP_WEIGHTS, IndicatorsEngine, _adx, _atr,
+    _ema_series, _macd, _rsi, _stochastic, _timeframe_trend,
+)
 
 
 def make_chart_candles(count: int = 90, direction: str = "up", include_forming: bool = False) -> dict:
@@ -195,6 +198,51 @@ class IndicatorsEngineTests(unittest.TestCase):
         result = IndicatorsEngine().analyze({"status": "OFFLINE", "candles_by_tf": {}})
         self.assertEqual(result["status"], "NOT_READY")
         self.assertEqual(result["values"], {})
+
+
+    def test_composite_signal_uses_five_distinct_indicator_families(self) -> None:
+        result = IndicatorsEngine().analyze(make_chart_candles(direction="up"))
+        self.assertEqual(result["status"], "READY")
+        self.assertAlmostEqual(sum(INDICATOR_SIGNAL_GROUP_WEIGHTS.values()), 1.0)
+        self.assertGreater(result["signal_score"], 0.25)
+        self.assertAlmostEqual(result["signal_quality"], 1.0)
+        groups = result["signal_components_by_timeframe"]["1m"]["groups"]
+        self.assertEqual(set(groups), {
+            "trend", "momentum", "directional_strength", "oscillator", "volume_flow",
+        })
+        self.assertTrue(all(group["effective_weight"] > 0 for group in groups.values()))
+
+    def test_composite_signal_is_bearish_for_a_sustained_falling_series(self) -> None:
+        result = IndicatorsEngine().analyze(make_chart_candles(direction="down"))
+        self.assertEqual(result["status"], "READY")
+        self.assertLess(result["signal_score"], -0.25)
+
+    def test_positive_atr_does_not_create_a_directional_signal_in_a_flat_market(self) -> None:
+        result = IndicatorsEngine().analyze(make_chart_candles(direction="flat"))
+        self.assertEqual(result["status"], "READY")
+        self.assertGreater(result["values"]["atr14_5m"], 0)
+        self.assertAlmostEqual(result["signal_score"], 0.0, places=8)
+
+    def test_missing_tick_volume_does_not_fake_volume_flow_confirmation(self) -> None:
+        candles = make_chart_candles(direction="up")
+        for timeframe in candles["candles_by_tf"]:
+            for bar in candles["candles_by_tf"][timeframe]:
+                bar["volume"] = 0.0
+        result = IndicatorsEngine().analyze(candles)
+        self.assertEqual(result["status"], "READY")
+        flow = result["signal_components_by_timeframe"]["1m"]["groups"]["volume_flow"]
+        self.assertEqual(flow["coverage"], 0.0)
+        self.assertIsNone(result["indicators_by_timeframe"]["1m"]["mfi14"])
+        self.assertIsNone(result["indicators_by_timeframe"]["1m"]["obv"])
+
+    def test_insufficient_higher_timeframe_is_not_a_directional_vote(self) -> None:
+        candles = make_chart_candles(count=90)
+        candles["candles_by_tf"]["1d"] = candles["candles_by_tf"]["1d"][:24]
+        result = IndicatorsEngine().analyze(candles)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["timeframes"]["1d"]["status"], "INSUFFICIENT")
+        self.assertEqual(result["signal_components_by_timeframe"]["1d"]["status"], "NOT_READY")
+        self.assertIsNone(result["signal_components_by_timeframe"]["1d"]["score"])
 
 
 if __name__ == "__main__":

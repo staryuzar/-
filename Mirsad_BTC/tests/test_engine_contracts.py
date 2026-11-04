@@ -294,6 +294,8 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "status": "READY", "engine": "engine_3_indicators",
             "source": "engine_2_chart_candles",
             "trend_score": 0.70,
+            "signal_score": 0.62,
+            "signal_quality": 1.0,
             "last_closed_candle_time_ms": now - 60_000,
             "values": {
                 "ema20_1m": 101.0, "ema50_1m": 100.0, "rsi14_1m": 60.0,
@@ -388,6 +390,31 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["engine_inputs"]["indicators_from_engine_3"], "READY")
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertFalse(result["command_ready"])
+
+
+    def test_engine4_uses_grouped_indicator_signal_instead_of_ema_trend_score(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["trend_score"] = -0.80
+        indicators["signal_score"] = 0.23
+        indicators["signal_quality"] = 0.80
+        result = DecisionEngine().analyze(self._market(), chart, {}, indicators)
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_indicators"], 0.23)
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_ema_trend_score"], -0.80)
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_quality"], 0.80)
+
+    def test_engine4_rejects_missing_or_low_quality_composite_indicator_signal(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        del indicators["signal_score"]
+        missing = DecisionEngine().analyze(self._market(), chart, {}, indicators)
+        self.assertEqual(missing["status"], "NOT_READY")
+        self.assertEqual(missing["engine_3_indicator_status"], "INVALID_INDICATOR_PAYLOAD")
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["signal_quality"] = 0.59
+        weak = DecisionEngine().analyze(self._market(), chart, {}, indicators)
+        self.assertEqual(weak["status"], "NOT_READY")
+        self.assertEqual(weak["engine_3_indicator_status"], "INVALID_INDICATOR_PAYLOAD")
 
     def _daily_risk_bridge(self, *, locked: bool, positions: list[dict] | None = None) -> dict:
         now = int(time.time() * 1000)

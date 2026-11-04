@@ -414,6 +414,11 @@ def _timeframe_indicator_signal(
     values: dict[str, float | None],
 ) -> dict[str, Any]:
     """One bounded vote per independent technical family; ATR is volatility-only."""
+    if trend.get("status") != "READY":
+        return {
+            "status": "NOT_READY", "score": None, "quality": 0.0,
+            "groups": {}, "reason": "EMA20/EMA50 trend baseline is not ready for this timeframe.",
+        }
     closed = [row for row in candles if isinstance(row, dict) and row.get("closed") is True]
     close_value = None
     if closed:
