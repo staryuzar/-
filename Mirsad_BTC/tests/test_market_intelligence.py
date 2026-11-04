@@ -97,16 +97,26 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(result["endpoint_statuses"]["interest"], "RESPONSE")
         self.assertEqual(result["endpoint_statuses"]["account_ratio"], "RESPONSE")
 
-    def test_context_requires_two_independent_evidence_categories_for_ready(self) -> None:
+    def test_context_requires_minimum_configured_weight_coverage_for_ready(self) -> None:
         result = compose_directional_context(
             news={"status": "READY", "score": 0.5, "confidence": 0.8},
             fear_greed={"status": "READY", "score": -0.2, "confidence": 0.7},
             derivatives={"status": "OFFLINE", "score": None, "confidence": 0.0},
         )
-        self.assertEqual(result["status"], "READY")
-        self.assertGreaterEqual(result["evidence_coverage"], 0.55)
-        self.assertAlmostEqual(result["directional_score"], 0.2455, places=3)
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertAlmostEqual(result["evidence_coverage"], 0.45)
+        self.assertAlmostEqual(result["directional_score"], 0.4222, places=3)
         self.assertIn("not a probability", result["confidence_basis"])
+
+    def test_context_is_ready_when_derivatives_and_news_cover_required_weight(self) -> None:
+        result = compose_directional_context(
+            news={"status": "READY", "score": 0.5, "confidence": 0.8},
+            fear_greed={"status": "OFFLINE", "score": None, "confidence": 0.0},
+            derivatives={"status": "READY", "score": 0.2, "confidence": 0.9},
+        )
+        self.assertEqual(result["status"], "READY")
+        self.assertAlmostEqual(result["evidence_coverage"], 0.95)
+        self.assertAlmostEqual(result["directional_score"], 0.3263, places=3)
 
     def test_single_source_score_is_partial_not_full_readiness(self) -> None:
         result = compose_directional_context(
