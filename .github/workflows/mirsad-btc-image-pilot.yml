@@ -3,7 +3,7 @@ name: Mirsad BTC Image 20 Pilot
 on:
   push:
     branches:
-      - main
+      - mini
     paths:
       - ".github/workflows/mirsad-btc-image-pilot.yml"
       - "Mirsad_BTC/scripts/run_hf_btc_chart_image_benchmark.py"
@@ -41,7 +41,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
