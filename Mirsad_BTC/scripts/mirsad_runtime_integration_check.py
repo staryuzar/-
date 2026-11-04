@@ -69,6 +69,7 @@ def evaluate_engine4_runtime(decision: dict[str, Any]) -> dict[str, Any]:
                 and gate in {
                     "NOT_READY",
                     "MIXED_OR_NO_CONFLUENCE",
+                    "INSUFFICIENT_STRUCTURE_EVIDENCE_QUALITY",
                     "BULLISH_CONFLUENCE",
                     "BEARISH_CONFLUENCE",
                     "CANDLE_PATTERN_DIRECTION_CONFLICT",
