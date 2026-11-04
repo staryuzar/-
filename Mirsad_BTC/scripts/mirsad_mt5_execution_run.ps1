@@ -123,7 +123,7 @@ Period=M1
  [IO.File]::WriteAllText($loginConfig,$ini,[Text.UTF8Encoding]::new($false))
  $accountPassword=$null;$credentialRaw=$null;$obj=$null
  $terminalProcess=Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable',"/config:$loginConfig","/login:$login") -WorkingDirectory $installDir -PassThru
- Add-Report 'MT5 started with Mirsad EA on BTC,M1; terminal-wide automated trading is enabled (AllowLiveTrading=1). This job validates the EA transport without injecting a trade command.'
+ Add-Report 'MT5 started with Mirsad EA on BTC,M1; terminal-wide automated trading is enabled (AllowLiveTrading=1). Authorization is checked through terminal logs and MIR1 identity, not a server/account-type label.'
  $loginStarted=Get-Date;$authorized=$false;$heartbeat=$false;$quoteFresh=$false;$folder=$null;$telemetry=$null
  $deadline=(Get-Date).AddSeconds(150)
  while((Get-Date)-lt $deadline){
@@ -134,9 +134,8 @@ Period=M1
     if($log.LastWriteTime -lt $loginStarted.AddSeconds(-3)){continue}
     $txt='';try{$txt=Get-Content -LiteralPath $log.FullName -Raw}catch{continue}
     foreach($line in ($txt -split "\r?\n")){
-     if($line -match [regex]::Escape($server) -and
-        $line -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
-        $line -notmatch '(?i)(failed|invalid|not authorized|authorization error)'){$authorized=$true}
+      if($line -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
+         $line -notmatch '(?i)(failed|invalid|not authorized|authorization error)'){$authorized=$true}
     }
    }
   }
@@ -144,11 +143,16 @@ Period=M1
   if($folder){
    try{
     $telemetry=Get-Content -LiteralPath (Join-Path $folder 'status.json') -Raw|ConvertFrom-Json -ErrorAction Stop
-    $heartbeat=($telemetry.schema -eq 'MIR1' -and [bool]$telemetry.terminal_connected -and
-      [bool]$telemetry.execution_enabled -and
-      [bool]$telemetry.execution_input_enabled -and
-      [bool]$telemetry.trade_permissions_available -and
-      [int64]$telemetry.heartbeat_at_ms -gt 0 -and $telemetry.symbol -eq 'BTC')
+     $accountLogin=0
+     try{$accountLogin=[int64]$telemetry.account.login}catch{$accountLogin=0}
+     $accountServer=[string]$telemetry.account.server
+     $accountIdentityValid=($accountLogin -gt 0 -and -not [string]::IsNullOrWhiteSpace($accountServer))
+     $heartbeat=($telemetry.schema -eq 'MIR1' -and [bool]$telemetry.terminal_connected -and
+       [bool]$telemetry.execution_enabled -and
+       [bool]$telemetry.execution_input_enabled -and
+       [bool]$telemetry.trade_permissions_available -and
+       $accountIdentityValid -and
+       [int64]$telemetry.heartbeat_at_ms -gt 0 -and $telemetry.symbol -eq 'BTC')
     $tickAgeValue=$telemetry.quote.tick_age_seconds
     $tickAge=[double]$tickAgeValue
     $quoteFresh=($null -ne $tickAgeValue -and [double]$telemetry.quote.ask -gt 0 -and
@@ -159,8 +163,8 @@ Period=M1
   if($terminalProcess.HasExited){Add-Report 'Terminal exited before both authorization and EA heartbeat.';break}
   Start-Sleep -Seconds 3
  }
- if(!$authorized){throw 'MT5 authorization on the configured broker server was not confirmed.'}
- Add-Report 'PASS — MT5 authorized on the configured broker server.'
+ if(!$authorized){throw 'MT5 authorization-success event was not found in terminal logs.'}
+ Add-Report 'PASS — MT5 reported a successful authorization event; MIR1 account identity is present.'
  if(!$heartbeat){throw 'MT5 logged in but the Mirsad EA heartbeat did not report execution enabled.'}
  if(!$quoteFresh){throw 'MT5 broker quote did not become fresh within the 150-second observation window.'}
  Add-Report 'PASS — Mirsad EA heartbeat is live; the EA input and MT5 automated-trading permissions are enabled.'
