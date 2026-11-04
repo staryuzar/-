@@ -1,7 +1,7 @@
 name: Mirsad BTC — Live Data Validation
 on:
   push:
-    branches: [main]
+    branches: [mini]
     # Documentation and report-only commits must not launch the 60-minute
     # external chart benchmark. Source, tests, scripts, protocol and MT5 changes
     # still run the integrated validation.
@@ -32,7 +32,7 @@ jobs:
       - name: Checkout Mirsad branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: mini
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -81,7 +81,7 @@ jobs:
       - name: Checkout Mirsad branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: mini
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
