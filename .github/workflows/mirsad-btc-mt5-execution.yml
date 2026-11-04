@@ -13,7 +13,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: mirsad-mt5-execution-clean-build
+  # Give each commit its own validation run; a newer push must not cancel the fix under test.
+  group: mirsad-mt5-execution-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -33,7 +34,7 @@ jobs:
           if ($env:RUNNER_OS -ne 'Windows') { throw 'MetaTrader 5 requires a Windows runner.' }
           Write-Output "Windows runner: $([System.Environment]::OSVersion.VersionString)"
 
-      - name: Compile OPEN/CLOSE EA, launch configured MT5 server and verify MIR1 heartbeat
+      - name: Compile MIR1 EA, verify MT5 permissions and live heartbeat
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
         shell: pwsh
