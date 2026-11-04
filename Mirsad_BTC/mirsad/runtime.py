@@ -9,7 +9,7 @@ from .engines.market_intelligence import MarketIntelligenceEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
 from .engines.mt5_native_indicators import MT5NativeIndicatorHistory
 from .engines.mt5_price_action import analyze_mt5_native_price_action
-from .engines.indicators import IndicatorsEngine
+from .engines.indicators import IndicatorsEngine, validate_native_indicator_parity
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
 from .storage import (
@@ -112,7 +112,9 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  engine2_price_action=analyze_mt5_native_price_action(candle_history)
  engine2_multitimeframe=engine2_price_action.get("multi_timeframe_structure",{})
  indicators=IndicatorsEngine().analyze(candle_history)
+ native_indicator_parity=validate_native_indicator_parity(candle_history,native_indicators)
  indicators["mt5_native"]=native_indicators
+ indicators["mt5_native_parity"]=native_indicator_parity
  engine2_data["candle_history_summary"]={
   "status":candle_history.get("status"),
   "source":candle_history.get("source"),
@@ -125,6 +127,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   market,engine2_data,bridge,indicators,
   engine2_price_action=engine2_price_action,
   market_intelligence=market_intelligence,
+  require_mt5_native_parity=True,
  )
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
  if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
@@ -152,6 +155,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "engine_2_price_action":engine2_price_action.get("status")=="READY",
   "engine_3_indicators":indicators.get("status")=="READY",
   "mt5_native_indicator_feed":native_indicators.get("status")=="READY",
+  "engine_3_mt5_numeric_parity":native_indicator_parity.get("status")=="PASS",
   "engine_4_daily_risk_guard":_daily_risk_guard_ready(bridge.get("daily_risk")),
   "engine_4_decision":decision.get("status")=="READY",
   "engine_5_communication_bridge":bridge.get("status")=="CONNECTED",
@@ -163,6 +167,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   "engine_2_price_action":engine2_price_action.get("status","NOT_STARTED"),
   "engine_3_indicators":indicators.get("status","NOT_STARTED"),
   "mt5_native_indicator_feed":native_indicators.get("status","NOT_STARTED"),
+  "engine_3_mt5_numeric_parity":native_indicator_parity.get("status","NOT_STARTED"),
   "engine_4_daily_risk_guard":("LOCKED" if (bridge.get("daily_risk") or {}).get("locked") is True else ((bridge.get("daily_risk") or {}).get("mode") or (bridge.get("daily_risk") or {}).get("status","NOT_STARTED"))),
   "engine_4_decision":decision.get("status","NOT_STARTED"),
   "engine_5_communication_bridge":bridge.get("status","NOT_STARTED"),
