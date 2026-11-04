@@ -405,6 +405,80 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(result["status"], "OFFLINE")
         self.assertEqual(result["endpoint_statuses"]["funding"], "NOT_REQUESTED")
 
+    def test_gateio_derivatives_use_provider_timestamped_account_ratio(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCUSDT")
+        stamp_seconds = 1_798_000_000
+        stamp_ms = stamp_seconds * 1000
+
+        def fake_json(url: str, *, ttl_seconds: int = 30):
+            if "/tickers?" in url:
+                self.assertIn("contract=BTC_USDT", url)
+                return [{
+                    "contract": "BTC_USDT",
+                    "funding_rate": "0.00012",
+                    "mark_price": "90010",
+                    "index_price": "90000",
+                }]
+            if "/contract_stats?" in url:
+                self.assertIn("interval=5m", url)
+                return [
+                    {"time": stamp_seconds - 300, "open_interest": "1000",
+                     "open_interest_usd": 90000000, "lsr_account": 1.10,
+                     "top_lsr_account": 1.25, "top_lsr_size": "1.3",
+                     "lsr_taker": 0.95},
+                    {"time": stamp_seconds, "open_interest": "1050",
+                     "open_interest_usd": 94500000, "lsr_account": 1.40,
+                     "top_lsr_account": 1.60, "top_lsr_size": "1.7",
+                     "lsr_taker": 1.05},
+                ]
+            raise AssertionError(f"Unexpected Gate endpoint: {url}")
+
+        engine._json = fake_json
+        result = engine._collect_gateio_derivatives()
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["contract"], "BTC_USDT")
+        self.assertAlmostEqual(result["funding_rate"], 0.00012)
+        self.assertIsNone(result["funding_timestamp_ms"])
+        self.assertEqual(result["funding_timestamp_basis"], "UNSTAMPED_TICKER_SNAPSHOT_NOT_USED_DIRECTIONALLY")
+        self.assertEqual(result["long_short_timestamp_ms"], stamp_ms)
+        self.assertAlmostEqual(result["long_short_ratio"], 1.40)
+        self.assertAlmostEqual(result["open_interest_change_pct_35m"], 5.0)
+        self.assertAlmostEqual(result["top_trader_long_short_account_ratio"], 1.60)
+        self.assertEqual(result["endpoint_statuses"]["ticker"], "RESPONSE")
+        self.assertEqual(result["endpoint_statuses"]["contract_stats"], "RESPONSE")
+
+        scored = score_derivatives({"Gate.io": result}, now_ms=stamp_ms)
+        self.assertEqual(scored["venue_count"], 1)
+        self.assertTrue(scored["venues"]["Gate.io"]["directional_inputs_used"]["long_short_ratio"])
+        self.assertFalse(scored["venues"]["Gate.io"]["directional_inputs_used"]["funding_rate"])
+
+    def test_gateio_unsupported_symbol_fails_closed_without_requests(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCUSDC")
+
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("Unsupported Gate settlement mapping must not call any endpoint.")
+
+        engine._json = fail_if_called
+        result = engine._collect_gateio_derivatives()
+        self.assertEqual(result["status"], "OFFLINE")
+        self.assertEqual(result["endpoint_statuses"]["ticker"], "NOT_REQUESTED")
+
+    def test_gateio_endpoint_failures_preserve_provider_reasons(self) -> None:
+        engine = MarketIntelligenceEngine()
+
+        def fake_json(url: str, *, ttl_seconds: int = 30):
+            if "/tickers?" in url:
+                raise TimeoutError("Gate ticker timed out")
+            raise OSError("Gate stats route unavailable")
+
+        engine._json = fake_json
+        result = engine._collect_gateio_derivatives()
+        self.assertEqual(result["status"], "OFFLINE")
+        self.assertEqual(result["endpoint_statuses"]["ticker"], "OFFLINE")
+        self.assertEqual(result["endpoint_statuses"]["contract_stats"], "OFFLINE")
+        self.assertIn("TimeoutError", result["endpoint_errors"]["ticker"])
+        self.assertIn("OSError", result["endpoint_errors"]["contract_stats"])
+
     def test_duplicate_non_latin_headlines_are_collapsed_across_publishers(self) -> None:
         now = 1_798_000_000_000
         items = deduplicate_news_items([
