@@ -522,13 +522,15 @@ class IndicatorsEngine:
                 "stochastic_k", "stochastic_d", "adx14", "plus_di14", "minus_di14",
                 "cci20", "mfi14", "momentum14", "wpr14", "obv", "osma",
             ],
+            "signal_group_weights": dict(INDICATOR_SIGNAL_GROUP_WEIGHTS),
         }
         if not isinstance(chart_candles, dict) or chart_candles.get("status") != "READY":
             return {
                 **base, "status": "NOT_READY",
                 "reason": "Engine 2 has not supplied a fresh, validated multi-timeframe candle history.",
                 "timeframes": {}, "values": {}, "indicators_by_timeframe": {},
-                "trend_score": None, "last_closed_candle_time_ms": None,
+                "trend_score": None, "signal_score": None, "signal_quality": 0.0,
+                "signal_components_by_timeframe": {}, "last_closed_candle_time_ms": None,
             }
 
         candle_sets = chart_candles.get("candles_by_tf")
@@ -537,7 +539,8 @@ class IndicatorsEngine:
                 **base, "status": "NOT_READY",
                 "reason": "Engine 2 candle-history payload is missing its timeframe map.",
                 "timeframes": {}, "values": {}, "indicators_by_timeframe": {},
-                "trend_score": None, "last_closed_candle_time_ms": None,
+                "trend_score": None, "signal_score": None, "signal_quality": 0.0,
+                "signal_components_by_timeframe": {}, "last_closed_candle_time_ms": None,
             }
 
         timeframes = {
@@ -548,8 +551,15 @@ class IndicatorsEngine:
             timeframe: _calculate_timeframe_indicators(candle_sets.get(timeframe, []))
             for timeframe in TIMEFRAME_WEIGHTS
         }
+        signal_components_by_timeframe: dict[str, dict[str, Any]] = {}
         for timeframe in TIMEFRAME_WEIGHTS:
             timeframes[timeframe]["indicators"] = indicators_by_timeframe[timeframe]
+            signal = _timeframe_indicator_signal(
+                candle_sets.get(timeframe, []), timeframes[timeframe],
+                indicators_by_timeframe[timeframe],
+            )
+            signal_components_by_timeframe[timeframe] = signal
+            timeframes[timeframe]["indicator_signal"] = signal
 
         one = [c for c in candle_sets.get("1m", []) if c.get("closed")]
         five = [c for c in candle_sets.get("5m", []) if c.get("closed")]
@@ -581,7 +591,36 @@ class IndicatorsEngine:
                 else 0
             )
         trend_score = weighted / weight_total if weight_total else None
-        ready = not missing_timeframes and not missing_values and trend_score is not None
+        signal_weighted = 0.0
+        signal_weight_total = 0.0
+        signal_timeframe_weight = 0.0
+        core_quality_weighted = 0.0
+        core_quality_weight_total = 0.0
+        missing_signal_timeframes: list[str] = []
+        for timeframe, timeframe_weight in TIMEFRAME_WEIGHTS.items():
+            signal = signal_components_by_timeframe[timeframe]
+            if signal.get("status") == "READY" and signal.get("score") is not None:
+                quality = float(signal.get("quality", 0.0) or 0.0)
+                active_weight = timeframe_weight * quality
+                signal_weighted += active_weight * float(signal["score"])
+                signal_weight_total += active_weight
+                signal_timeframe_weight += timeframe_weight
+            if timeframe in REQUIRED_TIMEFRAMES:
+                quality = float(signal.get("quality", 0.0) or 0.0)
+                core_quality_weighted += timeframe_weight * quality
+                core_quality_weight_total += timeframe_weight
+                if signal.get("status") != "READY" or quality < MIN_INDICATOR_SIGNAL_QUALITY:
+                    missing_signal_timeframes.append(timeframe)
+        signal_score = signal_weighted / signal_weight_total if signal_weight_total > 0 else None
+        signal_quality = (
+            core_quality_weighted / core_quality_weight_total
+            if core_quality_weight_total > 0 else 0.0
+        )
+        signal_timeframe_coverage = signal_timeframe_weight / sum(TIMEFRAME_WEIGHTS.values())
+        ready = (
+            not missing_timeframes and not missing_values and trend_score is not None
+            and signal_score is not None and not missing_signal_timeframes
+        )
         last_time = None
         if one:
             try:
@@ -597,6 +636,12 @@ class IndicatorsEngine:
             "indicators_by_timeframe": indicators_by_timeframe,
             "values": values,
             "trend_score": trend_score,
+            "signal_score": round(signal_score, 6) if signal_score is not None else None,
+            "signal_quality": round(signal_quality, 6),
+            "signal_timeframe_weight_coverage": round(signal_timeframe_coverage, 6),
+            "signal_components_by_timeframe": signal_components_by_timeframe,
+            "signal_group_weights": dict(INDICATOR_SIGNAL_GROUP_WEIGHTS),
+            "missing_signal_timeframes": missing_signal_timeframes,
             "missing_timeframes": missing_timeframes,
             "missing_values": missing_values,
             "closed_candles": {"1m": len(one), "5m": len(five)},
