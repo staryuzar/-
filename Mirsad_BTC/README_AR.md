@@ -176,14 +176,14 @@ python scripts/run_structure_study.py --venue "Binance Spot" --timeframe 1h --as
 
 ## آخر اعتماد على فرع mini
 
-- الالتزام المعتمد: `87e25c6860f9419409aa3a7c5342fd678ea4e314`.
-- [القبول الشامل للمحركات الخمسة — PASS](https://github.com/staryuzar/-/actions/runs/41847391581).
-- [فحص البيانات الحية — PASS](https://github.com/staryuzar/-/actions/runs/41847391635).
-- [اختبارات المحرك الثاني — PASS](https://github.com/staryuzar/-/actions/runs/41847391757).
-- [تكامل Observer وExecutionBridge والمحركات الخمسة على MT5 — PASS](https://github.com/staryuzar/-/actions/runs/41847391996).
-- اجتازت مجموعة Python عدد **397 اختباراً**. واجتازت ترجمة خبير MT5 بصفر أخطاء وصفر تحذيرات.
-- أضيف تقويم Forex Factory العام إلى ShowMyTrades؛ ظهر كلاهما `READY` في فحص البيانات الحية. وأضيف Hyperliquid إلى مصادر المشتقات، وظهر `READY` مع حالة تمويل `FRESH` وختم وقت HTTP من المزود. بقي Trading Economics `NOT_CONFIGURED` لعدم توفير مفتاحه.
-- في دورة MT5 المتكاملة كان المحركان الأول والثاني والثالث `READY`، والخامس `CONNECTED`، لكن الرابع أعاد `WAIT` لأن توافق نمط الشمعة للمحرك الثاني كان مختلطاً. لم يُرسل أمر في هذه الدورة؛ هذا منع دخول مقصود وليس ادعاءً بصفقة.
-- أظهر أرشيف المعايرة المرفق بدورة التكامل 19 عينة تراكمية، منها 13 على ملف v6.1 الحالي، وكانت قراراتها النهائية كلها `WAIT`. لذلك لا توجد عينة اتجاهية BUY/SELL تكفي لقياس أداء الإشارات؛ تبقى المعايرة `UNVALIDATED`. تم تحسين أداة التقييم لتفصل الملف الحالي عن القديم وتخصم الرسوم والانزلاق والسبريد، كما أضيف فحص مستقل لعدد سجلات الأرشيف وتوزيع قراراته.
+- **خط الأساس البرمجي الذي اجتاز اختبارات المجموعة:** `cfda136a82c5e9ed93220d680f96f2145cfcc7cf`. التوثيق المحلي يجري تحديثه في هذا الفرع؛ لا يُنقل إلى الجهاز إلا SHA الذي تجتاز به البوابة الشاملة النهائية.
+- [القبول الشامل للمحركات الخمسة على cfda136](https://github.com/staryuzar/-/actions/runs/41848731399).
+- [فحص البيانات الحية — PASS](https://github.com/staryuzar/-/actions/runs/41848731211).
+- [تكامل Observer وExecutionBridge على MT5 — PASS](https://github.com/staryuzar/-/actions/runs/41848731212).
+- اجتازت مجموعة Python عدد **399 اختبارًا**. واجتازت ترجمة خبير MT5 بصفر أخطاء وصفر تحذيرات.
+- تقويم Forex Factory وShowMyTrades ظهرا `READY`. ظهر Hyperliquid `READY` مع `funding_timestamp_basis=HTTP_PROVIDER_DATE`. بقي Trading Economics `NOT_CONFIGURED` لأنه يتطلب مفتاحًا اختياريًا.
+- في دورة MT5 المتكاملة كانت المحركات 1 و2 و3 بحالة `READY`، والخامس `CONNECTED`، لكن الرابع أعاد `WAIT` بسبب `MIXED_CANDLE_PATTERN_EVIDENCE` في المحرك الثاني. لم يُرسل هذا الاختبار أمرًا للوسيط، ولم تكن أهلية الدخول متحققة.
+- أظهر أرشيف المعايرة 20 عينة تراكمية؛ 14 منها على ملف v6.1 الحالي، وجميعها `WAIT`. لا توجد عينة BUY/SELL كافية لقياس الأداء؛ تبقى المعايرة `UNVALIDATED`. تقرير التكامل يعرض الآن أعداد الأرشيف الحقيقية وتوزيع القرارات من SQLite.
 - اختبار BUY/CLOSE التقني السابق على Headway-Demo موثق هنا: [نتيجة دورة التنفيذ](https://github.com/staryuzar/-/actions/runs/41843251249). صافي التدفق المسجل `-0.25 USD`، وهو تكلفة اختبار التنفيذ وليس مقياس ربحية الاستراتيجية.
 - لم يتم تثبيت البرنامج على جهاز المستخدم بعد؛ القبول المحلي المستمر ونشر MT5 الدائم هما مرحلة الانتقال التالية. عامل GitHub مؤقت ولا يمثل خدمة تشغيل 24/7.
+- دفتر الانتقال المحلي المحدّث: [DESKTOP_COMPLETION_NOTEBOOK_AR.md](reports/DESKTOP_COMPLETION_NOTEBOOK_AR.md).
