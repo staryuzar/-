@@ -267,8 +267,7 @@ string BuildDealHistoryJson()
       if((ulong)deal_magic != InpMagicNumber || deal_symbol != g_broker_symbol)
          continue;
 
-      long deal_time_msc = HistoryDealGetInteger(deal_ticket, DEAL_TIME_MSC);
-      long deal_time_utc_ms = deal_time_msc - server_utc_offset_seconds * 1000;
+      long deal_time_server_ms = HistoryDealGetInteger(deal_ticket, DEAL_TIME_MSC);
       long deal_order = HistoryDealGetInteger(deal_ticket, DEAL_ORDER);
       long position_id = HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID);
       long deal_type = HistoryDealGetInteger(deal_ticket, DEAL_TYPE);
@@ -283,7 +282,7 @@ string BuildDealHistoryJson()
       double net_cashflow = deal_profit + deal_commission + deal_swap + deal_fee;
       string deal_comment = HistoryDealGetString(deal_ticket, DEAL_COMMENT);
 
-      if(deal_time_utc_ms <= 0 ||
+      if(deal_time_server_ms <= 0 ||
          !MathIsValidNumber(deal_volume) || deal_volume < 0.0 ||
          !MathIsValidNumber(deal_price) || deal_price < 0.0 ||
          !MathIsValidNumber(net_cashflow))
@@ -295,11 +294,11 @@ string BuildDealHistoryJson()
       deals += StringFormat(
          "{\"deal_ticket\":%I64u,\"order_ticket\":%I64d,\"position_id\":%I64d,"
          "\"magic\":%I64d,\"symbol\":\"%s\",\"type\":%I64d,\"entry\":%I64d,"
-         "\"reason\":%I64d,\"time_utc_ms\":%I64d,\"volume\":%s,\"price\":%s,"
+         "\"reason\":%I64d,\"time_server_ms\":%I64d,\"volume\":%s,\"price\":%s,"
          "\"profit\":%s,\"commission\":%s,\"swap\":%s,\"fee\":%s,"
          "\"net_cashflow\":%s,\"currency\":\"%s\",\"comment\":\"%s\"}",
          deal_ticket, deal_order, position_id, deal_magic, JsonEscape(deal_symbol),
-         deal_type, deal_entry, deal_reason, deal_time_utc_ms,
+         deal_type, deal_entry, deal_reason, deal_time_server_ms,
          NumberJson(deal_volume, 8), NumberJson(deal_price, 10),
          NumberJson(deal_profit, 2), NumberJson(deal_commission, 2),
          NumberJson(deal_swap, 2), NumberJson(deal_fee, 2),
@@ -312,15 +311,16 @@ string BuildDealHistoryJson()
 
    return StringFormat(
       "{\"schema\":\"MIR1-DEALS-1\",\"status\":\"READY\","
-      "\"queried_at_utc_ms\":%I64d,\"window_start_utc_ms\":%I64d,"
-      "\"window_end_utc_ms\":%I64d,\"history_total_selected\":%d,"
+      "\"queried_at_utc_ms\":%I64d,\"window_start_server_ms\":%I64d,"
+      "\"window_end_server_ms\":%I64d,\"history_total_selected\":%d,"
       "\"history_start_index\":%d,\"returned_count\":%d,"
       "\"truncated\":%s,\"symbol\":\"%s\",\"magic\":%I64u,"
-      "\"currency\":\"%s\",\"time_basis\":\"UTC_NORMALIZED_FROM_MT5_SERVER_TIME\","
+      "\"currency\":\"%s\",\"time_basis\":\"MT5_SERVER_TIME\","
       "\"deals\":%s}",
       queried_at_utc_ms,
-      ((long)from_server - server_utc_offset_seconds) * 1000,
-      ((long)to_server - server_utc_offset_seconds) * 1000,
+      (long)from_server * 1000,
+      (long)to_server * 1000,
+      server_utc_offset_seconds,
       total_selected, first_index, returned_count,
       (first_index > 0 ? "true" : "false"),
       JsonEscape(g_broker_symbol), InpMagicNumber,
