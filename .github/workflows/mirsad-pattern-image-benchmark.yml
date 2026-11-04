@@ -2,7 +2,7 @@ name: Mirsad BTC - Held-out Candlestick Pattern Image Benchmark
 
 on:
   push:
-    branches: [main]
+    branches: [mini]
     paths:
       - 'Mirsad_BTC/mirsad/engines/chart*.py'
       - 'Mirsad_BTC/dashboard.py'
@@ -37,7 +37,7 @@ jobs:
       - name: Checkout Mirsad branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
