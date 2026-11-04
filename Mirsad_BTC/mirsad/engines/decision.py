@@ -611,12 +611,14 @@ class DecisionEngine:
             trend_score = float(indicator_data["trend_score"])
             signal_score = float(indicator_data["signal_score"])
             signal_quality = float(indicator_data["signal_quality"])
+            signal_timeframe_coverage = float(indicator_data["signal_timeframe_weight_coverage"])
             last_closed_candle_time_ms = int(indicator_data["last_closed_candle_time_ms"])
         except (KeyError, TypeError, ValueError, OverflowError):
             normalized_values = {}
             trend_score = float("nan")
             signal_score = float("nan")
             signal_quality = 0.0
+            signal_timeframe_coverage = 0.0
             last_closed_candle_time_ms = 0
         if (
             len(normalized_values) != len(required_indicator_values)
@@ -625,6 +627,8 @@ class DecisionEngine:
             or not math.isfinite(signal_score) or not -1.0 <= signal_score <= 1.0
             or not math.isfinite(signal_quality)
             or not MIN_INDICATOR_SIGNAL_QUALITY <= signal_quality <= 1.0
+            or not math.isfinite(signal_timeframe_coverage)
+            or not 0.0 < signal_timeframe_coverage <= 1.0
             or last_closed_candle_time_ms <= 0
             or not 0.0 <= normalized_values.get("rsi14_1m", -1.0) <= 100.0
             or normalized_values.get("atr14_1m", 0.0) <= 0.0
@@ -751,7 +755,10 @@ class DecisionEngine:
             else None
         )
         engine3_score = signal_score
-        engine3_quality = signal_quality
+        # Engine 3 reports both core-frame signal quality and total six-frame
+        # coverage. A fully clean M1/M5/M15 set must not masquerade as a full
+        # six-timeframe vote when higher-timeframe indicator data are absent.
+        engine3_quality = min(signal_quality, signal_timeframe_coverage)
         weighted_score, effective_weights = _weighted_three_engine_score(
             engine1_score=engine1_score,
             engine2_score=engine2_score,
@@ -993,6 +1000,8 @@ class DecisionEngine:
                 "engine_3_indicators": round(signal_score, 4),
                 "engine_3_ema_trend_score": round(trend_score, 4),
                 "engine_3_quality": round(engine3_quality, 4),
+                "engine_3_core_quality": round(signal_quality, 4),
+                "engine_3_timeframe_weight_coverage": round(signal_timeframe_coverage, 4),
                 "market_score": round(market_score, 4) if market_score is not None else None,
                 "market_components": market_score_parts,
                 "effective_weights": effective_weights,
