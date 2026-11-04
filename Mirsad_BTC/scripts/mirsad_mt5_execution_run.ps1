@@ -12,6 +12,8 @@ $terminalProcess=$null
 $accountPassword=$null
 $credentialRaw=[string]$env:MT5_CREDENTIALS
 $runBrokerAcceptance=($env:MIRSAD_RUN_BROKER_ACCEPTANCE -eq 'true' -or $env:MIRSAD_RUN_BROKER_ACCEPTANCE -eq '1')
+$runLiveRuntimeCycle=($env:MIRSAD_RUN_LIVE_RUNTIME_CYCLE -eq 'true' -or $env:MIRSAD_RUN_LIVE_RUNTIME_CYCLE -eq '1')
+$executionEnabled=($runBrokerAcceptance -or $runLiveRuntimeCycle)
 function Add-Report([string]$Line){$Line|Add-Content -LiteralPath $report -Encoding utf8}
 function Find-CommonFolder {
  $paths=@(
@@ -85,7 +87,7 @@ try{
  $eaBinary=Join-Path $experts 'Mirsad_BTC_ExecutionBridge.ex5'
  $compileLog=Join-Path $experts 'Mirsad_BTC_ExecutionBridge.log'
  $eaSourceText=$sourceText
- if(-not $runBrokerAcceptance){
+ if(-not $executionEnabled){
   $executionEnabledPattern='(?m)^([ \t]*input[ \t]+bool[ \t]+InpAllowExecution[ \t]*=[ \t]*)true([ \t]*;)'
   $executionDisabledPattern='(?m)^[ \t]*input[ \t]+bool[ \t]+InpAllowExecution[ \t]*=[ \t]*false[ \t]*;'
   $eaSourceText=[regex]::Replace($eaSourceText,$executionEnabledPattern,'${1}false${2}',1)
@@ -103,8 +105,26 @@ try{
  Copy-Item -LiteralPath $eaBinary -Destination (Join-Path $evidence 'Mirsad_BTC_ExecutionBridge.ex5') -Force
  Add-Report 'PASS — MetaEditor compiled Mirsad_BTC_ExecutionBridge.ex5 with zero errors and zero warnings.'
 
+ if($runLiveRuntimeCycle){
+  $expectedCommonFiles=[string]$env:MIRSAD_EXPECTED_COMMON_FILES
+  if([string]::IsNullOrWhiteSpace($expectedCommonFiles) -or !(Test-Path -LiteralPath $expectedCommonFiles)){throw 'Integrated runtime requires the Observer Common Files directory.'}
+  $expectedCommonFiles=[IO.Path]::GetFullPath($expectedCommonFiles)
+  foreach($relative in @('MirsadBTC\market.json','MirsadBTC\observer\candles.json','MirsadBTC\observer\indicators.json')){
+   if(!(Test-Path -LiteralPath (Join-Path $expectedCommonFiles $relative))){throw ("The live Observer feed is missing from the shared directory: {0}" -f $relative)}
+  }
+  $commonFilesLink=Join-Path $installDir 'Common\Files'
+  $commonParent=Split-Path -Parent $commonFilesLink
+  New-Item -ItemType Directory -Path $commonParent -Force|Out-Null
+  if(Test-Path -LiteralPath $commonFilesLink){
+   $backup=Join-Path $commonParent 'Files.pre-integration'
+   if(Test-Path -LiteralPath $backup){Remove-Item -LiteralPath $backup -Recurse -Force}
+   Move-Item -LiteralPath $commonFilesLink -Destination $backup -Force
+  }
+  New-Item -ItemType Junction -Path $commonFilesLink -Target $expectedCommonFiles|Out-Null
+  Add-Report ("PASS — Execution terminal Common Files linked to active Observer feed at {0}." -f $expectedCommonFiles)
+ }
  $loginConfig=Join-Path $root 'mt5-demo.ini'
- $allowLiveTrading=if($runBrokerAcceptance){'1'}else{'0'}
+ $allowLiveTrading=if($executionEnabled){'1'}else{'0'}
  $ini=@"
 [Common]
 Login=$login
@@ -133,9 +153,11 @@ Period=M1
  $accountPassword=$null;$credentialRaw=$null;$obj=$null
  $terminalProcess=Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable',"/config:$loginConfig","/login:$login") -WorkingDirectory $installDir -PassThru
  if($runBrokerAcceptance){
-  Add-Report 'MT5 started with Mirsad EA on BTC,M1; AllowLiveTrading=1 is enabled for the explicitly requested broker acceptance test. Login is validated without classifying the account type.'
+  Add-Report 'MT5 started with Mirsad EA on BTC,M1; AllowLiveTrading=1 is enabled for the explicitly requested BUY/CLOSE acceptance test.'
+ }elseif($runLiveRuntimeCycle){
+  Add-Report 'MT5 started with Mirsad EA on BTC,M1; execution permission is enabled for integrated runtime validation.'
  }else{
-  Add-Report 'MT5 started with Mirsad EA on BTC,M1 in read-only mode; AllowLiveTrading=0. Login is validated without classifying the account type.'
+  Add-Report 'MT5 started with Mirsad EA on BTC,M1 in read-only validation mode; AllowLiveTrading=0.'
  }
  $heartbeat=$false;$quoteFresh=$false;$folder=$null;$telemetry=$null
  $deadline=(Get-Date).AddSeconds(150)
@@ -149,10 +171,10 @@ Period=M1
     $accountServer=[string]$telemetry.account.server
     $accountIdentityValid=($accountLogin -gt 0 -and -not [string]::IsNullOrWhiteSpace($accountServer))
     $executionStateMatches=(
-      ([bool]$telemetry.execution_enabled -eq $runBrokerAcceptance) -and
-      ([bool]$telemetry.execution_input_enabled -eq $runBrokerAcceptance)
+      ([bool]$telemetry.execution_enabled -eq $executionEnabled) -and
+      ([bool]$telemetry.execution_input_enabled -eq $executionEnabled)
     )
-    $permissionsMatch=((-not $runBrokerAcceptance) -or [bool]$telemetry.trade_permissions_available)
+    $permissionsMatch=((-not $executionEnabled) -or [bool]$telemetry.trade_permissions_available)
     $heartbeat=($telemetry.schema -eq 'MIR1' -and [bool]$telemetry.terminal_connected -and
       $executionStateMatches -and $permissionsMatch -and
       $accountIdentityValid -and
@@ -169,10 +191,10 @@ Period=M1
  }
  if(!$heartbeat){throw 'MT5 did not publish a fresh connected MIR1 heartbeat with account identity and all execution permissions enabled.'}
  if(!$quoteFresh){throw 'MT5 broker quote did not become fresh within the 150-second observation window.'}
- if($runBrokerAcceptance){
-  Add-Report 'PASS — Mirsad EA heartbeat is live; execution input and MT5 automated-trading permissions are enabled for the explicitly requested broker acceptance test.'
+ if($executionEnabled){
+  Add-Report 'PASS — Mirsad EA heartbeat is live; execution input and MT5 automated-trading permissions are enabled.'
  }else{
-  Add-Report 'PASS — Mirsad EA heartbeat is live in read-only mode; InpAllowExecution=false and MT5 AllowLiveTrading=0.'
+  Add-Report 'PASS — Mirsad EA heartbeat is live in read-only validation mode.'
  }
  Add-Report ("Broker symbol: {0}; market mapping: {1}; account currency: {2}" -f $telemetry.symbol,$telemetry.market_symbol,$telemetry.account.currency)
  Add-Report ("Current Ask quote available: {0}" -f ([double]$telemetry.quote.ask -gt 0))
@@ -233,10 +255,45 @@ Period=M1
  if([int64]$new.heartbeat_at_ms -le $first){throw 'EA heartbeat did not advance during observation.'}
  Add-Report 'PASS — EA heartbeat continued updating during the MT5 runtime observation.'
 
+  if($runLiveRuntimeCycle){
+  $env:PYTHONPATH=(Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC')
+  $env:MIRSAD_MT5_COMMON_FILES=$commonFilesRoot
+  $env:MIRSAD_ENABLE_ORDER_PUBLISH='1'
+  $env:MIRSAD_DATA_DIR=Join-Path $root 'integrated-runtime-data'
+  $runtimeCheck=Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\mirsad_runtime_integration_check.py'
+  $runtimeReport=Join-Path $evidence 'mirsad-live-runtime-integration.json'
+  if(!(Test-Path -LiteralPath $runtimeCheck)){throw 'The live runtime integration checker is missing.'}
+  $runtimeOutput=& python -u $runtimeCheck --common-files $commonFilesRoot --report $runtimeReport 2>&1
+  $runtimeExit=$LASTEXITCODE
+  $runtimeOutput|Set-Content -LiteralPath (Join-Path $evidence 'mirsad-live-runtime-integration.log') -Encoding utf8
+  if($runtimeExit -ne 0 -or !(Test-Path -LiteralPath $runtimeReport)){throw 'The five-engine live runtime integration did not pass; inspect mirsad-live-runtime-integration.json.'}
+  $runtimeSummary=Get-Content -LiteralPath $runtimeReport -Raw|ConvertFrom-Json -ErrorAction Stop
+  if($runtimeSummary.schema -ne 'MIRSAD-LIVE-RUNTIME-INTEGRATION-1' -or $runtimeSummary.status -ne 'PASS'){throw 'The integrated runtime report did not confirm all required engine and execution checks.'}
+  Add-Report ("PASS — Integrated five-engine runtime: Engine1={0}; Engine2={1}; Engine3={2}; Engine4={3}; Engine5={4}; decision={5}; publishing={6}; execution-gate={7}." -f $runtimeSummary.engines.engine1.status,$runtimeSummary.engines.engine2.status,$runtimeSummary.engines.engine3.calculated_status,$runtimeSummary.engines.engine4.status,$runtimeSummary.engines.engine5.status,$runtimeSummary.engines.engine4.action,$runtimeSummary.checks.order_publishing_stays_enabled,$runtimeSummary.checks.engine5_execution_gate_ready)
+ }
+
  # A broker transaction is an explicit manual opt-in. Normal validation is
  # read-only: compile, attach, observe the MIR1 heartbeat/quote and validate
  # the broker deal-history envelope without creating a position.
  $commonFilesRoot=Split-Path -Parent $folder
+ if($runLiveRuntimeCycle){
+  $expectedRoot=[IO.Path]::GetFullPath([string]$env:MIRSAD_EXPECTED_COMMON_FILES)
+  foreach($relative in @('MirsadBTC\market.json','MirsadBTC\observer\candles.json','MirsadBTC\observer\indicators.json')){
+   if(!(Test-Path -LiteralPath (Join-Path $expectedRoot $relative))){throw ("Shared Observer feed disappeared: {0}" -f $relative)}
+  }
+  $expectedStatusPath=Join-Path $expectedRoot 'MirsadBTC\status.json'
+  $actualStatusPath=Join-Path $folder 'status.json'
+  if(!(Test-Path -LiteralPath $expectedStatusPath) -or !(Test-Path -LiteralPath $actualStatusPath)){throw 'Execution EA status.json is not visible through both Common Files paths.'}
+  $sharedIdentityConfirmed=$false
+  for($sharedAttempt=1;$sharedAttempt -le 8;$sharedAttempt++){
+   $expectedStatus=Get-Content -LiteralPath $expectedStatusPath -Raw|ConvertFrom-Json -ErrorAction Stop
+   $actualStatus=Get-Content -LiteralPath $actualStatusPath -Raw|ConvertFrom-Json -ErrorAction Stop
+   if([int64]$expectedStatus.heartbeat_at_ms -gt 0 -and [int64]$expectedStatus.heartbeat_at_ms -eq [int64]$actualStatus.heartbeat_at_ms){$sharedIdentityConfirmed=$true;break}
+   Start-Sleep -Milliseconds 300
+  }
+  if(!$sharedIdentityConfirmed){throw 'Execution EA heartbeat differs across Observer and execution Common Files paths.'}
+  Add-Report 'PASS — Observer and ExecutionBridge are publishing through the same live MT5 Common Files directory.'
+ }
  if ($runBrokerAcceptance) {
   $env:PYTHONPATH=(Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC')
   $env:MIRSAD_MT5_COMMON_FILES=$commonFilesRoot
@@ -257,8 +314,10 @@ Period=M1
      [int]$acceptance.trade.deal_cycle.exit_count -lt 1){throw 'MIR1 acceptance report did not prove a closed broker deal cycle.'}
   Add-Report ("PASS — Python MIR1 bridge opened and closed the bounded BTC acceptance position; net cashflow {0} {1}." -f $acceptance.trade.deal_cycle.net_deal_cashflow,$acceptance.trade.deal_cycle.currency)
   Add-Report 'PASS — Broker deal history confirms both entry and exit for the same position_id; no test position remains open.'
+ } elseif($runLiveRuntimeCycle){
+  Add-Report 'SKIP — Integrated runtime checked the MIR1 command boundary; bounded BUY/CLOSE transport has a separate live acceptance test.'
  } else {
-  Add-Report 'SKIP — No broker order was requested. BUY/CLOSE acceptance requires workflow_dispatch with run_broker_acceptance_trade=true.'
+  Add-Report 'SKIP — No broker order was requested. BUY/CLOSE acceptance requires explicit workflow_dispatch opt-in.'
  }
  Add-Report 'The Windows runner will close MT5 when this validation job finishes; local persistent installation is a separate deployment step.'
  Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
