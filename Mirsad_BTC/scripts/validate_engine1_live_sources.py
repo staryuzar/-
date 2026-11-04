@@ -125,9 +125,27 @@ def build_report(result: dict[str, Any]) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only live diagnostics for Mirsad Engine 1 providers.")
     parser.add_argument("--output", default="engine1-live-source-report.json")
+    parser.add_argument(
+        "--market-snapshot",
+        type=Path,
+        default=None,
+        help="Optional sanitized MIR-MT5-MARKET-2 JSON snapshot to include the live broker calendar/context.",
+    )
     args = parser.parse_args()
 
-    result = MarketIntelligenceEngine().collect({})
+    market: dict[str, Any] = {}
+    if args.market_snapshot is not None:
+        try:
+            loaded_market = json.loads(args.market_snapshot.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"Cannot read MT5 market snapshot: {type(exc).__name__}: {exc}")
+        if not isinstance(loaded_market, dict):
+            raise SystemExit("MT5 market snapshot must be a JSON object.")
+        if loaded_market.get("schema") != "MIR-MT5-MARKET-2":
+            raise SystemExit("MT5 market snapshot does not match MIR-MT5-MARKET-2.")
+        market = loaded_market
+
+    result = MarketIntelligenceEngine().collect(market)
     report = build_report(result)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
