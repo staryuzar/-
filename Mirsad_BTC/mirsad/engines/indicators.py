@@ -6,6 +6,14 @@ from typing import Any
 TIMEFRAME_WEIGHTS = {"1m": 1.0, "5m": 2.0, "15m": 3.0, "1h": 4.0, "4h": 5.0, "1d": 5.0}
 REQUIRED_TIMEFRAMES = ("1m", "5m", "15m")
 CORE_INDICATORS = ("ema20", "ema50", "rsi14", "atr14")
+INDICATOR_SIGNAL_GROUP_WEIGHTS = {
+    "trend": 0.25,
+    "momentum": 0.30,
+    "directional_strength": 0.15,
+    "oscillator": 0.15,
+    "volume_flow": 0.15,
+}
+MIN_INDICATOR_SIGNAL_QUALITY = 0.60
 
 
 def _finite_values(values: list[float]) -> bool:
@@ -229,18 +237,22 @@ def _mfi(candles: list[dict[str, Any]], period: int = 14) -> float | None:
     try:
         positive: list[float] = []
         negative: list[float] = []
+        total_volume = 0.0
         for previous, current in zip(candles[:-1], candles[1:]):
             typical_previous = (float(previous["high"]) + float(previous["low"]) + float(previous["close"])) / 3.0
             typical_current = (float(current["high"]) + float(current["low"]) + float(current["close"])) / 3.0
             volume = float(current.get("volume", current.get("tick_volume", 0.0)))
             if not _finite_values([typical_previous, typical_current, volume]) or volume < 0:
                 return None
+            total_volume += volume
             flow = typical_current * volume
             positive.append(flow if typical_current > typical_previous else 0.0)
             negative.append(flow if typical_current < typical_previous else 0.0)
         pos, neg = sum(positive[-period:]), sum(negative[-period:])
+        if pos + neg <= 0.0:
+            return 50.0 if total_volume > 0.0 else None
         if neg == 0:
-            return 50.0 if pos == 0 else 100.0
+            return 100.0
         ratio = pos / neg
         return 100.0 - 100.0 / (1.0 + ratio)
     except (KeyError, TypeError, ValueError, OverflowError, ZeroDivisionError):
@@ -277,17 +289,19 @@ def _obv(candles: list[dict[str, Any]]) -> float | None:
         return None
     try:
         total = 0.0
+        total_volume = 0.0
         for previous, current in zip(candles[:-1], candles[1:]):
             previous_close = float(previous["close"])
             close = float(current["close"])
             volume = float(current.get("volume", current.get("tick_volume", 0.0)))
             if not _finite_values([previous_close, close, volume]) or volume < 0:
                 return None
+            total_volume += volume
             if close > previous_close:
                 total += volume
             elif close < previous_close:
                 total -= volume
-        return total if math.isfinite(total) else None
+        return total if total_volume > 0.0 and math.isfinite(total) else None
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
 
@@ -352,6 +366,144 @@ def _timeframe_trend(candles: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "status": "READY", "trend": trend, "ema20": fast, "ema50": slow,
         "last_close": last, "closed_candles": len(closes),
+    }
+
+
+def _clamp_signal(value: float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return max(-1.0, min(1.0, number))
+
+
+def _obv_flow_score(candles: list[dict[str, Any]], window: int = 5) -> float | None:
+    """Normalize recent signed tick-volume flow; cumulative OBV origin is not a vote."""
+    try:
+        closed = [row for row in candles if row.get("closed") is True]
+        if len(closed) < 2:
+            return None
+        recent = closed[-(max(1, int(window)) + 1):]
+        signed_volume = 0.0
+        total_volume = 0.0
+        for previous, current in zip(recent[:-1], recent[1:]):
+            before = float(previous["close"])
+            after = float(current["close"])
+            volume = float(current.get("volume", current.get("tick_volume", 0.0)))
+            if not _finite_values([before, after, volume]) or volume < 0:
+                return None
+            total_volume += volume
+            if after > before:
+                signed_volume += volume
+            elif after < before:
+                signed_volume -= volume
+        if total_volume <= 0.0:
+            return None
+        return _clamp_signal(signed_volume / total_volume)
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def _timeframe_indicator_signal(
+    candles: list[dict[str, Any]],
+    trend: dict[str, Any],
+    values: dict[str, float | None],
+) -> dict[str, Any]:
+    """One bounded vote per independent technical family; ATR is volatility-only."""
+    closed = [row for row in candles if isinstance(row, dict) and row.get("closed") is True]
+    close_value = None
+    if closed:
+        try:
+            candidate = float(closed[-1]["close"])
+            close_value = candidate if math.isfinite(candidate) else None
+        except (KeyError, TypeError, ValueError, OverflowError):
+            close_value = None
+    atr = values.get("atr14")
+    atr_value = float(atr) if atr is not None and math.isfinite(float(atr)) and float(atr) > 0 else None
+
+    trend_direction = (
+        1.0 if trend.get("trend") == "BULLISH"
+        else -1.0 if trend.get("trend") == "BEARISH"
+        else 0.0 if trend.get("status") == "READY" else None
+    )
+    bb_middle, bb_upper, bb_lower = (
+        values.get("bollinger_middle"), values.get("bollinger_upper"), values.get("bollinger_lower")
+    )
+    bb_score = None
+    if close_value is not None and all(
+        value is not None and math.isfinite(float(value))
+        for value in (bb_middle, bb_upper, bb_lower)
+    ):
+        width = float(bb_upper) - float(bb_lower)
+        bb_score = 0.0 if width <= 0 else _clamp_signal(
+            2.0 * (close_value - float(bb_middle)) / width
+        )
+
+    macd_score = _clamp_signal(float(values["macd_main"]) / atr_value) if (
+        atr_value is not None and values.get("macd_main") is not None
+    ) else None
+    osma_score = _clamp_signal(float(values["osma"]) / atr_value) if (
+        atr_value is not None and values.get("osma") is not None
+    ) else None
+    rsi_score = _clamp_signal((float(values["rsi14"]) - 50.0) / 20.0) if values.get("rsi14") is not None else None
+    momentum_score = _clamp_signal((float(values["momentum14"]) - 100.0) / 2.0) if values.get("momentum14") is not None else None
+
+    adx, plus_di, minus_di = values.get("adx14"), values.get("plus_di14"), values.get("minus_di14")
+    dmi_score = None
+    if all(value is not None and math.isfinite(float(value)) for value in (adx, plus_di, minus_di)):
+        strength = max(0.0, min(1.0, (float(adx) - 10.0) / 20.0))
+        dmi_score = _clamp_signal(((float(plus_di) - float(minus_di)) / 30.0) * strength)
+
+    stochastic_k, stochastic_d = values.get("stochastic_k"), values.get("stochastic_d")
+    stochastic_k_score = _clamp_signal((float(stochastic_k) - 50.0) / 30.0) if stochastic_k is not None else None
+    stochastic_d_score = _clamp_signal((float(stochastic_d) - 50.0) / 30.0) if stochastic_d is not None else None
+    cci_score = _clamp_signal(float(values["cci20"]) / 150.0) if values.get("cci20") is not None else None
+    wpr_score = _clamp_signal((float(values["wpr14"]) + 50.0) / 50.0) if values.get("wpr14") is not None else None
+    mfi_score = _clamp_signal((float(values["mfi14"]) - 50.0) / 25.0) if values.get("mfi14") is not None else None
+    obv_score = _obv_flow_score(candles)
+
+    features = {
+        "trend": [trend_direction, bb_score],
+        "momentum": [rsi_score, macd_score, osma_score, momentum_score],
+        "directional_strength": [dmi_score],
+        "oscillator": [stochastic_k_score, stochastic_d_score, cci_score, wpr_score],
+        "volume_flow": [mfi_score, obv_score],
+    }
+    groups: dict[str, dict[str, Any]] = {}
+    effective_total = 0.0
+    weighted_score = 0.0
+    for name, expected_values in features.items():
+        valid = [float(value) for value in expected_values if value is not None and math.isfinite(float(value))]
+        coverage = len(valid) / len(expected_values) if expected_values else 0.0
+        group_score = sum(valid) / len(valid) if valid else None
+        base_weight = INDICATOR_SIGNAL_GROUP_WEIGHTS[name]
+        effective_weight = base_weight * coverage
+        if group_score is not None:
+            weighted_score += group_score * effective_weight
+            effective_total += effective_weight
+        groups[name] = {
+            "score": round(group_score, 6) if group_score is not None else None,
+            "coverage": round(coverage, 6),
+            "available_features": len(valid),
+            "expected_features": len(expected_values),
+            "base_weight": base_weight,
+            "effective_weight": round(effective_weight, 6),
+        }
+    if effective_total <= 0:
+        return {
+            "status": "NOT_READY", "score": None, "quality": 0.0,
+            "groups": groups, "reason": "No valid directional indicator families are available.",
+        }
+    return {
+        "status": "READY",
+        "score": round(max(-1.0, min(1.0, weighted_score / effective_total)), 6),
+        "quality": round(min(1.0, effective_total / sum(INDICATOR_SIGNAL_GROUP_WEIGHTS.values())), 6),
+        "groups": groups,
+        "reason": None,
     }
 
 
