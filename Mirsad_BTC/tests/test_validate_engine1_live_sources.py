@@ -17,11 +17,10 @@ class Engine1LiveSourceValidatorTests(unittest.TestCase):
         market = {
             "schema": "MIR-MT5-MARKET-2",
             "status": "LIVE",
-            "market_context": {
-                "economic_calendar": {
-                    "status": "AVAILABLE",
-                    "events": [],
-                },
+            "economic_calendar": {
+                "status": "AVAILABLE",
+                "source": "MT5_ECONOMIC_CALENDAR",
+                "events": [],
             },
         }
         result = {
@@ -76,6 +75,7 @@ class Engine1LiveSourceValidatorTests(unittest.TestCase):
             collect.assert_called_once_with(market)
             report = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(report["economic_calendar"]["source_statuses"]["mt5_broker"], "AVAILABLE")
+            self.assertEqual(report["economic_calendar"]["status"], "READY")
             self.assertEqual(report["provider_response_count"], 3)
 
     def test_cli_rejects_non_mirsad_market_snapshot_schema(self) -> None:
