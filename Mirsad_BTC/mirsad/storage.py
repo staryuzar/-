@@ -560,9 +560,17 @@ def save_mt5_deal_history(
     """Persist validated Mirsad-owned broker deals idempotently by deal ticket."""
     if not isinstance(history, dict) or history.get("schema") != "MIR1-DEALS-1":
         return {"status": "NOT_REPORTED", "received": 0, "stored": 0}
-    if history.get("status") != "READY":
-        return {"status": "UNAVAILABLE", "received": 0, "stored": 0,
-                "reason": str(history.get("reason") or "MT5 deal history is not ready.")}
+    producer_status = str(history.get("status") or "UNAVAILABLE").strip().upper()
+    if producer_status != "READY":
+        preserved_status = (
+            producer_status
+            if producer_status in {"UNAVAILABLE", "STALE", "INVALID", "NOT_REPORTED"}
+            else "INVALID"
+        )
+        return {
+            "status": preserved_status, "received": 0, "stored": 0,
+            "reason": str(history.get("reason") or "MT5 deal history is not ready."),
+        }
     try:
         observed_at = int(history["queried_at_utc_ms"])
         magic = int(history["magic"])

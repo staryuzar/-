@@ -300,6 +300,26 @@ class MT5DealHistoryStorageTests(unittest.TestCase):
         })
         self.assertEqual(result["status"], "UNAVAILABLE")
 
+    def test_stale_history_status_is_preserved_in_storage_report(self):
+        result = save_mt5_deal_history({
+            "schema": "MIR1-DEALS-1",
+            "status": "STALE",
+            "reason": "broker history snapshot older than 180 seconds",
+            "deals": [],
+        })
+        self.assertEqual(result["status"], "STALE")
+        self.assertIn("180 seconds", result["reason"])
+
+    def test_invalid_history_status_is_preserved_in_storage_report(self):
+        result = save_mt5_deal_history({
+            "schema": "MIR1-DEALS-1",
+            "status": "INVALID",
+            "reason": "filtered history counters conflict",
+            "deals": [],
+        })
+        self.assertEqual(result["status"], "INVALID")
+        self.assertIn("counters", result["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

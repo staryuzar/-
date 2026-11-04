@@ -74,6 +74,18 @@ class PositionLedgerTests(unittest.TestCase):
         self.assertEqual(cycle["direction"], "FLAT")
         self.assertEqual(cycle["remaining_signed_volume"], 0.0)
 
+    def test_netting_reversal_preserves_the_remaining_short_volume(self) -> None:
+        rows = [
+            deal("1", "508", 1000, 0, 0, 0.02),
+            deal("2", "508", 2000, 1, 2, 0.05, profit=1.5),
+        ]
+        cycle = aggregate_position_cycles(rows)[0]
+        self.assertEqual(cycle["state"], "OPEN_FROM_CAPTURED_ENTRY")
+        self.assertEqual(cycle["direction"], "SHORT")
+        self.assertAlmostEqual(cycle["remaining_signed_volume"], -0.03)
+        self.assertAlmostEqual(cycle["reversal_deal_volume"], 0.05)
+        self.assertEqual(cycle["reversal_count"], 1)
+
     def test_history_without_initial_entry_is_never_claimed_as_complete(self) -> None:
         rows = [deal("2", "504", 2000, 1, 1, 0.02, profit=1.0)]
         cycle = aggregate_position_cycles(rows)[0]
