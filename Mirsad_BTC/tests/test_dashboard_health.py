@@ -40,7 +40,13 @@ class ComponentHealthTests(unittest.TestCase):
             "mt5_native_indicators": {"status": "READY", "ready_indicator_count": 6, "missing_required_indicators": []},
             "decision": {"status": "READY", "action": "WAIT", "candidate_action": "WAIT", "command_ready": False, "risk_plan": {"status": "READY", "volume": 0.1, "risk_cash": 5}},
             "daily_risk": {"status": "READY", "enabled": False, "mode": "DISABLED_FOR_DEVELOPMENT"},
-            "bridge": {"status": "CONNECTED", "heartbeat_age_seconds": 1.0, "symbol": "BTC", "market_symbol": "BTCUSDT", "positions": [], "position_reconciliation": {"status": "NO_PENDING_COMMAND", "reason": "No pending command."}},
+            "bridge": {
+                "status": "CONNECTED", "heartbeat_age_seconds": 1.0,
+                "symbol": "BTC", "market_symbol": "BTCUSDT", "positions": [],
+                "position_reconciliation": {"status": "NO_PENDING_COMMAND", "reason": "No pending command."},
+                "deal_history": {"status": "READY", "deal_count": 3, "truncated": False},
+                "deal_ledger_persistence": {"status": "READY", "received": 3, "stored": 3, "currency": "USD"},
+            },
             "command_publish": {"status": "NOT_READY"},
             "execution_controls": {"order_publish_enabled": False},
         }
@@ -53,6 +59,8 @@ class ComponentHealthTests(unittest.TestCase):
         self.assertEqual(by_name["تطابق هوية الصورة مع بيانات التحليل"]["status"], "VERIFIED")
         self.assertEqual(by_name["متابعة المراكز المفتوحة وحمايتها"]["status"], "NO_OPEN_POSITIONS")
         self.assertEqual(by_name["متابعة المراكز المفتوحة وحمايتها"]["health"], "HEALTHY")
+        self.assertEqual(by_name["دفتر صفقات الوسيط المحفوظ"]["health"], "HEALTHY")
+        self.assertEqual(by_name["دفتر صفقات الوسيط المحفوظ"]["status"], "READY")
         self.assertEqual(by_name["حاجز حد الخسارة اليومية"]["health"], "SAFE_DISABLED")
         self.assertEqual(by_name["بوابة نشر أوامر MIR1"]["health"], "SAFE_DISABLED")
         self.assertEqual(summarize_component_health(items)["attention"], 0)
@@ -97,6 +105,19 @@ class ComponentHealthTests(unittest.TestCase):
         self.assertEqual(by_name["تحليل القمم والقيعان وبنية السعر"]["health"], "HEALTHY")
         self.assertEqual(by_name["تحليل الصورة وأهلية المعايرة"]["health"], "SAFE_DISABLED")
         self.assertEqual(summarize_component_health(items)["attention"], 0)
+
+    def test_invalid_broker_deal_ledger_is_an_attention_item(self) -> None:
+        state = self.healthy_state()
+        state["bridge"]["deal_history"] = {
+            "status": "INVALID",
+            "reason": "Deal magic number does not match.",
+        }
+        item = next(
+            x for x in build_component_health(state)
+            if x["component"] == "دفتر صفقات الوسيط المحفوظ"
+        )
+        self.assertEqual(item["status"], "INVALID")
+        self.assertEqual(item["health"], "ATTENTION")
 
     def test_missing_telemetry_is_never_reported_as_healthy(self) -> None:
         self.assertEqual(build_component_health({}), [])
