@@ -316,6 +316,14 @@ try {
         $lines.Add("--- MetaEditor processes ---")
         Get-CimInstance Win32_Process -Filter "Name='metaeditor64.exe' OR Name='metaeditor.exe'" -ErrorAction SilentlyContinue |
             ForEach-Object { $lines.Add("PID=$($_.ProcessId) Path=$($_.ExecutablePath) CommandLine=$($_.CommandLine)") }
+        if (Test-Path -LiteralPath $compileLog) {
+            Copy-Item -LiteralPath $compileLog -Destination (Join-Path $evidence 'Mirsad_ChartObserver_compile.log') -Force
+            $compileLines = Get-Content -LiteralPath $compileLog -ErrorAction SilentlyContinue
+            $lines.Add("--- MetaEditor compiler diagnostics (last 120 lines) ---")
+            foreach ($compileLine in ($compileLines | Select-Object -Last 120)) {
+                $lines.Add([string]$compileLine)
+            }
+        }
         $lines | Set-Content -LiteralPath $diagnostic -Encoding utf8
         Add-Report ("FAIL — MetaEditor outputs missing after 60s. ExitCode={0}; Log={1}; EX5={2}." -f $compiler.ExitCode,(Test-Path -LiteralPath $compileLog),(Test-Path -LiteralPath $eaBinary))
         Get-Content -LiteralPath $diagnostic | ForEach-Object { Write-Output $_ }
