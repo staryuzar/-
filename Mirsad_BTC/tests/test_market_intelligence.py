@@ -336,7 +336,6 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
 
         def fake_json(url: str, *, ttl_seconds: int = 30):
             if "/public/funding-rate?" in url:
-                self.assertIn("instId=BTC-BTCUSDT-SWAP", url) if False else None
                 self.assertIn("instId=BTC-USDT-SWAP", url)
                 return {"code": "0", "data": [{
                     "fundingRate": "0.0002", "settFundingRate": "0.00015",
