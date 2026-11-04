@@ -663,7 +663,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertEqual(result["status"], "READY")
         self.assertFalse(result["engine_2_visual_evidence_used"])
-        self.assertEqual(result["engine_2_score_source"], "NATIVE_OHLC_ONLY_VISUAL_NOT_ELIGIBLE")
+        self.assertEqual(result["engine_2_score_source"], "NATIVE_MT5_OHLC_ONLY")
         self.assertAlmostEqual(result["decision_scores"]["engine_2_score"], 0.80)
         self.assertEqual(
             result["decision_weights"]["engine_2_internal"]["applied"],
