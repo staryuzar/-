@@ -537,6 +537,7 @@ def save_decision_calibration_sample(
     if signal_bar_time_ms <= 0 or captured_at_ms <= 0:
         return {"status": "SKIPPED", "reason": "Calibration timestamps must be positive."}
 
+    retention_cutoff_ms = captured_at_ms - DECISION_CALIBRATION_RETENTION_DAYS * 24 * 60 * 60 * 1000
     symbol = str(market.get("symbol") or candle_history.get("symbol") or "BTCUSDT").strip().upper()
     profile_version = DECISION_CALIBRATION_PROFILE_VERSION
     sample_key = f"{symbol}:1m:{signal_bar_time_ms}:{profile_version}"
@@ -644,7 +645,8 @@ def save_decision_calibration_sample(
             except (KeyError, TypeError, ValueError, OverflowError):
                 continue
             if (
-                stamp <= 0 or not all(math.isfinite(value) and value > 0 for value in values)
+                stamp <= 0 or stamp < retention_cutoff_ms
+                or not all(math.isfinite(value) and value > 0 for value in values)
                 or not math.isfinite(volume) or volume < 0
             ):
                 continue
@@ -708,7 +710,7 @@ def save_decision_calibration_sample(
                     valid_candles,
                 )
                 candles_inserted = max(0, candle_cursor.rowcount)
-            cutoff = captured_at_ms - DECISION_CALIBRATION_RETENTION_DAYS * 24 * 60 * 60 * 1000
+            cutoff = retention_cutoff_ms
             conn.execute(
                 "DELETE FROM decision_calibration_samples WHERE captured_at_ms < ?",
                 (cutoff,),
