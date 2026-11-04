@@ -1,23 +1,18 @@
 from __future__ import annotations
 import argparse
 import time
-import hashlib
 import math
-from pathlib import Path
 from typing import Any
-from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,RISK_STATE_PATH,SYMBOL
-from .engines.market import MarketEngine  # Research/benchmark adapter; not used for live runtime.
+from .config import COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,RISK_STATE_PATH
 from .engines.mt5_market import MT5MarketDataEngine
 from .engines.market_intelligence import MarketIntelligenceEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
 from .engines.mt5_native_indicators import MT5NativeIndicatorHistory
 from .engines.mt5_price_action import analyze_mt5_native_price_action
-from .engines.chart import analyze_chart_image
 from .engines.chart_multi_timeframe import analyze_multi_timeframe_structure
 from .engines.indicators import IndicatorsEngine
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
-from .engines.mt5_chart_pipeline import Engine2MT5ChartImagePipeline
 from .storage import (
  save_market_snapshot,save_market_intelligence_snapshot,save_mt5_deal_history,
  write_json_atomic,read_json,
@@ -84,24 +79,6 @@ def _analyze_engine2_multi_timeframe_structure(candle_history:dict[str,Any])->di
   "ownership":"engine_2_native_candles_only",
   "reason":None if result.get("status")=="READY" else "Fewer than two fresh timeframes have complete confirmed price structure.",
  }
-
-def _chart_file()->Path|None:
- if not CHART_DIR.exists(): return None
- files=[p for p in CHART_DIR.iterdir() if p.is_file() and p.suffix.lower() in {".png",".jpg",".jpeg",".webp"}]
- return max(files,key=lambda p:p.stat().st_mtime) if files else None
-
-def _inspect_mt5_chart_observer(now_ms:int|None=None)->dict[str,Any]:
- pipeline=Engine2MT5ChartImagePipeline(common_files=MT5_COMMON_FILES)
- return pipeline.inspect_latest(now_ms=now_ms)
-
-
-def _analyze_mt5_observer_chart(
- observer:dict[str,Any], bridge:dict[str,Any],
-)->dict[str,Any]|None:
- return Engine2MT5ChartImagePipeline(
-  image_analyzer=analyze_chart_image,
- ).analyze_capture(observer,bridge)
-
 
 def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)->dict[str,Any]:
  started=int(time.time()*1000)
