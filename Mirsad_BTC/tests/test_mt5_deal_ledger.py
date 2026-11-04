@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -125,8 +126,55 @@ class MT5DealHistoryStorageTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["deal_ticket"], "10001")
             self.assertAlmostEqual(rows[0]["net_cashflow"], 12.18)
+            self.assertEqual(rows[0]["time_basis"], "MT5_SERVER_TIME")
 
-    def test_invalid_net_cashflow_is_never_persisted(self):
+    def test_legacy_utc_ledger_schema_migrates_without_losing_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "legacy-mirsad.sqlite3"
+            legacy_time = int(time.time() * 1000) - 60_000
+            conn = sqlite3.connect(db)
+            conn.execute("""CREATE TABLE mt5_deals (
+                deal_ticket TEXT PRIMARY KEY, order_ticket TEXT NOT NULL,
+                position_id TEXT NOT NULL, magic INTEGER NOT NULL,
+                symbol TEXT NOT NULL, deal_type INTEGER NOT NULL,
+                deal_entry INTEGER NOT NULL, deal_reason INTEGER NOT NULL,
+                time_utc_ms INTEGER NOT NULL, volume REAL NOT NULL,
+                price REAL NOT NULL, profit REAL NOT NULL, commission REAL NOT NULL,
+                swap REAL NOT NULL, fee REAL NOT NULL, net_cashflow REAL NOT NULL,
+                currency TEXT NOT NULL, comment TEXT NOT NULL,
+                payload_json TEXT NOT NULL, observed_at_ms INTEGER NOT NULL
+            )""")
+            conn.execute("CREATE INDEX ix_mt5_deals_position_time ON mt5_deals(magic,symbol,position_id,time_utc_ms)")
+            conn.execute("CREATE INDEX ix_mt5_deals_time ON mt5_deals(magic,symbol,time_utc_ms)")
+            conn.execute("""INSERT INTO mt5_deals VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                "10001", "20001", "30001", 26110201, "BTC", 1, 1, 3,
+                legacy_time, 0.01, 65000.0, 12.5, -0.25, -0.05, -0.02,
+                12.18, "USD", "legacy", json.dumps({"legacy": True}), legacy_time,
+            ))
+            conn.commit()
+            conn.close()
+
+            legacy_rows = load_mt5_deal_history(
+                magic_number=26110201, symbol="BTC", db_path=db
+            )
+            self.assertEqual(len(legacy_rows), 1)
+            self.assertEqual(legacy_rows[0]["deal_ticket"], "10001")
+            self.assertEqual(legacy_rows[0]["time_server_ms"], legacy_time)
+            self.assertEqual(legacy_rows[0]["time_basis"], "LEGACY_UTC_NORMALIZED")
+
+            native_history = make_deal_history(deal={"deal_ticket": "10002", "time_server_ms": None})
+            native_history["deals"][0].pop("time_server_ms", None)
+            saved = save_mt5_deal_history(native_history, db_path=db)
+            all_rows = load_mt5_deal_history(
+                magic_number=26110201, symbol="BTC", db_path=db
+            )
+            self.assertEqual(saved["status"], "READY")
+            self.assertEqual(len(all_rows), 2)
+            by_ticket = {row["deal_ticket"]: row for row in all_rows}
+            self.assertEqual(by_ticket["10001"]["time_basis"], "LEGACY_UTC_NORMALIZED")
+            self.assertEqual(by_ticket["10002"]["time_basis"], "MT5_SERVER_TIME")
+
+    def test_invalid_net_cashflow_is_never_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "mirsad.sqlite3"
             history = make_deal_history(deal={"net_cashflow": 999.0})

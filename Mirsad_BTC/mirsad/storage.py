@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS mt5_deals (
  deal_entry INTEGER NOT NULL,
  deal_reason INTEGER NOT NULL,
  time_server_ms INTEGER NOT NULL,
+ time_basis TEXT NOT NULL DEFAULT 'MT5_SERVER_TIME',
  volume REAL NOT NULL,
  price REAL NOT NULL,
  profit REAL NOT NULL,
@@ -62,10 +63,6 @@ CREATE TABLE IF NOT EXISTS mt5_deals (
  payload_json TEXT NOT NULL,
  observed_at_ms INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_mt5_deals_position_time
- ON mt5_deals(magic,symbol,position_id,time_server_ms);
-CREATE INDEX IF NOT EXISTS ix_mt5_deals_time
- ON mt5_deals(magic,symbol,time_server_ms);
 CREATE TABLE IF NOT EXISTS storage_migrations (
  migration_id TEXT PRIMARY KEY,
  applied_at_ms INTEGER NOT NULL
@@ -181,6 +178,80 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
     conn=sqlite3.connect(str(db_path),timeout=15)
     conn.row_factory=sqlite3.Row
     conn.executescript(SCHEMA)
+    # Migrate the first deal-ledger schema without discarding historical rows.
+    # The former time_utc_ms column contains UTC-normalized values, while the
+    # current producer preserves native MT5 server-clock timestamps. Keep that
+    # distinction explicit per row rather than silently shifting old history.
+    deal_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(mt5_deals)").fetchall()
+    }
+    if "time_server_ms" not in deal_columns:
+        if "time_utc_ms" not in deal_columns:
+            conn.close()
+            raise sqlite3.DatabaseError(
+                "mt5_deals has neither time_server_ms nor the supported legacy time_utc_ms column."
+            )
+        with conn:
+            conn.execute("DROP INDEX IF EXISTS ix_mt5_deals_position_time")
+            conn.execute("DROP INDEX IF EXISTS ix_mt5_deals_time")
+            conn.execute("DROP TABLE IF EXISTS mt5_deals_server_time_migration")
+            conn.execute(
+                """CREATE TABLE mt5_deals_server_time_migration (
+                    deal_ticket TEXT PRIMARY KEY,
+                    order_ticket TEXT NOT NULL,
+                    position_id TEXT NOT NULL,
+                    magic INTEGER NOT NULL,
+                    symbol TEXT NOT NULL,
+                    deal_type INTEGER NOT NULL,
+                    deal_entry INTEGER NOT NULL,
+                    deal_reason INTEGER NOT NULL,
+                    time_server_ms INTEGER NOT NULL,
+                    time_basis TEXT NOT NULL,
+                    volume REAL NOT NULL,
+                    price REAL NOT NULL,
+                    profit REAL NOT NULL,
+                    commission REAL NOT NULL,
+                    swap REAL NOT NULL,
+                    fee REAL NOT NULL,
+                    net_cashflow REAL NOT NULL,
+                    currency TEXT NOT NULL,
+                    comment TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    observed_at_ms INTEGER NOT NULL
+                )"""
+            )
+            conn.execute(
+                """INSERT INTO mt5_deals_server_time_migration
+                   (deal_ticket,order_ticket,position_id,magic,symbol,deal_type,
+                    deal_entry,deal_reason,time_server_ms,time_basis,volume,price,
+                    profit,commission,swap,fee,net_cashflow,currency,comment,
+                    payload_json,observed_at_ms)
+                   SELECT deal_ticket,order_ticket,position_id,magic,symbol,deal_type,
+                          deal_entry,deal_reason,time_utc_ms,'LEGACY_UTC_NORMALIZED',
+                          volume,price,profit,commission,swap,fee,net_cashflow,
+                          currency,comment,payload_json,observed_at_ms
+                   FROM mt5_deals"""
+            )
+            conn.execute("DROP TABLE mt5_deals")
+            conn.execute(
+                "ALTER TABLE mt5_deals_server_time_migration RENAME TO mt5_deals"
+            )
+    elif "time_basis" not in deal_columns:
+        with conn:
+            conn.execute(
+                "ALTER TABLE mt5_deals ADD COLUMN time_basis TEXT NOT NULL DEFAULT 'MT5_SERVER_TIME'"
+            )
+    # Recreate indexes after schema migration so existing databases with the
+    # old column names cannot block application startup.
+    with conn:
+        conn.execute("DROP INDEX IF EXISTS ix_mt5_deals_position_time")
+        conn.execute("DROP INDEX IF EXISTS ix_mt5_deals_time")
+        conn.execute(
+            "CREATE INDEX ix_mt5_deals_position_time ON mt5_deals(magic,symbol,position_id,time_server_ms)"
+        )
+        conn.execute(
+            "CREATE INDEX ix_mt5_deals_time ON mt5_deals(magic,symbol,time_server_ms)"
+        )
     # Separate legacy OKX UTC+8 daily bars before new UTC (1Dutc) bars are
     # written into the canonical '1d' interval. Preserve the old data under a
     # distinct interval key instead of mixing incompatible day boundaries.
@@ -522,6 +593,7 @@ def save_mt5_deal_history(
                 "deal_entry": int(row["entry"]),
                 "deal_reason": int(row.get("reason", 0) or 0),
                 "time_server_ms": int(row["time_server_ms"]),
+                "time_basis": str(history.get("time_basis") or ""),
                 "volume": float(row["volume"]),
                 "price": float(row["price"]),
                 "profit": float(row["profit"]),
@@ -542,8 +614,8 @@ def save_mt5_deal_history(
         if (
             int(item["deal_ticket"]) <= 0 or int(item["position_id"]) <= 0
             or item["magic"] != magic or item["symbol"] != symbol
-            or item["time_server_ms"] <= 0 or not item["currency"]
-            or item["deal_ticket"] in seen
+            or item["time_server_ms"] <= 0 or item["time_basis"] != "MT5_SERVER_TIME"
+            or not item["currency"] or item["deal_ticket"] in seen
             or any(not math.isfinite(value) for value in numeric)
             or item["volume"] < 0 or item["price"] < 0
             or abs(item["net_cashflow"] - (
@@ -562,10 +634,10 @@ def save_mt5_deal_history(
                 conn.execute(
                     """INSERT INTO mt5_deals
                        (deal_ticket,order_ticket,position_id,magic,symbol,deal_type,
-                        deal_entry,deal_reason,time_server_ms,volume,price,profit,
+                        deal_entry,deal_reason,time_server_ms,time_basis,volume,price,profit,
                         commission,swap,fee,net_cashflow,currency,comment,
                         payload_json,observed_at_ms)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                        ON CONFLICT(deal_ticket) DO UPDATE SET
                         order_ticket=excluded.order_ticket,
                         position_id=excluded.position_id,
@@ -575,6 +647,7 @@ def save_mt5_deal_history(
                         deal_entry=excluded.deal_entry,
                         deal_reason=excluded.deal_reason,
                         time_server_ms=excluded.time_server_ms,
+                        time_basis=excluded.time_basis,
                         volume=excluded.volume,
                         price=excluded.price,
                         profit=excluded.profit,
@@ -590,7 +663,7 @@ def save_mt5_deal_history(
                         item["deal_ticket"], item["order_ticket"], item["position_id"],
                         item["magic"], item["symbol"], item["deal_type"],
                         item["deal_entry"], item["deal_reason"], item["time_server_ms"],
-                        item["volume"], item["price"], item["profit"],
+                        item["time_basis"], item["volume"], item["price"], item["profit"],
                         item["commission"], item["swap"], item["fee"],
                         item["net_cashflow"], item["currency"], item["comment"],
                         json.dumps(item, ensure_ascii=False, separators=(",", ":")),
@@ -634,7 +707,7 @@ def load_mt5_deal_history(
     try:
         rows = conn.execute(
             """SELECT deal_ticket,order_ticket,position_id,magic,symbol,deal_type,
-                      deal_entry,deal_reason,time_server_ms,volume,price,profit,
+                      deal_entry,deal_reason,time_server_ms,time_basis,volume,price,profit,
                       commission,swap,fee,net_cashflow,currency,comment
                FROM mt5_deals
                WHERE magic=? AND symbol=? AND time_server_ms>=?

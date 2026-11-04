@@ -3,6 +3,7 @@ import sys
 import time
 import hashlib
 import math
+import sqlite3
 import io
 import html
 from pathlib import Path
@@ -1102,21 +1103,22 @@ def render_engine_dashboard():
   if ledger_magic>0 and ledger_symbol:
    try:
     deal_rows=load_mt5_deal_history(magic_number=ledger_magic,symbol=ledger_symbol,limit=1000)
-   except (OSError,ValueError,RuntimeError) as exc:
+   except (OSError,ValueError,RuntimeError,sqlite3.Error) as exc:
     st.warning(f"تعذر قراءة دفتر صفقات Mirsad المحفوظ: {type(exc).__name__}: {exc}")
    else:
     if deal_rows:
      deal_frame=pd.DataFrame(deal_rows)
-     deal_frame["وقت خادم MT5"]=pd.to_datetime(deal_frame["time_server_ms"],unit="ms",utc=True,errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
+     deal_frame["أساس الوقت"]=deal_frame["time_basis"].map({"MT5_SERVER_TIME":"توقيت خادم MT5","LEGACY_UTC_NORMALIZED":"UTC — سجل قديم"}).fillna("غير محدد")
+     deal_frame["وقت السجل"]=pd.to_datetime(deal_frame["time_server_ms"],unit="ms",errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
      deal_frame["نوع العملية"]=deal_frame["deal_type"].map({0:"شراء",1:"بيع",2:"رصيد",3:"ائتمان",4:"رسوم",5:"تصحيح",6:"مكافأة",7:"عمولة",8:"عمولة يومية",9:"عمولة شهرية",10:"عمولة وكيل",11:"فائدة",12:"شراء ملغى",13:"بيع ملغى",14:"توزيع",15:"توزيع معفى",16:"ضريبة"}).fillna("نوع آخر")
      deal_frame["نوع الدخول"]=deal_frame["deal_entry"].map({0:"دخول",1:"خروج",2:"عكس",3:"إغلاق مقابل"}).fillna("غير محدد")
      deal_frame["صافي التدفق"]=pd.to_numeric(deal_frame["net_cashflow"],errors="coerce")
      currency=str(deal_rows[0].get("currency") or (bridge.get("account") or {}).get("currency") or "عملة الحساب")
      total_net=float(deal_frame["صافي التدفق"].fillna(0).sum())
      st.metric(f"صافي التدفقات في السجل المحفوظ (حتى 1000 صفقة) — {currency}",f"{total_net:,.2f}")
-     display_columns=["وقت خادم MT5","deal_ticket","position_id","نوع العملية","نوع الدخول","volume","price","profit","commission","swap","fee","صافي التدفق","currency"]
+     display_columns=["وقت السجل","أساس الوقت","deal_ticket","position_id","نوع العملية","نوع الدخول","volume","price","profit","commission","swap","fee","صافي التدفق","currency"]
      st.dataframe(deal_frame.sort_values("time_server_ms",ascending=False)[display_columns].head(50),use_container_width=True,hide_index=True)
-     st.caption("يعرض الدفتر الصفقات المرتبطة برقم Magic الخاص بمرصاد والرمز المحدد فقط، ولا يضم الصفقات اليدوية أو مستشاري الخبراء الآخرين. الأوقات محفوظة كما وردت من خادم MT5 وليست معروضة على أنها UTC.")
+     st.caption("يعرض الدفتر الصفقات المرتبطة برقم Magic الخاص بمرصاد والرمز المحدد فقط، ولا يضم الصفقات اليدوية أو مستشاري الخبراء الآخرين. يظهر أساس الوقت لكل صف، حتى لا تختلط سجلات UTC القديمة بأوقات خادم MT5 الجديدة.")
      if deal_meta.get("truncated"):
       st.warning("سجل الوسيط محدود من طرف MT5؛ المحصلة المعروضة تخص السجل المحفوظ فقط وليست ضماناً بأنها تشمل كامل التاريخ القديم.")
     else:
