@@ -151,8 +151,11 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     observer_status_raw = observer.get("status")
     visual_status_raw = chart.get("status")
     visual_missing = (
-        observer_status_raw in {None, "WAITING_FOR_CAPTURE", "NOT_CONFIGURED"}
-        and visual_status_raw in {None, "WAITING_FOR_IMAGE", "WAITING_FOR_CAPTURE", "NOT_REPORTED"}
+        observer_status_raw in {None, "WAITING_FOR_CAPTURE", "NOT_CONFIGURED", "OPTIONAL_DISABLED"}
+        and visual_status_raw in {
+            None, "WAITING_FOR_IMAGE", "WAITING_FOR_CAPTURE", "NOT_REPORTED",
+            "NATIVE_OHLC_ONLY", "OPTIONAL_DISABLED",
+        }
     )
     observer_status = "OPTIONAL_DISABLED" if visual_missing else observer_status_raw
     add("المحرك الثاني — التحليل البصري والسعري", "استقبال صور الشارت الاختياري من خبير MT5", observer_status,
