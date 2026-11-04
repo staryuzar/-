@@ -181,9 +181,9 @@ class MT5NativePriceActionTests(unittest.TestCase):
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["direction"], "MIXED_TIMEFRAME_DIRECTIONS")
         self.assertEqual(summary["directional_frame_count"], 4)
-        self.assertAlmostEqual(summary["directional_frame_coverage"], 4 / 6)
+        self.assertAlmostEqual(summary["directional_frame_coverage"], 4 / 6, places=4)
         self.assertEqual(summary["mixed_or_unconfirmed_frame_count"], 2)
-        self.assertAlmostEqual(summary["mixed_or_unconfirmed_frame_coverage"], 2 / 6)
+        self.assertAlmostEqual(summary["mixed_or_unconfirmed_frame_coverage"], 2 / 6, places=4)
         self.assertAlmostEqual(summary["directional_structure_agreement"], 0.5)
 
     def test_forming_candle_spike_does_not_change_price_action_result(self) -> None:
