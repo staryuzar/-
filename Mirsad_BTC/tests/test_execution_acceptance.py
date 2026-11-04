@@ -53,6 +53,23 @@ class ExecutionAcceptanceSizingTests(unittest.TestCase):
         self.assertIn('"margin_mode\\":%I64d', source)
         self.assertIn('"hedging_mode\\":%s', source)
 
+    def test_mir1_status_and_ack_are_published_from_flushed_atomic_snapshots(self) -> None:
+        source = (
+            PROJECT_ROOT / "mt5" / "Mirsad_BTC_ExecutionBridge.mq5"
+        ).read_text(encoding="utf-8")
+
+        writer_start = source.index("bool WriteCommonText(")
+        writer_end = source.index("\n}", writer_start) + 2
+        writer = source[writer_start:writer_end]
+        self.assertIn('string temporary_name = file_name + ".tmp";', writer)
+        self.assertIn("FileFlush(handle);", writer)
+        self.assertIn("FileClose(handle);", writer)
+        self.assertIn("FileMove(CommonPath(temporary_name), FILE_COMMON,", writer)
+        self.assertIn("FILE_COMMON | FILE_REWRITE", writer)
+        self.assertNotIn("FileOpen(CommonPath(file_name)", writer)
+        self.assertIn('WriteCommonText("status.json", payload);', source)
+        self.assertIn('WriteCommonText("ack.json", payload);', source)
+
     def test_acceptance_order_respects_risk_and_notional_caps(self) -> None:
         decision, sizing = build_open_decision(valid_mt5_state())
 
