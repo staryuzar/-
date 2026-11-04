@@ -40,6 +40,24 @@ def make_engine2_multiframe_history(as_of_ms: int) -> dict:
     }
 
 class RuntimeObserverFlowTests(unittest.TestCase):
+    def test_disabled_daily_loss_cap_is_never_reported_as_ready(self) -> None:
+        disabled = {
+            "status": "READY", "mode": "DISABLED_FOR_DEVELOPMENT",
+            "enabled": False, "locked": False,
+        }
+        self.assertFalse(runtime._daily_risk_guard_ready(disabled))
+
+    def test_daily_loss_guard_requires_a_valid_enabled_persistent_baseline(self) -> None:
+        ready = {
+            "status": "READY", "mode": "ENABLED", "enabled": True,
+            "starting_equity": 1000.0, "baseline_at_ms": 1_800_000_000_000,
+            "max_daily_loss_fraction": 0.02, "locked": False,
+        }
+        locked = {**ready, "locked": True}
+        no_baseline = {**ready, "baseline_at_ms": 0}
+        self.assertTrue(runtime._daily_risk_guard_ready(ready))
+        self.assertTrue(runtime._daily_risk_guard_ready(locked))
+        self.assertFalse(runtime._daily_risk_guard_ready(no_baseline))
     def test_engine2_multi_timeframe_structure_uses_only_native_engine2_history(self) -> None:
         now_ms = int(time.time() * 1000)
         history = make_engine2_multiframe_history(now_ms)
