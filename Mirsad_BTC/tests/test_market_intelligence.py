@@ -68,7 +68,7 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
 
         def fake_json(url: str, *, ttl_seconds: int = 30):
             if "/tickers?" in url:
-                return {"retCode": 0, "result": {"list": [{
+                return {"retCode": 0, "time": "1794000000000", "result": {"list": [{
                     "fundingRate": "0.0001", "nextFundingTime": "1794000000000",
                     "markPrice": "90000", "indexPrice": "89990",
                     "openInterest": "2100", "openInterestValue": "189000000",
@@ -91,6 +91,8 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertAlmostEqual(result["long_short_ratio"], 1.5)
         self.assertAlmostEqual(result["open_interest_change_pct_35m"], 5.0)
         self.assertEqual(result["long_short_sample_count"], 1)
+        self.assertEqual(result["funding_timestamp_ms"], 1_794_000_000_000)
+        self.assertEqual(result["long_short_timestamp_ms"], 1_794_000_000_000)
 
     def test_context_requires_two_independent_evidence_categories_for_ready(self) -> None:
         result = compose_directional_context(
@@ -296,6 +298,33 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertNotIn("EXTREME_DERIVATIVES_POSITIONING", result["drivers"])
         self.assertEqual(result["level"], "NORMAL")
 
+
+
+    def test_binance_derivatives_emit_independent_funding_and_ratio_timestamps(self) -> None:
+        engine = MarketIntelligenceEngine()
+        stamp = 1_794_000_000_000
+
+        def fake_json(url: str, *, ttl_seconds: int = 30):
+            if "/premiumIndex?" in url:
+                return {"time": str(stamp), "lastFundingRate": "0.0001",
+                        "markPrice": "90000", "indexPrice": "89990"}
+            if "/openInterest?" in url:
+                return {"time": str(stamp), "openInterest": "2000"}
+            if "openInterestHist" in url:
+                return [{"sumOpenInterest": "1000", "timestamp": stamp - 300_000},
+                        {"sumOpenInterest": "1010", "timestamp": stamp}]
+            if "globalLongShortAccountRatio" in url:
+                return [{"longShortRatio": "1.4", "timestamp": stamp}]
+            raise AssertionError("Unexpected Binance endpoint.")
+
+        engine._json = fake_json
+        result = engine._collect_binance_derivatives()
+        self.assertEqual(result["funding_timestamp_ms"], stamp)
+        self.assertEqual(result["long_short_timestamp_ms"], stamp)
+        scored = score_derivatives({"Binance": result}, now_ms=stamp)
+        self.assertEqual(scored["status"], "PARTIAL")
+        self.assertTrue(scored["venues"]["Binance"]["directional_inputs_used"]["funding_rate"])
+        self.assertTrue(scored["venues"]["Binance"]["directional_inputs_used"]["long_short_ratio"])
 
 
 if __name__ == "__main__":

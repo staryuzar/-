@@ -628,13 +628,14 @@ class MarketIntelligenceEngine:
         source_stamps = [stamp for stamp in source_stamps if stamp is not None]
         observed_at = int(time.time() * 1000)
         stamp = max(source_stamps) if source_stamps else observed_at
-        directional_stamps = []
-        if funding is not None:
-            directional_stamps.append(_parse_time(premium.get("time")) or observed_at)
-        if ratio is not None:
-            ratio_stamp = _parse_time(ratio_history[-1].get("timestamp")) if ratio_history and isinstance(ratio_history[-1], dict) else None
-            directional_stamps.append(ratio_stamp or observed_at)
-        directional_stamp = min(directional_stamps) if directional_stamps else stamp
+        funding_timestamp = _parse_time(premium.get("time")) if funding is not None else None
+        ratio_timestamp = (
+            _parse_time(ratio_history[-1].get("timestamp"))
+            if ratio is not None and ratio_history and isinstance(ratio_history[-1], dict)
+            else None
+        )
+        directional_stamps = [value for value in (funding_timestamp, ratio_timestamp) if value is not None]
+        directional_stamp = min(directional_stamps) if directional_stamps else None
         status = "READY" if funding is not None or current_oi is not None else "OFFLINE"
         return {
             "status": status, "source": "Binance USD-M perpetual futures",
@@ -646,6 +647,8 @@ class MarketIntelligenceEngine:
             "long_short_sample_count": len(ratio_history), "open_interest_sample_count": len(oi_history),
             "timestamp_ms": stamp,
             "directional_timestamp_ms": directional_stamp,
+            "funding_timestamp_ms": funding_timestamp,
+            "long_short_timestamp_ms": ratio_timestamp,
             "timestamp_basis": "PROVIDER_TIMESTAMP" if source_stamps else "LOCAL_FETCH_TIME",
             "observed_at_ms": observed_at,
         }
@@ -704,24 +707,24 @@ class MarketIntelligenceEngine:
 
         funding_rate = _finite(row.get("fundingRate"))
         observed_at = int(time.time() * 1000)
-        directional_stamps = []
+        funding_timestamp = None
         if funding_rate is not None:
-            directional_stamps.append(
+            funding_timestamp = (
                 _parse_time(ticker_payload.get("time"))
                 or _parse_time(ticker_payload.get("retTime"))
                 or _parse_time(row.get("ts"))
-                or observed_at
             )
+        ratio_timestamp = None
         if long_short_ratio is not None:
             ratio_row = ratio_rows[0] if ratio_rows and isinstance(ratio_rows[0], dict) else {}
-            directional_stamps.append(
+            ratio_timestamp = (
                 _parse_time(ratio_row.get("timestamp"))
                 or _parse_time(ratio_row.get("ts"))
                 or _parse_time(ratio_payload.get("time"))
                 or _parse_time(ratio_payload.get("retTime"))
-                or observed_at
             )
-        directional_stamp = min(directional_stamps) if directional_stamps else observed_at
+        directional_stamps = [value for value in (funding_timestamp, ratio_timestamp) if value is not None]
+        directional_stamp = min(directional_stamps) if directional_stamps else None
         status = "READY" if funding_rate is not None or current_oi is not None or long_short_ratio is not None else "OFFLINE"
         return {
             "status": status,
@@ -739,6 +742,8 @@ class MarketIntelligenceEngine:
             "turnover_24h": _finite(row.get("turnover24h")),
             "volume_24h": _finite(row.get("volume24h")),
             "directional_timestamp_ms": directional_stamp,
+            "funding_timestamp_ms": funding_timestamp,
+            "long_short_timestamp_ms": ratio_timestamp,
             "timestamp_ms": max(
                 [stamp for stamp in (
                     _parse_time(ticker_payload.get("time")),
