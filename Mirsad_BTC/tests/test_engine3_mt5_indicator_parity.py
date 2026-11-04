@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from scripts.validate_engine3_mt5_indicator_parity import validate
-from mirsad.engines.indicators import _calculate_timeframe_indicators
+from mirsad.engines.indicators import _calculate_timeframe_indicators, validate_native_indicator_parity
 
 
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
@@ -74,6 +74,31 @@ def make_snapshots() -> tuple[dict, dict]:
     return candles, native
 
 
+def make_normalized_snapshots() -> tuple[dict, dict]:
+    candles_payload, native_payload = make_snapshots()
+    candle_history = {
+        "status": "READY",
+        "symbol": "BTCUSDT",
+        "broker_symbol": "BTC",
+        "account_server": "Headway-Demo",
+        "candles_by_tf": {
+            timeframe: candle_payload["bars"]
+            for timeframe, candle_payload in candles_payload["timeframes"].items()
+        },
+    }
+    native_indicators = {
+        "status": "READY",
+        "symbol": "BTCUSDT",
+        "broker_symbol": "BTC",
+        "account_server": "Headway-Demo",
+        "timeframes": {
+            timeframe: {"status": "READY", **frame}
+            for timeframe, frame in native_payload["timeframes"].items()
+        },
+    }
+    return candle_history, native_indicators
+
+
 class Engine3MT5ParityTests(unittest.TestCase):
     def test_same_closed_bars_pass_all_twenty_metrics_on_six_timeframes(self) -> None:
         candles, native = make_snapshots()
@@ -102,6 +127,21 @@ class Engine3MT5ParityTests(unittest.TestCase):
         result = validate(candles, native)
         self.assertEqual(result["status"], "FAIL")
         self.assertTrue(any("1h: Forming-bar timestamp mismatch" in failure for failure in result["failures"]))
+
+
+    def test_runtime_normalized_snapshots_pass_all_120_parity_metrics(self) -> None:
+        candles, native = make_normalized_snapshots()
+        result = validate_native_indicator_parity(candles, native)
+        self.assertEqual(result["status"], "PASS", result["failures"])
+        self.assertEqual(result["passed_metrics"], 120)
+        self.assertEqual(result["total_metrics"], 120)
+
+    def test_runtime_native_buffer_mismatch_blocks_parity(self) -> None:
+        candles, native = make_normalized_snapshots()
+        native["timeframes"]["5m"]["values"]["rsi14"]["closed"] += 10.0
+        result = validate_native_indicator_parity(candles, native)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertTrue(any("5m: rsi14" in failure for failure in result["failures"]))
 
 
 if __name__ == "__main__":
