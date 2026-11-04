@@ -18,7 +18,7 @@ on:
         description: 'Open and close one bounded BTC broker acceptance position. This sends real orders to the configured MT5 account.'
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
