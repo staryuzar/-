@@ -10,7 +10,7 @@
 #define MIRSAD_OBSERVER_MIN_SOURCE_WIDTH 640
 #define MIRSAD_OBSERVER_MIN_SOURCE_HEIGHT 360
 
-input bool InpEnableImageCapture = true; // Disable image capture while keeping direct MT5 data feeds active
+input bool InpEnableImageCapture = false; // Native OHLC feeds are authoritative; images are optional diagnostics
 input int  InpCaptureIntervalSeconds = 15;   // Screenshot cadence (5..3600 seconds); allows a quick post-maximize recapture
 input int  InpMarketSnapshotIntervalSeconds = 2; // MT5 market-feed cadence (1..30 seconds)
 input string InpMarketSymbol = "BTCUSDT"; // Stable Mirsad symbol mapped to this broker symbol
