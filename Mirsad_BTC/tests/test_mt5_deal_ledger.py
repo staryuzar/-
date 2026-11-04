@@ -162,8 +162,7 @@ class MT5DealHistoryStorageTests(unittest.TestCase):
             self.assertEqual(legacy_rows[0]["time_server_ms"], legacy_time)
             self.assertEqual(legacy_rows[0]["time_basis"], "LEGACY_UTC_NORMALIZED")
 
-            native_history = make_deal_history(deal={"deal_ticket": "10002", "time_server_ms": None})
-            native_history["deals"][0].pop("time_server_ms", None)
+            native_history = make_deal_history(deal={"deal_ticket": "10002"})
             saved = save_mt5_deal_history(native_history, db_path=db)
             all_rows = load_mt5_deal_history(
                 magic_number=26110201, symbol="BTC", db_path=db
