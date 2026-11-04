@@ -67,12 +67,19 @@ class MT5NativeIndicatorHistoryTests(unittest.TestCase):
             "account": {"server": "Headway-Demo"},
         }
 
-    def _candles(self) -> dict:
+    def _candles(self, payload: dict) -> dict:
+        candle_sets = {}
+        for timeframe, frame in payload["timeframes"].items():
+            candle_sets[timeframe] = [
+                {"open_time_ms": frame["closed_bar_time_utc_ms"], "closed": True},
+                {"open_time_ms": frame["forming_bar_time_utc_ms"], "closed": False},
+            ]
         return {
             "status": "READY",
             "symbol": "BTCUSDT",
             "broker_symbol": "BTC",
             "account_server": "Headway-Demo",
+            "candles_by_tf": candle_sets,
         }
 
     def test_reads_native_copybuffer_values_for_all_six_timeframes(self) -> None:
@@ -81,10 +88,12 @@ class MT5NativeIndicatorHistoryTests(unittest.TestCase):
             self._write(directory, payload)
             result = self._engine(directory).collect(
                 bridge=self._bridge(),
-                candle_history=self._candles(),
+                candle_history=self._candles(payload),
             )
 
         self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["bar_alignment_status"], "MATCH")
+        self.assertEqual(set(result["bar_alignment"]), {"1m", "5m", "15m", "1h", "4h", "1d"})
         self.assertFalse(result["decision_eligible"])
         self.assertEqual(result["source"], "MT5_COPYBUFFER")
         self.assertEqual(result["ready_timeframe_count"], 6)
@@ -122,8 +131,9 @@ class MT5NativeIndicatorHistoryTests(unittest.TestCase):
 
     def test_native_indicator_identity_must_match_engine2_candles(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            self._write(directory, make_payload())
-            candles = self._candles()
+            payload = make_payload()
+            self._write(directory, payload)
+            candles = self._candles(payload)
             candles["broker_symbol"] = "BTCUSD"
             result = self._engine(directory).collect(candle_history=candles)
         self.assertEqual(result["status"], "CANDLE_IDENTITY_MISMATCH")
@@ -168,6 +178,18 @@ class MT5NativeIndicatorHistoryTests(unittest.TestCase):
         cci = result["timeframes"]["1m"]["values"]["cci20"]
         self.assertEqual(cci["status"], "INVALID")
         self.assertIsNone(cci["current"])
+
+
+    def test_native_indicator_snapshot_must_match_engine2_closed_and_forming_bars(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            payload = make_payload()
+            self._write(directory, payload)
+            candles = self._candles(payload)
+            candles["candles_by_tf"]["15m"][-2]["open_time_ms"] += 60_000
+            result = self._engine(directory).collect(candle_history=candles)
+        self.assertEqual(result["status"], "CANDLE_BAR_TIME_MISMATCH")
+        self.assertEqual(result["bar_alignment"]["15m"]["status"], "MISMATCH")
+        self.assertFalse(result["decision_eligible"])
 
 
 if __name__ == "__main__":

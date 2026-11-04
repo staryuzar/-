@@ -224,6 +224,76 @@ class MT5NativeIndicatorHistory:
         if not isinstance(frames_raw, dict):
             return self._blocked("INVALID", "Native MT5 indicator timeframe map is missing.")
         frames = {name: self._parse_frame(name, frames_raw.get(name)) for name in TIMEFRAMES}
+
+        # Runtime parity starts with a strict identity check at bar level:
+        # the native CopyBuffer values and Engine 2 OHLC must refer to the
+        # exact same last-closed and currently-forming bars in every timeframe.
+        # Numeric parity remains a separate 20 x 6 validator.
+        bar_alignment: dict[str, dict[str, Any]] = {}
+        alignment_failures: list[str] = []
+        if isinstance(candle_history, dict) and candle_history.get("status") == "READY":
+            candle_sets = candle_history.get("candles_by_tf")
+            if not isinstance(candle_sets, dict):
+                return self._blocked(
+                    "CANDLE_HISTORY_INVALID",
+                    "Engine 2 reports READY but its timeframe candle map is missing.",
+                )
+            for timeframe in TIMEFRAMES:
+                bars = candle_sets.get(timeframe)
+                native_frame = frames.get(timeframe, {})
+                closed_bars = [
+                    bar for bar in bars if isinstance(bar, dict) and bar.get("closed") is True
+                ] if isinstance(bars, list) else []
+                if (
+                    not isinstance(bars, list) or not bars
+                    or not closed_bars or not isinstance(bars[-1], dict)
+                    or bars[-1].get("closed") is not False
+                ):
+                    alignment_failures.append(
+                        f"{timeframe}: Engine 2 must provide closed bars followed by one forming bar."
+                    )
+                    continue
+                try:
+                    expected_closed = int(closed_bars[-1]["open_time_ms"])
+                    expected_forming = int(bars[-1]["open_time_ms"])
+                    native_closed = int(native_frame.get("closed_bar_time_utc_ms", 0))
+                    native_forming = int(native_frame.get("forming_bar_time_utc_ms", 0))
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    alignment_failures.append(
+                        f"{timeframe}: candle or native indicator bar timestamps are missing/invalid."
+                    )
+                    continue
+                matched = (
+                    expected_closed > 0 and expected_forming > expected_closed
+                    and native_closed == expected_closed
+                    and native_forming == expected_forming
+                )
+                bar_alignment[timeframe] = {
+                    "status": "MATCH" if matched else "MISMATCH",
+                    "engine2_closed_bar_time_utc_ms": expected_closed,
+                    "mt5_closed_bar_time_utc_ms": native_closed,
+                    "engine2_forming_bar_time_utc_ms": expected_forming,
+                    "mt5_forming_bar_time_utc_ms": native_forming,
+                }
+                if not matched:
+                    alignment_failures.append(
+                        f"{timeframe}: Engine 2 and MT5 CopyBuffer closed/forming bar timestamps differ."
+                    )
+            if alignment_failures:
+                return self._blocked(
+                    "CANDLE_BAR_TIME_MISMATCH",
+                    "Native MT5 indicators are not aligned to the exact Engine 2 candle bars: "
+                    + " ".join(alignment_failures),
+                    broker_symbol=broker_symbol,
+                    account_server=server,
+                    captured_at_ms=captured_at,
+                    age_seconds=round(age_seconds, 3),
+                    timeframes=frames,
+                    bar_alignment_status="MISMATCH",
+                    bar_alignment=bar_alignment,
+                    alignment_failures=alignment_failures,
+                )
+
         missing_required = [
             name for name in REQUIRED_TIMEFRAMES
             if frames[name]["status"] != "READY"
@@ -243,6 +313,8 @@ class MT5NativeIndicatorHistory:
             "age_seconds": round(age_seconds, 3),
             "timeframes": frames,
             "ready_timeframe_count": ready_count,
+            "bar_alignment_status": "MATCH" if bar_alignment else "NOT_CHECKED",
+            "bar_alignment": bar_alignment,
             "required_timeframes_ready": not missing_required,
             "missing_required_timeframes": missing_required,
             "scope": (
