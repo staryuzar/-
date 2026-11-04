@@ -541,10 +541,10 @@ string BuildChartPixelGeometryJson(const MqlRates &rates[],
          JsonBool(visible),
          DoubleToString(x_center, 3),
          (x_aligned ? max_x - min_x : -1),
-         ChartPixelPointJson(open_ok, open_x, open_y, rates[i].time, rates[i].open, digits),
-         ChartPixelPointJson(high_ok, high_x, high_y, rates[i].time, rates[i].high, digits),
-         ChartPixelPointJson(low_ok, low_x, low_y, rates[i].time, rates[i].low, digits),
-         ChartPixelPointJson(close_ok, close_x, close_y, rates[i].time, rates[i].close, digits)
+         ChartPixelPointJson(open_ok, open_x, open_y, rates[i].time, rates[i].open, _Digits),
+         ChartPixelPointJson(high_ok, high_x, high_y, rates[i].time, rates[i].high, _Digits),
+         ChartPixelPointJson(low_ok, low_x, low_y, rates[i].time, rates[i].low, _Digits),
+         ChartPixelPointJson(close_ok, close_x, close_y, rates[i].time, rates[i].close, _Digits)
       );
       if(point_set_valid) valid_count++;
       if(visible && point_set_valid) visible_count++;
