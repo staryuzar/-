@@ -121,22 +121,21 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str, *, debu
     # Validate the real, separated MT5 market and candle files on this runner.
     common_files = observer_root.parent.parent
     market_result = MT5MarketDataEngine(common_files=str(common_files), symbol=market_symbol).collect()
-    candle_result = MT5ChartCandleHistory(common_files=str(common_files), symbol=market_symbol).collect(market=market_result)
+    candle_result = MT5ChartCandleHistory(common_files=str(common_files), symbol=market_symbol).collect()
     native_indicators = MT5NativeIndicatorHistory(
         common_files=str(common_files), symbol=market_symbol,
     ).collect(candle_history=candle_result)
     market_context = market_result.get("market_context") if isinstance(market_result.get("market_context"), dict) else {}
     microstructure = market_context.get("microstructure") if isinstance(market_context.get("microstructure"), dict) else {}
-    calendar = market_context.get("economic_calendar") if isinstance(market_context.get("economic_calendar"), dict) else {}
-    engine1_summary = {
+    engine5_quote_summary = {
         "status": market_result.get("status"),
         "source": market_result.get("source"),
         "captured_at_ms": market_result.get("captured_at_ms"),
         "price": market_result.get("price"),
         "feed_health": {key: (market_result.get("feed_health") or {}).get(key) for key in
-                        ("terminal_connected", "quote_fresh", "snapshot_age_seconds", "tick_age_seconds", "tick_history_status", "broker_symbol")},
+                        ("terminal_connected", "quote_fresh", "snapshot_age_seconds", "tick_age_seconds", "tick_history_status", "broker_symbol", "account_server")},
         "microstructure": {key: microstructure.get(key) for key in
-                            ("status", "tick_count", "tick_rate_per_minute", "upticks", "downticks", "quote_direction_balance", "midpoint_change_pct", "current_spread_pct", "mean_observed_spread_pct", "reported_last_price_tick_count", "latest_reported_last_price", "reported_volume_update_count", "reported_volume_sum", "reported_buy_flag_count", "reported_sell_flag_count")},
+                            ("status", "tick_count", "quote_tick_count", "tick_rate_per_minute", "upticks", "downticks", "quote_direction_balance", "midpoint_change_pct", "current_spread_pct", "mean_observed_spread_pct", "reported_last_price_tick_count", "latest_reported_last_price", "reported_volume_update_count", "reported_volume_sum", "reported_buy_flag_count", "reported_sell_flag_count")},
         "order_book": {
             "status": (market_context.get("order_book") or {}).get("status"),
             "level_count": (market_context.get("order_book") or {}).get("level_count"),
@@ -144,13 +143,8 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str, *, debu
             "ask_level_count": (market_context.get("order_book") or {}).get("ask_level_count"),
             "reason": (market_context.get("order_book") or {}).get("reason"),
         },
-        "economic_calendar": {
-            "status": calendar.get("status", "NOT_AVAILABLE"),
-            "source": calendar.get("source"),
-            "event_count": len(calendar.get("events", [])),
-            "events": [{key: event.get(key) for key in ("event_id", "event_time_utc_ms", "name", "currency", "importance")} for event in calendar.get("events", [])[:16]],
-        },
         "reason": market_result.get("reason"),
+        "ownership": "engine_5_broker_quote_feed_not_engine_1_intelligence",
     }
     engine2_candles_summary = {
         "status": candle_result.get("status"),
@@ -199,7 +193,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str, *, debu
                 "one_click_panel_visible": bool(chart.get("one_click_visible", False)),
                 "source_dimensions_usable": chart.get("source_dimensions_usable"),
             },
-            "engine1_market": engine1_summary,
+            "engine5_quote_feed": engine5_quote_summary,
             "engine2_candle_history": engine2_candles_summary,
             "engine2_native_indicators": native_indicator_summary,
             "decision_eligible": False,
@@ -467,7 +461,7 @@ def analyze(observer_root: Path, market_symbol: str, broker_symbol: str, *, debu
                 or "Visual quality or multi-candle OHLC hold-out validation did not pass."
             )
         },
-        "engine1_market": engine1_summary,
+        "engine5_quote_feed": engine5_quote_summary,
         "engine2_candle_history": engine2_candles_summary,
         "engine2_native_indicators": native_indicator_summary,
         "decision_eligible": False,
