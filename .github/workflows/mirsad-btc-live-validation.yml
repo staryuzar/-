@@ -21,7 +21,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: mirsad-btc-live-validation-${{ github.ref }}
+  # Do not let a long held-out image benchmark on an older commit block current validation.
+  group: mirsad-btc-live-validation-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
