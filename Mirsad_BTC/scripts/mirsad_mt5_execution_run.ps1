@@ -169,11 +169,43 @@ Period=M1
  $commandFile=Join-Path $folder 'command.json'
  if(Test-Path $commandFile){throw 'Unexpected command.json found; no trade test will be attempted.'}
  Add-Report 'No trade command exists. The EA remained in command-listening mode and did not send an order.'
+
+ # The broker deal-history feed is read-only. An empty list is valid on a
+ # fresh demo account; malformed identity, money fields or timestamps are not.
+ $dealHistoryPath=Join-Path $folder 'deals.json'
+ if(!(Test-Path $dealHistoryPath)){throw 'MIR1 broker deal-history file was not published.'}
+ try{$dealHistory=Get-Content -LiteralPath $dealHistoryPath -Raw|ConvertFrom-Json -ErrorAction Stop}
+ catch{throw 'MIR1 broker deal-history JSON could not be parsed.'}
+ if($dealHistory.schema -ne 'MIR1-DEALS-1' -or $dealHistory.status -ne 'READY' -or
+    $dealHistory.time_basis -ne 'MT5_SERVER_TIME' -or
+    [int64]$dealHistory.magic -ne [int64]$telemetry.magic_number -or
+    $dealHistory.symbol -ne $telemetry.symbol -or
+    [int64]$dealHistory.queried_at_utc_ms -le 0 -or
+    [int64]$dealHistory.window_end_server_ms -lt [int64]$dealHistory.window_start_server_ms -or
+    [int]$dealHistory.returned_count -ne @($dealHistory.deals).Count){
+  throw 'MIR1 broker deal-history envelope failed schema, identity, time or count validation.'
+ }
+ foreach($deal in @($dealHistory.deals)){
+  if([int64]$deal.deal_ticket -le 0 -or [int64]$deal.position_id -le 0 -or
+     [int64]$deal.magic -ne [int64]$telemetry.magic_number -or
+     $deal.symbol -ne $telemetry.symbol -or
+     [int64]$deal.time_server_ms -lt [int64]$dealHistory.window_start_server_ms -or
+     [int64]$deal.time_server_ms -gt [int64]$dealHistory.window_end_server_ms){
+   throw 'MIR1 deal entry contains a foreign identity or out-of-window timestamp.'
+  }
+  $net=[double]$deal.profit+[double]$deal.commission+[double]$deal.swap+[double]$deal.fee
+  if([math]::Abs($net-[double]$deal.net_cashflow) -gt 0.02){
+   throw 'MIR1 deal entry net cashflow does not match profit plus charges.'
+  }
+ }
+ Add-Report ("PASS — MIR1 deal history is valid; Mirsad-owned deals returned: {0}; truncated: {1}." -f @($dealHistory.deals).Count,[bool]$dealHistory.truncated)
  $safe=[ordered]@{
   schema=$telemetry.schema;terminal_connected=$telemetry.terminal_connected
   heartbeat_at_ms=$telemetry.heartbeat_at_ms;symbol=$telemetry.symbol
   market_symbol=$telemetry.market_symbol;quote=$telemetry.quote
   symbol_spec=$telemetry.symbol_spec;positions_count=@($telemetry.positions).Count
+  deal_history_status=$dealHistory.status;deal_history_count=@($dealHistory.deals).Count
+  deal_history_truncated=[bool]$dealHistory.truncated
   account_currency=$telemetry.account.currency
  }
  $safe|ConvertTo-Json -Depth 8|Set-Content -LiteralPath (Join-Path $evidence 'mirsad-live-telemetry.json') -Encoding utf8
