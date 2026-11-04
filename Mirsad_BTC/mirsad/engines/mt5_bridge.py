@@ -339,7 +339,7 @@ class MT5BridgeEngine:
             )
 
         state = str(ack.get("state", "")).upper()
-        if state in {"RECEIVED", "SUBMITTED", "PARTIAL", "UNKNOWN"}:
+        if state in {"RECEIVED", "SUBMITTED", "UNKNOWN"}:
             return outcome(
                 "ACK_PENDING",
                 "The broker outcome is not final; retain the command and do not replace it.",
@@ -347,7 +347,7 @@ class MT5BridgeEngine:
             )
         if state in {"REJECTED", "CANCELLED", "EXPIRED"}:
             return outcome("TERMINAL_NOT_FILLED", "The EA reported a terminal non-fill state.", ack_state=state)
-        if state != "FILLED":
+        if state not in {"FILLED", "PARTIAL"}:
             return outcome("ACK_STATE_INVALID", "The ACK state is missing or unsupported.", ack_state=state)
 
         try:
@@ -381,6 +381,10 @@ class MT5BridgeEngine:
             return outcome("COMMAND_FIELDS_INVALID", "Command/ACK reconciliation fields are not numeric.")
         if magic <= 0 or not symbol or action not in {"BUY", "SELL", "CLOSE", "MODIFY"}:
             return outcome("BASELINE_MISSING", "The command lacks a valid Mirsad magic number, symbol or action.")
+        if state == "PARTIAL" and (not math.isfinite(filled_volume) or filled_volume <= 0):
+            return outcome("ACK_PENDING", "The EA reported a partial state without a confirmed positive filled volume.", ack_state=state)
+        if state == "PARTIAL" and action == "MODIFY":
+            return outcome("ACK_PENDING", "A partial MODIFY acknowledgement cannot be reconciled as an exposure change.", ack_state=state)
         tolerance = max(1e-8, volume_step * 0.5 if math.isfinite(volume_step) and volume_step > 0 else 1e-8)
         before_raw = command.get("position_snapshot_before")
         if not isinstance(before_raw, list):
@@ -429,8 +433,10 @@ class MT5BridgeEngine:
                 return outcome("COMMAND_FIELDS_INVALID", "A positive requested/filled volume is required.")
             if delta + tolerance >= expected:
                 return outcome(
-                    "CONFIRMED", "The later MT5 snapshot contains the filled Mirsad position volume.",
+                    "CONFIRMED_PARTIAL" if state == "PARTIAL" else "CONFIRMED",
+                    "The later MT5 snapshot contains the broker-confirmed filled Mirsad position volume.",
                     action=action, expected_volume=expected, observed_volume_delta=round(delta, 8),
+                    ack_state=state,
                 )
             status = "PARTIAL_POSITION_CHANGE" if delta > tolerance else "AWAITING_POSITION_UPDATE"
             return outcome(
@@ -457,9 +463,10 @@ class MT5BridgeEngine:
                 return outcome("COMMAND_FIELDS_INVALID", "A positive close/filled volume is required.")
             if reduced + tolerance >= expected:
                 return outcome(
-                    "CONFIRMED", "The target position volume has reduced by the acknowledged close amount.",
+                    "CONFIRMED_PARTIAL" if state == "PARTIAL" else "CONFIRMED",
+                    "The target position volume has reduced by the broker-confirmed close amount.",
                     action=action, position_ticket=ticket, expected_reduction=expected,
-                    observed_reduction=round(reduced, 8),
+                    observed_reduction=round(reduced, 8), ack_state=state,
                 )
             status = "PARTIAL_POSITION_CHANGE" if reduced > tolerance else "AWAITING_POSITION_UPDATE"
             return outcome(
@@ -650,11 +657,11 @@ class MT5BridgeEngine:
             position_confirmed = (
                 isinstance(reconciliation, dict)
                 and reconciliation.get("command_id") == current_id
-                and reconciliation.get("status") == "CONFIRMED"
+                and reconciliation.get("status") in {"CONFIRMED", "CONFIRMED_PARTIAL"}
             )
             settled = ack_matches and (
                 ack_state in settled_failure_states
-                or (ack_state == "FILLED" and position_confirmed)
+                or (ack_state in {"FILLED", "PARTIAL"} and position_confirmed)
             )
             if not settled:
                 return {
