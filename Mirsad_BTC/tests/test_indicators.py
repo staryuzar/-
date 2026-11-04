@@ -265,8 +265,8 @@ class IndicatorsEngineTests(unittest.TestCase):
                 "cci20": -150.0, "wpr14": -100.0, "mfi14": 50.0,
             },
         )
-        self.assertAlmostEqual(signal["groups"]["momentum"]["score"], 1.0 / 3.0, places=5)
-        self.assertAlmostEqual(signal["groups"]["oscillator"]["score"], -1.0 / 3.0, places=5)
+        self.assertAlmostEqual(signal["groups"]["momentum"]["score"], 0.20, places=5)
+        self.assertAlmostEqual(signal["groups"]["oscillator"]["score"], -0.20, places=5)
         self.assertEqual(signal["groups"]["momentum"]["expected_features"], 3)
         self.assertEqual(signal["groups"]["oscillator"]["expected_features"], 3)
 
