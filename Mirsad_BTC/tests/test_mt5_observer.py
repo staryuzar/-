@@ -38,7 +38,7 @@ class MT5NativeObserverContractTests(unittest.TestCase):
         self.assertIn("indicators.json", source)
         self.assertIn("CopyRates(", source)
         self.assertIn("CopyBuffer(", source)
-        self.assertNotRegex(source, r"(?i)\\b(OrderSend|OrderSendAsync|CTrade|PositionOpen|PositionClose)\\s*\\(")
+        self.assertNotRegex(source, r"(?i)\b(OrderSend|OrderSendAsync|CTrade|PositionOpen|PositionClose)\s*\(")
 
 
 
