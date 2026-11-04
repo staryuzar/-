@@ -15,7 +15,7 @@ input int    InpDeviationPoints    = 20;
 input int    InpHistoryDays         = 90;          // Bounded broker deal history window
 input int    InpHistoryDealLimit    = 1000;         // Maximum recent Mirsad deals retained after filtering
 input int    InpDealHistoryRefreshSeconds = 60;     // Full history scan interval; heartbeat remains one second
-input bool   InpAllowExecution     = false;        // Explicitly enable only after all Mirsad acceptance gates pass
+input bool   InpAllowExecution     = true;         // User-requested default: command-driven trading enabled
 
 string g_broker_symbol = "";
 bool   g_processing = false;
@@ -185,6 +185,19 @@ bool SaveLastCommandId(const string command_id)
 long NowUtcMs()
 {
    return (long)TimeGMT() * 1000;
+}
+
+bool AreTradePermissionsAvailable()
+{
+   return (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)
+          && (bool)MQLInfoInteger(MQL_TRADE_ALLOWED)
+          && (bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)
+          && (bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);
+}
+
+bool IsExecutionEnabled()
+{
+   return InpAllowExecution && AreTradePermissionsAvailable();
 }
 
 string NumberJson(const double value, const int digits = 10)
@@ -434,9 +447,10 @@ void PublishTelemetry()
    );
 
    string payload = StringFormat(
-      "{\"schema\":\"MIR1\",\"terminal_connected\":%s,\"execution_enabled\":%s,\"heartbeat_at_ms\":%I64d,"
+      "{\"schema\":\"MIR1\",\"terminal_connected\":%s,\"execution_enabled\":%s,\"execution_input_enabled\":%s,\"trade_permissions_available\":%s,\"heartbeat_at_ms\":%I64d,"
       "\"symbol\":\"%s\",\"market_symbol\":\"%s\",\"magic_number\":%I64u,%s,%s,%s,\"positions\":%s}",
-      connected ? "true" : "false", InpAllowExecution ? "true" : "false", NowUtcMs(),
+      connected ? "true" : "false", IsExecutionEnabled() ? "true" : "false",
+      InpAllowExecution ? "true" : "false", AreTradePermissionsAvailable() ? "true" : "false", NowUtcMs(),
       JsonEscape(g_broker_symbol), JsonEscape(InpMarketSymbol), InpMagicNumber,
       account, quote, spec, BuildPositionsJson()
    );
@@ -560,10 +574,10 @@ void ProcessCommand()
       return;
    }
 
-   if(!InpAllowExecution)
+   if(!IsExecutionEnabled())
    {
       RejectAndRemember(command_id,
-                        "Execution is disabled in the MT5 EA input; no broker request was sent.");
+                        "Execution is disabled by the EA input or MT5 trading permissions; no broker request was sent.");
       g_processing = false;
       return;
    }
@@ -875,9 +889,9 @@ int OnInit()
                   g_broker_symbol);
 
    EventSetTimer(InpTimerSeconds);
-   PrintFormat("Mirsad BTC Execution Bridge started. Broker symbol=%s, market symbol=%s. "
+   PrintFormat("Mirsad BTC Execution Bridge started. Broker symbol=%s, market symbol=%s, execution_enabled=%s. "
                "Commands are accepted only from MIR1; no autonomous signals.",
-               g_broker_symbol, InpMarketSymbol);
+               g_broker_symbol, InpMarketSymbol, IsExecutionEnabled() ? "true" : "false");
 
    PublishTelemetry();
    return INIT_SUCCEEDED;
