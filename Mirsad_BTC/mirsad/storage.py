@@ -67,6 +67,56 @@ CREATE TABLE IF NOT EXISTS storage_migrations (
  migration_id TEXT PRIMARY KEY,
  applied_at_ms INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS decision_calibration_samples (
+ sample_key TEXT PRIMARY KEY,
+ captured_at_ms INTEGER NOT NULL,
+ signal_bar_time_ms INTEGER NOT NULL,
+ symbol TEXT NOT NULL,
+ profile_version TEXT NOT NULL,
+ engine1_status TEXT NOT NULL,
+ engine1_score REAL,
+ engine1_confidence REAL,
+ engine1_coverage REAL,
+ engine2_status TEXT NOT NULL,
+ engine2_direction TEXT,
+ engine2_score REAL,
+ engine2_quality REAL,
+ engine2_coverage REAL,
+ engine2_agreement REAL,
+ engine3_status TEXT NOT NULL,
+ engine3_score REAL,
+ engine3_quality REAL,
+ engine3_timeframe_coverage REAL,
+ native_parity_status TEXT NOT NULL,
+ native_parity_passed_metrics INTEGER,
+ native_parity_total_metrics INTEGER,
+ combined_score REAL,
+ directional_threshold REAL,
+ candidate_action TEXT NOT NULL,
+ final_action TEXT NOT NULL,
+ decision_status TEXT NOT NULL,
+ reference_price REAL,
+ broker_spread_pct REAL,
+ effective_weights_json TEXT NOT NULL,
+ calibration_config_json TEXT NOT NULL,
+ evidence_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_decision_calibration_time
+ ON decision_calibration_samples(symbol,captured_at_ms);
+CREATE TABLE IF NOT EXISTS decision_calibration_candles (
+ symbol TEXT NOT NULL,
+ timeframe TEXT NOT NULL,
+ open_time_ms INTEGER NOT NULL,
+ open REAL NOT NULL,
+ high REAL NOT NULL,
+ low REAL NOT NULL,
+ close REAL NOT NULL,
+ volume REAL NOT NULL,
+ PRIMARY KEY(symbol,timeframe,open_time_ms)
+);
+CREATE INDEX IF NOT EXISTS ix_decision_calibration_candles_time
+ ON decision_calibration_candles(symbol,timeframe,open_time_ms);
+
 CREATE TABLE IF NOT EXISTS visual_knowledge_meta (
  namespace TEXT PRIMARY KEY,version TEXT NOT NULL,updated_at_ms INTEGER NOT NULL
 );
@@ -418,6 +468,266 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
                 "DELETE FROM candles WHERE interval='1w' AND open_time_ms < ?",
                 (weekly_cutoff,),
             )
+    finally:
+        conn.close()
+
+
+DECISION_CALIBRATION_PROFILE_VERSION = "mirsad-engine-weights-baseline-v1-2026-11-04"
+DECISION_CALIBRATION_RETENTION_DAYS = 180
+
+
+def _calibration_finite(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def save_decision_calibration_sample(
+    *,
+    market: dict[str, Any],
+    candle_history: dict[str, Any],
+    market_intelligence: dict[str, Any],
+    engine2_price_action: dict[str, Any],
+    indicators: dict[str, Any],
+    decision: dict[str, Any],
+    db_path: Path | str = DB_PATH,
+) -> dict[str, Any]:
+    """Persist one auditable, non-executing sample per completed M1 signal bar.
+
+    Samples are accepted only when Engine 2, Engine 3 and the native MT5
+    numeric-parity gate are READY/PASS. This is data collection for later
+    chronological calibration; it never changes a decision or sends a command.
+    """
+    if not all(isinstance(item, dict) for item in (
+        market, candle_history, market_intelligence, engine2_price_action,
+        indicators, decision,
+    )):
+        return {"status": "SKIPPED", "reason": "A required calibration input is not an object."}
+
+    if engine2_price_action.get("status") != "READY":
+        return {"status": "SKIPPED", "reason": "Engine 2 price action is not READY."}
+    if indicators.get("status") != "READY":
+        return {"status": "SKIPPED", "reason": "Engine 3 indicators are not READY."}
+    parity = indicators.get("mt5_native_parity")
+    if not isinstance(parity, dict) or parity.get("status") != "PASS":
+        return {"status": "SKIPPED", "reason": "Engine 3 native MT5 numeric parity has not passed."}
+    if int(parity.get("passed_metrics", 0) or 0) != 120 or int(parity.get("total_metrics", 0) or 0) != 120:
+        return {"status": "SKIPPED", "reason": "Engine 3 parity must pass all 120 metrics."}
+
+    candle_sets = candle_history.get("candles_by_tf")
+    if not isinstance(candle_sets, dict):
+        return {"status": "SKIPPED", "reason": "Engine 2 candle timeframe map is missing."}
+    one_minute = candle_sets.get("1m")
+    if not isinstance(one_minute, list):
+        return {"status": "SKIPPED", "reason": "Engine 2 M1 candles are missing."}
+    closed_one_minute = [
+        row for row in one_minute
+        if isinstance(row, dict) and row.get("closed") is True
+    ]
+    if not closed_one_minute:
+        return {"status": "SKIPPED", "reason": "No closed M1 candle is available."}
+
+    try:
+        signal_bar_time_ms = int(closed_one_minute[-1]["open_time_ms"])
+        captured_at_ms = int(market.get("captured_at_ms") or time.time() * 1000)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {"status": "SKIPPED", "reason": "Calibration timestamps are invalid."}
+    if signal_bar_time_ms <= 0 or captured_at_ms <= 0:
+        return {"status": "SKIPPED", "reason": "Calibration timestamps must be positive."}
+
+    symbol = str(market.get("symbol") or candle_history.get("symbol") or "BTCUSDT").strip().upper()
+    profile_version = DECISION_CALIBRATION_PROFILE_VERSION
+    sample_key = f"{symbol}:1m:{signal_bar_time_ms}:{profile_version}"
+    scores = decision.get("decision_scores") if isinstance(decision.get("decision_scores"), dict) else {}
+    weights = decision.get("decision_weights") if isinstance(decision.get("decision_weights"), dict) else {}
+    engine2_summary = (
+        engine2_price_action.get("summary")
+        if isinstance(engine2_price_action.get("summary"), dict) else {}
+    )
+    engine2_context = (
+        decision.get("engine_2_native_price_action_context")
+        if isinstance(decision.get("engine_2_native_price_action_context"), dict) else {}
+    )
+    engine1_components = (
+        market_intelligence.get("components")
+        if isinstance(market_intelligence.get("components"), dict) else {}
+    )
+    engine2_timeframes: dict[str, Any] = {}
+    for timeframe, row in (engine2_price_action.get("timeframes") or {}).items():
+        if not isinstance(row, dict):
+            continue
+        engine2_timeframes[str(timeframe)] = {
+            "status": row.get("status"),
+            "direction": row.get("direction"),
+            "directional_evidence_score": row.get("directional_evidence_score"),
+            "directional_evidence": row.get("directional_evidence"),
+        }
+    engine3_components = (
+        indicators.get("signal_components_by_timeframe")
+        if isinstance(indicators.get("signal_components_by_timeframe"), dict) else {}
+    )
+    native_report = indicators.get("mt5_native") if isinstance(indicators.get("mt5_native"), dict) else {}
+    reference_price = _calibration_finite(market.get("price"))
+    broker_spread_pct = _calibration_finite(decision.get("broker_spread_pct"))
+    effective_weights = weights.get("effective_weights")
+    if not isinstance(effective_weights, dict):
+        effective_weights = {
+            key: value for key, value in weights.items()
+            if key != "configured" and isinstance(value, (int, float))
+        }
+    config_payload = {
+        "profile_version": profile_version,
+        "decision_weights": weights,
+        "engine1_component_weights": {
+            name: item.get("weight")
+            for name, item in engine1_components.items() if isinstance(item, dict)
+        },
+        "engine2_directional_evidence_weights": engine2_summary.get("directional_evidence_weights"),
+        "engine3_signal_group_weights": indicators.get("signal_group_weights"),
+        "engine3_timeframe_weights": {
+            name: row.get("timeframe_weight")
+            for name, row in engine3_components.items() if isinstance(row, dict)
+        },
+        "directional_threshold": scores.get("threshold"),
+        "minimum_engine2_direction_score": scores.get("minimum_engine_2_direction_score"),
+    }
+    evidence_payload = {
+        "engine1": {
+            "status": market_intelligence.get("status"),
+            "direction": market_intelligence.get("direction"),
+            "components": engine1_components,
+            "source_statuses": market_intelligence.get("source_statuses"),
+        },
+        "engine2": {
+            "status": engine2_price_action.get("status"),
+            "direction": engine2_price_action.get("direction"),
+            "summary": engine2_summary,
+            "timeframes": engine2_timeframes,
+            "decision_context": engine2_context,
+        },
+        "engine3": {
+            "status": indicators.get("status"),
+            "signal_score": indicators.get("signal_score"),
+            "signal_quality": indicators.get("signal_quality"),
+            "signal_timeframe_weight_coverage": indicators.get("signal_timeframe_weight_coverage"),
+            "signal_group_weights": indicators.get("signal_group_weights"),
+            "signal_components_by_timeframe": engine3_components,
+            "native_parity": {
+                "status": parity.get("status"),
+                "passed_metrics": parity.get("passed_metrics"),
+                "total_metrics": parity.get("total_metrics"),
+            },
+            "native_feed_status": native_report.get("status"),
+        },
+        "engine4": {
+            "status": decision.get("status"),
+            "action": decision.get("action"),
+            "candidate_action": decision.get("candidate_action"),
+            "chart_gate": decision.get("chart_gate"),
+            "decision_scores": scores,
+            "decision_weights": weights,
+        },
+    }
+    valid_candles: list[tuple[Any, ...]] = []
+    for timeframe, bars in candle_sets.items():
+        if not isinstance(bars, list):
+            continue
+        for bar in bars:
+            if not isinstance(bar, dict) or bar.get("closed") is not True:
+                continue
+            try:
+                stamp = int(bar.get("open_time_ms", 0))
+                values = [
+                    float(bar[name]) for name in ("open", "high", "low", "close")
+                ]
+                volume = float(bar.get("volume", bar.get("tick_volume", 0.0)))
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+            if (
+                stamp <= 0 or not all(math.isfinite(value) and value > 0 for value in values)
+                or not math.isfinite(volume) or volume < 0
+            ):
+                continue
+            opening, high, low, close = values
+            if high < max(opening, close, low) or low > min(opening, close, high):
+                continue
+            valid_candles.append((symbol, str(timeframe), stamp, opening, high, low, close, volume))
+
+    conn = connect(db_path)
+    try:
+        with conn:
+            cursor = conn.execute(
+                """INSERT OR IGNORE INTO decision_calibration_samples (
+                    sample_key,captured_at_ms,signal_bar_time_ms,symbol,profile_version,
+                    engine1_status,engine1_score,engine1_confidence,engine1_coverage,
+                    engine2_status,engine2_direction,engine2_score,engine2_quality,
+                    engine2_coverage,engine2_agreement,
+                    engine3_status,engine3_score,engine3_quality,engine3_timeframe_coverage,
+                    native_parity_status,native_parity_passed_metrics,native_parity_total_metrics,
+                    combined_score,directional_threshold,candidate_action,final_action,
+                    decision_status,reference_price,broker_spread_pct,effective_weights_json,
+                    calibration_config_json,evidence_json
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    sample_key, captured_at_ms, signal_bar_time_ms, symbol, profile_version,
+                    str(market_intelligence.get("status", "UNKNOWN")),
+                    _calibration_finite(market_intelligence.get("directional_score")),
+                    _calibration_finite(market_intelligence.get("confidence")),
+                    _calibration_finite(market_intelligence.get("evidence_coverage")),
+                    str(engine2_price_action.get("status", "UNKNOWN")),
+                    str(engine2_price_action.get("direction", "UNKNOWN")),
+                    _calibration_finite(scores.get("engine_2_native_ohlc_score")),
+                    _calibration_finite(scores.get("engine_2_quality")),
+                    _calibration_finite(engine2_summary.get("timeframe_weight_coverage")),
+                    _calibration_finite(engine2_summary.get("directional_structure_agreement")),
+                    str(indicators.get("status", "UNKNOWN")),
+                    _calibration_finite(indicators.get("signal_score")),
+                    _calibration_finite(indicators.get("signal_quality")),
+                    _calibration_finite(indicators.get("signal_timeframe_weight_coverage")),
+                    str(parity.get("status", "UNKNOWN")),
+                    int(parity.get("passed_metrics", 0) or 0),
+                    int(parity.get("total_metrics", 0) or 0),
+                    _calibration_finite(scores.get("combined_score")),
+                    _calibration_finite(scores.get("threshold")),
+                    str(decision.get("candidate_action", "WAIT")),
+                    str(decision.get("action", "WAIT")),
+                    str(decision.get("status", "UNKNOWN")),
+                    reference_price, broker_spread_pct,
+                    json.dumps(effective_weights, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+                    json.dumps(config_payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+                    json.dumps(evidence_payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+                ),
+            )
+            inserted = cursor.rowcount == 1
+            candles_inserted = 0
+            if inserted and valid_candles:
+                candle_cursor = conn.executemany(
+                    """INSERT OR IGNORE INTO decision_calibration_candles
+                       (symbol,timeframe,open_time_ms,open,high,low,close,volume)
+                       VALUES(?,?,?,?,?,?,?,?)""",
+                    valid_candles,
+                )
+                candles_inserted = max(0, candle_cursor.rowcount)
+            cutoff = captured_at_ms - DECISION_CALIBRATION_RETENTION_DAYS * 24 * 60 * 60 * 1000
+            conn.execute(
+                "DELETE FROM decision_calibration_samples WHERE captured_at_ms < ?",
+                (cutoff,),
+            )
+            conn.execute(
+                "DELETE FROM decision_calibration_candles WHERE open_time_ms < ?",
+                (cutoff,),
+            )
+        return {
+            "status": "STORED" if inserted else "ALREADY_STORED",
+            "sample_key": sample_key,
+            "signal_bar_time_ms": signal_bar_time_ms,
+            "candles_inserted": candles_inserted,
+            "profile_version": profile_version,
+        }
+    except (sqlite3.Error, TypeError, ValueError, OverflowError) as exc:
+        return {"status": "ERROR", "reason": f"{type(exc).__name__}: {exc}"}
     finally:
         conn.close()
 
