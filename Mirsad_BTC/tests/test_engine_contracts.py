@@ -301,6 +301,7 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "trend_score": 0.70,
             "signal_score": 0.62,
             "signal_quality": 1.0,
+            "signal_timeframe_weight_coverage": 1.0,
             "last_closed_candle_time_ms": now - 60_000,
             "values": {
                 "ema20_1m": 101.0, "ema50_1m": 100.0, "rsi14_1m": 60.0,
@@ -473,6 +474,23 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertAlmostEqual(result["decision_scores"]["engine_3_indicators"], 0.23)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_ema_trend_score"], -0.80)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_quality"], 0.80)
+
+    def test_engine4_reduces_engine3_weight_when_higher_timeframe_coverage_is_missing(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["signal_quality"] = 1.0
+        indicators["signal_timeframe_weight_coverage"] = 0.60
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=make_engine2_price_action(),
+        )
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_core_quality"], 1.0)
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_timeframe_weight_coverage"], 0.60)
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_quality"], 0.60)
+        self.assertLess(
+            result["decision_weights"]["engine_3_indicators"],
+            result["decision_weights"]["configured"]["engine_3_indicators"],
+        )
 
     def test_engine4_rejects_missing_or_low_quality_composite_indicator_signal(self) -> None:
         chart = self._chart()
