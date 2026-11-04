@@ -448,7 +448,7 @@ class DecisionEngine:
             reason = (
                 "Engine 5 MT5 broker quote feed is missing, stale, or failed its terminal/quote checks."
                 if mt5_native_source
-                else "Engine 5 broker quote checks require a live MT5 feed; non-MT5 price sources require two independent venues."
+                else "Engine 5 broker quote checks require a live MT5 feed; Engine 4 also requires at least two independent public venues for non-MT5 price sources."
             )
             return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
                     "reason": reason}
