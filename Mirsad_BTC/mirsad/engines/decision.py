@@ -823,11 +823,24 @@ class DecisionEngine:
             and (daily_risk_status != "READY" or daily_risk_locked)
         )
         economic_calendar = intelligence.get("economic_calendar") if isinstance(intelligence.get("economic_calendar"), dict) else {}
+        calendar_status = str(economic_calendar.get("status", "NOT_AVAILABLE") or "NOT_AVAILABLE").upper()
+        # Only a successful public-calendar response (including a valid empty
+        # calendar) can clear the macro gate. Missing, stale, invalid or offline
+        # data must never be interpreted as "no high-impact event".
+        macro_calendar_verified = calendar_status in {"READY", "EMPTY"}
         macro_event_window_active = economic_calendar.get("high_impact_window_active") is True
-        if action in {"BUY", "SELL"} and quote_ok and macro_event_window_active:
-            action = "WAIT"
-            open_block_reason = "High-importance macro event is inside the configured pre/post-release window; new entry is paused."
-            size = {"status": "BLOCKED", "reason": open_block_reason}
+        if action in {"BUY", "SELL"} and quote_ok:
+            if macro_event_window_active:
+                action = "WAIT"
+                open_block_reason = "High-importance macro event is inside the configured pre/post-release window; new entry is paused."
+                size = {"status": "BLOCKED", "reason": open_block_reason}
+            elif not macro_calendar_verified:
+                action = "WAIT"
+                open_block_reason = (
+                    "Economic calendar data is unavailable, stale or invalid; new entries remain paused "
+                    "until a verified Engine 1 calendar feed is restored."
+                )
+                size = {"status": "BLOCKED", "reason": open_block_reason}
 
         # The daily loss gate applies only to NEW exposure. A protective MODIFY
         # has already returned above; an opposite-position CLOSE is kept intact.
@@ -916,10 +929,18 @@ class DecisionEngine:
             "economic_calendar": economic_calendar or {"status": "NOT_AVAILABLE", "events": []},
             "market_intelligence": intelligence,
             "macro_event_gate": {
-                "status": "ACTIVE" if macro_event_window_active else "CLEAR",
-                "new_entries_paused": macro_event_window_active,
+                "status": "ACTIVE" if macro_event_window_active else "CLEAR" if macro_calendar_verified else "UNKNOWN",
+                "calendar_status": calendar_status,
+                "calendar_verified": macro_calendar_verified,
+                "new_entries_paused": macro_event_window_active or not macro_calendar_verified,
                 "active_events": economic_calendar.get("active_high_impact_events", []),
-                "policy": "pause_new_entries_only_close_and_protective_modify_remain_available",
+                "reason": (
+                    "HIGH_IMPACT_EVENT_WINDOW"
+                    if macro_event_window_active else
+                    "CALENDAR_UNAVAILABLE_OR_UNVERIFIED"
+                    if not macro_calendar_verified else None
+                ),
+                "policy": "pause_new_entries_on_active_or_unverified_calendar_only_close_and_protective_modify_remain_available",
             },
             "risk_plan": size,
             "daily_risk_gate": {

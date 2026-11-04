@@ -315,7 +315,26 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         self.assertEqual(paused["candidate_action"], "BUY")
         self.assertEqual(paused["action"], "WAIT")
         self.assertTrue(paused["macro_event_gate"]["new_entries_paused"])
+        self.assertEqual(paused["macro_event_gate"]["status"], "ACTIVE")
+        self.assertEqual(paused["macro_event_gate"]["calendar_status"], "READY")
         self.assertFalse(paused["command_ready"])
+
+        # A missing/unavailable calendar is not equivalent to a verified
+        # calendar with no high-impact event. New exposure must fail closed.
+        unavailable_calendar = {
+            **market["market_intelligence"],
+            "economic_calendar": {"status": "NOT_AVAILABLE", "events": []},
+        }
+        unavailable = DecisionEngine().analyze(
+            market, chart, bridge, indicators, market_intelligence=unavailable_calendar
+        )
+        self.assertEqual(unavailable["candidate_action"], "BUY")
+        self.assertEqual(unavailable["action"], "WAIT")
+        self.assertEqual(unavailable["macro_event_gate"]["status"], "UNKNOWN")
+        self.assertFalse(unavailable["macro_event_gate"]["calendar_verified"])
+        self.assertTrue(unavailable["macro_event_gate"]["new_entries_paused"])
+        self.assertFalse(unavailable["command_ready"])
+        self.assertIn("calendar", unavailable["open_block_reason"].lower())
 
         bridge_with_short = {
             **bridge,
@@ -330,6 +349,16 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         self.assertEqual(close["action"], "CLOSE")
         self.assertEqual(close["position_ticket"], 778899)
         self.assertTrue(close["macro_event_gate"]["new_entries_paused"])
+
+        # Missing calendar data must not obstruct an existing protective close.
+        close_unavailable_calendar = DecisionEngine().analyze(
+            market, chart, bridge_with_short, indicators,
+            market_intelligence=unavailable_calendar,
+        )
+        self.assertEqual(close_unavailable_calendar["action"], "CLOSE")
+        self.assertEqual(close_unavailable_calendar["position_ticket"], 778899)
+        self.assertTrue(close_unavailable_calendar["command_ready"])
+        self.assertEqual(close_unavailable_calendar["macro_event_gate"]["status"], "UNKNOWN")
 
     def test_market_cannot_create_direction_when_chart_is_weak(self) -> None:
         result = DecisionEngine().analyze(
@@ -465,8 +494,24 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             "daily_loss_fraction": None,
         }
 
-        result = DecisionEngine().analyze(self._market(), chart, bridge, indicators)
+        # A valid EMPTY calendar means the provider responded successfully
+        # and confirmed there are no current high-impact events.
+        verified_empty_calendar = {
+            "status": "PARTIAL",
+            "economic_calendar": {
+                "status": "EMPTY",
+                "high_impact_window_active": False,
+                "events": [],
+            },
+        }
+        result = DecisionEngine().analyze(
+            self._market(), chart, bridge, indicators,
+            market_intelligence=verified_empty_calendar,
+        )
 
+        self.assertEqual(result["macro_event_gate"]["status"], "CLEAR")
+        self.assertTrue(result["macro_event_gate"]["calendar_verified"])
+        self.assertFalse(result["macro_event_gate"]["new_entries_paused"])
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertEqual(result["action"], "BUY")
         self.assertTrue(result["command_ready"])
