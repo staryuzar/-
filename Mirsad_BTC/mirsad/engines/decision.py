@@ -290,7 +290,13 @@ def _market_intelligence_signal(intelligence: dict[str, Any] | None) -> tuple[fl
     score = _finite_intelligence_score(intelligence)
     confidence = _finite_value(intelligence.get("confidence"))
     coverage = _finite_value(intelligence.get("evidence_coverage"))
-    quality = min(confidence, coverage) if confidence is not None and coverage is not None else 0.0
+    # A rejected/missing score must contribute zero weight, even when its
+    # raw metadata contains a nonzero confidence or evidence-coverage value.
+    quality = (
+        min(confidence, coverage)
+        if score is not None and confidence is not None and coverage is not None
+        else 0.0
+    )
     quality = max(0.0, min(1.0, quality))
     return score, quality, {
         "score": round(score, 4) if score is not None else None,
