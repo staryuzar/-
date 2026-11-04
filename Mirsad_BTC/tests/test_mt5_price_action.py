@@ -401,5 +401,46 @@ class MT5NativePriceActionTests(unittest.TestCase):
         self.assertFalse(result["decision_eligible"])
 
 
+
+    def test_duplicate_time_in_closed_ohlc_history_invalidates_only_that_frame(self) -> None:
+        history = make_history()
+        bars = history["candles_by_tf"]["1h"]
+        bars[40]["open_time_ms"] = bars[39]["open_time_ms"]
+        result = analyze_mt5_native_price_action(history)
+        self.assertEqual(result["timeframes"]["1h"]["status"], "INVALID")
+        self.assertNotIn("1h", result["summary"]["eligible_timeframes"])
+
+    def test_out_of_order_ohlc_timestamp_is_rejected_not_sorted_silently(self) -> None:
+        history = make_history()
+        bars = history["candles_by_tf"]["15m"]
+        bars[55]["open_time_ms"] = bars[54]["open_time_ms"] - DURATIONS["15m"]
+        result = analyze_mt5_native_price_action(history)
+        self.assertEqual(result["timeframes"]["15m"]["status"], "INVALID")
+        self.assertNotIn("15m", result["summary"]["eligible_timeframes"])
+
+    def test_non_finite_or_negative_volume_is_rejected_at_feed_boundary(self) -> None:
+        history = make_history()
+        history["candles_by_tf"]["5m"][30]["volume"] = float("nan")
+        result = analyze_mt5_native_price_action(history)
+        self.assertEqual(result["timeframes"]["5m"]["status"], "INVALID")
+        self.assertNotIn("5m", result["summary"]["eligible_timeframes"])
+
+        second = make_history()
+        second["candles_by_tf"]["5m"][30]["volume"] = -1.0
+        rejected = analyze_mt5_native_price_action(second)
+        self.assertEqual(rejected["timeframes"]["5m"]["status"], "INVALID")
+        self.assertNotIn("5m", rejected["summary"]["eligible_timeframes"])
+
+    def test_impossible_high_low_geometry_invalidates_the_frame(self) -> None:
+        history = make_history()
+        history["candles_by_tf"]["4h"][25]["high"] = (
+            history["candles_by_tf"]["4h"][25]["open"] - 1.0
+        )
+        result = analyze_mt5_native_price_action(history)
+        self.assertEqual(result["timeframes"]["4h"]["status"], "INVALID")
+        self.assertNotIn("4h", result["summary"]["eligible_timeframes"])
+
+
+
 if __name__ == "__main__":
     unittest.main()

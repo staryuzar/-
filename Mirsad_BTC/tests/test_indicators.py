@@ -272,5 +272,33 @@ class IndicatorsEngineTests(unittest.TestCase):
 
 
 
+
+    def test_nan_and_infinite_inputs_never_produce_numeric_ema_or_rsi(self) -> None:
+        values = [100.0 + index for index in range(40)]
+        values[17] = float("nan")
+        self.assertTrue(all(value is None for value in _ema_series(values, 20)))
+        self.assertIsNone(_rsi(values))
+
+        values[17] = float("inf")
+        self.assertTrue(all(value is None for value in _ema_series(values, 20)))
+        self.assertIsNone(_rsi(values))
+
+    def test_atr_and_adx_reject_invalid_ohlc_geometry(self) -> None:
+        candles = [
+            {"high": 101.0, "low": 99.0, "close": 100.0}
+            for _ in range(40)
+        ]
+        candles[20] = {"high": 90.0, "low": 95.0, "close": 100.0}
+        self.assertIsNone(_atr(candles, period=14))
+        self.assertEqual(_adx(candles, period=14), (None, None, None))
+
+    def test_invalid_required_timeframe_history_is_reported_not_used_as_ready(self) -> None:
+        candles = make_chart_candles(count=90)
+        candles["candles_by_tf"]["1m"][40]["close"] = float("nan")
+        with self.assertRaisesRegex(ValueError, "non-finite close"):
+            IndicatorsEngine().analyze(candles)
+
+
+
 if __name__ == "__main__":
     unittest.main()
