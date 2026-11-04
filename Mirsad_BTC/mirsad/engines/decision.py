@@ -359,8 +359,8 @@ def _protective_position_management_decision(
 # another engine. The combined score therefore becomes more conservative
 # when evidence is incomplete instead of silently changing the 20/50/30 mix.
 ENGINE1_DECISION_WEIGHT = 0.20
-ENGINE2_DECISION_WEIGHT = 0.50
-ENGINE3_DECISION_WEIGHT = 0.30
+ENGINE2_DECISION_WEIGHT = 0.55
+ENGINE3_DECISION_WEIGHT = 0.25
 
 # Engine 2 contributes one native MT5 OHLC directional vote.
 
@@ -405,7 +405,7 @@ def _weighted_three_engine_score(
     engine2_quality: float,
     engine3_quality: float,
 ) -> tuple[float | None, dict[str, float]]:
-    """Apply fixed 20/50/30 shares, discounted by evidence quality, without redistribution."""
+    """Apply fixed 20/55/25 shares, discounted by evidence quality, without redistribution."""
     configured = {
         "engine_1_market_intelligence": ENGINE1_DECISION_WEIGHT,
         "engine_2_price_action": ENGINE2_DECISION_WEIGHT,
@@ -1078,8 +1078,8 @@ class DecisionEngine:
                 "broker_spread_pct": round(spread_pct * 100, 4) if spread_pct is not None else None,
             },
             "reason": (
-                "BUY/SELL combines Engine 1 market intelligence (20%), Engine 2 native multi-timeframe OHLC price action (50%), and Engine 3 indicators (30%). "
+                "BUY/SELL combines Engine 1 market intelligence (20%), Engine 2 native multi-timeframe OHLC price action (55%), and Engine 3 indicators (25%). "
                 "Engine 2 uses only validated native MT5 OHLC candle formations and confirmed price structure. "
-                "Evidence quality discounts each engine's fixed 20/50/30 base share without redistributing missing weight; the combined value is an evidence-weighted score, not a calibrated probability of profit. Engine 5 supplies execution and account facts only."
+                "Evidence quality discounts each engine's fixed 20/55/25 base share without redistributing missing weight; the combined value is an evidence-weighted score, not a calibrated probability of profit. Engine 5 supplies execution and account facts only."
             ),
         }
