@@ -5,7 +5,7 @@ import unittest
 
 from mirsad.engines.indicators import (
     INDICATOR_SIGNAL_GROUP_WEIGHTS, IndicatorsEngine, _adx, _atr,
-    _ema_series, _macd, _rsi, _stochastic, _timeframe_trend,
+    _ema_series, _macd, _rsi, _stochastic, _timeframe_trend, _timeframe_indicator_signal,
 )
 
 
@@ -245,6 +245,31 @@ class IndicatorsEngineTests(unittest.TestCase):
         self.assertEqual(result["timeframes"]["1d"]["status"], "INSUFFICIENT")
         self.assertEqual(result["signal_components_by_timeframe"]["1d"]["status"], "NOT_READY")
         self.assertIsNone(result["signal_components_by_timeframe"]["1d"]["score"])
+
+
+    def test_macd_osma_and_stochastic_k_d_are_single_family_votes(self) -> None:
+        candles = [{
+            "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
+            "volume": 10.0, "closed": True,
+        }]
+        signal = _timeframe_indicator_signal(
+            candles,
+            {"status": "READY", "trend": "NEUTRAL"},
+            {
+                "atr14": 1.0,
+                "bollinger_middle": 100.0, "bollinger_upper": 110.0, "bollinger_lower": 90.0,
+                "macd_main": -1.0, "osma": -1.0,
+                "rsi14": 70.0, "momentum14": 102.0,
+                "adx14": 20.0, "plus_di14": 20.0, "minus_di14": 20.0,
+                "stochastic_k": 80.0, "stochastic_d": 80.0,
+                "cci20": -150.0, "wpr14": -100.0, "mfi14": 50.0,
+            },
+        )
+        self.assertAlmostEqual(signal["groups"]["momentum"]["score"], 1.0 / 3.0)
+        self.assertAlmostEqual(signal["groups"]["oscillator"]["score"], -1.0 / 3.0)
+        self.assertEqual(signal["groups"]["momentum"]["expected_features"], 3)
+        self.assertEqual(signal["groups"]["oscillator"]["expected_features"], 3)
+
 
 
 if __name__ == "__main__":
