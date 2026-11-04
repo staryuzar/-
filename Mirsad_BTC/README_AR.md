@@ -54,7 +54,7 @@
 
 ## اختبار MT5 الفعلي على GitHub
 
-سير العمل `.github/workflows/mirsad-chart-observer-compile.yml` يشغّل Windows runner، يثبت MT5، يستخدم السر `mt5` للدخول إلى حساب الوسيط، ويجمع Observer ويشغّله للقراءة فقط. صلاحية التداول الآلي معطلة، ويُرفض أي مصدر Observer يحوي استدعاءات تداول، ولا يُحمّل خبير التنفيذ ولا يُنشأ أمر MIR1. يثبت هذا تشغيل الطرفية أثناء مدة مهمة GitHub فقط؛ لا يعني وجود Terminal دائم بعد انتهاء المهمة. يرفع سير العمل ملخصات منقحة ولا يرفع صورة المخطط الخام أو تاريخ OHLC الكامل أو بيانات الدخول.
+سير العمل `.github/workflows/mirsad-direct-feed-validation.yml` هو مسار القبول الآلي لتغذية OHLC الأصلية دون صور، ويتحقق من نشر `market.json` و`candles.json` و`indicators.json` وتطابق المؤشرات. أما `.github/workflows/mirsad-chart-observer-compile.yml` فهو مسار بصري تاريخي يدوي فقط ولا يدخل في جاهزية القرار. اختبار خبير التنفيذ المنفصل يشغّل MT5 على Demo مع `InpAllowExecution=false` و`AllowLiveTrading=0`، ولا ينشئ أمر تداول. تثبت هذه الاختبارات تشغيل الطرفية خلال مدة مهمة GitHub فقط؛ ولا تعني وجود MT5 دائم بعد انتهائها.
 
 ## الفرق بين فحص GitHub والتشغيل على جهازك
 
