@@ -766,15 +766,14 @@ public static class MirsadNativeWindow {
         throw 'Engine 3 calculated signal or native MT5 buffers are not READY with at least 60 percent evidence quality.'
     }
     Add-Report 'PASS — Engine 3 composite signal, quality gate, core MT5 buffers and all six native indicator frames are READY.'
-    # Engine 1 is checked against this same live broker market snapshot. Its
-    # public-provider outages remain diagnostic warnings and cannot cancel
-    # the independent Engine 2 / Engine 3 data-validation result.
+    # Engine 1 independently samples only its public providers. Its
+    # diagnostic does not consume the MT5 broker quote snapshot, and provider
+    # outages remain warnings rather than weakening Engine 2 / Engine 3 gates.
     $engine1Validator = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\validate_engine1_live_sources.py'
     $engine1Output = Join-Path $evidence 'engine1-live-source-report.json'
     if (Test-Path -LiteralPath $engine1Validator) {
         $engine1Args = @(
             $engine1Validator,
-            '--market-snapshot', (Join-Path $evidence 'market-snapshot.json'),
             '--output', $engine1Output
         )
         $engine1Lines = & python @engine1Args 2>&1
@@ -784,7 +783,7 @@ public static class MirsadNativeWindow {
         }
         if (Test-Path -LiteralPath $engine1Output) {
             $engine1Summary = Get-Content -LiteralPath $engine1Output -Raw | ConvertFrom-Json
-            Add-Report ("Engine 1 same-session report: status={0}; public providers={1}; usable directional components={2}; broker calendar={3}; TE calendar={4}." -f $engine1Summary.overall_status,$engine1Summary.provider_response_count,$engine1Summary.usable_directional_component_count,$engine1Summary.economic_calendar.source_statuses.mt5_broker,$engine1Summary.economic_calendar.source_statuses.trading_economics)
+            Add-Report ("Engine 1 standalone public-source report: status={0}; public providers={1}; usable directional components={2}; ShowMyTrades calendar={3}; TE calendar={4}." -f $engine1Summary.overall_status,$engine1Summary.provider_response_count,$engine1Summary.usable_directional_component_count,$engine1Summary.economic_calendar.source_statuses.showmytrades,$engine1Summary.economic_calendar.source_statuses.trading_economics)
         }
         if ($engine1ExitCode -ne 0) {
             Add-Report 'WARN — Engine 1 live public providers were incomplete in this session; diagnostic captured without weakening or blocking Engine 3 validation.'
