@@ -73,6 +73,11 @@ try{
 
  $source=Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\mt5\Mirsad_BTC_ExecutionBridge.mq5'
  if(!(Test-Path $source)){throw 'Mirsad execution EA source file is missing.'}
+ $sourceText=Get-Content -LiteralPath $source -Raw
+ if($sourceText -notmatch '(?im)^[ \t]*input[ \t]+bool[ \t]+InpAllowExecution[ \t]*=[ \t]*false[ \t]*;'){
+  throw 'Safety stop: execution EA must explicitly default InpAllowExecution=false.'
+ }
+ Add-Report 'PASS — Execution EA source explicitly defaults InpAllowExecution=false.'
  $experts=Join-Path $installDir 'MQL5\Experts'
  New-Item -ItemType Directory -Path $experts -Force|Out-Null
  $eaSource=Join-Path $experts 'Mirsad_BTC_ExecutionBridge.mq5'
@@ -103,7 +108,7 @@ CertInstall=0
 
 [Experts]
 Enabled=1
-AllowLiveTrading=1
+AllowLiveTrading=0
 AllowDllImport=0
 
 [Charts]
@@ -118,7 +123,7 @@ Period=M1
  [IO.File]::WriteAllText($loginConfig,$ini,[Text.UTF8Encoding]::new($false))
  $accountPassword=$null;$credentialRaw=$null;$obj=$null
  $terminalProcess=Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable',"/config:$loginConfig","/login:$login") -WorkingDirectory $installDir -PassThru
- Add-Report 'MT5 started with Mirsad EA configured for BTC,M1. No command.json was created.'
+ Add-Report 'MT5 started with Mirsad EA on BTC,M1; terminal-wide automated trading is disabled (AllowLiveTrading=0). No command.json was created.'
  $loginStarted=Get-Date;$authorized=$false;$heartbeat=$false;$quoteFresh=$false;$folder=$null;$telemetry=$null
  $deadline=(Get-Date).AddSeconds(150)
  while((Get-Date)-lt $deadline){
@@ -156,7 +161,7 @@ Period=M1
  Add-Report 'PASS — MT5 authorized on the Headway demo server.'
  if(!$heartbeat){throw 'MT5 logged in but the Mirsad EA heartbeat was not observed with execution disabled.'}
  if(!$quoteFresh){throw 'MT5 demo quote did not become fresh within the 150-second observation window.'}
- Add-Report 'PASS — Mirsad EA heartbeat is live and its internal execution switch is OFF.'
+ Add-Report 'PASS — Mirsad EA heartbeat is live; InpAllowExecution=false and terminal-wide AllowLiveTrading=0.'
  Add-Report ("Broker symbol: {0}; market mapping: {1}; account currency: {2}" -f $telemetry.symbol,$telemetry.market_symbol,$telemetry.account.currency)
  Add-Report ("Current Ask quote available: {0}" -f ([double]$telemetry.quote.ask -gt 0))
  Add-Report ("Broker tick age (seconds): {0}" -f $telemetry.quote.tick_age_seconds)
