@@ -1,24 +1,10 @@
-name: Mirsad Chart Observer — actual MT5 read-only feed verification
+name: Mirsad Chart Observer — optional legacy visual diagnostic (manual only)
 
+# Native OHLC, Engine 2 price action and Engine 3 parity are validated by
+# mirsad-direct-feed-validation.yml. This older workflow requires PNG capture
+# and is retained only for an explicitly requested visual-calibration study;
+# it must never run as an automatic or required gate for the image-free design.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
-      - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
-      - 'Mirsad_BTC/scripts/analyze_mt5_observer_capture.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
-      - 'Mirsad_BTC/scripts/validate_engine3_mt5_indicator_parity.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_observer.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_chart_pipeline.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_chart_geometry.py'
-      - 'Mirsad_BTC/mirsad/engines/chart.py'
-      - 'Mirsad_BTC/mirsad/engines/chart_extraction.py'
-      - 'Mirsad_BTC/mirsad/engines/native_chart_extraction.py'
-      - 'Mirsad_BTC/mirsad/runtime.py'
-      - '.github/workflows/mirsad-chart-observer-compile.yml'
   workflow_dispatch:
 
 permissions:
