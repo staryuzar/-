@@ -47,10 +47,14 @@ def evaluate_engine4_runtime(decision: dict[str, Any]) -> dict[str, Any]:
     context = decision.get("engine_2_native_price_action_context")
     context = context if isinstance(context, dict) else {}
     entry_eligible = context.get("decision_eligible") is True
-    gate = str(context.get("gate", decision.get("chart_gate", "NOT_EVALUATED"))).upper()
+    gate = str(
+        decision.get("chart_gate", "NOT_EVALUATED")
+        if status == "WAITING_FOR_ENGINE_3_PARITY"
+        else context.get("gate", decision.get("chart_gate", "NOT_EVALUATED"))
+    ).upper()
 
     cycle_completed = action in {"BUY", "SELL", "WAIT", "CLOSE", "MODIFY"} and status in {
-        "READY", "WAITING_FOR_ENGINE_2"
+        "READY", "WAITING_FOR_ENGINE_2", "WAITING_FOR_ENGINE_3_PARITY"
     }
     safe_wait = (
         action == "WAIT"
@@ -60,7 +64,7 @@ def evaluate_engine4_runtime(decision: dict[str, Any]) -> dict[str, Any]:
             (entry_eligible and status == "READY")
             or (
                 not entry_eligible
-                and status == "WAITING_FOR_ENGINE_2"
+                and status in {"WAITING_FOR_ENGINE_2", "WAITING_FOR_ENGINE_3_PARITY"}
                 and gate in {
                     "NOT_READY",
                     "MIXED_OR_NO_CONFLUENCE",
@@ -70,6 +74,7 @@ def evaluate_engine4_runtime(decision: dict[str, Any]) -> dict[str, Any]:
                     "MIXED_CANDLE_PATTERN_EVIDENCE",
                     "NOT_EVALUATED",
                     "NATIVE_OHLC_NOT_PROVIDED",
+                    "WAITING_FOR_ENGINE_3_NATIVE_PARITY",
                 }
             )
         )
@@ -159,6 +164,15 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
     controls = report.get("execution_controls") or {}
     readiness = report.get("readiness") or {}
 
+    decision_context = decision.get("engine_2_native_price_action_context")
+    if not isinstance(decision_context, dict):
+        decision_context = {}
+
+    engine4_runtime = evaluate_engine4_runtime(decision)
+    engine2_summary = price_action.get("summary")
+    if not isinstance(engine2_summary, dict):
+        engine2_summary = {}
+
     checks = {
         "engine5_bridge_connected": bridge_state.get("status") == "CONNECTED",
         "mt5_terminal_connected": bridge_state.get("terminal_connected") is True,
@@ -189,19 +203,14 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
             native_indicators.get("status") == "READY"
             and readiness.get("mt5_native_indicator_feed") is True
         ),
+        "engine3_numeric_parity_pass": (
+            (indicators.get("mt5_native_parity") or {}).get("status") == "PASS"
+            and readiness.get("engine_3_mt5_numeric_parity") is True
+        ),
         "daily_risk_policy_consistent": readiness.get("engine_4_daily_risk_guard") is True,
         "engine4_decision_cycle_completed": engine4_runtime["cycle_completed"],
         "engine4_decision_gate_consistent": engine4_runtime["gate_consistent"],
     }
-
-    decision_context = decision.get("engine_2_native_price_action_context")
-    if not isinstance(decision_context, dict):
-        decision_context = {}
-
-    engine4_runtime = evaluate_engine4_runtime(decision)
-    engine2_summary = price_action.get("summary")
-    if not isinstance(engine2_summary, dict):
-        engine2_summary = {}
 
     summary = {
         "schema": "MIRSAD-LIVE-RUNTIME-INTEGRATION-1",
@@ -238,6 +247,9 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
                 "native_status": native_indicators.get("status"),
                 "signal_score": indicators.get("signal_score"),
                 "signal_quality": indicators.get("signal_quality"),
+                "numeric_parity_status": (indicators.get("mt5_native_parity") or {}).get("status"),
+                "numeric_parity_passed_metrics": (indicators.get("mt5_native_parity") or {}).get("passed_metrics"),
+                "numeric_parity_total_metrics": (indicators.get("mt5_native_parity") or {}).get("total_metrics"),
             },
             "engine4": {
                 "status": decision.get("status"),
@@ -270,6 +282,7 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
             "PASS means the five-engine live data/decision pipeline completed consistently; directional entry eligibility is reported separately.",
             "The independent broker BUY/CLOSE acceptance transaction is validated by the separate MT5 execution workflow.",
             "Engine 1 provider reachability is reported as observed and is not assumed to be complete from a hosted runner.",
+            "Engine 3 directional votes are accepted by Engine 4 only after 120/120 numeric MT5 CopyBuffer parity metrics pass on the same closed Engine 2 bars.",
         ],
     }
     output.parent.mkdir(parents=True, exist_ok=True)
