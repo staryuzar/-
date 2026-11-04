@@ -1639,6 +1639,36 @@ class BridgeProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MT5BridgeEngine._validate_decision(decision)
 
+    def test_same_command_id_with_unknown_ack_is_never_published_again_after_restart(self) -> None:
+        state = {
+            "status": "CONNECTED",
+            "terminal_connected": True,
+            "execution_enabled": True,
+            "execution_input_enabled": True,
+            "trade_permissions_available": True,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            first_engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                published = first_engine.publish_decision(make_open_decision(), state)
+            self.assertEqual(published["status"], "PUBLISHED")
+            root = Path(temp) / "MirsadBTC"
+            command_path = root / "command.json"
+            original_bytes = command_path.read_bytes()
+            command = json.loads(original_bytes)
+            (root / "ack.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "command_id": command["command_id"],
+                "state": "UNKNOWN",
+            }), encoding="utf-8")
+
+            restarted_engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                duplicate = restarted_engine.publish_decision(make_open_decision(), state)
+
+            self.assertEqual(duplicate["status"], "ALREADY_ACKNOWLEDGED")
+            self.assertEqual(command_path.read_bytes(), original_bytes)
+
     def test_command_is_not_replaced_while_previous_command_is_unsettled(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             engine = MT5BridgeEngine(common_files=temp)
@@ -1646,6 +1676,8 @@ class BridgeProtocolTests(unittest.TestCase):
                 first = engine.publish_decision(make_open_decision(), {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True, "execution_input_enabled": True, "trade_permissions_available": True})
                 self.assertEqual(first["status"], "PUBLISHED")
 
+                # Recreate the bridge object to simulate a Python process restart.
+                engine = MT5BridgeEngine(common_files=temp)
                 second = make_open_decision("MIR-" + "c" * 24)
                 blocked = engine.publish_decision(second, {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True, "execution_input_enabled": True, "trade_permissions_available": True})
                 self.assertEqual(blocked["status"], "PENDING_COMMAND_BLOCKED")

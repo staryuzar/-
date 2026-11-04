@@ -1,7 +1,10 @@
 from __future__ import annotations
 import argparse
+import json
+import os
 import time
 import math
+from pathlib import Path
 from typing import Any
 from .config import COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,RISK_STATE_PATH
 from .engines.mt5_market import MT5MarketDataEngine
@@ -42,6 +45,27 @@ def _daily_risk_guard_ready(report:Any)->bool:
   math.isfinite(starting_equity) and starting_equity>0
   and baseline_at>0 and math.isfinite(cap) and 0<cap<0.5
  )
+
+
+def _append_runtime_error(error: Exception, *, max_bytes: int = 1_000_000) -> Path:
+ """Append a bounded, structured error record without replacing previous failures."""
+ if max_bytes < 1:
+  raise ValueError("max_bytes must be positive")
+ log_path=STATUS_PATH.with_name("runtime_errors.jsonl")
+ log_path.parent.mkdir(parents=True,exist_ok=True)
+ if log_path.is_file() and log_path.stat().st_size >= max_bytes:
+  rotated=log_path.with_name(log_path.name+".1")
+  os.replace(log_path,rotated)
+ record={
+  "timestamp_utc_ms":int(time.time()*1000),
+  "exception_type":type(error).__name__,
+  "message":str(error)[:800],
+ }
+ with log_path.open("a",encoding="utf-8") as stream:
+  stream.write(json.dumps(record,ensure_ascii=False,separators=(",",":"))+"\\n")
+  stream.flush()
+  os.fsync(stream.fileno())
+ return log_path
 
 
 def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)->dict[str,Any]:
@@ -264,8 +288,15 @@ def run_forever(interval:int=COLLECT_INTERVAL_SECONDS)->None:
    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | overall={report['overall_status']} | engines={report['engines']} | BTC={report['market'].get('price')}")
   except Exception as exc:
    print(f"Runtime cycle error: {type(exc).__name__}: {exc}")
+   error_log=None
+   try:
+    error_log=str(_append_runtime_error(exc))
+   except Exception as log_error:
+    print(f"Runtime error log write failed: {type(log_error).__name__}: {log_error}")
    write_json_atomic(STATUS_PATH,{"project":"Mirsad BTC","heartbeat_at_ms":int(time.time()*1000),
-    "overall_status":"ERROR","engines":{"runtime":"ERROR"},"runtime_error":f"{type(exc).__name__}: {exc}"})
+    "overall_status":"ERROR","engines":{"runtime":"ERROR"},
+    "runtime_error":f"{type(exc).__name__}: {str(exc)[:800]}",
+    "runtime_error_log":error_log})
   time.sleep(max(5,int(interval)))
 
 def main()->None:
