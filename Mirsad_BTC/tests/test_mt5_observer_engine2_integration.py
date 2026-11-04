@@ -39,7 +39,7 @@ class NativeEngine2RuntimeContractTests(unittest.TestCase):
         compact = source.replace(" ", "")
         self.assertIn('"engine_2_candles_to_engine_3":True', compact)
         self.assertIn(
-            '"engine_2_price_action_to_engine_4":"weighted_directional_vote_50_percent_after_native_ohlc_quality_gates"',
+            '"engine_2_price_action_to_engine_4":"weighted_directional_vote_55_percent_after_native_ohlc_quality_gates"',
             compact,
         )
         self.assertNotIn("chart_observer", source)
