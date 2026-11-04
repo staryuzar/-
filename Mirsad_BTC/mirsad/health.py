@@ -24,8 +24,6 @@ _STATUS_AR = {
     "PUBLISH_DISABLED": "نشر الأوامر معطّل",
     "DISABLED_FOR_DEVELOPMENT": "معطّل خلال التطوير",
     "OPTIONAL_DISABLED": "مسار اختياري معطّل بأمان ولا يؤثر في القرار",
-    "WAITING_FOR_CAPTURE": "بانتظار صورة من MT5",
-    "WAITING_FOR_IMAGE": "بانتظار صورة الرسم",
     "WAITING_FOR_EXPERT": "بانتظار نبض الخبير",
     "NOT_CONFIGURED": "لم تتم تهيئته على الجهاز بعد",
     "NOT_REPORTED": "لم ترد بيانات حالة بعد",
@@ -35,11 +33,7 @@ _STATUS_AR = {
     "OFFLINE": "غير متصل",
     "ERROR": "خطأ",
     "INVALID": "بيانات غير صالحة",
-    "OBSERVER_REFERENCE_NOT_VERIFIED": "مرجعية الرسم غير مؤكدة",
     "NOT_VERIFIED": "لم يجتز التحقق",
-    "IDENTITY_MISMATCH": "اختلاف في هوية اللقطة",
-    "HASH_MISMATCH": "اختلاف بصمة الصورة",
-    "HASH_NOT_REPORTED": "بصمة الصورة غير متاحة للمقارنة",
     "LOCKED": "حاجز المخاطر مفعّل",
 }
 
@@ -81,8 +75,6 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
 
     market = _dict(state.get("market"))
     market_intelligence = _dict(state.get("market_intelligence"))
-    observer = _dict(state.get("chart_observer"))
-    chart = _dict(state.get("chart"))
     candles = _dict(state.get("engine_2_candles"))
     price_action = _dict(state.get("engine_2_price_action"))
     multi_tf = _dict(state.get("engine_2_multi_timeframe_structure"))
@@ -146,71 +138,33 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     add("المحرك الأول — استخبارات السوق", "التقويم الاقتصادي العام المستقل", "LOCKED" if intel_calendar.get("high_impact_window_active") else intel_calendar.get("status"),
         f"المزودون: {', '.join(f'{name}={status}' for name, status in calendar_sources.items()) or 'لا يوجد'} | بوابة المداخل: {intel_calendar.get('new_entry_gate', 'NOT_REPORTED')} | الأحداث النشطة: {len(intel_calendar.get('active_high_impact_events', []))}.")
 
-    # Engine 2 native OHLC is the required path; chart-image tooling is optional.
-    observer_chart = _dict(observer.get("chart"))
-    observer_status_raw = observer.get("status")
-    visual_status_raw = chart.get("status")
-    visual_missing = (
-        observer_status_raw in {None, "WAITING_FOR_CAPTURE", "NOT_CONFIGURED", "OPTIONAL_DISABLED"}
-        and visual_status_raw in {
-            None, "WAITING_FOR_IMAGE", "WAITING_FOR_CAPTURE", "NOT_REPORTED",
-            "NATIVE_OHLC_ONLY", "OPTIONAL_DISABLED",
-        }
-    )
-    observer_status = "OPTIONAL_DISABLED" if visual_missing else observer_status_raw
-    add("المحرك الثاني — التحليل البصري والسعري", "استقبال صور الشارت الاختياري من خبير MT5", observer_status,
-        f"المسار البصري اختياري؛ الرمز/الإطار: {observer_chart.get('symbol', '—')} / {observer_chart.get('timeframe', '—')} | عمر اللقطة: {observer.get('age_seconds', '—')} ثانية | شموع OHLC المباشرة تُعرض في بند مستقل.",
-        "SAFE_DISABLED" if visual_missing else None)
-    capture = _dict(chart.get("observer_capture"))
-    inbox_id = str(observer.get("capture_id") or "").strip()
-    analyzed_id = str(capture.get("capture_id") or chart.get("observer_capture_id") or "").strip()
-    inbox_hash = str(observer.get("image_sha256") or "").strip().lower()
-    analyzed_hash = str(capture.get("image_sha256") or "").strip().lower()
-    if inbox_id and analyzed_id and inbox_id != analyzed_id:
-        identity_status, identity_detail = "IDENTITY_MISMATCH", f"Capture ID مختلف: inbox={inbox_id} والتحليل={analyzed_id}."
-    elif inbox_hash and analyzed_hash and inbox_hash != analyzed_hash:
-        identity_status, identity_detail = "HASH_MISMATCH", "بصمة SHA-256 لصورة التحليل لا تطابق صورة صندوق الاستقبال."
-    elif inbox_id and analyzed_id and inbox_id == analyzed_id and inbox_hash and analyzed_hash:
-        identity_status, identity_detail = "VERIFIED", f"تطابق Capture ID وبصمة الصورة: {inbox_id}."
-    elif inbox_id and analyzed_id and inbox_id == analyzed_id:
-        identity_status, identity_detail = "HASH_NOT_REPORTED", "تطابق Capture ID، لكن بصمة الصورة في التحليل غير متاحة؛ الهوية غير مكتملة."
-    else:
-        identity_status, identity_detail = (
-            ("OPTIONAL_DISABLED", "لم تُنشأ صورة أو manifest؛ وهذا لا يمنع مسار OHLC الأصلي.")
-            if visual_missing else
-            ("NOT_REPORTED", "لا توجد هوية لقطة وبصمتان مكتملتان في تقرير الدورة نفسه.")
-        )
-    add("المحرك الثاني — التحليل البصري والسعري", "تطابق هوية الصورة مع بيانات التحليل", identity_status, identity_detail,
-        "SAFE_DISABLED" if identity_status == "OPTIONAL_DISABLED" else None)
-
-    visual_status = chart.get("status", "NOT_REPORTED")
-    visual_ok = visual_status == "READY" and chart.get("decision_eligible") is True
-    visual_display_status = "READY" if visual_ok else "OPTIONAL_DISABLED" if visual_missing else visual_status
-    add("المحرك الثاني — التحليل البصري والسعري", "تحليل الصورة وأهلية المعايرة", visual_display_status,
-        f"هذا الفحص بصري اختياري ولا يدخل القرار. الحالة التشخيصية: {visual_status} | الشموع المكتشفة: {chart.get('detected_bar_count', '—')} | مصدر المعايرة: {_dict(chart.get('calibration')).get('source', '—')}.",
-        "SAFE_DISABLED" if visual_missing else None)
-    reference = _dict(chart.get("reference_multi_calibration"))
-    axis = _dict(chart.get("reference_axis_validation"))
-    geometry_status = "READY" if reference.get("status") == "READY" and axis.get("status") == "READY" else reference.get("status") or axis.get("status") or "NOT_REPORTED"
-    add("المحرك الثاني — التحليل البصري والسعري", "معايرة محور السعر والهندسة", "OPTIONAL_DISABLED" if visual_missing else geometry_status,
-        f"مسار اختياري؛ ملاءمة المراجع: {reference.get('status', '—')} | تحقق المحور: {axis.get('status', '—')} | أهلية الصورة: {'نعم' if visual_ok else 'لا'}.",
-        "SAFE_DISABLED" if visual_missing else None)
-    native_ohlc = _dict(chart.get("native_ohlc_analysis"))
-    add("المحرك الثاني — التحليل البصري والسعري", "مطابقة OHLC مع شموع MT5 الأصلية", "OPTIONAL_DISABLED" if visual_missing else native_ohlc.get("status"),
-        native_ohlc.get("reason") or "مقارنة بصرية اختيارية بين الصورة وOHLC الأصلي؛ ليست مصدر الشموع ولا شرطاً للقرار.",
-        "SAFE_DISABLED" if visual_missing else None)
-    patterns = _dict(chart.get("reference_patterns"))
-    add("المحرك الثاني — التحليل البصري والسعري", "مرجع الأنماط الحسابي TA-Lib", "OPTIONAL_DISABLED" if visual_missing else patterns.get("status"),
-        f"تعريفات الأنماط على OHLC المستخرج بصرياً؛ التعريفات: {patterns.get('pattern_definition_count', '—')} | الأحداث: {patterns.get('event_count', '—')}.",
-        "SAFE_DISABLED" if visual_missing else None)
+    # Engine 2 native OHLC is the sole price-action source.
     frames = _dict(candles.get("timeframes"))
-    add("المحرك الثاني — التحليل البصري والسعري", "سجل الشموع الأصلية متعددة الأطر", candles.get("status"),
-        f"الأطر المستلمة: {len(frames)} | " + (", ".join(f"{tf}: {count}" for tf, count in frames.items()) or "لا توجد شموع."))
+    add(
+        "المحرك الثاني — الشموع وبنية السعر",
+        "سجل الشموع الأصلية متعددة الأطر",
+        candles.get("status"),
+        f"الأطر المستلمة: {len(frames)} | "
+        + (", ".join(f"{tf}: {count}" for tf, count in frames.items()) or "لا توجد شموع.")
+    )
     pa_summary = _dict(price_action.get("summary"))
-    add("المحرك الثاني — التحليل البصري والسعري", "تحليل القمم والقيعان وبنية السعر", price_action.get("status"),
-        f"الاتجاه البنيوي: {price_action.get('direction', '—')} | الأطر المؤهلة: {', '.join(pa_summary.get('eligible_timeframes', [])) or '—'} | {price_action.get('reason') or ''}")
-    add("المحرك الثاني — التحليل البصري والسعري", "التوافق البنيوي بين الأطر الزمنية", multi_tf.get("status"),
-        f"الأطر المؤهلة: {', '.join(multi_tf.get('eligible_timeframes', [])) or '—'} | التوافق: {multi_tf.get('alignment', '—')} | {multi_tf.get('reason') or ''}")
+    eligible = pa_summary.get("eligible_timeframes", [])
+    add(
+        "المحرك الثاني — الشموع وبنية السعر",
+        "تحليل القمم والقيعان وبنية السعر",
+        price_action.get("status"),
+        f"الاتجاه: {price_action.get('direction', '—')} | الدرجة: {price_action.get('structure_score', '—')} | "
+        f"الأطر المؤهلة: {', '.join(eligible) or '—'} | {price_action.get('reason') or ''}"
+    )
+    alignment = pa_summary.get("timeframe_alignment", multi_tf.get("alignment", "—"))
+    coverage = pa_summary.get("timeframe_weight_coverage", "—")
+    agreement = pa_summary.get("directional_structure_agreement", "—")
+    add(
+        "المحرك الثاني — الشموع وبنية السعر",
+        "التوافق البنيوي وجودة الأدلة متعددة الأطر",
+        multi_tf.get("status", price_action.get("status")),
+        f"التوافق: {alignment} | تغطية الأطر: {coverage} | اتفاق البنية: {agreement}."
+    )
 
     # Engine 3
     values = _dict(indicators.get("values"))

@@ -9,7 +9,6 @@ from .engines.market_intelligence import MarketIntelligenceEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
 from .engines.mt5_native_indicators import MT5NativeIndicatorHistory
 from .engines.mt5_price_action import analyze_mt5_native_price_action
-from .engines.chart_multi_timeframe import analyze_multi_timeframe_structure
 from .engines.indicators import IndicatorsEngine
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
@@ -44,41 +43,6 @@ def _daily_risk_guard_ready(report:Any)->bool:
   and baseline_at>0 and math.isfinite(cap) and 0<cap<0.5
  )
 
-
-def _analyze_engine2_multi_timeframe_structure(candle_history:dict[str,Any])->dict[str,Any]:
- if not isinstance(candle_history,dict) or candle_history.get("status")!="READY":
-  return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
-   "status":"NOT_READY","alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
-   "available_timeframes":[],"eligible_timeframes":[],
-   "reason":"Engine 2 has no validated native MT5 multi-timeframe candle history."}
- frames=candle_history.get("candles_by_tf")
- if not isinstance(frames,dict) or not frames:
-  return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
-   "status":"NOT_READY","alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
-   "available_timeframes":[],"eligible_timeframes":[],
-   "reason":"Engine 2 candle history is missing its timeframe map."}
- try:
-  as_of_ms=int(candle_history["captured_at_ms"])
-  last_closed={
-   timeframe:bool(rows and rows[-1].get("closed"))
-   for timeframe,rows in frames.items()
-  }
-  result=analyze_multi_timeframe_structure(
-   frames,as_of_ms=as_of_ms,
-   last_candle_closed_by_timeframe=last_closed,
-  )
- except (KeyError,TypeError,ValueError,OverflowError) as exc:
-  return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
-   "status":"ERROR","alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
-   "available_timeframes":[],"eligible_timeframes":[],
-   "reason":f"{type(exc).__name__}: {exc}"}
- return {
-  **result,
-  "engine":"engine_2_multi_timeframe_structure",
-  "source":"MT5_CHART_OBSERVER",
-  "ownership":"engine_2_native_candles_only",
-  "reason":None if result.get("status")=="READY" else "Fewer than two fresh timeframes have complete confirmed price structure.",
- }
 
 def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)->dict[str,Any]:
  started=int(time.time()*1000)
@@ -133,25 +97,14 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  save_market_intelligence_snapshot(market_intelligence)
  save_market_snapshot(market)
  write_json_atomic(SNAPSHOT_PATH,market)
- # The live decision path is deliberately image-free. Engine 2 receives native
- # MT5 CopyRates through candles.json; legacy image tools remain isolated and
- # are never called from this runtime cycle.
- chart_observer={
-  "engine":"engine_2_optional_visual_diagnostics",
-  "status":"OPTIONAL_DISABLED",
-  "decision_eligible":False,
-  "reason":"Chart images are disabled by design; native MT5 OHLC is the Engine 2 source.",
- }
+ # Engine 2 consumes only native MT5 CopyRates in the live cycle.
+ candle_history=MT5ChartCandleHistory().collect(bridge=bridge)
  chart={
   "engine":"engine_2_native_price_action",
   "source":"NATIVE_MT5_OHLC",
-  "status":"NATIVE_OHLC_ONLY",
-  "decision_eligible":False,
-  "visual_analysis":"OPTIONAL_DISABLED",
-  "ai_used":False,
+  "status":candle_history.get("status","NOT_READY"),
+  "candle_history":candle_history,
  }
- # Engine 2's native candle inbox is the sole live input for price action.
- candle_history=MT5ChartCandleHistory().collect(bridge=bridge)
  engine2_multitimeframe={}
  native_indicators=MT5NativeIndicatorHistory().collect(
   bridge=bridge,candle_history=candle_history,
@@ -207,8 +160,6 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  overall="FULLY_OPERATIONAL" if all(readiness.values()) else "PARTIAL_OR_WAITING"
  engine_states={
   "engine_5_execution_quote_feed":market_status,"engine_1_market_intelligence":market_intelligence.get("status","NOT_STARTED"),
-  "engine_2_chart":engine2_price_action.get("status","NOT_STARTED"),
-  "engine_2_visual_chart":"OPTIONAL_DISABLED",
   "engine_2_price_action":engine2_price_action.get("status","NOT_STARTED"),
   "engine_3_indicators":indicators.get("status","NOT_STARTED"),
   "mt5_native_indicator_feed":native_indicators.get("status","NOT_STARTED"),
@@ -245,34 +196,25 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
     "order_book":v.get("order_book",{}),
     "order_book_status":(v.get("order_book") or {}).get("status")} for n,v in market.get("venues",{}).items()}},
   "market_intelligence":market_intelligence,
-  "chart":chart,"chart_observer":chart_observer,"engine_2_candles":{
+  "engine_2_candles":{
    "status":candle_history.get("status"),"timeframes":candle_history.get("timeframes",{}),
    "closed_candles":candle_history.get("closed_candles",{}),"reason":candle_history.get("reason")},
   "engine_2_multi_timeframe_structure":engine2_multitimeframe,
   "engine_2_price_action":engine2_price_action,
-  "engine_2_visual_analysis":{
-   "status":"OPTIONAL_DISABLED",
-   "decision_eligible":False,
-   "scope":"DISABLED_BY_DESIGN",
-   "required_for_native_direction_analysis":False,
-  },
   "indicators":indicators,
   "mt5_native_indicators":native_indicators,
   "bridge":bridge,"mt5_deal_ledger":deal_ledger_persistence,
   "daily_risk":bridge.get("daily_risk"),"decision":decision,"command_publish":command_publish,
   "wiring":{"engine_5_execution_quote_feed_to_engine_4":True,"engine_1_standalone_report_to_engine_4":True,
    "engine_2_native_price_action_to_engine_4":True,
-   "engine_2_chart_images_to_engine_4":False,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
    "engine_2_price_action_to_engine_4":"weighted_directional_vote_50_percent_after_native_ohlc_quality_gates",
-   "engine_2_price_action_requires_chart_image":False,
    "mt5_native_indicator_buffers_to_engine_3_report":True,
    "engine_4_daily_risk_guard":"persistent_utc_day_equity_drawdown_gate",
    "engine_4_to_engine_5_command_envelope":"implemented_idempotent_user_authorized",
    "engine_5_to_engine_4_ack_and_positions":"read_from_common_files",
    "expert_connection":bridge.get("status","NOT_CONFIGURED")},
   "notices":[
-   "Engine 1: independent market intelligence from multi-publisher crypto news, macro calendar, Fear and Greed, global crypto market context and multi-venue perpetual funding/open-interest/long-short positioning. It does not read images, OHLC candles or technical indicators.",
    "Engine 1 directional context is an explainable evidence score with source coverage, not a calibrated probability or profit forecast. News sentiment is a keyword heuristic; headline risk is exposed for review.",
    "High-importance macro events create a bounded new-entry WAIT window; CLOSE and protective MODIFY management remain available.",
    "Engine 2 price action: determines BTC direction from candle formations and confirmed peaks/troughs, BOS/CHOCH, liquidity-sweep candidates and multi-timeframe structure. It calculates no technical indicators and requires no chart image.",
