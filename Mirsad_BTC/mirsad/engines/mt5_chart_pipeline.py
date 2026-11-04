@@ -40,14 +40,15 @@ def _blocked_observer_chart(observer:dict[str,Any], reason:str, status:str="OBSE
 
 
 def analyze_mt5_observer_chart(
- observer:dict[str,Any], market:dict[str,Any], bridge:dict[str,Any],
+ observer:dict[str,Any], bridge:dict[str,Any],
  *, image_analyzer:Callable[...,dict[str,Any]]|None=None,
 )->dict[str,Any]|None:
- """Feed only a fresh, mapped, readable MT5 capture into Engine 2.
+ """Feed a fresh MT5 capture into Engine 2 without consuming Engine 1 data.
 
  A None return means no current capture exists and permits the existing
  manually calibrated image path. A READY capture that fails any gate returns
- a blocked chart so stale/manual data cannot silently replace it.
+ a blocked chart so stale/manual data cannot silently replace it. The broker
+ symbol and market mapping are checked only against Engine 5's bridge identity.
  """
  capture_status=observer.get("status")
  if capture_status in {"NOT_CONFIGURED","WAITING_FOR_CAPTURE"}:
@@ -112,16 +113,15 @@ def analyze_mt5_observer_chart(
  if not 0<source_low<source_high or latest_low<source_low or latest_high>source_high:
   return _blocked_observer_chart(observer,"The latest MT5 candle is outside the price range reported for the visible chart.","OBSERVER_PRICE_RANGE_MISMATCH")
 
- market_symbol=str(market.get("symbol","")).strip().upper()
  observer_symbol=str(chart_meta.get("symbol","")).strip()
  bridge_symbol=str(bridge.get("symbol","")).strip()
- bridge_market_symbol=str(bridge.get("market_symbol","")).strip().upper()
+ market_symbol=str(bridge.get("market_symbol","")).strip().upper()
  observer_server=str((observer.get("account") or {}).get("server","")).strip().casefold()
  bridge_server=str((bridge.get("account") or {}).get("server","")).strip().casefold()
  if bridge.get("status")!="CONNECTED":
   return _blocked_observer_chart(observer,"A fresh Engine 5 heartbeat is required to verify the MT5 symbol mapping and account server.")
- if not market_symbol or not observer_symbol or bridge_symbol!=observer_symbol or bridge_market_symbol!=market_symbol:
-  return _blocked_observer_chart(observer,"MT5 chart symbol, Engine 5 broker symbol and Engine 1 market-symbol mapping do not match.")
+ if not observer_symbol or not bridge_symbol or not market_symbol or bridge_symbol!=observer_symbol:
+  return _blocked_observer_chart(observer,"MT5 chart broker symbol does not match Engine 5 bridge identity or its market-symbol mapping is missing.")
  if not observer_server or not bridge_server or observer_server!=bridge_server:
   return _blocked_observer_chart(observer,"Observer and Engine 5 do not report the same broker server; chart identity is unverified.")
  timeframe=str(chart_meta.get("timeframe","")).strip().lower()
@@ -213,7 +213,7 @@ def analyze_mt5_observer_chart(
    "native_geometry_slot_assignment":analysis.get("native_geometry_slot_assignment"),
    "broker_symbol":observer_symbol,
    "market_symbol":market_symbol,
-   "engine_1_quote_freshness_required_for_visual_analysis":False,
+   "engine_1_data_required_for_visual_analysis":False,
    "timeframe":timeframe,
    "source_viewport_width_px":int(chart_meta.get("source_width_px",0) or 0),
    "source_viewport_height_px":int(chart_meta.get("source_main_window_height_px",0) or 0),
@@ -277,12 +277,10 @@ class Engine2MT5ChartImagePipeline:
     def analyze_capture(
         self,
         observer: dict[str, Any],
-        market: dict[str, Any],
         bridge: dict[str, Any],
     ) -> dict[str, Any] | None:
         return analyze_mt5_observer_chart(
             observer,
-            market,
             bridge,
             image_analyzer=self.image_analyzer,
         )
