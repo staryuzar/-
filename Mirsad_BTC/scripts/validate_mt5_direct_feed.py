@@ -11,6 +11,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from mirsad.engines.mt5_chart_candles import MT5ChartCandleHistory
 from mirsad.engines.mt5_market import MT5MarketDataEngine
+from mirsad.engines.mt5_bridge import MT5BridgeEngine
 from mirsad.engines.mt5_native_indicators import (
     REQUIRED_INDICATORS,
     REQUIRED_TIMEFRAMES,
@@ -27,15 +28,19 @@ def validate(
     broker_symbol: str,
     expected_server: str,
 ) -> dict[str, Any]:
+    # Engine 5 supplies both quote telemetry and bridge identity. Engine 2
+    # candle ingestion validates its own Observer payload against that bridge;
+    # it must never receive Engine 5's quote snapshot or Engine 1 intelligence.
+    bridge = MT5BridgeEngine(common_files=str(common_files)).inspect()
     market = MT5MarketDataEngine(
         common_files=str(common_files),
         symbol=market_symbol,
-    ).collect()
+    ).collect(bridge=bridge)
 
     candles = MT5ChartCandleHistory(
         common_files=str(common_files),
         symbol=market_symbol,
-    ).collect(market=market)
+    ).collect(bridge=bridge)
 
     indicators = MT5NativeIndicatorHistory(
         common_files=str(common_files),
@@ -47,6 +52,10 @@ def validate(
     engine3_warnings: list[str] = []
     if market.get("status") != "LIVE":
         engine2_failures.append(f"market feed: {market.get('status')} — {market.get('reason')}")
+    if bridge.get("status") != "CONNECTED":
+        engine2_failures.append(
+            f"Engine 5 bridge: {bridge.get('status')} — {bridge.get('message')}"
+        )
     if candles.get("status") != "READY":
         engine2_failures.append(f"candle feed: {candles.get('status')} — {candles.get('reason')}")
 
@@ -160,6 +169,12 @@ def validate(
         "image_capture_enabled": False,
         "decision_eligible": False,
         "read_only": True,
+        "engine5_bridge": {
+            "status": bridge.get("status"),
+            "symbol": bridge.get("symbol"),
+            "market_symbol": bridge.get("market_symbol"),
+            "account_server": (bridge.get("account") or {}).get("server"),
+        },
         "market": {
             "status": market.get("status"),
             "symbol": market.get("symbol"),
