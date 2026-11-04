@@ -70,6 +70,27 @@ class ExecutionAcceptanceSizingTests(unittest.TestCase):
         self.assertIn('WriteCommonText("status.json", payload);', source)
         self.assertIn('WriteCommonText("ack.json", payload);', source)
 
+    def test_mir1_command_id_is_persisted_and_read_back_before_broker_send(self) -> None:
+        source = (
+            PROJECT_ROOT / "mt5" / "Mirsad_BTC_ExecutionBridge.mq5"
+        ).read_text(encoding="utf-8")
+
+        save_start = source.index("bool SaveLastCommandId(")
+        save_end = source.index("\n}", save_start) + 2
+        save = source[save_start:save_end]
+        self.assertIn('FileWriteString(handle, command_id + "\\r\\n")', save)
+        self.assertIn("FileFlush(handle);", save)
+        self.assertIn("if(!WasCommandSeen(command_id))", save)
+        self.assertIn('if(!WriteCommonText("last_command_id.txt", command_id))', save)
+        process_start = source.index("void ProcessCommand()")
+        process = source[process_start:]
+        self.assertLess(
+            process.index("if(!SaveLastCommandId(command_id))"),
+            process.index("OrderSend(request, result)"),
+        )
+        self.assertIn("This command ID exists in the persistent ledger.", process)
+        self.assertIn("It will not be resent to avoid a duplicate trade.", process)
+
     def test_acceptance_order_respects_risk_and_notional_caps(self) -> None:
         decision, sizing = build_open_decision(valid_mt5_state())
 

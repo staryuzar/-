@@ -201,12 +201,29 @@ bool SaveLastCommandId(const string command_id)
       PrintFormat("Mirsad: cannot seek command ledger. Error=%d", GetLastError());
       return false;
    }
-   FileWriteString(handle, command_id + "\r\n");
+   uint written = FileWriteString(handle, command_id + "\r\n");
    FileFlush(handle);
    FileClose(handle);
+   if(written == 0)
+   {
+      PrintFormat("Mirsad: command ledger write failed for %s.", command_id);
+      return false;
+   }
 
-   // Keep a last-ID marker for compatibility and fast manual diagnostics.
-   WriteCommonText("last_command_id.txt", command_id);
+   // Verify the durable ledger entry before allowing OrderSend. A restart
+   // or uncertain disk write must fail closed rather than risk a duplicate.
+   if(!WasCommandSeen(command_id))
+   {
+      PrintFormat("Mirsad: command ledger read-back failed for %s.", command_id);
+      return false;
+   }
+
+   // Keep the compatibility marker too; a failed marker write blocks send.
+   if(!WriteCommonText("last_command_id.txt", command_id))
+   {
+      PrintFormat("Mirsad: last command marker write failed for %s.", command_id);
+      return false;
+   }
    return true;
 }
 
