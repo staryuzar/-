@@ -279,7 +279,7 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             sum(result["decision_weights"][key] for key in configured),
             result["decision_scores"]["effective_weight_coverage"],
         )
-        self.assertAlmostEqual(result["decision_scores"]["effective_weight_coverage"], 0.16)
+        self.assertAlmostEqual(result["decision_scores"]["effective_weight_coverage"], 0.46)
         self.assertAlmostEqual(result["decision_scores"]["market_score"], -0.75)
         self.assertIsNone(result["decision_scores"]["engine_2_score"])
         self.assertEqual(result["engine_2_score_source"], "NATIVE_OHLC_NOT_PROVIDED")
@@ -932,10 +932,28 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "timeframe_weight_coverage": 0.90,
             },
         }
+        # A valid price-action confluence is necessary but still not enough
+        # by itself: the composite must cross the fixed-share 20/50/30 gate.
+        aligned_indicators = {
+            **indicators,
+            "signal_score": 0.80,
+            "signal_quality": 1.0,
+            "signal_timeframe_weight_coverage": 1.0,
+        }
+        aligned_intelligence = {
+            "status": "READY",
+            "direction": "BULLISH",
+            "directional_score": 0.60,
+            "confidence": 1.0,
+            "evidence_coverage": 1.0,
+        }
         aligned = DecisionEngine().analyze(
-            self._market(), chart, {}, indicators, engine2_price_action=aligned_price_action
+            self._market(), chart, {}, aligned_indicators,
+            engine2_price_action=aligned_price_action,
+            market_intelligence=aligned_intelligence,
         )
         self.assertEqual(aligned["candidate_action"], "BUY")
+        self.assertAlmostEqual(aligned["decision_scores"]["combined_score"], 0.46)
         self.assertEqual(aligned["engine_2_score_source"], "NATIVE_MT5_OHLC_ONLY")
         self.assertAlmostEqual(aligned["decision_scores"]["engine_2_score"], 0.25)
         self.assertEqual(
@@ -952,7 +970,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             },
         }
         aligned_pattern_result = DecisionEngine().analyze(
-            self._market(), chart, {}, indicators, engine2_price_action=aligned_patterns
+            self._market(), chart, {}, aligned_indicators,
+            engine2_price_action=aligned_patterns,
+            market_intelligence=aligned_intelligence,
         )
         self.assertEqual(aligned_pattern_result["candidate_action"], "BUY")
         self.assertEqual(
