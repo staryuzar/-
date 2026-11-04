@@ -755,9 +755,11 @@ public static class MirsadNativeWindow {
 
     $analysisScript = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\analyze_mt5_observer_capture.py'
     $analysisOutput = Join-Path $evidence 'observer-engine2-analysis.json'
+    $debugOverlay = Join-Path $evidence 'observer-engine2-geometry-overlay.png'
     if (!(Test-Path -LiteralPath $analysisScript)) { throw 'Engine 2 Observer analysis script is missing.' }
     $analysisArgs = @($analysisScript, '--observer-root', $observerDir, '--market-symbol', $marketSymbol,
-        '--expected-broker-symbol', $observerSymbol, '--output', $analysisOutput)
+        '--expected-broker-symbol', $observerSymbol, '--output', $analysisOutput,
+        '--debug-overlay', $debugOverlay)
     $analysisLines = & python @analysisArgs 2>&1
     $analysisExitCode = $LASTEXITCODE
     foreach ($line in $analysisLines) { Add-Report ("Engine 2 smoke: {0}" -f [string]$line) }
