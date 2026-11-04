@@ -487,9 +487,17 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertAlmostEqual(result["decision_scores"]["engine_3_core_quality"], 1.0)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_timeframe_weight_coverage"], 0.60)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_quality"], 0.60)
-        self.assertLess(
+        expected_engine3_effective_weight = (
+            0.30 * 0.60
+            / (
+                0.20 * result["decision_scores"]["engine_1_quality"]
+                + 0.50 * result["decision_scores"]["engine_2_quality"]
+                + 0.30 * 0.60
+            )
+        )
+        self.assertAlmostEqual(
             result["decision_weights"]["engine_3_indicators"],
-            result["decision_weights"]["configured"]["engine_3_indicators"],
+            expected_engine3_effective_weight,
         )
 
     def test_engine4_rejects_missing_or_low_quality_composite_indicator_signal(self) -> None:
