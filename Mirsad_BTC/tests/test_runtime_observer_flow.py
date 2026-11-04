@@ -268,6 +268,9 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             self.assertEqual(report["command_publish"]["status"], "NOT_READY")
             self.assertTrue(report["execution_controls"]["terminal_connected"])
             self.assertIs(report["execution_controls"]["expert_execution_enabled"], False)
+            self.assertFalse(report["execution_controls"]["order_execution_ready"])
+            self.assertFalse(report["readiness"]["engine_5_command_execution_gate"])
+            self.assertEqual(report["overall_status"], "PARTIAL_OR_WAITING")
             self.assertEqual(report["execution_controls"]["expert_execution_telemetry"], "REPORTED_DISABLED")
             market_engine.collect.assert_called_once_with(bridge=bridge_snapshot)
             candle_history_engine.collect.assert_called_once_with(
