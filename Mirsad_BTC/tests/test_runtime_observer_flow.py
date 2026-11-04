@@ -213,8 +213,9 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             self.assertTrue(report["execution_controls"]["terminal_connected"])
             self.assertIs(report["execution_controls"]["expert_execution_enabled"], False)
             self.assertEqual(report["execution_controls"]["expert_execution_telemetry"], "REPORTED_DISABLED")
+            market_engine.collect.assert_called_once_with()
             candle_history_engine.collect.assert_called_once_with(
-                bridge=bridge_snapshot, market=market
+                bridge=bridge_snapshot
             )
             indicators_engine.analyze.assert_called_once_with(candle_history)
             self.assertEqual(report["engine_2_candles"]["status"], "READY")
