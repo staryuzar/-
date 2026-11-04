@@ -53,6 +53,36 @@ class ExecutionAcceptanceSizingTests(unittest.TestCase):
         self.assertIn('"margin_mode\\":%I64d', source)
         self.assertIn('"hedging_mode\\":%s', source)
 
+    def test_connection_loss_keeps_order_unknown_for_late_trade_confirmation(self) -> None:
+        source = (
+            PROJECT_ROOT / "mt5" / "Mirsad_BTC_ExecutionBridge.mq5"
+        ).read_text(encoding="utf-8")
+
+        send_start = source.index("bool sent = OrderSend(request, result);")
+        send_end = source.index("g_processing = false;", send_start)
+        send_block = source[send_start:send_end]
+        connection_branch = send_block.index(
+            "else if(result.retcode == TRADE_RETCODE_CONNECTION)"
+        )
+        reject_branch = send_block.index(
+            "else if(!sent || result.retcode != 0)"
+        )
+        self.assertLess(connection_branch, reject_branch)
+        self.assertIn('state = "UNKNOWN";', send_block[connection_branch:reject_branch])
+
+        transaction_start = source.index("void OnTradeTransaction(")
+        transaction = source[transaction_start:]
+        self.assertIn(
+            'else if(result.retcode == TRADE_RETCODE_CONNECTION) state = "UNKNOWN";',
+            transaction,
+        )
+        self.assertIn(
+            'if(current_state == "FILLED" || current_state == "PARTIAL" ||\n'
+            '      current_state == "REJECTED")',
+            transaction,
+        )
+        self.assertNotIn('current_state == "UNKNOWN")', transaction)
+
     def test_mir1_status_and_ack_are_published_from_flushed_atomic_snapshots(self) -> None:
         source = (
             PROJECT_ROOT / "mt5" / "Mirsad_BTC_ExecutionBridge.mq5"

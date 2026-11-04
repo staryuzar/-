@@ -994,6 +994,11 @@ void ProcessCommand()
       state = "PARTIAL";
    else if(result.retcode == TRADE_RETCODE_PLACED)
       state = "SUBMITTED";
+   // A lost trade-server connection makes the broker outcome ambiguous.
+   // Keep the command UNKNOWN so a late OnTradeTransaction can confirm it;
+   // never tell the bridge that the order definitely failed.
+   else if(result.retcode == TRADE_RETCODE_CONNECTION)
+      state = "UNKNOWN";
    else if(!sent || result.retcode != 0)
       state = "REJECTED";
 
@@ -1075,6 +1080,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    if(result.retcode == TRADE_RETCODE_DONE) state = "FILLED";
    else if(result.retcode == TRADE_RETCODE_DONE_PARTIAL) state = "PARTIAL";
    else if(result.retcode == TRADE_RETCODE_PLACED) state = "SUBMITTED";
+   else if(result.retcode == TRADE_RETCODE_CONNECTION) state = "UNKNOWN";
    else if(result.retcode != 0) state = "REJECTED";
 
    PublishAck(ack_id, state, result.retcode, result.order, result.deal,
