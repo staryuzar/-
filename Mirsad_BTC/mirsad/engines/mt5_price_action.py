@@ -751,6 +751,7 @@ def analyze_mt5_native_price_action(
             "structure_score": round(overall_score, 4) if overall_score is not None else None,
             "swing_structure_score": round(swing_structure_score, 4) if swing_structure_score is not None else None,
             "directional_evidence_weights": dict(DIRECTIONAL_EVIDENCE_WEIGHTS),
+            "timeframe_weights": dict(TIMEFRAME_WEIGHTS),
             "short_term_direction": short_direction,
             "short_term_structure_score": round(short_score, 4) if short_score is not None else None,
             "higher_timeframe_direction": higher_direction,
