@@ -54,6 +54,8 @@ jobs:
       - name: Compile MIR1 EA and verify MT5 heartbeat (broker orders disabled unless explicitly requested)
         env:
           MT5_CREDENTIALS: ${{ secrets.mt5 }}
+          MIRSAD_MT5_SERVER: 'mt5.demo.trade-hw.online'
+          MIRSAD_MT5_EXPECTED_ACCOUNT_SERVER: 'Headway-Demo'
           MIRSAD_RUN_BROKER_ACCEPTANCE: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_broker_acceptance_trade) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[MIRSAD_BROKER_ACCEPTANCE_ONCE]')) }}
         shell: pwsh
         run: ./Mirsad_BTC/scripts/mirsad_mt5_execution_run.ps1

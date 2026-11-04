@@ -57,6 +57,20 @@ try{
  }
  if($login -notmatch '^\d{4,20}$' -or [string]::IsNullOrWhiteSpace($accountPassword)){throw 'MT5 credentials are incomplete.'}
  if([string]::IsNullOrWhiteSpace($server)){throw 'MT5 server is missing from the configured connection.'}
+ if($runBrokerAcceptance){
+  $requestedDemoHost=[string]$env:MIRSAD_MT5_SERVER
+  $expectedDemoAccountServer=[string]$env:MIRSAD_MT5_EXPECTED_ACCOUNT_SERVER
+  if($requestedDemoHost -ne 'mt5.demo.trade-hw.online'){
+   throw 'Broker acceptance is blocked: the only permitted connection host is mt5.demo.trade-hw.online.'
+  }
+  if($expectedDemoAccountServer -ne 'Headway-Demo'){
+   throw 'Broker acceptance is blocked: expected account server must be explicitly pinned to Headway-Demo.'
+  }
+  # Ignore a server override from the secret for the one-off acceptance run:
+  # always connect through the explicitly pinned demo host.
+  $server=$requestedDemoHost
+  Add-Report 'PASS — Broker acceptance is pinned to the Headway demo host and expected Headway-Demo account identity.'
+ }
  Write-Output "::add-mask::$login"
  Write-Output "::add-mask::$accountPassword"
  Write-Output "::add-mask::$server"
@@ -191,6 +205,16 @@ Period=M1
  }
  if(!$heartbeat){throw 'MT5 did not publish a fresh connected MIR1 heartbeat with account identity and all execution permissions enabled.'}
  if(!$quoteFresh){throw 'MT5 broker quote did not become fresh within the 150-second observation window.'}
+ if($runBrokerAcceptance){
+  $actualAccountServer=[string]$telemetry.account.server
+  if($actualAccountServer -ne $expectedDemoAccountServer){
+   throw 'Broker acceptance aborted before any order: the connected MT5 account server does not match Headway-Demo.'
+  }
+  if([string]$telemetry.market_symbol -ne 'BTCUSDT'){
+   throw 'Broker acceptance aborted before any order: the expected market mapping is BTCUSDT.'
+  }
+  Add-Report 'PASS — Live MT5 telemetry confirms the actual account server is Headway-Demo and market mapping is BTCUSDT.'
+ }
  if($executionEnabled){
   Add-Report 'PASS — Mirsad EA heartbeat is live; execution input and MT5 automated-trading permissions are enabled.'
  }else{
