@@ -303,15 +303,45 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
     symbol = ""
     magic = 0
     try:
-        state = engine.inspect()
-        if (
-            state.get("status") != "CONNECTED"
-            or state.get("terminal_connected") is not True
-            or state.get("execution_enabled") is not True
-            or state.get("execution_input_enabled") is not True
-            or state.get("trade_permissions_available") is not True
-        ):
-            raise RuntimeError("Fresh MIR1 heartbeat and every MT5 execution permission are required.")
+        # A fresh status snapshot may land just at the edge of the
+        # heartbeat-age window after the PowerShell transport checks. Wait
+        # briefly for the next one-second EA heartbeat instead of failing a
+        # healthy terminal on a single stale read.
+        ready_deadline = time.monotonic() + 45
+        state: dict[str, Any] = {}
+        readiness_snapshot: dict[str, Any] = {}
+        while time.monotonic() < ready_deadline:
+            state = engine.inspect()
+            readiness_snapshot = {
+                "status": state.get("status"),
+                "heartbeat_age_seconds": state.get("heartbeat_age_seconds"),
+                "terminal_connected": state.get("terminal_connected"),
+                "execution_enabled": state.get("execution_enabled"),
+                "execution_input_enabled": state.get("execution_input_enabled"),
+                "trade_permissions_available": state.get("trade_permissions_available"),
+                "symbol": state.get("symbol"),
+                "quote_age_seconds": state.get("quote_age_seconds"),
+            }
+            if (
+                state.get("status") == "CONNECTED"
+                and state.get("terminal_connected") is True
+                and state.get("execution_enabled") is True
+                and state.get("execution_input_enabled") is True
+                and state.get("trade_permissions_available") is True
+            ):
+                result["steps"].append({
+                    "step": "FRESH_MIR1_EXECUTION_PERMISSIONS",
+                    "status": "PASS",
+                    "wait_seconds": round(45 - max(0, ready_deadline - time.monotonic()), 2),
+                    "details": readiness_snapshot,
+                })
+                break
+            time.sleep(1)
+        else:
+            raise RuntimeError(
+                "Fresh MIR1 heartbeat and every MT5 execution permission are required; "
+                f"last snapshot={readiness_snapshot}"
+            )
         symbol = str(state.get("symbol", "")).strip()
         market_symbol = str(state.get("market_symbol", "")).strip()
         magic = int(state.get("magic_number", 0) or 0)
