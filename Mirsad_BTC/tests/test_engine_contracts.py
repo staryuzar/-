@@ -501,6 +501,55 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             },
         }
 
+    def test_optional_chart_image_does_not_change_open_or_close_signal_ids(self) -> None:
+        intelligence = {
+            "status": "PARTIAL",
+            "economic_calendar": {
+                "status": "EMPTY",
+                "high_impact_window_active": False,
+                "events": [],
+            },
+        }
+        chart_a = self._chart()
+        chart_a["image"] = "capture-a.png"
+        chart_b = {**chart_a, "image": "capture-b.png"}
+        indicators = IndicatorsEngine().analyze(chart_a["candle_history"])
+        price_action = make_engine2_price_action()
+
+        open_a = DecisionEngine().analyze(
+            self._market(), chart_a, self._daily_risk_bridge(locked=False),
+            indicators, engine2_price_action=price_action,
+            market_intelligence=intelligence,
+        )
+        open_b = DecisionEngine().analyze(
+            self._market(), chart_b, self._daily_risk_bridge(locked=False),
+            indicators, engine2_price_action=price_action,
+            market_intelligence=intelligence,
+        )
+        self.assertEqual(open_a["candidate_action"], "BUY")
+        self.assertEqual(open_a["action"], "BUY")
+        self.assertEqual(open_a["signal_id"], open_b["signal_id"])
+
+        opposite_position = [{
+            "ticket": 7654321, "symbol": "BTC", "type": 1,
+            "magic": 26110201, "volume": 0.1,
+        }]
+        close_a = DecisionEngine().analyze(
+            self._market(), chart_a,
+            self._daily_risk_bridge(locked=False, positions=opposite_position),
+            indicators, engine2_price_action=price_action,
+            market_intelligence=intelligence,
+        )
+        close_b = DecisionEngine().analyze(
+            self._market(), chart_b,
+            self._daily_risk_bridge(locked=False, positions=opposite_position),
+            indicators, engine2_price_action=price_action,
+            market_intelligence=intelligence,
+        )
+        self.assertEqual(close_a["action"], "CLOSE")
+        self.assertEqual(close_a["position_ticket"], 7654321)
+        self.assertEqual(close_a["signal_id"], close_b["signal_id"])
+
     def test_daily_loss_lock_blocks_new_buy_or_sell_entry(self) -> None:
         chart = self._chart()
         indicators = IndicatorsEngine().analyze(chart["candle_history"])

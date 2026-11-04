@@ -738,10 +738,11 @@ class DecisionEngine:
         elif aligned_signal == "SELL":
             stop_loss, take_profit = entry + 1.5 * atr5, entry - 3.0 * atr5
 
+        # The signal identity is derived only from native market/candle inputs.
+        # Optional screenshot filenames must never create a different order ID.
         signal_id = _signal_id(
             market_symbol, aligned_signal,
             last_closed_candle_time_ms or 0,
-            chart.get("image", ""),
         ) if aligned_signal in {"BUY", "SELL"} else None
 
         size: dict[str, Any] = {
@@ -785,8 +786,7 @@ class DecisionEngine:
                     "reason": "Engine 1 and Engine 2 confirmed a direction opposite to an existing position; close first before considering a reversal.",
                 }
                 signal_id = _signal_id("CLOSE", market_symbol, close_ticket, round(close_volume, 8),
-                                       last_closed_candle_time_ms or 0,
-                                       chart.get("image", ""))
+                                       last_closed_candle_time_ms or 0)
             elif same:
                 action = "HOLD"
                 open_block_reason = "A same-direction position is already open; duplicate entry is suppressed."
