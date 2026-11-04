@@ -1267,6 +1267,59 @@ class BridgeProtocolTests(unittest.TestCase):
             self.assertEqual(bridge["event_log"][0]["event"], "COMMAND_REJECTED")
             self.assertTrue(bridge["common_files_files"]["events.jsonl"])
 
+    def test_fresh_heartbeat_with_malformed_positions_is_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "heartbeat_at_ms": int(time.time() * 1000),
+                "symbol": "BTC",
+                "market_symbol": "BTCUSDT",
+                "magic_number": 26110201,
+                "positions": [{
+                    "ticket": 123,
+                    "position_id": 456,
+                    "symbol": "BTC",
+                    "type": 0,
+                    "magic": 26110201,
+                    "volume": "0.1",
+                    "price_open": "60000",
+                    "stop_loss": "59000",
+                    "take_profit": "62000",
+                    "profit": "0",
+                }, {"ticket": "invalid"}],
+            }), encoding="utf-8")
+
+            bridge = MT5BridgeEngine(common_files=temp).inspect()
+
+            self.assertEqual(bridge["status"], "STALE")
+            self.assertFalse(bridge["positions_snapshot_valid"])
+            self.assertEqual(bridge["positions"], [])
+            self.assertIn("missing required", bridge["positions_snapshot_reason"])
+            self.assertIn("missing required", bridge["message"])
+
+    def test_fresh_heartbeat_requires_a_positions_array(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "heartbeat_at_ms": int(time.time() * 1000),
+                "symbol": "BTC",
+                "market_symbol": "BTCUSDT",
+                "magic_number": 26110201,
+            }), encoding="utf-8")
+
+            bridge = MT5BridgeEngine(common_files=temp).inspect()
+
+            self.assertEqual(bridge["status"], "STALE")
+            self.assertFalse(bridge["positions_snapshot_valid"])
+            self.assertEqual(bridge["positions"], [])
+            self.assertIn("must be a JSON array", bridge["message"])
+
     def test_future_heartbeat_is_not_treated_as_connected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "MirsadBTC"

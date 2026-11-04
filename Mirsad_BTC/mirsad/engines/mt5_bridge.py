@@ -28,6 +28,48 @@ def _read_json_array(path: Path) -> list[Any] | None:
         return None
 
 
+def _validate_positions_snapshot(raw: Any) -> tuple[list[dict[str, Any]], bool, str | None]:
+    """Validate the complete position list before treating an empty list as no exposure."""
+    if not isinstance(raw, list):
+        return [], False, "MIR1 status positions must be a JSON array."
+
+    required = (
+        "ticket", "position_id", "symbol", "type", "magic", "volume",
+        "price_open", "stop_loss", "take_profit", "profit",
+    )
+    validated: list[dict[str, Any]] = []
+    seen_tickets: set[int] = set()
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            return [], False, f"MIR1 position {index} is not an object."
+        if any(name not in item for name in required):
+            return [], False, f"MIR1 position {index} is missing required ownership or price fields."
+        try:
+            ticket = int(item["ticket"])
+            position_id = int(item["position_id"])
+            side = int(item["type"])
+            magic = int(item["magic"])
+            volume = float(item["volume"])
+            price_open = float(item["price_open"])
+            stop_loss = float(item["stop_loss"])
+            take_profit = float(item["take_profit"])
+            profit = float(item["profit"])
+        except (TypeError, ValueError, OverflowError):
+            return [], False, f"MIR1 position {index} has invalid numeric fields."
+        symbol = str(item.get("symbol", "")).strip()
+        numeric = (volume, price_open, stop_loss, take_profit, profit)
+        if (
+            ticket <= 0 or position_id <= 0 or side not in (0, 1) or magic < 0
+            or not symbol or ticket in seen_tickets
+            or any(not math.isfinite(value) for value in numeric)
+            or volume <= 0 or price_open <= 0 or stop_loss < 0 or take_profit < 0
+        ):
+            return [], False, f"MIR1 position {index} failed identity, ownership, volume or price validation."
+        seen_tickets.add(ticket)
+        validated.append(item)
+    return validated, True, None
+
+
 def _read_mt5_deal_history(
     path: Path,
     *,
@@ -236,11 +278,14 @@ class MT5BridgeEngine:
         spec_value = payload.get("symbol_spec")
         symbol_spec = spec_value if isinstance(spec_value, dict) else {}
         positions_value = payload.get("positions")
-        positions = positions_value if isinstance(positions_value, list) else []
+        positions, positions_snapshot_valid, positions_snapshot_reason = (
+            _validate_positions_snapshot(positions_value)
+        )
         schema_ok = payload.get("schema") == "MIR1"
         alive = (
             payload.get("terminal_connected") is True and schema_ok
             and age is not None and 0 <= age <= MT5_HEARTBEAT_MAX_AGE_SECONDS
+            and positions_snapshot_valid
         )
         ack = _read_object(self.root / "ack.json")
         command = _read_object(self.root / "command.json")
@@ -294,6 +339,8 @@ class MT5BridgeEngine:
             "quote": quote,
             "symbol_spec": symbol_spec,
             "positions": positions,
+            "positions_snapshot_valid": positions_snapshot_valid,
+            "positions_snapshot_reason": positions_snapshot_reason,
             "positions_file_valid": positions_file_valid,
             "current_command": command,
             "last_order_ack": ack,
@@ -302,7 +349,10 @@ class MT5BridgeEngine:
             "deal_history": deal_history,
             "common_files_directory": str(self.root),
             "common_files_files": files,
-            "message": "Fresh EA telemetry received." if alive else "EA heartbeat missing, stale or protocol schema mismatch.",
+            "message": (
+                "Fresh EA telemetry received." if alive
+                else positions_snapshot_reason or "EA heartbeat missing, stale or protocol schema mismatch."
+            ),
             "account_type_classification": "NOT_PERFORMED",
             "risk_calculation": "OWNED_BY_ENGINE_4",
         }
