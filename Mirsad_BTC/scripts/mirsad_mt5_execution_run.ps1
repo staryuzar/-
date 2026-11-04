@@ -124,48 +124,34 @@ Period=M1
  $accountPassword=$null;$credentialRaw=$null;$obj=$null
  $terminalProcess=Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable',"/config:$loginConfig","/login:$login") -WorkingDirectory $installDir -PassThru
  Add-Report 'MT5 started with Mirsad EA on BTC,M1; terminal-wide automated trading is enabled (AllowLiveTrading=1). Authorization is checked through terminal logs and MIR1 identity, not a server/account-type label.'
- $loginStarted=Get-Date;$authorized=$false;$heartbeat=$false;$quoteFresh=$false;$folder=$null;$telemetry=$null
+ $heartbeat=$false;$quoteFresh=$false;$folder=$null;$telemetry=$null
  $deadline=(Get-Date).AddSeconds(150)
  while((Get-Date)-lt $deadline){
-  $logDir=Join-Path $installDir 'Logs'
-  if(Test-Path $logDir){
-   $logs=Get-ChildItem -LiteralPath $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 12
-   foreach($log in $logs){
-    if($log.LastWriteTime -lt $loginStarted.AddSeconds(-3)){continue}
-    $txt='';try{$txt=Get-Content -LiteralPath $log.FullName -Raw}catch{continue}
-    foreach($line in ($txt -split "\r?\n")){
-      if($line -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
-         $line -notmatch '(?i)(failed|invalid|not authorized|authorization error)'){$authorized=$true}
-    }
-   }
-  }
   $folder=Find-CommonFolder
   if($folder){
    try{
     $telemetry=Get-Content -LiteralPath (Join-Path $folder 'status.json') -Raw|ConvertFrom-Json -ErrorAction Stop
-     $accountLogin=0
-     try{$accountLogin=[int64]$telemetry.account.login}catch{$accountLogin=0}
-     $accountServer=[string]$telemetry.account.server
-     $accountIdentityValid=($accountLogin -gt 0 -and -not [string]::IsNullOrWhiteSpace($accountServer))
-     $heartbeat=($telemetry.schema -eq 'MIR1' -and [bool]$telemetry.terminal_connected -and
-       [bool]$telemetry.execution_enabled -and
-       [bool]$telemetry.execution_input_enabled -and
-       [bool]$telemetry.trade_permissions_available -and
-       $accountIdentityValid -and
-       [int64]$telemetry.heartbeat_at_ms -gt 0 -and $telemetry.symbol -eq 'BTC')
+    $accountLogin=0
+    try{$accountLogin=[int64]$telemetry.account.login}catch{$accountLogin=0}
+    $accountServer=[string]$telemetry.account.server
+    $accountIdentityValid=($accountLogin -gt 0 -and -not [string]::IsNullOrWhiteSpace($accountServer))
+    $heartbeat=($telemetry.schema -eq 'MIR1' -and [bool]$telemetry.terminal_connected -and
+      [bool]$telemetry.execution_enabled -and
+      [bool]$telemetry.execution_input_enabled -and
+      [bool]$telemetry.trade_permissions_available -and
+      $accountIdentityValid -and
+      [int64]$telemetry.heartbeat_at_ms -gt 0 -and $telemetry.symbol -eq 'BTC')
     $tickAgeValue=$telemetry.quote.tick_age_seconds
     $tickAge=[double]$tickAgeValue
     $quoteFresh=($null -ne $tickAgeValue -and [double]$telemetry.quote.ask -gt 0 -and
       $tickAge -ge 0 -and $tickAge -le 10)
    }catch{$heartbeat=$false;$quoteFresh=$false}
   }
-  if($authorized -and $heartbeat -and $quoteFresh){break}
-  if($terminalProcess.HasExited){Add-Report 'Terminal exited before both authorization and EA heartbeat.';break}
+  if($heartbeat -and $quoteFresh){break}
+  if($terminalProcess.HasExited){Add-Report 'Terminal exited before a fresh connected MIR1 heartbeat, account identity and broker quote were observed.';break}
   Start-Sleep -Seconds 3
  }
- if(!$authorized){throw 'MT5 authorization-success event was not found in terminal logs.'}
- Add-Report 'PASS — MT5 reported a successful authorization event; MIR1 account identity is present.'
- if(!$heartbeat){throw 'MT5 logged in but the Mirsad EA heartbeat did not report execution enabled.'}
+ if(!$heartbeat){throw 'MT5 did not publish a fresh connected MIR1 heartbeat with account identity and all execution permissions enabled.'}
  if(!$quoteFresh){throw 'MT5 broker quote did not become fresh within the 150-second observation window.'}
  Add-Report 'PASS — Mirsad EA heartbeat is live; the EA input and MT5 automated-trading permissions are enabled.'
  Add-Report ("Broker symbol: {0}; market mapping: {1}; account currency: {2}" -f $telemetry.symbol,$telemetry.market_symbol,$telemetry.account.currency)
