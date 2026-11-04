@@ -475,11 +475,23 @@ def _timeframe_indicator_signal(
     mfi_score = _clamp_signal((float(values["mfi14"]) - 50.0) / 25.0) if values.get("mfi14") is not None else None
     obv_score = _obv_flow_score(candles)
 
+    # MACD and OsMA are algebraically related; Stochastic %K and %D
+    # are two smoothed views of the same oscillator. Treat each pair as one
+    # family vote so correlated outputs cannot double-count inside Engine 3.
+    def family_mean(values: list[float | None]) -> float | None:
+        valid = [
+            float(value) for value in values
+            if value is not None and math.isfinite(float(value))
+        ]
+        return sum(valid) / len(valid) if valid else None
+
+    macd_family_score = family_mean([macd_score, osma_score])
+    stochastic_family_score = family_mean([stochastic_k_score, stochastic_d_score])
     features = {
         "trend": [trend_direction, bb_score],
-        "momentum": [rsi_score, macd_score, osma_score, momentum_score],
+        "momentum": [rsi_score, macd_family_score, momentum_score],
         "directional_strength": [dmi_score],
-        "oscillator": [stochastic_k_score, stochastic_d_score, cci_score, wpr_score],
+        "oscillator": [stochastic_family_score, cci_score, wpr_score],
         "volume_flow": [mfi_score, obv_score],
     }
     groups: dict[str, dict[str, Any]] = {}
