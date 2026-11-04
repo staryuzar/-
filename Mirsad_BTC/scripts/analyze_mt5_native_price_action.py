@@ -28,7 +28,7 @@ def build_report(
     candles = MT5ChartCandleHistory(
         common_files=str(common_files),
         symbol=market_symbol,
-    ).collect(market=market)
+    ).collect()
     failures: list[str] = []
     if market.get("status") != "LIVE":
         failures.append(f"Market feed is not LIVE: {market.get('status')}.")
