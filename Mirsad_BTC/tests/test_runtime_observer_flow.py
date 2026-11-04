@@ -203,7 +203,11 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             self.assertTrue(passed_chart["decision_eligible"])
             self.assertEqual(report["market_intelligence"]["status"], "READY")
             self.assertTrue(report["readiness"]["engine_1_market_intelligence"])
-            intelligence_engine.collect.assert_called_once()
+            intelligence_engine.collect.assert_called_once_with()
+            self.assertIs(
+                decision_engine.analyze.call_args.kwargs["market_intelligence"],
+                report["market_intelligence"],
+            )
             self.assertEqual(report["decision"]["action"], "WAIT")
             self.assertEqual(report["command_publish"]["status"], "NOT_READY")
             self.assertTrue(report["execution_controls"]["terminal_connected"])

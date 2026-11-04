@@ -196,36 +196,27 @@ class WeightedDecisionTests(unittest.TestCase):
                                + 0.50 * weights["engine_2_price_action"]
                                + 0.10 * weights["engine_3_indicators"])
 
-    def test_engine1_intelligence_score_uses_quote_pulse_only_as_minor_context(self) -> None:
-        score, quality, parts = _market_intelligence_signal({
-            "market_context": {"microstructure": {
-                "status": "READY", "quote_direction_balance": 0.65,
-            }},
-            "market_intelligence": {
-                "status": "READY", "directional_score": -0.40,
-                "confidence": 0.80, "evidence_coverage": 0.80,
-            },
-        })
-        self.assertAlmostEqual(score, -0.295)
+    def test_engine1_uses_only_its_standalone_report_and_never_quote_pulse(self) -> None:
+        report = {
+            "status": "READY", "directional_score": -0.40,
+            "confidence": 0.80, "evidence_coverage": 0.80,
+        }
+        score, quality, parts = _market_intelligence_signal(report)
+        self.assertAlmostEqual(score, -0.40)
         self.assertAlmostEqual(quality, 0.80)
-        self.assertEqual(parts["source"], "MARKET_INTELLIGENCE_PLUS_MINOR_QUOTE_CONTEXT")
-
-    def test_engine1_quote_only_fallback_is_low_quality_and_cannot_take_full_weight(self) -> None:
+        self.assertEqual(parts["source"], "ENGINE1_STANDALONE_REPORT")
         score, quality, parts = _market_intelligence_signal({
-            "market_context": {"microstructure": {
-                "status": "READY", "quote_direction_balance": 0.65,
-            }},
+            "status": "LIVE",
+            "market_context": {"microstructure": {"status": "READY", "quote_direction_balance": 0.95}},
         })
-        self.assertAlmostEqual(score, 0.65)
-        self.assertAlmostEqual(quality, 0.20)
-        self.assertEqual(parts["source"], "QUOTE_PULSE_FALLBACK_ONLY")
+        self.assertIsNone(score)
+        self.assertEqual(quality, 0.0)
+        self.assertEqual(parts["source"], "UNAVAILABLE")
 
     def test_single_category_or_low_coverage_intelligence_is_excluded(self) -> None:
         score, quality, parts = _market_intelligence_signal({
-            "market_intelligence": {
-                "status": "PARTIAL", "directional_score": 0.95,
-                "confidence": 0.90, "evidence_coverage": 0.45,
-            },
+            "status": "PARTIAL", "directional_score": 0.95,
+            "confidence": 0.90, "evidence_coverage": 0.45,
         })
         self.assertIsNone(score)
         self.assertEqual(quality, 0.0)
@@ -252,6 +243,10 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
              "analysis_score": 0.95, "analysis_confidence": 0.90, "image": "chart.png",
              "candle_history": make_engine2_candle_history("down")},
             {},
+            market_intelligence={
+                "status": "READY", "direction": "BEARISH", "directional_score": -0.75,
+                "confidence": 0.80, "evidence_coverage": 0.80,
+            },
         )
         self.assertEqual(
             result["direction_inputs"],
@@ -269,7 +264,7 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "engine_3_indicators": 0.30,
         })
         self.assertAlmostEqual(sum(result["decision_weights"][key] for key in configured), 1.0)
-        self.assertLess(result["decision_scores"]["market_score"], 0)
+        self.assertAlmostEqual(result["decision_scores"]["market_score"], -0.75)
         self.assertGreater(result["decision_scores"]["engine_2_score"], 0)
 
     def test_high_impact_macro_window_pauses_new_entries_but_not_position_close(self) -> None:
@@ -314,7 +309,9 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             },
             "positions": [],
         }
-        paused = DecisionEngine().analyze(market, chart, bridge, indicators)
+        paused = DecisionEngine().analyze(
+            market, chart, bridge, indicators, market_intelligence=market["market_intelligence"]
+        )
         self.assertEqual(paused["candidate_action"], "BUY")
         self.assertEqual(paused["action"], "WAIT")
         self.assertTrue(paused["macro_event_gate"]["new_entries_paused"])
@@ -327,7 +324,9 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
                 "magic": 12345, "volume": 0.05,
             }],
         }
-        close = DecisionEngine().analyze(market, chart, bridge_with_short, indicators)
+        close = DecisionEngine().analyze(
+            market, chart, bridge_with_short, indicators, market_intelligence=market["market_intelligence"]
+        )
         self.assertEqual(close["action"], "CLOSE")
         self.assertEqual(close["position_ticket"], 778899)
         self.assertTrue(close["macro_event_gate"]["new_entries_paused"])
@@ -530,8 +529,8 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["position_ticket"], 123456)
         self.assertEqual(result["position_management"]["action"], "MODIFY")
         self.assertEqual(result["chart_gate"], "POSITION_MANAGEMENT_PRIORITY")
-        self.assertEqual(result["engine_inputs"]["engine_1_market"], "STALE")
-        self.assertFalse(result["engine_inputs"]["engine_1_required_for_protective_management"])
+        self.assertEqual(result["engine_inputs"]["engine_5_execution_quote_feed"], "STALE")
+        self.assertFalse(result["engine_inputs"]["engine_1_intelligence_required_for_protective_management"])
         self.assertFalse(result["management_plan"]["decision_eligible"])
         self.assertGreater(result["stop_loss"], 100.0)
 

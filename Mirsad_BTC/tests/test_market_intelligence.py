@@ -117,25 +117,20 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(result["status"], "PARTIAL")
         self.assertEqual(result["direction"], "BULLISH")
 
-    def test_high_impact_calendar_event_sets_only_the_new_entry_window(self) -> None:
+    def test_high_impact_calendar_event_uses_independent_public_providers(self) -> None:
         now = 1_798_000_000_000
-        market = {
-            "market_context": {
-                "economic_calendar": {
-                    "status": "AVAILABLE",
-                    "events": [{
-                        "event_id": 7,
-                        "event_time_utc_ms": now + 5 * 60_000,
-                        "name": "US CPI",
-                        "importance": "HIGH",
-                        "currency": "USD",
-                    }],
-                },
-            },
-        }
         result = MarketIntelligenceEngine._calendar_context(
-            market,
-            {"status": "NOT_CONFIGURED", "events": []},
+            {
+                "showmytrades": {"status": "READY", "events": [{
+                    "event_id": "usd-cpi",
+                    "event_time_utc_ms": now + 5 * 60_000,
+                    "name": "US CPI",
+                    "importance": "HIGH",
+                    "currency": "USD",
+                    "provider": "ShowMyTrades",
+                }]},
+                "trading_economics": {"status": "NOT_CONFIGURED", "events": []},
+            },
             now,
         )
         self.assertTrue(result["high_impact_window_active"])
@@ -163,10 +158,10 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         engine._collect_trading_economics = lambda: {
             "status": "NOT_CONFIGURED", "events": [],
         }
-        result = engine.collect(
-            {"market_context": {"economic_calendar": {"status": "NOT_AVAILABLE", "events": []}}},
-            now_ms=1_798_000_000_000,
-        )
+        engine._collect_public_calendar = lambda *, now_ms=None: {
+            "status": "EMPTY", "events": [], "server_time_ms": now_ms,
+        }
+        result = engine.collect(now_ms=1_798_000_000_000)
         self.assertEqual(result["schema"], "MIR-ENGINE1-INTELLIGENCE-1")
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["direction"], "BULLISH")
@@ -174,6 +169,36 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertIn("confidence_basis", result)
         self.assertTrue(any("chart images" in item and "EMA" in item for item in result["boundaries"]))
 
+
+    def test_public_calendar_uses_provider_clock_and_normalizes_events(self) -> None:
+        engine = MarketIntelligenceEngine()
+        now = 1_798_000_000_000
+        requests = []
+        engine._json = lambda url, **kwargs: requests.append((url, kwargs)) or {
+            "server_time": now // 1000,
+            "events": [{
+                "ts": now // 1000 + 300,
+                "currency": "USD",
+                "impact": "high",
+                "title": "US CPI",
+                "forecast": "2.5%",
+                "previous": "2.6%",
+                "id": "usd-cpi",
+            }],
+        }
+        result = engine._collect_public_calendar(now_ms=now)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["events"][0]["event_time_utc_ms"], now + 300_000)
+        self.assertEqual(result["events"][0]["importance"], "HIGH")
+        self.assertEqual(result["events"][0]["provider"], "ShowMyTrades")
+        self.assertEqual(requests[0][1]["ttl_seconds"], 900)
+
+    def test_public_calendar_rejects_stale_provider_clock(self) -> None:
+        engine = MarketIntelligenceEngine()
+        engine._json = lambda *args, **kwargs: {"server_time": 1_790_000_000, "events": []}
+        result = engine._collect_public_calendar(now_ms=1_798_000_000_000)
+        self.assertEqual(result["status"], "STALE")
+        self.assertEqual(result["events"], [])
 
     def test_duplicate_headlines_are_counted_once_but_keep_both_publishers(self) -> None:
         now = 1_798_000_000_000

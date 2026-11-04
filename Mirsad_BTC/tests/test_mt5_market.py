@@ -65,7 +65,7 @@ class MT5MarketDataEngineTests(unittest.TestCase):
             "quote": {"bid": 90_000.0, "ask": 90_001.0}, "quote_age_seconds": 1.0,
         }
 
-    def test_reads_fresh_mt5_quote_pulse_and_economic_calendar_without_candles(self) -> None:
+    def test_reads_fresh_mt5_execution_quote_pulse_without_calendar_or_candles(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             self._write_snapshot(directory, make_snapshot())
             market = self._engine(directory).collect(bridge=self._bridge())
@@ -80,7 +80,8 @@ class MT5MarketDataEngineTests(unittest.TestCase):
         self.assertEqual(pulse["tick_rate_per_minute"], 1.5)
         self.assertEqual(pulse["upticks"], 2)
         self.assertGreater(pulse["quote_direction_balance"], 0)
-        self.assertEqual(market["market_context"]["economic_calendar"]["events"][0]["importance"], "HIGH")
+        self.assertNotIn("economic_calendar", market["market_context"])
+        self.assertNotIn("economic_calendar", market["venues"]["MT5 Broker"])
         book = market["market_context"]["order_book"]
         self.assertEqual(book["status"], "AVAILABLE")
         self.assertEqual(book["bid_level_count"], 2)
@@ -198,15 +199,18 @@ class MT5MarketDataEngineTests(unittest.TestCase):
         self.assertEqual(market["market_context"]["microstructure"]["status"], "INVALID")
         self.assertIsNone(market["market_context"]["microstructure"]["quote_direction_balance"])
 
-    def test_unavailable_economic_calendar_is_reported_not_invented(self) -> None:
+    def test_observer_calendar_is_ignored_by_engine5_quote_feed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             payload = make_snapshot()
-            payload["economic_calendar"] = {"status": "UNAVAILABLE", "error_code": 5402}
+            payload["economic_calendar"] = {"status": "AVAILABLE", "events": [{
+                "event_id": 99, "event_time_utc_ms": int(time.time() * 1000) + 60_000,
+                "name": "CPI", "importance": "HIGH",
+            }]}
             self._write_snapshot(directory, payload)
             market = self._engine(directory).collect()
-        calendar = market["market_context"]["economic_calendar"]
-        self.assertEqual(calendar["status"], "NOT_AVAILABLE")
-        self.assertEqual(calendar["events"], [])
+        self.assertEqual(market["status"], "LIVE")
+        self.assertNotIn("economic_calendar", market["market_context"])
+        self.assertNotIn("economic_calendar", market["venues"]["MT5 Broker"])
 
 
 if __name__ == "__main__":
