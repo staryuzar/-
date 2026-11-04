@@ -2,7 +2,7 @@ name: Mirsad Engine 2 — Native OHLC Direction Analysis
 
 on:
   push:
-    branches: [main]
+    branches: [mini]
     paths:
       - 'Mirsad_BTC/mirsad/engines/chart*.py'
       - 'Mirsad_BTC/mirsad/engines/visual_knowledge.py'
@@ -45,10 +45,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - name: Checkout main branch
+      - name: Checkout mini branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: mini
 
       - name: Set up Python
         uses: actions/setup-python@v5
