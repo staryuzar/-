@@ -76,7 +76,7 @@ class RuntimeObserverFlowTests(unittest.TestCase):
         self.assertEqual(result["status"], "NOT_READY")
         self.assertEqual(result["source"], "MT5_CHART_OBSERVER")
         self.assertEqual(result["available_timeframes"], [])
-    def test_collect_once_feeds_eligible_observer_chart_into_engine4_without_publishing(self) -> None:
+    def test_collect_once_uses_native_ohlc_and_never_calls_image_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             image_path = Path(directory) / "observer.png"
             Image.new("RGB", (640, 360), (15, 20, 30)).save(image_path, format="PNG")
@@ -244,14 +244,15 @@ class RuntimeObserverFlowTests(unittest.TestCase):
             ):
                 report = runtime.collect_once()
 
-            self.assertEqual(visual_analyzer.call_count, 1)
-            self.assertEqual(report["chart"]["source"], "MT5_OBSERVER")
-            self.assertTrue(report["chart"]["decision_eligible"])
-            self.assertEqual(report["chart"]["observer_capture"]["capture_id"], "runtime-flow-capture")
+            visual_analyzer.assert_not_called()
+            self.assertEqual(report["chart"]["source"], "NATIVE_MT5_OHLC")
+            self.assertEqual(report["chart"]["status"], "NATIVE_OHLC_ONLY")
+            self.assertFalse(report["chart"]["decision_eligible"])
+            self.assertEqual(report["chart_observer"]["status"], "OPTIONAL_DISABLED")
             decision_engine.analyze.assert_called_once()
             passed_chart = decision_engine.analyze.call_args.args[1]
-            self.assertEqual(passed_chart["source"], "MT5_OBSERVER")
-            self.assertTrue(passed_chart["decision_eligible"])
+            self.assertEqual(passed_chart["source"], "NATIVE_MT5_OHLC")
+            self.assertFalse(passed_chart["decision_eligible"])
             self.assertEqual(report["market_intelligence"]["status"], "READY")
             self.assertTrue(report["readiness"]["engine_1_market_intelligence"])
             intelligence_engine.collect.assert_called_once_with()
