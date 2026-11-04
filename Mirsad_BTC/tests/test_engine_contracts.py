@@ -191,8 +191,8 @@ class WeightedDecisionTests(unittest.TestCase):
         )
         self.assertAlmostEqual(score, 0.39)
         self.assertEqual(weights["engine_1_market_intelligence"], 0.0)
-        self.assertAlmostEqual(weights["engine_2_price_action"], 0.50)
-        self.assertAlmostEqual(weights["engine_3_indicators"], 0.30)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.55)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.25)
         self.assertAlmostEqual(sum(weights.values()), 0.80)
 
     def test_low_quality_engine1_evidence_receives_less_than_its_baseline_weight(self) -> None:
@@ -279,7 +279,7 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             sum(result["decision_weights"][key] for key in configured),
             result["decision_scores"]["effective_weight_coverage"],
         )
-        self.assertAlmostEqual(result["decision_scores"]["effective_weight_coverage"], 0.46)
+        self.assertAlmostEqual(result["decision_scores"]["effective_weight_coverage"], 0.41)
         self.assertAlmostEqual(result["decision_scores"]["market_score"], -0.75)
         self.assertIsNone(result["decision_scores"]["engine_2_score"])
         self.assertEqual(result["engine_2_score_source"], "NATIVE_OHLC_NOT_PROVIDED")
