@@ -35,7 +35,8 @@ CACHE: dict[str, tuple[float, bytes]] = {}
 CACHE_LOCK = threading.Lock()
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_HEADLINES = 40
-COMPONENT_WEIGHTS = {"derivatives": 0.45, "news": 0.35, "fear_greed": 0.20}
+COMPONENT_WEIGHTS = {"derivatives": 0.55, "news": 0.40, "fear_greed": 0.05}
+DERIVATIVE_SIGNAL_WEIGHTS = {"funding_rate": 0.55, "long_short_ratio": 0.45}
 
 _POSITIVE_TERMS = (
     "etf inflow", "inflows", "adoption", "approved", "approval", "launches",
@@ -262,11 +263,11 @@ def score_derivatives(
         if valid_funding:
             # Positive funding means longs pay shorts; crowded long positioning
             # is treated as contrarian risk, not as bullish momentum.
-            venue_parts.append(_clamp(-float(funding) / 0.0005) * 0.60)
-            total_weight += 0.60
+            venue_parts.append(_clamp(-float(funding) / 0.0005) * DERIVATIVE_SIGNAL_WEIGHTS["funding_rate"])
+            total_weight += DERIVATIVE_SIGNAL_WEIGHTS["funding_rate"]
         if valid_ratio:
-            venue_parts.append(_clamp(-math.log(float(ratio)) / math.log(3.0)) * 0.40)
-            total_weight += 0.40
+            venue_parts.append(_clamp(-math.log(float(ratio)) / math.log(3.0)) * DERIVATIVE_SIGNAL_WEIGHTS["long_short_ratio"])
+            total_weight += DERIVATIVE_SIGNAL_WEIGHTS["long_short_ratio"]
 
         if not venue_parts:
             diagnostics[name] = {
@@ -304,6 +305,7 @@ def score_derivatives(
             "status": "UNAVAILABLE", "score": None, "confidence": 0.0,
             "venue_count": 0, "stale_venue_count": stale_count,
             "venues": diagnostics,
+            "directional_input_weights": dict(DERIVATIVE_SIGNAL_WEIGHTS),
             "freshness_max_age_seconds": max_age_seconds,
             "scope": "Perpetual futures positioning; each funding and long/short input needs its own fresh provider timestamp.",
         }
@@ -318,6 +320,7 @@ def score_derivatives(
         "stale_venue_count": stale_count,
         "freshness_max_age_seconds": max_age_seconds,
         "venues": diagnostics,
+        "directional_input_weights": dict(DERIVATIVE_SIGNAL_WEIGHTS),
         "scope": "Funding and long/short positioning are interpreted contrarily. Each factor is freshness-gated independently; open-interest change is context/intensity, not direction by itself.",
     }
 
