@@ -73,6 +73,31 @@ class ComponentHealthTests(unittest.TestCase):
         item = next(x for x in build_component_health(state) if x["component"] == "تحليل الصورة وأهلية المعايرة")
         self.assertEqual(item["health"], "ATTENTION")
 
+    def test_missing_optional_image_capture_does_not_degrade_native_engine2_health(self) -> None:
+        state = self.healthy_state()
+        state["chart_observer"] = {"status": "WAITING_FOR_CAPTURE"}
+        state["chart"] = {"status": "WAITING_FOR_IMAGE", "decision_eligible": False}
+
+        items = build_component_health(state)
+        by_name = {item["component"]: item for item in items}
+
+        optional_components = (
+            "استقبال صور الشارت الاختياري من خبير MT5",
+            "تطابق هوية الصورة مع بيانات التحليل",
+            "تحليل الصورة وأهلية المعايرة",
+            "معايرة محور السعر والهندسة",
+            "مطابقة OHLC مع شموع MT5 الأصلية",
+            "مرجع الأنماط الحسابي TA-Lib",
+        )
+        for component in optional_components:
+            self.assertEqual(by_name[component]["status"], "OPTIONAL_DISABLED")
+            self.assertEqual(by_name[component]["health"], "SAFE_DISABLED")
+
+        self.assertEqual(by_name["سجل الشموع الأصلية متعددة الأطر"]["health"], "HEALTHY")
+        self.assertEqual(by_name["تحليل القمم والقيعان وبنية السعر"]["health"], "HEALTHY")
+        self.assertEqual(by_name["تحليل الصورة وأهلية المعايرة"]["health"], "SAFE_DISABLED")
+        self.assertEqual(summarize_component_health(items)["attention"], 0)
+
     def test_missing_telemetry_is_never_reported_as_healthy(self) -> None:
         self.assertEqual(build_component_health({}), [])
         state = {"heartbeat_at_ms": 0, "execution_controls": {"order_publish_enabled": False}}
