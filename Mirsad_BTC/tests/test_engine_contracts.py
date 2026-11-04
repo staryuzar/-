@@ -501,6 +501,55 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             },
         }
 
+    def test_engine4_ready_decision_is_published_through_engine5_mir1(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        bridge = self._daily_risk_bridge(locked=False)
+        bridge.update({
+            "terminal_connected": True,
+            "execution_enabled": True,
+            "execution_input_enabled": True,
+            "trade_permissions_available": True,
+        })
+        intelligence = {
+            "status": "PARTIAL",
+            "economic_calendar": {
+                "status": "EMPTY",
+                "high_impact_window_active": False,
+                "events": [],
+            },
+        }
+
+        decision = DecisionEngine().analyze(
+            self._market(),
+            chart,
+            bridge,
+            indicators,
+            engine2_price_action=make_engine2_price_action(),
+            market_intelligence=intelligence,
+        )
+        self.assertEqual(decision["action"], "BUY")
+        self.assertTrue(decision["command_ready"])
+        self.assertEqual(decision["risk_plan"]["status"], "READY")
+
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                published = engine.publish_decision(decision, bridge)
+
+            self.assertEqual(published["status"], "PUBLISHED")
+            command_path = Path(temp) / "MirsadBTC" / "command.json"
+            self.assertTrue(command_path.is_file())
+            envelope = json.loads(command_path.read_text(encoding="utf-8"))
+            self.assertEqual(envelope["command_id"], decision["signal_id"])
+            self.assertEqual(envelope["action"], "BUY")
+            self.assertEqual(envelope["symbol"], "BTC")
+            self.assertEqual(envelope["market_symbol"], "BTCUSDT")
+            self.assertEqual(envelope["volume"], decision["risk_plan"]["volume"])
+            self.assertEqual(envelope["stop_loss"], decision["stop_loss"])
+            self.assertEqual(envelope["take_profit"], decision["take_profit"])
+            self.assertEqual(envelope["magic_number"], 26110201)
+
     def test_optional_chart_image_does_not_change_open_or_close_signal_ids(self) -> None:
         intelligence = {
             "status": "PARTIAL",
