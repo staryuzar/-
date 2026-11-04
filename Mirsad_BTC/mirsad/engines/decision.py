@@ -357,7 +357,7 @@ def _protective_position_management_decision(
 # Engine 4 uses fixed baseline shares. Evidence quality scales each share,
 # but an unavailable/weak engine never transfers its unused allocation to
 # another engine. The combined score therefore becomes more conservative
-# when evidence is incomplete instead of silently changing the 20/50/30 mix.
+# when evidence is incomplete instead of silently changing the 20/55/25 mix.
 ENGINE1_DECISION_WEIGHT = 0.20
 ENGINE2_DECISION_WEIGHT = 0.55
 ENGINE3_DECISION_WEIGHT = 0.25
@@ -815,9 +815,9 @@ class DecisionEngine:
         elif engine2_price_action is None and not engine2_decision_eligible:
             chart_gate = "WAITING_FOR_ENGINE_2_NATIVE_OHLC"
         elif candidate == "WAIT":
-            chart_gate = "20_50_30_SCORE_BELOW_THRESHOLD_OR_CONFLICT"
+            chart_gate = "20_55_25_SCORE_BELOW_THRESHOLD_OR_CONFLICT"
         else:
-            chart_gate = "20_50_30_NATIVE_OHLC_CONFIRMED"
+            chart_gate = "20_55_25_NATIVE_OHLC_CONFIRMED"
         market_entry = float(market["price"])
         broker_symbol = str(bridge.get("symbol", ""))
         market_symbol = str(market.get("symbol", ""))

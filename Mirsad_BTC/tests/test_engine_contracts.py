@@ -835,7 +835,32 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["engine_2_score_source"], "NATIVE_MT5_OHLC_ONLY")
         self.assertAlmostEqual(result["decision_scores"]["engine_2_score"], 0.80)
-        self.assertIn("NATIVE_OHLC_CONFIRMED", result["chart_gate"])
+        self.assertEqual(result["chart_gate"], "20_55_25_NATIVE_OHLC_CONFIRMED")
+
+    def test_waiting_score_diagnostic_uses_current_20_55_25_weight_profile(self) -> None:
+        market = self._market("up")
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = make_engine2_price_action("BULLISH", score=0.30)
+        intelligence = {
+            "status": "READY",
+            "direction": "BEARISH",
+            "directional_score": -1.0,
+            "confidence": 1.0,
+            "evidence_coverage": 1.0,
+        }
+
+        result = DecisionEngine().analyze(
+            market, chart, {}, indicators,
+            engine2_price_action=price_action,
+            market_intelligence=intelligence,
+        )
+
+        self.assertEqual(result["candidate_action"], "WAIT")
+        self.assertEqual(
+            result["chart_gate"],
+            "20_55_25_SCORE_BELOW_THRESHOLD_OR_CONFLICT",
+        )
 
     def test_engine4_rejects_missing_or_nonfinite_required_indicator_values(self) -> None:
         chart = self._chart()
