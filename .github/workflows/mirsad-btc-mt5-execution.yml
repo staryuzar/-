@@ -24,7 +24,7 @@ jobs:
       - name: Checkout Mirsad project
         uses: actions/checkout@v4
         with:
-          ref: mini
+          ref: ${{ github.sha }}
 
       - name: Verify Windows runner
         shell: pwsh
