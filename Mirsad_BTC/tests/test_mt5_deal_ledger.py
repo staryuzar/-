@@ -150,6 +150,48 @@ class MT5DealHistoryBridgeTests(unittest.TestCase):
             self.assertEqual(result["deal_history"]["status"], "INVALID")
             self.assertEqual(result["deal_history"]["deals"], [])
 
+    def test_bridge_marks_stale_deal_snapshot_stale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "MirsadBTC"
+            root.mkdir(parents=True)
+            now = int(time.time() * 1000)
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1", "terminal_connected": True,
+                "execution_enabled": False, "heartbeat_at_ms": now,
+                "symbol": "BTC", "market_symbol": "BTCUSDT",
+                "magic_number": 26110201, "account": {"server": "Headway-Demo"},
+                "quote": {"time_ms": now}, "symbol_spec": {}, "positions": [],
+            }), encoding="utf-8")
+            history = make_deal_history(queried_at_utc_ms=now - 300_000)
+            (root / "deals.json").write_text(json.dumps(history), encoding="utf-8")
+
+            result = MT5BridgeEngine(str(directory)).inspect()
+
+            self.assertEqual(result["deal_history"]["status"], "STALE")
+            self.assertEqual(result["deal_history"]["deals"], [])
+
+    def test_bridge_preserves_unavailable_history_as_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "MirsadBTC"
+            root.mkdir(parents=True)
+            now = int(time.time() * 1000)
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1", "terminal_connected": True,
+                "execution_enabled": False, "heartbeat_at_ms": now,
+                "symbol": "BTC", "market_symbol": "BTCUSDT",
+                "magic_number": 26110201, "account": {"server": "Headway-Demo"},
+                "quote": {"time_ms": now}, "symbol_spec": {}, "positions": [],
+            }), encoding="utf-8")
+            (root / "deals.json").write_text(json.dumps({
+                "schema": "MIR1-DEALS-1", "status": "UNAVAILABLE",
+                "queried_at_utc_ms": now, "history_error": 4401, "deals": [],
+            }), encoding="utf-8")
+
+            result = MT5BridgeEngine(str(directory)).inspect()
+
+            self.assertEqual(result["deal_history"]["status"], "UNAVAILABLE")
+            self.assertIn("4401", result["deal_history"]["reason"])
+
     def test_bridge_rejects_manual_or_other_ea_magic_in_deal_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "MirsadBTC"
