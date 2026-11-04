@@ -132,8 +132,8 @@ def _protective_position_management_decision(
 ) -> dict[str, Any] | None:
     """Build one protective MODIFY command from Engine 3 ATR and fresh Engine 5 facts.
 
-    This safety path is deliberately independent of Engine 1's external/market
-    reference price and Engine 2's visual image eligibility. It cannot create
+    This safety path is deliberately independent of Engine 1's standalone public
+    intelligence report and Engine 2's visual image eligibility. It cannot create
     BUY/SELL commands; it only tightens the stop of an existing Mirsad-owned
     position using the broker's own fresh quote.
     """
@@ -446,9 +446,9 @@ class DecisionEngine:
             or not mt5_health_ok
         ):
             reason = (
-                "Engine 1 MT5 quote feed is missing, stale, or failed its terminal/quote checks."
+                "Engine 5 MT5 broker quote feed is missing, stale, or failed its terminal/quote checks."
                 if mt5_native_source
-                else "Engine 1 requires a live MT5 feed, or at least two independent public venues for non-MT5 sources."
+                else "Engine 5 broker quote checks require a live MT5 feed; non-MT5 price sources require two independent venues."
             )
             return {**base, "status": "NOT_READY", "action": "WAIT", "candidate_action": "WAIT",
                     "reason": reason}
@@ -510,7 +510,7 @@ class DecisionEngine:
         atr5 = normalized_values["atr14_5m"]
         market_context = market.get("market_context") if isinstance(market.get("market_context"), dict) else {}
         microstructure = market_context.get("microstructure") if isinstance(market_context.get("microstructure"), dict) else {}
-        orderflow = {"status": "NOT_PROVIDED", "reason": "Engine 1 quote updates are not treated as executed trade flow or taker volume."}
+        orderflow = {"status": "NOT_PROVIDED", "reason": "Engine 5 Bid/Ask quote updates are not executed trades, taker flow or consolidated order-book volume."}
 
         chart_eligible = bool(chart.get("decision_eligible")) and chart.get("status") == "READY"
         visual_bias = str(chart.get("visual_bias", "NEUTRAL")).upper()
@@ -525,9 +525,9 @@ class DecisionEngine:
         chart_confidence = max(0.0, min(1.0, chart_confidence))
         visual_evidence_usable = chart_eligible and chart_confidence >= MIN_CHART_CONFIDENCE
 
-        # Engine 1 is contextual intelligence (news, macro events, sentiment,
-        # derivatives and global market context). Quote pulse is only a minor
-        # corroborator or low-quality fallback.
+        # Engine 1 contributes only its standalone public-intelligence report.
+        # Engine 5 quote telemetry is checked separately for price/execution safety
+        # and is never blended into the Engine 1 directional score.
         intelligence = market_intelligence if isinstance(market_intelligence, dict) else {}
         engine1_score, engine1_quality, engine1_parts = _market_intelligence_signal(intelligence)
         market_score = engine1_score
