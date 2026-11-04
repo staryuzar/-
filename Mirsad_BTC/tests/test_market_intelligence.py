@@ -184,7 +184,8 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         now = 1_798_000_000_000
         result = score_derivatives({
             "Binance": {"status": "READY", "funding_rate": 0.001,
-                        "long_short_ratio": 3.0, "timestamp_ms": now - 901_000},
+                        "long_short_ratio": 3.0, "timestamp_ms": now,
+                        "directional_timestamp_ms": now - 901_000},
         }, now_ms=now, max_age_seconds=900)
         self.assertEqual(result["status"], "UNAVAILABLE")
         self.assertEqual(result["stale_venue_count"], 1)
