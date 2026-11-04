@@ -979,13 +979,17 @@ def render_engine_dashboard():
 
   indicators=state.get("indicators",{})
   st.subheader("المحرك الثالث — المؤشرات")
-  i1,i2,i3,i4,i5=st.columns(5)
+  i1,i2,i3,i4,i5,i6,i7=st.columns(7)
   indicator_values=indicators.get("values",{})
+  signal_score=indicators.get("signal_score")
+  signal_quality=indicators.get("signal_quality")
   i1.metric("حالة المؤشرات",ar(indicators.get("status","NOT_REPORTED")))
-  i2.metric("EMA 20 / 1m",f"{indicator_values.get('ema20_1m'):,.2f}" if indicator_values.get("ema20_1m") is not None else "—")
-  i3.metric("EMA 50 / 1m",f"{indicator_values.get('ema50_1m'):,.2f}" if indicator_values.get("ema50_1m") is not None else "—")
-  i4.metric("RSI 14 / 1m",f"{indicator_values.get('rsi14_1m'):.2f}" if indicator_values.get("rsi14_1m") is not None else "—")
-  i5.metric("ATR 14 / 5m",f"{indicator_values.get('atr14_5m'):,.2f}" if indicator_values.get("atr14_5m") is not None else "—")
+  i2.metric("التصويت الفني المركب",f"{float(signal_score):+.3f}" if isinstance(signal_score,(int,float)) else "—")
+  i3.metric("جودة التصويت",f"{float(signal_quality)*100:.0f}%" if isinstance(signal_quality,(int,float)) else "—")
+  i4.metric("EMA 20 / 1m",f"{indicator_values.get('ema20_1m'):,.2f}" if indicator_values.get("ema20_1m") is not None else "—")
+  i5.metric("EMA 50 / 1m",f"{indicator_values.get('ema50_1m'):,.2f}" if indicator_values.get("ema50_1m") is not None else "—")
+  i6.metric("RSI 14 / 1m",f"{indicator_values.get('rsi14_1m'):.2f}" if indicator_values.get("rsi14_1m") is not None else "—")
+  i7.metric("ATR 14 / 5m",f"{indicator_values.get('atr14_5m'):,.2f}" if indicator_values.get("atr14_5m") is not None else "—")
   if indicators.get("timeframes"):
    indicator_rows=[{
     "الإطار":tf,"الحالة":ar(item.get("status")),
@@ -1001,6 +1005,21 @@ def render_engine_dashboard():
      for indicator_name,value in values.items():
       detail_rows.append({"الإطار":timeframe,"المؤشر":indicator_name,"القيمة":value,"الحالة":"READY" if isinstance(value,(int,float)) and math.isfinite(float(value)) else "INSUFFICIENT"})
     st.dataframe(pd.DataFrame(detail_rows),use_container_width=True,hide_index=True)
+  signal_frames=indicators.get("signal_components_by_timeframe",{}) if isinstance(indicators.get("signal_components_by_timeframe"),dict) else {}
+  if signal_frames:
+   with st.expander("تفصيل التصويت الفني حسب العائلات والأطر الزمنية",expanded=False):
+    group_rows=[]
+    for timeframe,signal in signal_frames.items():
+     for group_name,details in (signal.get("groups",{}) or {}).items():
+      group_rows.append({"الإطار":timeframe,"عائلة الدليل":group_name,"الدرجة":details.get("score"),"التغطية":details.get("coverage"),"الوزن الأساسي":details.get("base_weight"),"الوزن الفعال":details.get("effective_weight"),"الحالة":ar(signal.get("status"))})
+    if group_rows:
+     st.dataframe(pd.DataFrame(group_rows),use_container_width=True,hide_index=True)
+    group_weights=indicators.get("signal_group_weights",{})
+    if isinstance(group_weights,dict):
+     st.caption("الأوزان الداخلية: "+" · ".join(f"{name}: {float(weight)*100:.0f}%" for name,weight in group_weights.items()))
+    st.caption("تُحسب عائلة الاتجاه والزخم وقوة الاتجاه والمتذبذبات وتدفق الحجم مرةً لكل مجموعة؛ المؤشرات المترابطة لا تُحسب أصواتاً مستقلة. ATR مقياس تقلب وتطبيع فقط، وليس تصويتاً اتجاهياً.")
+  if indicators.get("missing_signal_timeframes"):
+   st.warning("تغطية التصويت الفني غير مكتملة في: "+", ".join(indicators.get("missing_signal_timeframes",[])))
   native_indicators=state.get("mt5_native_indicators",{}) if isinstance(state.get("mt5_native_indicators"),dict) else {}
   st.markdown("**التحقق المستقل من مؤشرات MT5 الأصلية — CopyBuffer**")
   n1,n2,n3,n4=st.columns(4)
