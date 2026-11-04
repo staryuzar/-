@@ -132,7 +132,11 @@ Period=M1
  [IO.File]::WriteAllText($loginConfig,$ini,[Text.UTF8Encoding]::new($false))
  $accountPassword=$null;$credentialRaw=$null;$obj=$null
  $terminalProcess=Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable',"/config:$loginConfig","/login:$login") -WorkingDirectory $installDir -PassThru
- Add-Report 'MT5 started with Mirsad EA on BTC,M1; terminal-wide automated trading is enabled (AllowLiveTrading=1). Login is validated from terminal logs and MIR1 identity, without classifying the account type.'
+ if($runBrokerAcceptance){
+  Add-Report 'MT5 started with Mirsad EA on BTC,M1; AllowLiveTrading=1 is enabled for the explicitly requested broker acceptance test. Login is validated without classifying the account type.'
+ }else{
+  Add-Report 'MT5 started with Mirsad EA on BTC,M1 in read-only mode; AllowLiveTrading=0. Login is validated without classifying the account type.'
+ }
  $heartbeat=$false;$quoteFresh=$false;$folder=$null;$telemetry=$null
  $deadline=(Get-Date).AddSeconds(150)
  while((Get-Date)-lt $deadline){
