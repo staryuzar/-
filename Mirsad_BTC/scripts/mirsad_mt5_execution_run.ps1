@@ -30,7 +30,7 @@ function Find-CommonFolder {
 try{
  'Mirsad BTC — MT5 execution bridge validation'|Set-Content -LiteralPath $report -Encoding utf8
  Add-Report ("UTC start: {0}" -f [DateTime]::UtcNow.ToString('o'))
- Add-Report 'Compile Mirsad EA, launch MT5 on Headway demo and verify live EA telemetry.'
+ Add-Report 'Compile Mirsad EA, launch MT5 on the configured broker server and verify live EA telemetry.'
  Add-Report 'No MIR1 trade command is created by this workflow.'
  if([string]::IsNullOrWhiteSpace($credentialRaw)){throw "Repository Actions secret 'mt5' is unavailable."}
  $login='';$accountPassword='';$server='mt5.demo.trade-hw.online';$obj=$null
@@ -53,11 +53,11 @@ try{
   }else{throw 'MT5 secret format is not recognized.'}
  }
  if($login -notmatch '^\d{4,20}$' -or [string]::IsNullOrWhiteSpace($accountPassword)){throw 'MT5 credentials are incomplete.'}
- if($server -notmatch '(?i)(headway-demo|mt5\.demo\.trade-hw\.online)' -or $server -match '(?i)(live|real)'){throw 'Safety stop: only the configured Headway demo server is accepted.'}
+ if([string]::IsNullOrWhiteSpace($server)){throw 'MT5 server is missing from the configured connection.'}
  Write-Output "::add-mask::$login"
  Write-Output "::add-mask::$accountPassword"
  Write-Output "::add-mask::$server"
- Add-Report 'Demo server accepted; credentials are masked and not included in evidence.'
+ Add-Report 'Configured MT5 server accepted; credentials are masked and not included in evidence.'
 
  $download='https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe'
  Invoke-WebRequest -Uri $download -OutFile $installer -TimeoutSec 240
@@ -134,7 +134,7 @@ Period=M1
     if($log.LastWriteTime -lt $loginStarted.AddSeconds(-3)){continue}
     $txt='';try{$txt=Get-Content -LiteralPath $log.FullName -Raw}catch{continue}
     foreach($line in ($txt -split "\r?\n")){
-     if($line -match '(?i)(Headway-Demo|mt5\.demo\.trade-hw\.online)' -and
+     if($line -match [regex]::Escape($server) -and
         $line -match '(?i)(authorized on|successfully authorized|authorization successful|login successful)' -and
         $line -notmatch '(?i)(failed|invalid|not authorized|authorization error)'){$authorized=$true}
     }
@@ -157,10 +157,10 @@ Period=M1
   if($terminalProcess.HasExited){Add-Report 'Terminal exited before both authorization and EA heartbeat.';break}
   Start-Sleep -Seconds 3
  }
- if(!$authorized){throw 'Headway demo authorization was not confirmed.'}
- Add-Report 'PASS — MT5 authorized on the Headway demo server.'
+ if(!$authorized){throw 'MT5 authorization on the configured broker server was not confirmed.'}
+ Add-Report 'PASS — MT5 authorized on the configured broker server.'
  if(!$heartbeat){throw 'MT5 logged in but the Mirsad EA heartbeat did not report execution enabled.'}
- if(!$quoteFresh){throw 'MT5 demo quote did not become fresh within the 150-second observation window.'}
+ if(!$quoteFresh){throw 'MT5 broker quote did not become fresh within the 150-second observation window.'}
  Add-Report 'PASS — Mirsad EA heartbeat is live; the EA input and MT5 automated-trading permissions are enabled.'
  Add-Report ("Broker symbol: {0}; market mapping: {1}; account currency: {2}" -f $telemetry.symbol,$telemetry.market_symbol,$telemetry.account.currency)
  Add-Report ("Current Ask quote available: {0}" -f ([double]$telemetry.quote.ask -gt 0))
@@ -206,6 +206,9 @@ Period=M1
  Add-Report ("PASS — MIR1 deal history is valid; Mirsad-owned deals returned: {0}; truncated: {1}." -f @($dealHistory.deals).Count,[bool]$dealHistory.truncated)
  $safe=[ordered]@{
   schema=$telemetry.schema;terminal_connected=$telemetry.terminal_connected
+  execution_enabled=$telemetry.execution_enabled
+  execution_input_enabled=$telemetry.execution_input_enabled
+  trade_permissions_available=$telemetry.trade_permissions_available
   heartbeat_at_ms=$telemetry.heartbeat_at_ms;symbol=$telemetry.symbol
   market_symbol=$telemetry.market_symbol;quote=$telemetry.quote
   symbol_spec=$telemetry.symbol_spec;positions_count=@($telemetry.positions).Count
