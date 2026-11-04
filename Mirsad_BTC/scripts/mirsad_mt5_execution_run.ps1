@@ -255,6 +255,26 @@ Period=M1
  if([int64]$new.heartbeat_at_ms -le $first){throw 'EA heartbeat did not advance during observation.'}
  Add-Report 'PASS — EA heartbeat continued updating during the MT5 runtime observation.'
 
+ $commonFilesRoot=Split-Path -Parent $folder
+ if($runLiveRuntimeCycle){
+  $expectedRoot=[IO.Path]::GetFullPath([string]$env:MIRSAD_EXPECTED_COMMON_FILES)
+  foreach($relative in @('MirsadBTC\market.json','MirsadBTC\observer\candles.json','MirsadBTC\observer\indicators.json')){
+   if(!(Test-Path -LiteralPath (Join-Path $expectedRoot $relative))){throw ("Shared Observer feed disappeared: {0}" -f $relative)}
+  }
+  $expectedStatusPath=Join-Path $expectedRoot 'MirsadBTC\status.json'
+  $actualStatusPath=Join-Path $folder 'status.json'
+  if(!(Test-Path -LiteralPath $expectedStatusPath) -or !(Test-Path -LiteralPath $actualStatusPath)){throw 'Execution EA status.json is not visible through both Common Files paths.'}
+  $sharedIdentityConfirmed=$false
+  for($sharedAttempt=1;$sharedAttempt -le 8;$sharedAttempt++){
+   $expectedStatus=Get-Content -LiteralPath $expectedStatusPath -Raw|ConvertFrom-Json -ErrorAction Stop
+   $actualStatus=Get-Content -LiteralPath $actualStatusPath -Raw|ConvertFrom-Json -ErrorAction Stop
+   if([int64]$expectedStatus.heartbeat_at_ms -gt 0 -and [int64]$expectedStatus.heartbeat_at_ms -eq [int64]$actualStatus.heartbeat_at_ms){$sharedIdentityConfirmed=$true;break}
+   Start-Sleep -Milliseconds 300
+  }
+  if(!$sharedIdentityConfirmed){throw 'Execution EA heartbeat differs across Observer and execution Common Files paths.'}
+  Add-Report 'PASS — Observer and ExecutionBridge are publishing through the same live MT5 Common Files directory.'
+ }
+
   if($runLiveRuntimeCycle){
   $env:PYTHONPATH=(Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC')
   $env:MIRSAD_MT5_COMMON_FILES=$commonFilesRoot
@@ -275,25 +295,6 @@ Period=M1
  # A broker transaction is an explicit manual opt-in. Normal validation is
  # read-only: compile, attach, observe the MIR1 heartbeat/quote and validate
  # the broker deal-history envelope without creating a position.
- $commonFilesRoot=Split-Path -Parent $folder
- if($runLiveRuntimeCycle){
-  $expectedRoot=[IO.Path]::GetFullPath([string]$env:MIRSAD_EXPECTED_COMMON_FILES)
-  foreach($relative in @('MirsadBTC\market.json','MirsadBTC\observer\candles.json','MirsadBTC\observer\indicators.json')){
-   if(!(Test-Path -LiteralPath (Join-Path $expectedRoot $relative))){throw ("Shared Observer feed disappeared: {0}" -f $relative)}
-  }
-  $expectedStatusPath=Join-Path $expectedRoot 'MirsadBTC\status.json'
-  $actualStatusPath=Join-Path $folder 'status.json'
-  if(!(Test-Path -LiteralPath $expectedStatusPath) -or !(Test-Path -LiteralPath $actualStatusPath)){throw 'Execution EA status.json is not visible through both Common Files paths.'}
-  $sharedIdentityConfirmed=$false
-  for($sharedAttempt=1;$sharedAttempt -le 8;$sharedAttempt++){
-   $expectedStatus=Get-Content -LiteralPath $expectedStatusPath -Raw|ConvertFrom-Json -ErrorAction Stop
-   $actualStatus=Get-Content -LiteralPath $actualStatusPath -Raw|ConvertFrom-Json -ErrorAction Stop
-   if([int64]$expectedStatus.heartbeat_at_ms -gt 0 -and [int64]$expectedStatus.heartbeat_at_ms -eq [int64]$actualStatus.heartbeat_at_ms){$sharedIdentityConfirmed=$true;break}
-   Start-Sleep -Milliseconds 300
-  }
-  if(!$sharedIdentityConfirmed){throw 'Execution EA heartbeat differs across Observer and execution Common Files paths.'}
-  Add-Report 'PASS — Observer and ExecutionBridge are publishing through the same live MT5 Common Files directory.'
- }
  if ($runBrokerAcceptance) {
   $env:PYTHONPATH=(Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC')
   $env:MIRSAD_MT5_COMMON_FILES=$commonFilesRoot
