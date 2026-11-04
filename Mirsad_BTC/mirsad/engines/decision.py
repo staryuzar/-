@@ -11,7 +11,7 @@ from .indicators import (
     IndicatorsEngine, TIMEFRAME_WEIGHTS, MIN_INDICATOR_SIGNAL_QUALITY,
     _ema, _rsi, _atr, _timeframe_trend,
 )
-from .position_management import plan_atr_stop_update
+from .position_management import plan_atr_stop_update, plan_partial_take_profit
 
 
 def _aggregate_orderflow(venues: dict[str, Any]) -> dict[str, Any]:
@@ -123,6 +123,95 @@ def _matching_positions(bridge: dict[str, Any], broker_symbol: str) -> list[dict
             result.append({**item, "ticket": ticket, "type": side_code, "magic": magic, "volume": volume,
                            "side": "BUY" if side_code == 0 else "SELL"})
     return result
+
+
+def _partial_take_profit_decision(
+    bridge: dict[str, Any],
+    indicator_data: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Create a one-time partial CLOSE only from reconciled MIR1 position history."""
+    if bridge.get("status") != "CONNECTED":
+        return None
+    if (
+        indicator_data.get("status") != "READY"
+        or indicator_data.get("engine") != "engine_3_indicators"
+        or indicator_data.get("source") != "engine_2_chart_candles"
+    ):
+        return None
+    values = indicator_data.get("values")
+    if not isinstance(values, dict):
+        return None
+    try:
+        atr5 = float(values["atr14_5m"])
+        closed_at = int(indicator_data["last_closed_candle_time_ms"])
+        capture_at = int(indicator_data["source_capture_at_ms"])
+        capture_age = (time.time() * 1000.0 - capture_at) / 1000.0
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if (
+        not math.isfinite(atr5) or atr5 <= 0 or closed_at <= 0
+        or not math.isfinite(capture_age) or capture_age < 0
+        or capture_age > MT5_MARKET_DATA_MAX_AGE_SECONDS
+    ):
+        return None
+    broker_symbol = str(bridge.get("symbol", "")).strip()
+    market_symbol = str(bridge.get("market_symbol", "")).strip()
+    quote = bridge.get("quote") if isinstance(bridge.get("quote"), dict) else {}
+    specs = bridge.get("symbol_spec") if isinstance(bridge.get("symbol_spec"), dict) else {}
+    try:
+        bid, ask = float(quote["bid"]), float(quote["ask"])
+        quote_age, tick_age = float(bridge["quote_age_seconds"]), float(quote["tick_age_seconds"])
+        volume_min, volume_step = float(specs["volume_min"]), float(specs["volume_step"])
+        midpoint = (bid + ask) / 2.0
+        spread_pct = (ask - bid) / midpoint if midpoint > 0 else float("inf")
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if (
+        not broker_symbol or not market_symbol
+        or not all(math.isfinite(x) for x in (bid, ask, quote_age, tick_age, volume_min, volume_step, spread_pct))
+        or bid <= 0 or ask < bid
+        or quote_age < 0 or quote_age > MT5_QUOTE_MAX_AGE_SECONDS
+        or tick_age < 0 or tick_age > MT5_QUOTE_MAX_AGE_SECONDS
+        or midpoint <= 0 or spread_pct > MT5_MAX_SPREAD_PCT
+    ):
+        return None
+    plan = plan_partial_take_profit(
+        _matching_positions(bridge, broker_symbol),
+        history=bridge.get("position_management_history") or {},
+        broker_symbol=broker_symbol, bid=bid, ask=ask, atr=atr5,
+        volume_min=volume_min, volume_step=volume_step,
+    )
+    if plan.get("status") != "READY":
+        return None
+    ticket, position_id = int(plan["ticket"]), int(plan["position_id"])
+    close_volume = float(plan["close_volume"])
+    signal_id = _signal_id(
+        "PARTIAL_TAKE_PROFIT", market_symbol, position_id, ticket,
+        round(close_volume, 8), closed_at,
+    )
+    return {
+        "status": "READY", "action": "CLOSE", "candidate_action": "WAIT",
+        "aligned_signal": "WAIT", "signal_id": signal_id, "command_ready": True,
+        "position_ticket": ticket, "symbol": broker_symbol, "market_symbol": market_symbol,
+        "entry_reference": 0.0, "stop_loss": 0.0, "take_profit": 0.0,
+        "chart_gate": "POSITION_MANAGEMENT_PRIORITY",
+        "open_block_reason": "New entries are deferred while the one-time partial exit is pending.",
+        "risk_plan": {"status": "READY", "volume": close_volume, "purpose": "one_time_partial_take_profit"},
+        "position_management": {
+            "action": "CLOSE", "ticket": ticket, "position_id": position_id,
+            "stage": "PARTIAL_TAKE_PROFIT", "partial": True,
+            "remaining_volume": float(plan["remaining_volume"]), "history_verified": True,
+        },
+        "management_plan": plan, "broker_quote": quote,
+        "broker_spread_pct": round(spread_pct * 100.0, 4),
+        "engine_inputs": {
+            "engine_1_intelligence_required_for_position_management": False,
+            "engine_2_chart": "NOT_REQUIRED_FOR_POSITION_MANAGEMENT",
+            "engine_3_indicators": "READY", "engine_5_bridge": "CONNECTED",
+            "position_history_source": "MIR1_DEAL_LEDGER",
+        },
+        "reason": plan.get("reason"),
+    }
 
 
 def _protective_position_management_decision(
@@ -422,6 +511,9 @@ class DecisionEngine:
         indicator_data = indicators if isinstance(indicators, dict) else IndicatorsEngine().analyze(
             chart.get("candle_history") or {}
         )
+        partial_exit_decision = _partial_take_profit_decision(bridge, indicator_data)
+        if partial_exit_decision is not None:
+            return {**base, **partial_exit_decision}
         protective_decision = _protective_position_management_decision(
             bridge, indicator_data, market if isinstance(market, dict) else {}
         )

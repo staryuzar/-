@@ -23,6 +23,7 @@ from .storage import (
  write_json_atomic,read_json,
 )
 from .engines.daily_risk import evaluate_daily_risk
+from .engines.position_ledger import build_position_management_history
 from .health import build_component_health,summarize_component_health
 
 def _daily_risk_guard_ready(report:Any)->bool:
@@ -108,6 +109,15 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  bridge=bridge_adapter.inspect()
  deal_history_snapshot=bridge.get("deal_history")
  deal_ledger_persistence=save_mt5_deal_history(deal_history_snapshot)
+ bridge["position_management_history"]=build_position_management_history(
+  deal_history_snapshot.get("deals") if isinstance(deal_history_snapshot,dict) else None,
+  bridge.get("positions") if isinstance(bridge.get("positions"),list) else [],
+  expected_magic=bridge.get("magic_number",0),
+  history_status=str(deal_history_snapshot.get("status","") if isinstance(deal_history_snapshot,dict) else ""),
+  truncated=deal_history_snapshot.get("truncated",True) if isinstance(deal_history_snapshot,dict) else True,
+  queried_at_utc_ms=deal_history_snapshot.get("queried_at_utc_ms",0) if isinstance(deal_history_snapshot,dict) else 0,
+  now_ms=started,
+ )
  bridge["deal_ledger_persistence"]=deal_ledger_persistence
  if isinstance(deal_history_snapshot,dict):
   bridge["deal_history"]={

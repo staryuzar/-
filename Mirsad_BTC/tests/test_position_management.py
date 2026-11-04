@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from mirsad.engines.position_management import plan_atr_stop_update
+from mirsad.engines.position_management import plan_atr_stop_update, plan_partial_take_profit
 
 
 def position(
@@ -97,6 +97,66 @@ class ATRPositionManagementTests(unittest.TestCase):
 
     def test_requires_finite_fresh_price_inputs(self):
         result = self.plan([position()], bid=float("nan"))
+        self.assertEqual(result["status"], "NOT_REQUIRED")
+
+
+class PartialTakeProfitTests(unittest.TestCase):
+    def history(self, *, side="BUY", opened=0.10, remaining=None, exits=0, status="READY"):
+        if remaining is None:
+            remaining = opened if side == "BUY" else -opened
+        return {
+            "status": status,
+            "cycles": {"501": {
+                "state": "OPEN_FROM_CAPTURED_ENTRY",
+                "direction": "LONG" if side == "BUY" else "SHORT",
+                "entry_count": 1, "exit_count": exits, "reversal_count": 0,
+                "history_starts_with_entry": True,
+                "opened_volume": opened, "remaining_signed_volume": remaining,
+            }},
+        }
+
+    def plan(self, *, side="BUY", history=None, bid=106.1, ask=106.2, **kwargs):
+        pos = position(side=side)
+        pos["position_id"] = 501
+        return plan_partial_take_profit(
+            [pos], history=history or self.history(side=side),
+            broker_symbol="BTC", bid=bid, ask=ask, atr=4.0,
+            volume_min=0.01, volume_step=0.01, **kwargs,
+        )
+
+    def test_long_partial_exit_closes_half_at_15_atr(self):
+        result = self.plan()
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["action"], "CLOSE")
+        self.assertEqual(result["close_volume"], 0.05)
+        self.assertEqual(result["remaining_volume"], 0.05)
+
+    def test_short_partial_exit_uses_ask_and_signed_ledger_volume(self):
+        result = self.plan(side="SELL", bid=93.8, ask=93.9)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["close_volume"], 0.05)
+
+    def test_no_exit_before_trigger(self):
+        self.assertEqual(self.plan(bid=105.9, ask=106.0)["status"], "NOT_REQUIRED")
+
+    def test_prior_exit_prevents_repeated_partial_close(self):
+        self.assertEqual(self.plan(history=self.history(exits=1, opened=0.10, remaining=0.05))["status"], "NOT_REQUIRED")
+
+    def test_incomplete_history_fails_closed(self):
+        self.assertEqual(self.plan(history=self.history(status="INCOMPLETE"))["status"], "NOT_REQUIRED")
+
+    def test_volume_must_match_deal_cycle(self):
+        self.assertEqual(self.plan(history=self.history(remaining=0.08))["status"], "NOT_REQUIRED")
+
+    def test_minimum_lot_cannot_be_split_into_two_valid_lots(self):
+        pos = position()
+        pos["position_id"] = 501
+        pos["volume"] = 0.01
+        history = self.history(opened=0.01)
+        result = plan_partial_take_profit(
+            [pos], history=history, broker_symbol="BTC", bid=106.1, ask=106.2,
+            atr=4.0, volume_min=0.01, volume_step=0.01,
+        )
         self.assertEqual(result["status"], "NOT_REQUIRED")
 
 

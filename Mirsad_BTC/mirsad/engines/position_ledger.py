@@ -96,4 +96,63 @@ def aggregate_position_cycles(deals: list[dict[str, Any]]) -> list[dict[str, Any
     return sorted(cycles, key=lambda row: (row["last_time_server_ms"], row["position_id"]), reverse=True)
 
 
-__all__ = ["aggregate_position_cycles"]
+def build_position_management_history(
+    deals: list[dict[str, Any]] | None,
+    positions: list[dict[str, Any]] | None,
+    *,
+    expected_magic: int,
+    history_status: str,
+    truncated: bool,
+    queried_at_utc_ms: int,
+    now_ms: int,
+    max_age_ms: int = 120_000,
+) -> dict[str, Any]:
+    """Return only complete, recent deal cycles for active Mirsad-owned positions."""
+    try:
+        magic, query_at, now = int(expected_magic), int(queried_at_utc_ms), int(now_ms)
+        age = now - query_at
+    except (TypeError, ValueError, OverflowError):
+        magic = query_at = now = age = 0
+    if (
+        magic <= 0 or history_status != "READY" or truncated is not False
+        or not isinstance(deals, list) or query_at <= 0
+        or age < 0 or age > max_age_ms
+    ):
+        return {"status": "UNAVAILABLE", "reason": "Recent complete non-truncated MIR1 deal history is required.", "cycles": {}}
+
+    active_ids: set[str] = set()
+    for pos in positions if isinstance(positions, list) else []:
+        if not isinstance(pos, dict):
+            continue
+        try:
+            if int(pos.get("magic", -1)) != magic:
+                continue
+            position_id = str(int(pos.get("position_id", 0)))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if int(position_id) > 0:
+            active_ids.add(position_id)
+    if not active_ids:
+        return {"status": "READY", "reason": "No active Mirsad positions require partial management.", "cycles": {}, "queried_at_utc_ms": query_at, "history_age_ms": age}
+
+    by_id = {
+        str(row["position_id"]): row
+        for row in aggregate_position_cycles(deals)
+        if isinstance(row, dict) and row.get("position_id") is not None
+    }
+    missing = sorted(active_ids - set(by_id))
+    selected = {key: by_id[key] for key in sorted(active_ids & set(by_id))}
+    incomplete = sorted(key for key, row in selected.items() if row.get("state") != "OPEN_FROM_CAPTURED_ENTRY")
+    if missing or incomplete:
+        return {
+            "status": "INCOMPLETE", "reason": "At least one active Mirsad position has no complete opening deal cycle.",
+            "cycles": selected, "missing_position_ids": missing, "incomplete_position_ids": incomplete,
+            "queried_at_utc_ms": query_at, "history_age_ms": age,
+        }
+    return {
+        "status": "READY", "reason": "Every active Mirsad position is matched to a complete current deal cycle.",
+        "cycles": selected, "queried_at_utc_ms": query_at, "history_age_ms": age,
+    }
+
+
+__all__ = ["aggregate_position_cycles", "build_position_management_history"]
