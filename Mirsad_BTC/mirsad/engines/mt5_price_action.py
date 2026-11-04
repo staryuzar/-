@@ -429,7 +429,7 @@ def _directional_evidence_score(
         }
 
     applied_weights = {
-        name: round(DIRECTIONAL_EVIDENCE_WEIGHTS[name] / active_weight, 6)
+        name: round(DIRECTIONAL_EVIDENCE_WEIGHTS[name] / active_weight, 8)
         for name in component_scores
     }
     score = sum(
