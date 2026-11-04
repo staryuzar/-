@@ -250,6 +250,9 @@ def score_derivatives(
         funding_status, funding_age = freshness(_parse_time(raw.get("funding_timestamp_ms"))) if funding is not None else ("NOT_AVAILABLE", None)
         ratio_status, ratio_age = freshness(_parse_time(raw.get("long_short_timestamp_ms"))) if ratio is not None else ("NOT_AVAILABLE", None)
 
+        venue_stale = funding_status == "STALE" or ratio_status == "STALE"
+        if venue_stale:
+            stale_count += 1
         valid_funding = funding is not None and funding_status == "FRESH"
         valid_ratio = ratio is not None and ratio > 0 and ratio_status == "FRESH"
         venue_parts: list[float] = []
@@ -264,9 +267,6 @@ def score_derivatives(
             total_weight += 0.40
 
         if not venue_parts:
-            venue_stale = funding_status == "STALE" or ratio_status == "STALE"
-            if venue_stale:
-                stale_count += 1
             diagnostics[name] = {
                 **raw,
                 "directional_status": "STALE" if venue_stale else "FRESHNESS_UNKNOWN",
