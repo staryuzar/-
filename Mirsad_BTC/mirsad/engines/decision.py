@@ -354,9 +354,10 @@ def _protective_position_management_decision(
         "reason": plan.get("reason"),
     }
 
-# Engine 4's fixed baseline decision mix. Evidence quality may reduce a
-# component's effective contribution; the remaining valid weights are
-# re-normalized to 100% rather than silently filling missing evidence with zero.
+# Engine 4 uses fixed baseline shares. Evidence quality scales each share,
+# but an unavailable/weak engine never transfers its unused allocation to
+# another engine. The combined score therefore becomes more conservative
+# when evidence is incomplete instead of silently changing the 20/50/30 mix.
 ENGINE1_DECISION_WEIGHT = 0.20
 ENGINE2_DECISION_WEIGHT = 0.50
 ENGINE3_DECISION_WEIGHT = 0.30
@@ -404,7 +405,7 @@ def _weighted_three_engine_score(
     engine2_quality: float,
     engine3_quality: float,
 ) -> tuple[float | None, dict[str, float]]:
-    """Quality-adjust the 20/50/30 baseline and normalize the active weights."""
+    """Apply fixed 20/50/30 shares, discounted by evidence quality, without redistribution."""
     configured = {
         "engine_1_market_intelligence": ENGINE1_DECISION_WEIGHT,
         "engine_2_price_action": ENGINE2_DECISION_WEIGHT,
@@ -427,13 +428,15 @@ def _weighted_three_engine_score(
         valid_scores[name] = score
         effective[name] = configured[name] * quality
 
-    total = sum(effective.values())
-    if total <= 0.0:
+    active_weight_coverage = sum(effective.values())
+    if active_weight_coverage <= 0.0:
         return None, {name: 0.0 for name in configured}
-    normalized = {name: value / total for name, value in effective.items()}
-    combined = sum(valid_scores[name] * normalized[name] for name in valid_scores)
+    combined = sum(
+        valid_scores[name] * effective[name]
+        for name in valid_scores
+    )
     return max(-1.0, min(1.0, combined)), {
-        name: round(weight, 8) for name, weight in normalized.items()
+        name: round(weight, 8) for name, weight in effective.items()
     }
 
 
@@ -1002,7 +1005,7 @@ class DecisionEngine:
                     "engine_2_price_action": ENGINE2_DECISION_WEIGHT,
                     "engine_3_indicators": ENGINE3_DECISION_WEIGHT,
                 },
-                "normalization": "configured base weight multiplied by evidence quality, then active weights normalized to 100 percent",
+                "normalization": "fixed configured shares multiplied by evidence quality; missing or weak contributions are not redistributed",
             },
             "decision_scores": {
                 "engine_1_market_intelligence": round(engine1_score, 4) if engine1_score is not None else None,
@@ -1023,6 +1026,7 @@ class DecisionEngine:
                 "market_score": round(market_score, 4) if market_score is not None else None,
                 "market_components": market_score_parts,
                 "effective_weights": effective_weights,
+                "effective_weight_coverage": round(sum(effective_weights.values()), 4),
                 "combined_score": round(combined_score, 4) if combined_score is not None else None,
                 "threshold": DIRECTIONAL_SCORE_THRESHOLD,
                 "minimum_engine_2_direction_score": MIN_ENGINE2_DIRECTION_SCORE,
