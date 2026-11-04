@@ -171,6 +171,21 @@ class MT5NativePriceActionTests(unittest.TestCase):
         self.assertEqual(result["summary"]["short_term_direction"], "BEARISH")
         self.assertEqual(result["summary"]["higher_timeframe_direction"], "BULLISH")
 
+    def test_directional_frame_coverage_counts_mixed_eligible_timeframes(self) -> None:
+        directions = {
+            "1m": "down", "5m": "up", "15m": "up",
+            "1h": "flat", "4h": "flat", "1d": "down",
+        }
+        result = analyze_mt5_native_price_action(make_history(directions=directions))
+        summary = result["summary"]
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["direction"], "MIXED_TIMEFRAME_DIRECTIONS")
+        self.assertEqual(summary["directional_frame_count"], 4)
+        self.assertAlmostEqual(summary["directional_frame_coverage"], 4 / 6)
+        self.assertEqual(summary["mixed_or_unconfirmed_frame_count"], 2)
+        self.assertAlmostEqual(summary["mixed_or_unconfirmed_frame_coverage"], 2 / 6)
+        self.assertAlmostEqual(summary["directional_structure_agreement"], 0.5)
+
     def test_forming_candle_spike_does_not_change_price_action_result(self) -> None:
         normal = analyze_mt5_native_price_action(make_history())
         spike = analyze_mt5_native_price_action(make_history(forming_spike=True))
@@ -215,23 +230,42 @@ class MT5NativePriceActionTests(unittest.TestCase):
         self.assertEqual(result["status"], "PARTIAL")
         self.assertEqual(result["direction"], "INSUFFICIENT_CONTEXT")
 
-    def test_large_missing_intervals_make_timeframe_ineligible(self) -> None:
+    def test_large_historical_gap_excludes_old_prefix_and_keeps_recent_contiguous_segment(self) -> None:
         history = make_history()
         bars = history["candles_by_tf"]["1h"]
         split = len(bars) // 2
         for bar in bars[:split]:
             bar["open_time_ms"] -= 10 * DURATIONS["1h"]
         result = analyze_mt5_native_price_action(history)
-        self.assertEqual(result["timeframes"]["1h"]["status"], "PARTIAL")
-        self.assertNotIn("1h", result["summary"]["eligible_timeframes"])
+        report = result["timeframes"]["1h"]
+        self.assertEqual(report["status"], "READY")
+        self.assertEqual(report["data_quality"]["gap_count"], 1)
+        self.assertEqual(report["data_quality"]["source_closed_bars"], 120)
+        self.assertEqual(report["data_quality"]["closed_bars"], 60)
+        self.assertEqual(report["data_quality"]["excluded_closed_bars_before_latest_gap"], 60)
+        self.assertIn("1h", result["summary"]["eligible_timeframes"])
+        self.assertIn("1h", result["historical_gap_timeframes"])
 
-    def test_one_missing_candle_blocks_timeframe_consensus(self) -> None:
+    def test_single_historical_missing_candle_does_not_discard_recent_contiguous_segment(self) -> None:
         history = make_history()
         bars = history["candles_by_tf"]["1h"]
         bars[60:] = bars[61:]
         result = analyze_mt5_native_price_action(history)
-        self.assertEqual(result["timeframes"]["1h"]["status"], "PARTIAL")
-        self.assertEqual(result["timeframes"]["1h"]["data_quality"]["gap_count"], 1)
+        report = result["timeframes"]["1h"]
+        self.assertEqual(report["status"], "READY")
+        self.assertEqual(report["data_quality"]["gap_count"], 1)
+        self.assertEqual(report["data_quality"]["closed_bars"], 59)
+        self.assertIn("1h", result["summary"]["eligible_timeframes"])
+
+    def test_recent_gap_with_too_short_contiguous_suffix_blocks_timeframe(self) -> None:
+        history = make_history()
+        bars = history["candles_by_tf"]["1h"]
+        bars[100:-1] = bars[101:-1]
+        result = analyze_mt5_native_price_action(history)
+        report = result["timeframes"]["1h"]
+        self.assertEqual(report["status"], "PARTIAL")
+        self.assertEqual(report["data_quality"]["gap_count"], 1)
+        self.assertLess(report["data_quality"]["closed_bars"], 24)
         self.assertNotIn("1h", result["summary"]["eligible_timeframes"])
 
     def test_forming_candle_must_immediately_follow_latest_closed_candle(self) -> None:
