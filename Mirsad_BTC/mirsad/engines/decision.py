@@ -470,6 +470,7 @@ class DecisionEngine:
         bridge: dict[str, Any] | None, indicators: dict[str, Any] | None = None,
         engine2_price_action: dict[str, Any] | None = None,
         market_intelligence: dict[str, Any] | None = None,
+        require_mt5_native_parity: bool = False,
     ) -> dict[str, Any]:
         base = {
             "engine": "engine_4_decision_trade_monitor", "method": "rules_only",
@@ -560,6 +561,49 @@ class DecisionEngine:
                     "timeframes": timeframe_data, "indicators": indicator_values,
                     "engine_3_indicator_status": "INVALID_PROVENANCE",
                     "reason": "Engine 3 provenance must identify indicators calculated from Engine 2 candle history."}
+
+        if require_mt5_native_parity:
+            native_report = indicator_data.get("mt5_native")
+            parity_report = indicator_data.get("mt5_native_parity")
+            native_status = (
+                str(native_report.get("status", "NOT_AVAILABLE")).upper()
+                if isinstance(native_report, dict) else "NOT_AVAILABLE"
+            )
+            parity_status = (
+                str(parity_report.get("status", "NOT_CHECKED")).upper()
+                if isinstance(parity_report, dict) else "NOT_CHECKED"
+            )
+            if native_status != "READY" or parity_status != "PASS":
+                parity_reason = None
+                if isinstance(parity_report, dict):
+                    failures = parity_report.get("failures")
+                    if isinstance(failures, list) and failures:
+                        parity_reason = "; ".join(str(item) for item in failures[:3])
+                reason = (
+                    "Engine 3 directional input is withheld until native MT5 CopyBuffer values "
+                    "match the same closed Engine 2 OHLC bars. "
+                    f"Native status={native_status}; parity status={parity_status}."
+                )
+                if parity_reason:
+                    reason += " " + parity_reason
+                return {
+                    **base,
+                    "status": "WAITING_FOR_ENGINE_3_PARITY",
+                    "action": "WAIT",
+                    "candidate_action": "WAIT",
+                    "command_ready": False,
+                    "chart_gate": "WAITING_FOR_ENGINE_3_NATIVE_PARITY",
+                    "engine_3_indicator_status": "NATIVE_PARITY_NOT_VERIFIED",
+                    "engine_3_native_indicator_status": native_status,
+                    "engine_3_native_parity_status": parity_status,
+                    "engine_3_native_parity_passed_metrics": (
+                        parity_report.get("passed_metrics") if isinstance(parity_report, dict) else None
+                    ),
+                    "engine_3_native_parity_total_metrics": (
+                        parity_report.get("total_metrics") if isinstance(parity_report, dict) else None
+                    ),
+                    "reason": reason,
+                }
 
         required_indicator_values = ("ema20_1m", "ema50_1m", "rsi14_1m", "atr14_1m", "atr14_5m")
         try:
