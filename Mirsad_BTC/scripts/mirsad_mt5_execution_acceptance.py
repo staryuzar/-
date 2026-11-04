@@ -138,7 +138,11 @@ def build_open_decision(state: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         or quote_age < 0 or quote_age > 10 or tick_age < 0 or tick_age > 10
         or spread < 0 or spread / ((ask + bid) / 2.0) > 0.003
     ):
-        raise RuntimeError("MT5 quote is stale or outside the configured 0.3% spread gate.")
+        raise RuntimeError(
+            "MT5 quote is stale or outside the configured 0.3% spread gate "
+            f"(quote_age={quote_age}, tick_age={tick_age}, bid={bid}, ask={ask}, "
+            f"spread_pct={(spread / ((ask + bid) / 2.0) * 100.0) if ask + bid > 0 else None})."
+        )
 
     minimum_stop_gap = max(stops_points, freeze_points) * point + 2.0 * tick_size
     # BTC can move several dollars between Python publishing and the EA timer.
@@ -382,20 +386,44 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
         decision: dict[str, Any] | None = None
         sizing: dict[str, Any] | None = None
         last_rejection = ""
-        for attempt in range(1, 4):
+        broker_rejections = 0
+        for attempt in range(1, 16):
             state = engine.inspect()
+            if state.get("status") != "CONNECTED":
+                result["steps"].append({
+                    "step": f"WAIT_FOR_CONNECTED_QUOTE_{attempt}",
+                    "status": "RETRY",
+                    "heartbeat_age_seconds": state.get("heartbeat_age_seconds"),
+                })
+                time.sleep(1)
+                continue
             if symbol_positions(state, symbol):
                 raise RuntimeError("A BTC position appeared before the acceptance BUY; refusing to add exposure.")
-            decision, sizing = build_open_decision(state)
+            try:
+                decision, sizing = build_open_decision(state)
+            except RuntimeError as quote_error:
+                quote_message = str(quote_error)
+                if "quote is stale or outside the configured 0.3% spread gate" not in quote_message:
+                    raise
+                result["steps"].append({
+                    "step": f"WAIT_FOR_FRESH_TIGHT_QUOTE_{attempt}",
+                    "status": "RETRY",
+                    "reason": quote_message[:300],
+                })
+                time.sleep(1)
+                continue
             result["steps"].append({
                 "step": f"LIVE_SIZE_AND_PROTECTIVE_LEVELS_ATTEMPT_{attempt}",
                 "status": "PASS",
                 "details": sizing,
+                "quote_age_seconds": state.get("quote_age_seconds"),
+                "tick_age_seconds": (state.get("quote") or {}).get("tick_age_seconds"),
             })
             publish(engine, decision, state)
             open_command_published = True
+            broker_rejections += 1
             result["steps"].append({
-                "step": f"PYTHON_BRIDGE_PUBLISHED_BUY_ATTEMPT_{attempt}",
+                "step": f"PYTHON_BRIDGE_PUBLISHED_BUY_ATTEMPT_{broker_rejections}",
                 "status": "PASS",
             })
             try:
@@ -424,14 +452,18 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
                     token in last_rejection.lower()
                     for token in ("price", "stop", "requote", "off quotes", "invalid stops", "ordercheck")
                 )
-                if not retryable or attempt >= 3:
+                if not retryable or broker_rejections >= 3:
                     raise RuntimeError(f"MT5 rejected the acceptance BUY: {last_rejection}") from exc
                 result["steps"].append({
-                    "step": f"REQUOTE_RETRY_{attempt}",
+                    "step": f"REQUOTE_RETRY_{broker_rejections}",
                     "status": "RETRY",
                     "reason": last_rejection[:300],
                 })
                 time.sleep(1)
+        else:
+            raise TimeoutError(
+                "No broker quote passed the 10-second age and 0.3% spread gates within 15 fresh-snapshot attempts."
+            )
         if opened_state is None or open_ack is None or decision is None or sizing is None:
             raise RuntimeError("MIR1 acceptance BUY could not be reconciled after three fresh-price attempts.")
         open_rec = opened_state.get("position_reconciliation") or {}
