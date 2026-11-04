@@ -4,20 +4,17 @@ import time
 import hashlib
 import math
 import sqlite3
-import io
 import html
 from pathlib import Path
 import pandas as pd
 import streamlit as st
-from PIL import Image, UnidentifiedImageError
 
 ROOT=Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
-from mirsad.config import (ROOT,DATA_DIR,DB_PATH,CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH,RISK_STATE_PATH,SYMBOL,PROVIDERS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,COLLECT_INTERVAL_SECONDS,RISK_PER_TRADE,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,MARKET_MAX_AGE_SECONDS,MT5_HEARTBEAT_MAX_AGE_SECONDS,MT5_QUOTE_MAX_AGE_SECONDS,MT5_MARKET_DATA_MAX_AGE_SECONDS,MT5_MARKET_DIVERGENCE_MAX_PCT,MT5_MAX_SPREAD_PCT,CHART_MAX_AGE_SECONDS)
-from mirsad.storage import read_json,write_json_atomic,load_mt5_deal_history
+from mirsad.config import (ROOT,DATA_DIR,DB_PATH,SNAPSHOT_PATH,STATUS_PATH,RISK_STATE_PATH,SYMBOL,PROVIDERS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,COLLECT_INTERVAL_SECONDS,RISK_PER_TRADE,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,MARKET_MAX_AGE_SECONDS,MT5_HEARTBEAT_MAX_AGE_SECONDS,MT5_QUOTE_MAX_AGE_SECONDS,MT5_MARKET_DATA_MAX_AGE_SECONDS,MT5_MARKET_DIVERGENCE_MAX_PCT,MT5_MAX_SPREAD_PCT)
+from mirsad.storage import read_json,load_mt5_deal_history
 from mirsad.engines.position_ledger import aggregate_position_cycles
-from mirsad.engines.visual_knowledge import visual_knowledge_summary
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
 from mirsad.engines.position_management import BREAK_EVEN_TRIGGER_ATR,TRAILING_ACTIVATION_ATR,TRAILING_DISTANCE_ATR,TRAILING_STEP_ATR
 from mirsad.health import build_component_health,summarize_component_health
@@ -111,7 +108,7 @@ def render_component_health(state:dict)->None:
  groups=[
   "التشغيل",
   "المحرك الأول — استخبارات السوق",
-  "المحرك الثاني — التحليل البصري والسعري",
+  "المحرك الثاني — الشموع وبنية السعر الأصلية",
   "المحرك الثالث — المؤشرات",
   "المحرك الرابع — القرار وإدارة الصفقات",
   "المحرك الخامس — جسر التواصل مع MT5",
@@ -435,8 +432,6 @@ def render_execution_console(state:dict)->None:
    {"الإعداد":"SQLite database","القيمة":str(DB_PATH),"المعنى":"قاعدة بيانات السوق والتاريخ والأرشفة."},
    {"الإعداد":"system_status.json","القيمة":str(STATUS_PATH),"المعنى":"ملف الحالة الموحد الذي تقرأ منه لوحة القيادة."},
    {"الإعداد":"latest_market.json","القيمة":str(SNAPSHOT_PATH),"المعنى":"آخر لقطة سوق كتبها runtime."},
-   {"الإعداد":"chart images directory","القيمة":str(CHART_DIR),"المعنى":"مجلد صور الرسوم المرفقة أو الملتقطة للمحرك الثاني."},
-   {"الإعداد":"chart_metadata.json","القيمة":str(CHART_METADATA_PATH),"المعنى":"إعدادات الصورة ومعايرة محور السعر وبصمة ملف الصورة."},
    {"الإعداد":"daily_risk_state.json","القيمة":str(RISK_STATE_PATH),"المعنى":"خط أساس حد الخسارة اليومية وحالته المستمرة."},
    {"الإعداد":"MIRSAD_ENABLE_ORDER_PUBLISH","القيمة":"1" if publish_enabled else "0","المعنى":"يسمح للبرنامج بكتابة command.json عند اكتمال القرار."},
    {"الإعداد":"InpAllowExecution داخل الخبير","القيمة":"TRUE" if expert_execution is True else "FALSE" if expert_execution is False else "غير معروف","المعنى":"يسمح للخبير بإرسال طلب الوسيط بعد فحوصه الداخلية."},
@@ -449,7 +444,6 @@ def render_execution_console(state:dict)->None:
    {"الإعداد":"MIRSAD_MT5_HEARTBEAT_MAX_AGE","القيمة":MT5_HEARTBEAT_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لنبضة الخبير."},
    {"الإعداد":"MIRSAD_MT5_MARKET_DATA_MAX_AGE","القيمة":MT5_MARKET_DATA_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لبيانات المؤشرات والشموع المستخدمة لإدارة الوقف."},
    {"الإعداد":"MIRSAD_MARKET_MAX_AGE","القيمة":MARKET_MAX_AGE_SECONDS,"المعنى":"أقصى عمر للبيانات السوقية."},
-   {"الإعداد":"MIRSAD_CHART_MAX_AGE","القيمة":CHART_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لصورة الشارت."},
    {"الإعداد":"MIRSAD_COLLECT_SECONDS","القيمة":COLLECT_INTERVAL_SECONDS,"المعنى":"الفاصل بين دورات runtime بالثانية."},
    {"الإعداد":"MIRSAD_MT5_COMMON_FILES","القيمة":MT5_COMMON_FILES or "غير مضبوط","المعنى":"المجلد الأب الذي يضم Common Files/MirsadBTC بين البرنامج والخبير."},
    {"الإعداد":"InpMagicNumber","القيمة":bridge.get("magic_number","—"),"المعنى":"معرّف المراكز والأوامر التي يملكها خبير مرصاد."},
@@ -615,361 +609,106 @@ def render_engine_dashboard():
   st.caption("حدود الاستخبارات: لا تقرأ شموعاً أو مؤشرات أو صوراً؛ الأخبار تُقيّم بكلمات مفتاحية قابلة للفحص ولا تعني التحقق من صحة الخبر.")
 
  if state:
-  chart=state.get("chart",{})
-  st.subheader("المحرك الثاني — تحليل الرسوم والصور")
-  c1,c2,c3,c4,c5=st.columns(5)
-  c1.metric("حالة التحليل",ar(chart.get("status")))
-  c2.metric("شموع مكتشفة",chart.get("detected_bar_count",0))
-  c3.metric("شموع معايرة سعرياً",chart.get("calibrated_bar_count",0))
-  c4.metric("شموع مؤكدة",chart.get("confirmed_bar_count",chart.get("calibrated_bar_count",0)))
-  c5.metric("الميل المرئي",chart.get("visual_bias","—"))
-  latest_state="مغلقة" if chart.get("last_candle_closed") else "قيد التكوين / غير مؤكدة"
-  st.caption(f"حالة آخر شمعة: {latest_state} | الشمعة غير المؤكدة تبقى معروضة، لكنها لا تدخل في قياس الاتجاه والبنية المؤكدين.")
-  a1,a2,a3=st.columns(3)
-  a1.metric("درجة المحلل",f"{chart.get('analysis_score',0)*100:.1f} / 100")
-  a2.metric("مؤشر جودة الأدلة",f"{chart.get('analysis_confidence',0)*100:.1f}%")
-  a2.caption("مؤشر إرشادي وليس احتمالاً إحصائياً لصحة التوقع.")
-  a3.metric("الزخم البصري",chart.get("momentum",{}).get("score","—"))
-  structure=chart.get("market_structure",{})
-  st.caption(
-   f"بنية السوق في الصورة: {structure.get('direction','غير كافية')} | "
-   f"دعم مرئي: {structure.get('support','—')} | مقاومة مرئية: {structure.get('resistance','—')}"
-  )
-  event_labels={
-   "BOS_BULLISH":"كسر بنية صاعد","BOS_BEARISH":"كسر بنية هابط",
-   "CHOCH_BULLISH":"تغير بنية إلى صاعد","CHOCH_BEARISH":"تغير بنية إلى هابط",
-   "HIGH_LIQUIDITY_SWEEP":"كنس سيولة فوق قمة","LOW_LIQUIDITY_SWEEP":"كنس سيولة تحت قاع",
-  }
-  structural_rows=[
-   {"الحدث":event_labels.get(item.get("event"),item.get("event")),"الاتجاه":item.get("side"),
-    "المستوى":item.get("level"),"شمعة التأكيد":item.get("confirmation_index"),
-    "شرط التأكيد":item.get("confirmation")}
-   for item in structure.get("structure_events",[])
-  ]
-  if structural_rows:
-   st.markdown("**أحداث بنية السعر المؤكدة**")
-   st.dataframe(pd.DataFrame(structural_rows),use_container_width=True,hide_index=True)
-  sweep_rows=[
-   {"الحدث":event_labels.get(item.get("event"),item.get("event")),"الأثر":item.get("side"),
-    "المستوى":item.get("level"),"شمعة التأكيد":item.get("confirmation_index")}
-   for item in structure.get("liquidity_sweeps",[])
-  ]
-  if sweep_rows:
-   st.markdown("**عمليات كنس السيولة من الذيل والإغلاق**")
-   st.dataframe(pd.DataFrame(sweep_rows),use_container_width=True,hide_index=True)
-  equal_rows=[
-   {"المنطقة":"قمم متساوية","من":zone.get("lower"),"إلى":zone.get("upper"),
-    "اللمسات":zone.get("touches"),"المسافة %":zone.get("distance_pct")}
-   for zone in structure.get("equal_high_zones",[])
-  ]+[
-   {"المنطقة":"قيعان متساوية","من":zone.get("lower"),"إلى":zone.get("upper"),
-    "اللمسات":zone.get("touches"),"المسافة %":zone.get("distance_pct")}
-   for zone in structure.get("equal_low_zones",[])
-  ]
-  if equal_rows:
-   st.markdown("**مناطق القمم والقيعان المتساوية**")
-   st.dataframe(pd.DataFrame(equal_rows),use_container_width=True,hide_index=True)
-  watch_rows=[]
-  if structure.get("entry_zone"):
-   zone=structure["entry_zone"]
-   watch_rows.append({"المنطقة":"مراقبة دخول","النوع":zone.get("kind"),"من":zone.get("lower"),"إلى":zone.get("upper"),"الحالة":zone.get("status")})
-  if structure.get("exit_zone"):
-   zone=structure["exit_zone"]
-   watch_rows.append({"المنطقة":"مراقبة خروج","النوع":zone.get("kind"),"من":zone.get("lower"),"إلى":zone.get("upper"),"الحالة":zone.get("status")})
-  if watch_rows:
-   st.markdown("**مناطق المراقبة التي حددها المحلل**")
-   st.dataframe(pd.DataFrame(watch_rows),use_container_width=True,hide_index=True)
-  components=chart.get("analysis_components",{})
-  st.caption(
-   f"مكونات قراءة المحلل - اتجاه: {components.get('trend','—')} | "
-   f"بنية: {components.get('structure','—')} | زخم: {components.get('momentum','—')} | "
-   f"أنماط: {components.get('patterns','—')}"
-  )
-  if chart.get("input_age_seconds") is not None:
-   st.caption(f"عمر صورة الشارت: {chart['input_age_seconds']} ثانية")
-  if chart.get("pattern_candidates"):
-   st.markdown("**أنماط الرؤية الهندسية من الصورة**")
-   st.dataframe(pd.DataFrame(chart["pattern_candidates"]),use_container_width=True,hide_index=True)
-  header_ocr=chart.get("header_ocr") or {}
-  if header_ocr.get("status") not in {None,"DISABLED"}:
-   header_status_ar={
-    "SUGGESTIONS_FOUND":"تم استخراج اقتراحات",
-    "NO_METADATA":"لم تُقرأ بيانات تعريف واضحة",
-    "OCR_UNAVAILABLE":"خدمة OCR غير متاحة",
-    "INVALID_IMAGE":"صورة غير صالحة",
-    "INVALID_HEADER_REGION":"منطقة عنوان غير صالحة",
-   }.get(header_ocr.get("status"),header_ocr.get("status"))
-   st.caption(
-    f"حالة قراءة عنوان الصورة: {header_status_ar} | "
-    f"ثقة OCR النصية المتوسطة: {header_ocr.get('mean_ocr_score','—')}"
-   )
-   st.caption(
-    f"اقتراحات بيانات عنوان الصورة: الرمز {header_ocr.get('symbol_suggestion') or 'غير واضح'} | "
-    f"الإطار {header_ocr.get('timeframe_suggestion') or 'غير واضح'} | "
-    f"البورصة {header_ocr.get('exchange_suggestion') or 'غير واضحة'} | "
-    f"مطابقة رمز السوق: {header_ocr.get('expected_symbol_match','—')}"
-   )
-   st.caption("هذه اقتراحات OCR للمراجعة فقط؛ لا تستبدل البيانات المدخلة، ولا تستخدم لمعايرة السعر أو أهلية القرار.")
-  reference_patterns=chart.get("reference_patterns") or {}
-  st.markdown("**مرجع الأنماط الحسابي المستقل — TA-Lib على OHLC المعاير**")
-  st.caption(
-   f"الحالة: {ar(reference_patterns.get('status','NOT_AVAILABLE'))} | "
-   f"التعريفات: {reference_patterns.get('pattern_definition_count',0)} | "
-   f"الأحداث: {reference_patterns.get('event_count',0)} | "
-   f"مكتبة: {reference_patterns.get('version','—')}"
-  )
-  st.caption("هذه مطابقة حسابية ثانية للأنماط وليست تصويتاً إضافياً أو احتمال نجاح. اختلافها عن الرؤية الهندسية يظهر للمراجعة.")
-  if reference_patterns.get("events"):
-   ref_rows=[{
-    "النمط":item.get("pattern"),
-    "الاتجاه":item.get("side"),
-    "الحالة":item.get("state"),
-    "شمعة الحدث":item.get("bar_index"),
-    "قيمة TA-Lib":item.get("talib_value"),
-    "حد الإبطال":item.get("invalidation_level"),
-    "سبب الإبطال":item.get("invalidation_reason"),
-   } for item in reference_patterns["events"]]
-   st.dataframe(pd.DataFrame(ref_rows),use_container_width=True,hide_index=True)
-  elif reference_patterns.get("error"):
-   st.caption(reference_patterns["error"])
-  extraction=chart.get("extraction_diagnostics") or {}
-  slot_extraction=extraction.get("slot_guided_extraction") or {}
-  st.caption(
-   f"مسار استخراج الشموع: {extraction.get('segmentation_mode','projection_groups')} | "
-   f"الشموع المستخرجة: {chart.get('detected_bar_count',0)} | "
-   f"المواضع التي أعطت دليلاً: {slot_extraction.get('occupied_slots',0)} من "
-   f"{slot_extraction.get('slots_considered',0)}"
-  )
-  if slot_extraction:
-   st.caption(
-    f"استخدام التقسيم الموجّه: {'نعم' if slot_extraction.get('adopted') else 'لا'} | "
-    f"نقاوة ألوانه المتوسطة: {slot_extraction.get('mean_colour_purity','—')} | "
-    f"المواضع المرفوضة لضعف الدليل: {slot_extraction.get('rejected_component_quality',0) + slot_extraction.get('rejected_low_activity',0)}"
-   )
-  st.markdown("**قاعدة معرفة المحرك البصري — الشموع وبنية السوق**")
-  knowledge_db=chart.get("visual_knowledge_database") or {}
-  # Research runs may be launched outside the live collector process. Read the
-  # SQLite summary on each dashboard refresh so their new records appear here.
-  try:
-   knowledge_db={**knowledge_db,**visual_knowledge_summary()}
-  except Exception as exc:
-   knowledge_db={**knowledge_db,"live_summary_status":"ERROR",
-    "live_summary_error":f"{type(exc).__name__}: {exc}"}
-  k1,k2,k3,k4=st.columns(4)
-  k1.metric("تعريفات الشموع",knowledge_db.get("candle_pattern_definitions",0))
-  k2.metric("تعريفات بنية السوق",knowledge_db.get("market_structure_definitions",0))
-  k3.metric("رصدات الأنماط",knowledge_db.get("pattern_observations",0))
-  k4.metric("تقييمات تجريبية متحققة",knowledge_db.get("validated_evaluation_records",0))
-  st.caption(
-   f"إصدار القاعدة: {knowledge_db.get('version','—')} | "
-   f"الحالة التجريبية: {knowledge_db.get('empirical_status','UNVALIDATED')} | "
-   "التعريفات الموثقة لا تعني أن فعاليتها على BTC قد ثبتت."
-  )
-  st.caption(
-   f"سجلات تقييم الأنماط: {knowledge_db.get('pattern_evaluation_records',0)} | "
-   "لا تتحول التعريفات إلى نتائج متحققة إلا بعلامات بشرية واختبار مستقل."
-  )
-  recent_evaluations=knowledge_db.get("recent_pattern_evaluations") or []
-  if recent_evaluations:
-   evaluation_rows=[{
-    "النمط":item.get("pattern_id"),
-    "الرمز":item.get("symbol"),
-    "الإطار":item.get("timeframe"),
-    "النظام السوقي":item.get("market_regime"),
-    "العينات":item.get("sample_count"),
-    "Precision":item.get("precision"),
-    "Recall":item.get("recall"),
-    "F1":item.get("f1"),
-    "العائد بعد التكاليف %":item.get("fee_adjusted_expectancy_pct"),
-    "أفق القياس (شموع)":item.get("primary_horizon_bars"),
-    "الحالة":item.get("validation_status"),
-   } for item in recent_evaluations]
-   st.dataframe(pd.DataFrame(evaluation_rows),use_container_width=True,hide_index=True)
-  else:
-   st.caption("لم تُسجل بعد نتائج تقييم إحصائي لأنماط الشموع.")
-
-  st.markdown("**دراسة نتائج التراكيب السعرية التاريخية — سجل المحرك الثاني**")
-  s1,s2,s3=st.columns(3)
-  s1.metric("سجلات تقييم التراكيب",knowledge_db.get("structure_evaluation_records",0))
-  s2.metric("نوافذ Train / Validation / Test",knowledge_db.get("evaluation_split_windows",0))
-  s3.metric("سجلات متحققة",knowledge_db.get("validated_structure_evaluations",0))
-  st.caption(
-   f"الحالة التجريبية للتراكيب: {knowledge_db.get('structure_empirical_status','UNVALIDATED')} | "
-   "الدراسة وصفية، ولا تعد اختبار محفظة أو إشارة تداول."
-  )
-  recent_structure=knowledge_db.get("recent_structure_evaluations") or []
-  if recent_structure:
-   structure_rows=[{
-    "التركيب":item.get("structure_id"),
-    "الرمز":item.get("symbol"),
-    "المنصة":item.get("venue"),
-    "الإطار":item.get("timeframe"),
-    "التقسيم":item.get("data_split"),
-    "العينات":item.get("sample_count"),
-    "أفق القياس":item.get("primary_horizon_bars"),
-    "متوسط العائد %":item.get("mean_return_pct"),
-    "متوسط العائد الصافي %":item.get("fee_adjusted_expectancy_pct"),
-    "الحالة":item.get("validation_status"),
-   } for item in recent_structure]
-   st.dataframe(pd.DataFrame(structure_rows),use_container_width=True,hide_index=True)
-  else:
-   st.caption("لا توجد حتى الآن سجلات تقييم محفوظة للتراكيب السعرية؛ شغّل scripts/run_structure_study.py بعد اكتمال أرشيف الشموع.")
-
-  split_windows=knowledge_db.get("recent_evaluation_split_windows") or []
-  if split_windows:
-   st.markdown("**سجل نوافذ تقسيم البيانات وبصماتها**")
-   split_rows=[{
-    "مجموعة البيانات":item.get("dataset_id"),
-    "الرمز":item.get("symbol"),
-    "المنصة":item.get("venue"),
-    "الإطار":item.get("timeframe"),
-    "التقسيم":item.get("data_split"),
-    "بداية النافذة ms":item.get("split_start_ms"),
-    "نهاية النافذة ms":item.get("split_end_ms"),
-    "شموع الحظر":item.get("embargo_bars"),
-   } for item in split_windows]
-   st.dataframe(pd.DataFrame(split_rows),use_container_width=True,hide_index=True)
-
-  candle_knowledge=chart.get("candle_knowledge") or {}
-  st.caption(
-   f"محلل OHLC المعرفي: {ar(candle_knowledge.get('status','NOT_AVAILABLE'))} | "
-   f"مرشحات الأنماط: {candle_knowledge.get('count',0)}"
-  )
-  if candle_knowledge.get("detected"):
-   pattern_rows=[{
-    "النمط":item.get("pattern_id"),
-    "الاتجاه الوصفي":item.get("direction"),
-   "العائلة":item.get("family"),
-   "بنية الحدود":item.get("geometry"),
-    "اتجاه سابق":item.get("prior_trend"),
-    "مطابقة السياق":item.get("context_match"),
-    "حالة الشمعة":item.get("confirmation_state"),
-    "من شمعة":item.get("start_index"),
-    "إلى شمعة":item.get("end_index"),
-   } for item in candle_knowledge["detected"]]
-   st.dataframe(pd.DataFrame(pattern_rows),use_container_width=True,hide_index=True)
-  advanced=chart.get("advanced_structure_knowledge") or {}
-  st.caption(
-   f"تحليل بنية السوق متعدد المقاييس: {ar(advanced.get('status','NOT_AVAILABLE'))} | "
-   f"الاتجاه البنيوي: {advanced.get('structure_direction','—')} | "
-   f"أحداث BOS/CHOCH: {len(advanced.get('bos_choch_events',[]))} | "
-   f"سحب السيولة: {len(advanced.get('liquidity_sweeps',[]))} | "
-   f"فجوات سعرية: {len(advanced.get('fair_value_gaps',[]))} | "
-   f"أنماط سعرية متعددة القمم: {len(advanced.get('classical_patterns',[]))}"
-  )
-  classical_rows=[{
-   "النمط":{
-    "double_top":"قمة مزدوجة",
-    "double_bottom":"قاع مزدوج",
-    "head_and_shoulders":"الرأس والكتفين",
-    "inverse_head_and_shoulders":"الرأس والكتفين المعكوس",
-    "ascending_triangle":"مثلث صاعد",
-    "descending_triangle":"مثلث هابط",
-    "symmetrical_triangle":"مثلث متماثل",
-    "rising_wedge":"وتد صاعد",
-    "falling_wedge":"وتد هابط",
-    "rising_channel":"قناة صاعدة",
-    "falling_channel":"قناة هابطة",
-    "horizontal_channel":"قناة أفقية",
-    "bull_flag":"علم صاعد",
-    "bear_flag":"علم هابط",
-    "bull_pennant":"راية صاعدة",
-    "bear_pennant":"راية هابطة",
-   }.get(item.get("pattern_id"),item.get("pattern_id")),
-   "الحالة":ar(item.get("status","—")),
-   "الاتجاه الوصفي":item.get("direction"),
-   "قمم/قيعان التكوين":", ".join(str(x) for x in item.get("pivot_indices",[])),
-   "اكتمال تأكيد القمم":item.get("formation_confirmed_at"),
-   "شمعة كسر خط العنق":item.get("confirmation_index"),
-   "خط العنق":f"{item.get('neckline_left','—')} → {item.get('neckline_right','—')}",
-   "مستوى الإبطال":item.get("invalidation_level"),
-   "جهة الاختراق":item.get("breakout_direction"),
-   "شمعة الاختراق":item.get("breakout_index"),
-  } for item in advanced.get("classical_patterns",[])]
-  if classical_rows:
-   st.dataframe(pd.DataFrame(classical_rows),use_container_width=True,hide_index=True)
-   st.caption("هذه الأنماط هندسية وصفية فقط؛ اتجاه المثلث أو الوتد لا يتنبأ بجهة الاختراق. لا تدخل النتائج في قرار التداول ولم تثبت فائدتها الإحصائية على BTC بعد.")
-  else:
-   st.caption("لم يتأكد تكوين قمة/قاع مزدوج أو رأس وكتفين في بيانات الشموع المؤكدة الحالية.")
-  st.caption(
-   f"كتل أوامر مرشحة مرتبطة بكسر مؤكد: {len(advanced.get('order_block_candidates',[]))} "
-   "| هذه مناطق سعرية مرشحة وليست دليلاً على أوامر مؤسسات."
-  )
-  block_rows=[{
-   "الاتجاه":item.get("direction"),
-   "الحالة":item.get("status"),
-   "شمعة المصدر":item.get("source_candle_index"),
-   "شمعة الكسر":item.get("break_index"),
-   "منطقة السعر":f"{item.get('zone_low','—')} – {item.get('zone_high','—')}",
-  } for item in advanced.get("order_block_candidates",[]) if item.get("structure_id")]
-  if block_rows:
-   st.dataframe(pd.DataFrame(block_rows),use_container_width=True,hide_index=True)
-  scale_rows=[{
-   "المقياس داخل الإطار":"داخلي" if key=="internal" else "تأرجح" if key=="swing" else "خارجي",
-   "الحالة":value.get("status"),
-   "قمم محورية":len(value.get("swing_highs",[])),
-   "قيعان محورية":len(value.get("swing_lows",[])),
-   "التسلسل":value.get("direction"),
-  } for key,value in (advanced.get("scales") or {}).items()]
-  if scale_rows:
-   st.dataframe(pd.DataFrame(scale_rows),use_container_width=True,hide_index=True)
-  archive=chart.get("visual_observation_archive") or {}
-  st.caption(
-   f"أرشيف هذه الصورة: {archive.get('status','DISABLED')} | "
-   f"رصدات شموع مسجلة: {archive.get('pattern_observations_written',0)} | "
-   f"رصدات بنية مسجلة: {archive.get('structure_observations_written',0)}"
-  )
-  if advanced.get("limitations"):
-   st.caption("حدود التحليل البنيوي: "+" | ".join(advanced["limitations"]))
-
-  engine2_mtf=state.get("engine_2_multi_timeframe_structure") or chart.get("engine_2_multi_timeframe_structure") or {}
-  st.markdown("**بنية السعر متعددة الأطر — من سجل شموع المحرك الثاني الأصلي في MT5**")
-  mtf_alignment=engine2_mtf.get("alignment","INSUFFICIENT_TIMEFRAME_CONFLUENCE")
-  mtf_alignment_ar={
-   "BULLISH_TIMEFRAME_CONFLUENCE":"توافق بنيوي صاعد",
-   "BEARISH_TIMEFRAME_CONFLUENCE":"توافق بنيوي هابط",
-   "MIXED_TIMEFRAME_STRUCTURE":"تضارب بين الأطر الزمنية",
-   "INSUFFICIENT_TIMEFRAME_CONFLUENCE":"بيانات غير كافية للتوافق",
-  }.get(mtf_alignment,mtf_alignment)
-  st.caption(
-   f"الحالة: {ar(engine2_mtf.get('status','NOT_AVAILABLE'))} | "
-   f"المصدر: {engine2_mtf.get('source','—')} | "
-   f"الأطر المؤهلة: {', '.join(engine2_mtf.get('eligible_timeframes',[])) or '—'} | "
-   f"النتيجة: {mtf_alignment_ar}"
-  )
-  mtf_rows=[]
-  for tf,frame in (engine2_mtf.get("timeframe_reports") or {}).items():
-   mtf_rows.append({
-    "الإطار":tf,
-    "الحالة":frame.get("status"),
-    "الشموع المؤكدة":frame.get("confirmed_bars",0),
-    "الاتجاه البنيوي":frame.get("structure_direction","—"),
-    "انتظام الشموع":"متصل" if frame.get("data_continuity")=="CONTIGUOUS" else "فجوات",
-    "عدد الفجوات":len(frame.get("candle_gaps",[])),
-    "عمر آخر إغلاق (ث)":round(frame.get("staleness_ms",0)/1000,1),
+  price_action=state.get("engine_2_price_action",{}) if isinstance(state.get("engine_2_price_action"),dict) else {}
+  summary=price_action.get("summary",{}) if isinstance(price_action.get("summary"),dict) else {}
+  candle_state=state.get("engine_2_candles",{}) if isinstance(state.get("engine_2_candles"),dict) else {}
+  st.subheader("المحرك الثاني — تحليل الشموع وبنية السعر من OHLC الأصلي")
+  p1,p2,p3,p4,p5=st.columns(5)
+  p1.metric("حالة التحليل",ar(price_action.get("status","NOT_REPORTED")))
+  p2.metric("الاتجاه",price_action.get("direction_ar",price_action.get("direction","—")))
+  score=price_action.get("structure_score")
+  p3.metric("درجة أدلة السعر",f"{float(score):+.3f}" if isinstance(score,(int,float)) else "—")
+  p4.metric("توافق الأطر",summary.get("timeframe_alignment","—"))
+  p5.metric("الأطر المؤهلة",f"{summary.get('eligible_timeframe_count',0)}/6")
+  st.caption("التحليل من شموع MT5 المكتملة فقط. القمم والقيعان المؤكدة هي الأساس، وتساندها كسر/تغير البنية ونماذج الشموع وعمليات سحب السيولة؛ لا صور أو مؤشرات فنية داخل المحرك الثاني.")
+  if price_action.get("reason"):
+   st.caption(price_action["reason"])
+  evidence_weights=summary.get("directional_evidence_weights",{})
+  if evidence_weights:
+   st.caption("الأوزان الداخلية لأدلة المحرك الثاني: "+" · ".join(
+    f"{name}: {float(weight)*100:.0f}%"
+    for name,weight in evidence_weights.items()
+   ))
+  timeframe_rows=[]
+  candle_rows=[]
+  event_rows=[]
+  sweep_rows=[]
+  zone_rows=[]
+  for timeframe,frame in (price_action.get("timeframes") or {}).items():
+   structure=frame.get("structure") or {}
+   candle_analysis=frame.get("candle_analysis") or {}
+   data_quality=frame.get("data_quality") or {}
+   timeframe_rows.append({
+    "الإطار":timeframe,
+    "الحالة":ar(frame.get("status")),
+    "الاتجاه البنيوي":frame.get("structure_direction",frame.get("direction","—")),
+    "درجة أدلة الإطار":frame.get("directional_evidence_score"),
+    "الشموع المغلقة":frame.get("closed_bars",0),
+    "قوة التأرجح":frame.get("structure_strength","—"),
+    "فجوات البيانات":data_quality.get("gap_count",0),
    })
-  if mtf_rows:
-   st.dataframe(pd.DataFrame(mtf_rows),use_container_width=True,hide_index=True)
-  mtf_errors=engine2_mtf.get("errors") or {}
-  if mtf_errors:
-   st.caption("أطر مستبعدة من التوافق: "+" | ".join(f"{tf}: {reason}" for tf,reason in mtf_errors.items()))
-  st.caption("هذا توافق بنيوي وصفي من شموع MT5 الأصلية، وليس إشارة تداول مستقلة.")
- 
-  axis_ocr=chart.get("axis_ocr") or {}
-  calibration_info=chart.get("calibration") or {}
-  st.caption(f"معايرة محور السعر: {calibration_info.get('source','غير متاح')} | نوع المحور: {calibration_info.get('price_scale_type','—')}")
-  if axis_ocr:
-   fit_info=axis_ocr.get("fit") or {}
-   st.caption(f"OCR المحور: {axis_ocr.get('status','—')} | تدريجات مقروءة: {len(axis_ocr.get('ticks',[]))} | ثقة الملاءمة: {fit_info.get('confidence','—')} | {axis_ocr.get('reason','') or fit_info.get('reason','')}")
-   if axis_ocr.get("ticks"):
-    st.dataframe(pd.DataFrame(axis_ocr["ticks"]),use_container_width=True,hide_index=True)
-  if chart.get("quality_gates"):
-   gate_rows=[{"بوابة الجودة":name,"النتيجة":"اجتازت" if passed else "لم تجتز"} for name,passed in chart["quality_gates"].items()]
-   st.dataframe(pd.DataFrame(gate_rows),use_container_width=True,hide_index=True)
-  if chart.get("confidence_components"):
-   st.caption("تفصيل مؤشر جودة الأدلة: "+ " | ".join(f"{k}: {v}" for k,v in chart["confidence_components"].items()))
-  if chart.get("limitations"):
-   st.caption("حدود التحليل: "+" | ".join(chart["limitations"]))
+   for item in candle_analysis.get("latest_candle_patterns",[]):
+    candle_rows.append({
+     "الإطار":timeframe,
+     "النمط":item.get("pattern_id"),
+     "الاتجاه":item.get("direction"),
+     "سياق الاتجاه":item.get("context_match"),
+     "حالة التأكيد":item.get("confirmation_state"),
+    })
+   for item in (structure.get("bos_choch_events") or [])[-5:]:
+    event_rows.append({
+     "الإطار":timeframe,
+     "الحدث":item.get("event"),
+     "الاتجاه":item.get("side"),
+     "المستوى":item.get("level"),
+     "وقت التأكيد":item.get("confirmation_time_utc_ms"),
+    })
+   for item in (structure.get("liquidity_sweeps") or [])[-5:]:
+    sweep_rows.append({
+     "الإطار":timeframe,
+     "الحدث":item.get("event"),
+     "الاتجاه":item.get("side"),
+     "المستوى":item.get("level"),
+     "وقت التأكيد":item.get("confirmation_time_utc_ms"),
+    })
+   for item in (structure.get("fair_value_gaps") or [])[-5:]:
+    zone_rows.append({
+     "الإطار":timeframe,"النوع":"FVG","الاتجاه":item.get("direction"),
+     "الحد الأدنى":item.get("lower"),"الحد الأعلى":item.get("upper"),
+     "الحالة":item.get("status"),
+    })
+   for item in (structure.get("order_block_candidates") or [])[-5:]:
+    zone_rows.append({
+     "الإطار":timeframe,"النوع":"Order Block","الاتجاه":item.get("direction"),
+     "الحد الأدنى":item.get("zone_low"),"الحد الأعلى":item.get("zone_high"),
+     "الحالة":item.get("status"),
+    })
+  if timeframe_rows:
+   st.markdown("**ملخص الأطر الزمنية الستة**")
+   st.dataframe(pd.DataFrame(timeframe_rows),use_container_width=True,hide_index=True)
+  if candle_rows:
+   st.markdown("**نماذج الشموع على أحدث شمعة مغلقة**")
+   st.dataframe(pd.DataFrame(candle_rows),use_container_width=True,hide_index=True)
+  if event_rows:
+   st.markdown("**أحداث BOS / CHOCH المؤكدة**")
+   st.dataframe(pd.DataFrame(event_rows),use_container_width=True,hide_index=True)
+  if sweep_rows:
+   st.markdown("**مناطق سحب السيولة المؤكدة**")
+   st.dataframe(pd.DataFrame(sweep_rows),use_container_width=True,hide_index=True)
+  if zone_rows:
+   st.markdown("**الفجوات السعرية وكتل الأوامر المرشحة**")
+   st.dataframe(pd.DataFrame(zone_rows),use_container_width=True,hide_index=True)
+  if summary.get("warnings"):
+   st.caption("تنبيهات جودة الأطر: "+" | ".join(summary.get("warnings",[])))
+  st.markdown("**تغذية الشموع الأصلية التي يملكها المحرك الثاني**")
+  st.metric("حالة سجل OHLC",ar(candle_state.get("status","NOT_REPORTED")))
+  if candle_state.get("timeframes"):
+   st.dataframe(pd.DataFrame([{
+    "الإطار":tf,"إجمالي الشموع":count,
+    "الشموع المغلقة":(candle_state.get("closed_candles") or {}).get(tf,"—")
+   } for tf,count in candle_state["timeframes"].items()]),use_container_width=True,hide_index=True)
+  if candle_state.get("reason"):
+   st.caption(candle_state["reason"])
 
   indicators=state.get("indicators",{})
   st.subheader("المحرك الثالث — المؤشرات")
@@ -1044,34 +783,6 @@ def render_engine_dashboard():
   if candle_state.get("reason"):
    st.caption(candle_state["reason"])
 
-  observer=state.get("chart_observer",{})
-  observer_pipeline=observer.get("pipeline_component","engine2_mt5_chart_image_pipeline")
-  visual_result=chart
-  st.subheader("صور المخططات — مسار تشخيصي اختياري خارج القرار")
-  st.caption(f"المكوّن المسؤول: {observer_pipeline} | مصدر الصور: مجلد خبير MT5 الحالي | لا تؤثر هذه الصورة في تصويت المحركات أو جاهزية تحليل OHLC.")
-  o1,o2,o3,o4=st.columns(4)
-  o1.metric("حالة حزمة الصورة",ar(observer.get("status","NOT_CONFIGURED")))
-  o2.metric("عمر آخر لقطة (ثانية)",observer.get("age_seconds","—"))
-  o3.metric("الرمز / الإطار",f"{observer.get('chart',{}).get('symbol','—')} / {observer.get('chart',{}).get('timeframe','—')}")
-  o4.metric("شموع OHLC المرفقة",observer.get("bar_count","—"))
-  st.caption(
-   f"نتيجة تحليل الصورة داخل المحرك الثاني: {ar(visual_result.get('status','NOT_REPORTED'))} | "
-   f"أهلية الصورة للقرار: {'نعم' if visual_result.get('decision_eligible') else 'لا'}"
-  )
-  if observer.get("capture_id"):
-   st.caption(f"Capture ID: {observer.get('capture_id')} | SHA-256: {observer.get('image_sha256','—')}")
-  if observer.get("status")=="READY_FOR_ENGINE_2_VALIDATION":
-   st.caption("اجتازت الصورة فحص النقل وفك الترميز؛ وتُعرض أهلية التحليل بصورة مستقلة أعلاه بعد المعايرة ومطابقة مرساة OHLC.")
-  elif observer.get("status") not in {"WAITING_FOR_CAPTURE","NOT_CONFIGURED"}:
-   st.warning(observer.get("message") or observer.get("reason") or "أحدث حزمة صور لم تجتز التحقق؛ لم يُسمح بالرجوع إلى لقطة أقدم.")
-  else:
-   st.caption(observer.get("message") or observer.get("reason") or "بانتظار وصول أول صورة من خبير MT5.")
-  image_path=observer.get("image_path")
-  if image_path and Path(image_path).is_file():
-   st.image(image_path,width=520,caption="الصورة الأخيرة المستلمة من مجلد خبير MT5")
-  if observer.get("image_directory"):
-   st.caption(f"مجلد الصور الذي يقرأه المحرك الثاني: {observer.get('image_directory')}")
- 
   bridge=state.get("bridge",{})
   st.subheader("المحرك الخامس — جسر التواصل بين البرنامج والخبير")
   b1,b2,b3=st.columns(3)
@@ -1180,22 +891,12 @@ def render_engine_dashboard():
    _score_label(scores.get("engine_3_indicators")),
    help="المؤشرات المحسوبة من سجل الشموع المغلقة الذي يملكه المحرك الثاني.")
   s4.metric("النتيجة المركبة",_score_label(scores.get("combined_score")))
-  engine2_internal=weights.get("engine_2_internal",{})
-  e2_configured=engine2_internal.get("configured",{})
-  e2_applied=engine2_internal.get("applied",{})
-  st.caption(
-   "النسب الأساسية: المحرك 1 = 20%، المحرك 2 = 50%، المحرك 3 = 30%. "
-   "الأوزان الفعالة تتغير بحسب جودة وتغطية الدليل وتُعاد معايرتها إلى 100%. "
-   f"داخل المحرك 2: التوزيع المطبق OHLC {float(e2_applied.get('native_ohlc_price_action',1.0))*100:.0f}% "
-   f"/ الصورة المعايرة {float(e2_applied.get('calibrated_visual_chart',0.0))*100:.0f}% "
-   f"(الأساس {float(e2_configured.get('native_ohlc_price_action',1.0))*100:.0f}% / "
-   f"{float(e2_configured.get('calibrated_visual_chart',0.0))*100:.0f}%). الصور خارج معادلة القرار."
-  )
+  st.caption("الأوزان الأساسية للمحركات: المحرك 1 = 20%، المحرك 2 = 50%، المحرك 3 = 30%. داخل المحرك الثاني تُوزّع أدلة OHLC بين بنية التأرجح وBOS/CHOCH والشموع وسحب السيولة؛ لا يوجد تصويت بصري.")
   e1,e2,e3,e4=st.columns(4)
   e1.metric("دخول مرجعي",f"{decision.get('entry_reference'):,.2f}" if decision.get("entry_reference") else "—")
   e2.metric("وقف الخسارة",f"{decision.get('stop_loss'):,.2f}" if decision.get("stop_loss") else "—")
   e3.metric("الهدف",f"{decision.get('take_profit'):,.2f}" if decision.get("take_profit") else "—")
-  e4.metric("بوابة الرسم",decision.get("chart_gate","—"))
+  e4.metric("بوابة توافق السعر",decision.get("chart_gate","—"))
   q1,q2,q3,q4=st.columns(4)
   divergence=decision.get("broker_market_price_divergence_pct")
   spread=decision.get("broker_spread_pct")
@@ -1221,105 +922,6 @@ def render_engine_dashboard():
  render_execution_console(state)
 
  st.divider()
- st.subheader("تهيئة المسار البصري الاختياري للمخطط")
- st.caption("رفع الصورة ومعايرتها مخصصان للتشخيص ومراجعة الاستخراج البصري فقط. لا تدخل نتائج الصورة في تصويت المحركات أو قرار التداول؛ ويستمر تحليل OHLC الأصلي دون الحاجة إلى صورة.")
- saved_meta=read_json(CHART_METADATA_PATH,{})
- with st.form("chart_calibration_form",clear_on_submit=False):
-  uploaded=st.file_uploader("صورة الرسم",type=["png","jpg","jpeg","webp"])
-  symbol_default=(market.get("symbol") if market else "BTCUSDT")
-  syms=st.text_input("رمز الشارت كما يظهر على الصورة",value=saved_meta.get("symbol",symbol_default))
-  options=["1m","5m","15m","1h","4h","1d","1w"]
-  old_tf=saved_meta.get("timeframe","1m")
-  timeframe=st.selectbox("الإطار الزمني الظاهر بالصورة",options,index=options.index(old_tf) if old_tf in options else 0)
-  palette_labels={
-   "auto":"تلقائي: أخضر/تركوازي/أزرق مقابل أحمر/برتقالي",
-   "green_red":"أخضر مقابل أحمر",
-   "blue_orange":"أزرق مقابل برتقالي",
-   "teal_magenta":"تركوازي مقابل أرجواني",
-  }
-  palette_keys=list(palette_labels)
-  old_palette=saved_meta.get("palette_mode","auto")
-  palette_mode=st.selectbox(
-   "ألوان الشموع في هذا الشارت",
-   palette_keys,
-   index=palette_keys.index(old_palette) if old_palette in palette_keys else 0,
-   format_func=lambda key:palette_labels[key],
-  )
-  scale_labels={"linear":"خطي","logarithmic":"لوغاريتمي"}
-  scale_keys=list(scale_labels)
-  old_scale=saved_meta.get("price_scale_type","linear")
-  price_scale_type=st.selectbox(
-   "نوع مقياس الأسعار على المحور",scale_keys,
-   index=scale_keys.index(old_scale) if old_scale in scale_keys else 0,
-   format_func=lambda key:scale_labels[key],
-  )
-  auto_axis_ocr=st.checkbox(
-   "استخراج تدريجات محور السعر تلقائياً من الصورة (OCR)",
-   value=bool(saved_meta.get("auto_axis_ocr",True)),
-   help="يحتاج المحرك إلى أربع تدريجات رقمية متناسقة على الأقل. عند فشل القراءة لن يخمّن الأسعار.",
-  )
-  auto_header_ocr=st.checkbox(
-   "اقتراح الرمز والإطار الزمني من شريط عنوان الصورة (OCR)",
-   value=bool(saved_meta.get("auto_header_ocr",False)),
-   help="قراءة مساعدة من أعلى الصورة فقط. لا تستبدل الرمز أو الفاصل المدخلين ولا تستخدم لمعايرة السعر أو قرار التداول.",
-  )
-  last_candle_closed=st.checkbox(
-   "آخر شمعة في الصورة مغلقة ومكتملة",
-   value=bool(saved_meta.get("last_candle_closed",False)),
-   help="اتركه غير محدد إن لم تكن متأكداً؛ سيصنف المحرك الأنماط على آخر شمعة كأنها قيد التكوين حتى لا يؤكد شمعة مفتوحة.",
-  )
-  persist_knowledge_observations=st.checkbox(
-   "أرشفة نتائج المحلل البصري لهذه الصورة في قاعدة المعرفة",
-   value=bool(saved_meta.get("persist_knowledge_observations",True)),
-   help="يحفظ رصدات الشموع والبنية مع بصمة للصورة. لا يحوّل المرشحات إلى نتائج إحصائية متحققة.",
-  )
-  expected_candle_count=st.number_input(
-   "عدد الشموع الظاهرة تقريباً (0 = غير معروف)",
-   min_value=0,max_value=500,value=int(saved_meta.get("expected_candle_count",0) or 0),step=1,
-  )
-  p1,p2=st.columns(2)
-  with p1: top_price=st.number_input("أعلى سعر ظاهر على المحور",min_value=0.0,value=float(saved_meta.get("price_top",0.0)),format="%.2f")
-  with p2: bottom_price=st.number_input("أدنى سعر ظاهر على المحور",min_value=0.0,value=float(saved_meta.get("price_bottom",0.0)),format="%.2f")
-  st.caption("حدود منطقة الرسم بالبكسل (اختيارية). صفر يعني حافة الصورة.")
-  q1,q2,q3,q4=st.columns(4)
-  with q1: plot_left=st.number_input("يسار",min_value=0,value=int(saved_meta.get("plot_left_px",0)),step=1)
-  with q2: plot_top=st.number_input("أعلى",min_value=0,value=int(saved_meta.get("plot_top_px",0)),step=1)
-  with q3: plot_right=st.number_input("يمين",min_value=0,value=int(saved_meta.get("plot_right_px",0)),step=1)
-  with q4: plot_bottom=st.number_input("أسفل",min_value=0,value=int(saved_meta.get("plot_bottom_px",0)),step=1)
-  submitted=st.form_submit_button("حفظ الصورة وإعدادات المعايرة")
- if submitted:
-  if uploaded is None: st.error("اختر صورة حقيقية أولاً.")
-  elif len(uploaded.getvalue())>8*1024*1024: st.error("حجم الصورة أكبر من 8 ميغابايت.")
-  elif (top_price>0 or bottom_price>0) and not (top_price>bottom_price>0): st.error("أدخل أعلى وأدنى سعر صحيحين، أو اترك الاثنين صفراً لتفعيل OCR.")
-  elif top_price==0 and bottom_price==0 and not auto_axis_ocr: st.error("أدخل نطاق المحور يدوياً أو فعّل استخراج تدريجات السعر تلقائياً.")
-  elif syms.strip().upper()!=symbol_default:
-   st.error(f"رمز الصورة ({syms}) يجب أن يطابق رمز محرك السوق ({symbol_default}) حتى لا نخلط بيانات أداة بأخرى.")
-  else:
-   payload=uploaded.getvalue()
-   try:
-    with Image.open(io.BytesIO(payload)) as preview:
-     image_width,image_height=preview.size
-     preview.verify()
-    if image_width<64 or image_height<64 or image_width*image_height>40_000_000:
-     raise ValueError("أبعاد الصورة خارج حدود التحليل الآمن.")
-   except (UnidentifiedImageError,OSError,ValueError) as exc:
-    st.error(f"الصورة غير صالحة للتحليل: {exc}")
-    payload=None
-   if payload is not None:
-    CHART_DIR.mkdir(parents=True,exist_ok=True)
-    target=CHART_DIR/("active_chart"+Path(uploaded.name).suffix.lower())
-    target.write_bytes(payload)
-    metadata={"schema_version":2,"symbol":syms.strip().upper(),"timeframe":timeframe,
-     "price_top":float(top_price),"price_bottom":float(bottom_price),
-     "price_scale_type":price_scale_type,"auto_axis_ocr":bool(auto_axis_ocr),"auto_header_ocr":bool(auto_header_ocr),"last_candle_closed":bool(last_candle_closed),
-     "persist_knowledge_observations":bool(persist_knowledge_observations),"expected_candle_count":int(expected_candle_count),
-     "plot_left_px":int(plot_left),"plot_top_px":int(plot_top),
-     "plot_right_px":int(plot_right),"plot_bottom_px":int(plot_bottom),
-     "source_filename":uploaded.name,"source_sha256":hashlib.sha256(payload).hexdigest(),
-     "palette_mode":palette_mode,"saved_at_ms":int(time.time()*1000)}
-    write_json_atomic(CHART_METADATA_PATH,metadata)
-    st.success("تم حفظ الصورة والتحقق من سلامتها ومعايرة مقياسها. ستدخل نتيجة التحليل في الدورة التالية.")
-
  with st.expander("قواعد وضوابط النظام"):
   st.write("المحرك 1 يجمع استخبارات السوق والتقويمات العامة والأخبار والمشتقات بصورة مستقلة، ولا يقرأ MT5 أو الشموع أو المؤشرات. المحرك 2 يملك الشموع الأصلية OHLC وبنية السعر والقمم والقيعان والأنماط؛ الصور مسار تشخيص اختياري لا يدخل القرار. المحرك 3 يحسب المؤشرات من الشموع المكتملة للمحرك 2. المحرك 4 يدمج أوزان 20/50/30 ويتخذ القرار ويدير المخاطر والمراكز. المحرك 5 يملك تغذية سعر الوسيط وجسر MIR1 وسجل صفقات Mirsad.")
   st.write("لا يوجد نموذج توليدي أو نموذج ذكاء اصطناعي لاتخاذ قرار التداول. RapidOCR المحلي يقرأ تدريجات محور السعر عند تفعيله، ويمكنه اقتراح بيانات عنوان الصورة اختيارياً؛ لا يعتمد المحرك السعر أو القرار على هذه الاقتراحات. الاتجاه والأنماط تُحلّل بقواعد هندسية واضحة.")
@@ -1340,20 +942,7 @@ def render_engine_dashboard():
    )
   else:
    st.error("ملف تقرير الإنجاز غير موجود في مجلد reports.")
- research_path=Path(__file__).resolve().parent/"reports"/"OPEN_SOURCE_VISUAL_ENGINE_RESEARCH_AR_20261102.md"
- with st.expander("نتائج البحث الخارجي عن أدوات ومشاريع جاهزة للمحرك البصري",expanded=False):
-  if research_path.is_file():
-   research_text=research_path.read_text(encoding="utf-8")
-   st.markdown(research_text)
-   st.download_button(
-    "تنزيل تقرير البحث الخارجي",
-    data=research_text,
-    file_name="OPEN_SOURCE_VISUAL_ENGINE_RESEARCH_AR_20261102.md",
-    mime="text/markdown",
-    key="mirsad_visual_research_download",
-   )
-  else:
-   st.warning("تقرير البحث الخارجي غير موجود في مجلد reports.")
+
 
 @st.fragment(run_every=10)
 def live_fragment():
