@@ -343,6 +343,112 @@ def _forming_candle_summary(
     }
 
 
+DIRECTIONAL_EVIDENCE_WEIGHTS = {
+    "confirmed_swing_structure": 0.70,
+    "latest_confirmed_bos_choch": 0.15,
+    "latest_candle_pattern": 0.10,
+    "latest_liquidity_sweep": 0.05,
+}
+
+
+def _directional_evidence_score(
+    structure: dict[str, Any],
+    candle_analysis: dict[str, Any],
+) -> tuple[float | None, dict[str, Any]]:
+    """Blend native OHLC price-action evidence; no image or technical-indicator input."""
+    swing = structure.get("swing") if isinstance(structure.get("swing"), dict) else {}
+    swing_direction = str(swing.get("direction", "MIXED_OR_UNCONFIRMED")).upper()
+    component_scores: dict[str, float] = {
+        "confirmed_swing_structure": (
+            1.0 if swing_direction == "BULLISH"
+            else -1.0 if swing_direction == "BEARISH"
+            else 0.0
+        )
+    }
+
+    bos_events = structure.get("bos_choch_events")
+    if isinstance(bos_events, list):
+        directional_events = [
+            item for item in bos_events
+            if isinstance(item, dict)
+            and str(item.get("event", "")).upper() in {
+                "BOS_BULLISH", "CHOCH_BULLISH", "BOS_BEARISH", "CHOCH_BEARISH"
+            }
+        ]
+        if directional_events:
+            latest_event = max(
+                directional_events,
+                key=lambda item: int(
+                    item.get("confirmation_time_utc_ms")
+                    or item.get("pivot_time_utc_ms")
+                    or 0
+                ),
+            )
+            event_name = str(latest_event.get("event", "")).upper()
+            component_scores["latest_confirmed_bos_choch"] = (
+                1.0 if event_name in {"BOS_BULLISH", "CHOCH_BULLISH"} else -1.0
+            )
+
+    pattern_bias = str(candle_analysis.get("latest_pattern_bias", "NONE")).upper()
+    if pattern_bias in {"BULLISH", "BEARISH"}:
+        component_scores["latest_candle_pattern"] = (
+            1.0 if pattern_bias == "BULLISH" else -1.0
+        )
+
+    sweeps = structure.get("liquidity_sweeps")
+    if isinstance(sweeps, list):
+        directional_sweeps = [
+            item for item in sweeps
+            if isinstance(item, dict)
+            and str(item.get("event", "")).upper() in {
+                "HIGH_LIQUIDITY_SWEEP", "LOW_LIQUIDITY_SWEEP"
+            }
+        ]
+        if directional_sweeps:
+            latest_sweep = max(
+                directional_sweeps,
+                key=lambda item: int(
+                    item.get("confirmation_time_utc_ms")
+                    or item.get("pivot_time_utc_ms")
+                    or 0
+                ),
+            )
+            sweep_name = str(latest_sweep.get("event", "")).upper()
+            component_scores["latest_liquidity_sweep"] = (
+                -1.0 if sweep_name == "HIGH_LIQUIDITY_SWEEP" else 1.0
+            )
+
+    active_weight = sum(DIRECTIONAL_EVIDENCE_WEIGHTS[name] for name in component_scores)
+    if active_weight <= 0:
+        return None, {
+            "score": None,
+            "configured_weights": dict(DIRECTIONAL_EVIDENCE_WEIGHTS),
+            "applied_weights": {},
+            "component_scores": {},
+            "evidence_count": 0,
+        }
+
+    applied_weights = {
+        name: round(DIRECTIONAL_EVIDENCE_WEIGHTS[name] / active_weight, 6)
+        for name in component_scores
+    }
+    score = sum(
+        component_scores[name] * applied_weights[name]
+        for name in component_scores
+    )
+    score = max(-1.0, min(1.0, score))
+    return score, {
+        "score": round(score, 6),
+        "configured_weights": dict(DIRECTIONAL_EVIDENCE_WEIGHTS),
+        "applied_weights": applied_weights,
+        "component_scores": {
+            name: round(value, 6) for name, value in component_scores.items()
+        },
+        "evidence_count": len(component_scores),
+        "interpretation": "WEIGHTED_NATIVE_OHLC_PRICE_ACTION_EVIDENCE_NOT_PROBABILITY",
+    }
+
+
 def _analyze_timeframe(
     timeframe: str,
     bars: list[dict[str, Any]],
@@ -352,7 +458,8 @@ def _analyze_timeframe(
     structure = _summarize_structure(bars)
     patterns = _summarize_candle_patterns(bars)
     swing = structure["swing"]
-    direction = swing.get("direction", "MIXED_OR_UNKNOWN")
+    direction = swing.get("direction", "MIXED_OR_UNCONFIRMED")
+    directional_score, directional_evidence = _directional_evidence_score(structure, patterns)
 
     recent_events = structure["bos_choch_events"][-5:]
     directional_event = None
@@ -394,6 +501,14 @@ def _analyze_timeframe(
         "status": timeframe_status,
         "timeframe": timeframe,
         "direction": direction,
+        "structure_direction": direction,
+        "swing_structure_score": (
+            1.0 if direction == "BULLISH" else -1.0 if direction == "BEARISH" else 0.0
+        ),
+        "directional_evidence_score": (
+            round(directional_score, 6) if directional_score is not None else None
+        ),
+        "directional_evidence": directional_evidence,
         "structure_strength": strength,
         "readiness": {
             "ohlc": health.get("status"),
@@ -415,6 +530,8 @@ def _analyze_timeframe(
 def _weighted_structure_score(
     reports: dict[str, dict[str, Any]],
     selected_timeframes: list[str],
+    *,
+    score_key: str = "directional_evidence_score",
 ) -> float | None:
     usable = [
         timeframe for timeframe in selected_timeframes
@@ -425,9 +542,12 @@ def _weighted_structure_score(
         return None
     score = 0.0
     for timeframe in usable:
-        direction = reports[timeframe].get("direction")
-        value = 1.0 if direction == "BULLISH" else -1.0 if direction == "BEARISH" else 0.0
-        score += TIMEFRAME_WEIGHTS[timeframe] * value
+        report = reports[timeframe]
+        raw_score = _valid_number(report.get(score_key))
+        if raw_score is None:
+            direction = report.get("direction")
+            raw_score = 1.0 if direction == "BULLISH" else -1.0 if direction == "BEARISH" else 0.0
+        score += TIMEFRAME_WEIGHTS[timeframe] * max(-1.0, min(1.0, raw_score))
     return score / denominator
 
 
@@ -550,6 +670,9 @@ def analyze_mt5_native_price_action(
     short_score = _weighted_structure_score(reports, short_frames)
     higher_score = _weighted_structure_score(reports, higher_frames)
     overall_score = _weighted_structure_score(reports, list(TIMEFRAME_MS))
+    swing_structure_score = _weighted_structure_score(
+        reports, list(TIMEFRAME_MS), score_key="swing_structure_score"
+    )
     short_direction = _direction(short_score)
     higher_direction = _direction(higher_score)
 
@@ -621,10 +744,13 @@ def analyze_mt5_native_price_action(
         "direction": overall_direction,
         "direction_ar": direction_ar,
         "structure_score": round(overall_score, 4) if overall_score is not None else None,
+        "swing_structure_score": round(swing_structure_score, 4) if swing_structure_score is not None else None,
         "summary": {
             "direction": overall_direction,
             "direction_ar": direction_ar,
             "structure_score": round(overall_score, 4) if overall_score is not None else None,
+            "swing_structure_score": round(swing_structure_score, 4) if swing_structure_score is not None else None,
+            "directional_evidence_weights": dict(DIRECTIONAL_EVIDENCE_WEIGHTS),
             "short_term_direction": short_direction,
             "short_term_structure_score": round(short_score, 4) if short_score is not None else None,
             "higher_timeframe_direction": higher_direction,
@@ -673,10 +799,11 @@ def analyze_mt5_native_price_action(
             "controls_positions": False,
         },
         "methodology": {
-            "candle_analysis": "Native OHLC candle anatomy, multi-candle formations and their prior price context.",
-            "swing_analysis": "Internal (1/1), swing (2/2) and external (4/4) confirmed peaks and troughs.",
-            "structure_events": "Closed-candle breaks above/below confirmed swing levels; historical pivots are used only after their confirmation index.",
-            "liquidity_candidates": "Equal highs/lows and wick-through-then-close-back rejection around confirmed swing levels.",
+            "candle_analysis": "Native OHLC candle anatomy and confirmed multi-candle formations; latest pattern direction contributes to the Engine 2 evidence score.",
+            "swing_analysis": "Internal (1/1), swing (2/2) and external (4/4) confirmed peaks and troughs; primary directional evidence component.",
+            "structure_events": "Closed-candle BOS/CHOCH breaks above/below confirmed swing levels; latest confirmed directional event contributes to the Engine 2 evidence score.",
+            "liquidity_candidates": "Equal highs/lows and wick-through-then-close-back rejection around confirmed swing levels; latest confirmed sweep is a low-weight supporting component.",
+            "directional_evidence_weights": dict(DIRECTIONAL_EVIDENCE_WEIGHTS),
             "price_zones": "Three-candle price gaps, opposing-candle zones tied to a confirmed break, and premium/discount range context.",
             "direction": "Higher-high/higher-low or lower-high/lower-low swing sequence; aggregated across timeframes with higher-frame weights.",
             "forming_candles": "Reported separately for context only and excluded from all pattern and structural direction calculations.",

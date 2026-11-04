@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from mirsad.engines.mt5_price_action import analyze_mt5_native_price_action, _summarize_latest_pattern_alignment
+from mirsad.engines.mt5_price_action import (
+    DIRECTIONAL_EVIDENCE_WEIGHTS,
+    _directional_evidence_score,
+    analyze_mt5_native_price_action,
+    _summarize_latest_pattern_alignment,
+)
 
 
 DURATIONS = {
@@ -57,6 +62,57 @@ def make_history(
         "captured_at_ms": as_of_ms,
         "candles_by_tf": frames,
     }
+
+
+class DirectionalEvidenceScoringTests(unittest.TestCase):
+    def test_swing_structure_is_primary_and_stands_alone_when_other_evidence_is_absent(self) -> None:
+        score, evidence = _directional_evidence_score(
+            {"swing": {"direction": "BULLISH"}},
+            {"latest_pattern_bias": "NONE"},
+        )
+        self.assertAlmostEqual(score, 1.0)
+        self.assertEqual(evidence["evidence_count"], 1)
+        self.assertEqual(evidence["applied_weights"], {"confirmed_swing_structure": 1.0})
+
+    def test_candles_bos_choch_and_liquidity_sweeps_contribute_to_engine2_score(self) -> None:
+        score, evidence = _directional_evidence_score(
+            {
+                "swing": {"direction": "BULLISH"},
+                "bos_choch_events": [
+                    {"event": "BOS_BEARISH", "confirmation_time_utc_ms": 10},
+                    {"event": "BOS_BULLISH", "confirmation_time_utc_ms": 20},
+                ],
+                "liquidity_sweeps": [
+                    {"event": "HIGH_LIQUIDITY_SWEEP", "confirmation_time_utc_ms": 15},
+                    {"event": "LOW_LIQUIDITY_SWEEP", "confirmation_time_utc_ms": 25},
+                ],
+            },
+            {"latest_pattern_bias": "BULLISH"},
+        )
+        self.assertAlmostEqual(score, 1.0)
+        self.assertEqual(evidence["evidence_count"], 4)
+        self.assertEqual(evidence["applied_weights"], DIRECTIONAL_EVIDENCE_WEIGHTS)
+
+    def test_opposing_confirmed_structure_event_reduces_directional_score(self) -> None:
+        score, evidence = _directional_evidence_score(
+            {
+                "swing": {"direction": "BULLISH"},
+                "bos_choch_events": [
+                    {"event": "BOS_BEARISH", "confirmation_time_utc_ms": 10},
+                ],
+            },
+            {"latest_pattern_bias": "NONE"},
+        )
+        self.assertAlmostEqual(score, (0.70 - 0.15) / 0.85)
+        self.assertEqual(evidence["component_scores"]["latest_confirmed_bos_choch"], -1.0)
+
+    def test_missing_directional_evidence_is_renormalized_not_counted_as_bearish(self) -> None:
+        score, evidence = _directional_evidence_score(
+            {"swing": {"direction": "BULLISH"}},
+            {"latest_pattern_bias": "MIXED"},
+        )
+        self.assertAlmostEqual(score, 1.0)
+        self.assertEqual(evidence["applied_weights"], {"confirmed_swing_structure": 1.0})
 
 
 class LatestCandlePatternAlignmentTests(unittest.TestCase):
