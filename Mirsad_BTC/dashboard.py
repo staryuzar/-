@@ -1089,7 +1089,8 @@ def render_engine_dashboard():
   deal_store=state.get("mt5_deal_ledger",{}) if isinstance(state.get("mt5_deal_ledger"),dict) else {}
   l1,l2,l3,l4=st.columns(4)
   l1.metric("حالة سجل الوسيط",ar(deal_meta.get("status","NOT_REPORTED")))
-  l2.metric("صفقات Mirsad في آخر قراءة",deal_meta.get("deal_count",0))
+  l2.metric("إجمالي صفقات Mirsad ضمن الفترة",deal_meta.get("history_matching_total",deal_meta.get("deal_count",0)))
+  st.caption(f"الصفقات المعادة حالياً: {deal_meta.get('deal_count',0)} | الحد الأقصى للعرض من MT5: 1000 صفقة | نافذة السجل: 90 يوماً حسب إعداد الخبير.")
   l3.metric("حفظ SQLite",ar(deal_store.get("status","NOT_REPORTED")))
   l4.metric("التاريخ مقطوع؟","نعم" if deal_meta.get("truncated") else "لا")
   if deal_meta.get("reason"):
