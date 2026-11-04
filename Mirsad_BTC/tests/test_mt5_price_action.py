@@ -73,7 +73,7 @@ class DirectionalEvidenceScoringTests(unittest.TestCase):
         self.assertAlmostEqual(score, 1.0)
         self.assertEqual(evidence["evidence_count"], 1)
         self.assertEqual(evidence["applied_weights"], {"confirmed_swing_structure": 1.0})
-        self.assertAlmostEqual(evidence["evidence_coverage"], 0.70)
+        self.assertAlmostEqual(evidence["evidence_coverage"], 0.65)
 
     def test_candles_bos_choch_and_liquidity_sweeps_contribute_to_engine2_score(self) -> None:
         score, evidence = _directional_evidence_score(
@@ -104,7 +104,7 @@ class DirectionalEvidenceScoringTests(unittest.TestCase):
             },
             {"latest_pattern_bias": "NONE"},
         )
-        self.assertAlmostEqual(score, (0.70 - 0.15) / 0.85)
+        self.assertAlmostEqual(score, (0.65 - 0.20) / 0.85)
         self.assertEqual(evidence["component_scores"]["latest_confirmed_bos_choch"], -1.0)
 
     def test_missing_directional_evidence_is_renormalized_not_counted_as_bearish(self) -> None:
