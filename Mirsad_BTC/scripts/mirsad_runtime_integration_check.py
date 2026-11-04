@@ -38,6 +38,75 @@ def read_shared_feeds(common_root: Path) -> dict[str, dict[str, Any]]:
     return snapshots
 
 
+def evaluate_engine4_runtime(decision: dict[str, Any]) -> dict[str, Any]:
+    """Distinguish a completed safe WAIT from an eligible directional entry."""
+    action = str(decision.get("action", "UNKNOWN")).upper()
+    candidate = str(decision.get("candidate_action", "WAIT")).upper()
+    status = str(decision.get("status", "NOT_READY")).upper()
+    command_ready = decision.get("command_ready") is True
+    context = decision.get("engine_2_native_price_action_context")
+    context = context if isinstance(context, dict) else {}
+    entry_eligible = context.get("decision_eligible") is True
+    gate = str(context.get("gate", decision.get("chart_gate", "NOT_EVALUATED"))).upper()
+
+    cycle_completed = action in {"BUY", "SELL", "WAIT", "CLOSE", "MODIFY"} and status in {
+        "READY", "WAITING_FOR_ENGINE_2"
+    }
+    safe_wait = (
+        action == "WAIT"
+        and candidate == "WAIT"
+        and not command_ready
+        and (
+            (entry_eligible and status == "READY")
+            or (
+                not entry_eligible
+                and status == "WAITING_FOR_ENGINE_2"
+                and gate in {
+                    "NOT_READY",
+                    "MIXED_OR_NO_CONFLUENCE",
+                    "BULLISH_CONFLUENCE",
+                    "BEARISH_CONFLUENCE",
+                    "CANDLE_PATTERN_DIRECTION_CONFLICT",
+                    "MIXED_CANDLE_PATTERN_EVIDENCE",
+                    "NOT_EVALUATED",
+                    "NATIVE_OHLC_NOT_PROVIDED",
+                }
+            )
+        )
+    )
+    protective_action = action in {"CLOSE", "MODIFY"}
+    directional_entry = action in {"BUY", "SELL"}
+    gate_consistent = (
+        (protective_action and cycle_completed)
+        or (directional_entry and entry_eligible and status == "READY")
+        or safe_wait
+    )
+
+    if directional_entry and entry_eligible and status == "READY":
+        readiness = "DIRECTIONAL_ENTRY_ELIGIBLE"
+    elif protective_action:
+        readiness = "POSITION_PROTECTION_ACTION"
+    elif safe_wait and not entry_eligible:
+        readiness = "SAFE_WAIT_NO_ENGINE2_DIRECTION"
+    elif safe_wait:
+        readiness = "SAFE_WAIT_COMPOSITE_SCORE_OR_OTHER_GATE"
+    else:
+        readiness = "INCONSISTENT_OR_INCOMPLETE"
+
+    return {
+        "cycle_completed": cycle_completed,
+        "gate_consistent": gate_consistent,
+        "safe_wait": safe_wait,
+        "entry_eligible": entry_eligible,
+        "readiness": readiness,
+        "engine2_gate": gate,
+        "engine4_status": status,
+        "action": action,
+        "candidate_action": candidate,
+        "command_ready": command_ready,
+    }
+
+
 def run(common_root: Path, output: Path) -> dict[str, Any]:
     if runtime.ENABLE_ORDER_PUBLISH is not True:
         raise RuntimeError("MIRSAD_ENABLE_ORDER_PUBLISH must remain enabled for this integrated runtime check.")
@@ -121,12 +190,18 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
             and readiness.get("mt5_native_indicator_feed") is True
         ),
         "daily_risk_policy_consistent": readiness.get("engine_4_daily_risk_guard") is True,
-        "engine4_decision_produced": decision.get("action") in {"BUY", "SELL", "WAIT", "CLOSE", "MODIFY"},
+        "engine4_decision_cycle_completed": engine4_runtime["cycle_completed"],
+        "engine4_decision_gate_consistent": engine4_runtime["gate_consistent"],
     }
 
     decision_context = decision.get("engine_2_native_price_action_context")
     if not isinstance(decision_context, dict):
         decision_context = {}
+
+    engine4_runtime = evaluate_engine4_runtime(decision)
+    engine2_summary = price_action.get("summary")
+    if not isinstance(engine2_summary, dict):
+        engine2_summary = {}
 
     summary = {
         "schema": "MIRSAD-LIVE-RUNTIME-INTEGRATION-1",
@@ -152,6 +227,11 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
                 "direction": price_action.get("direction"),
                 "decision_eligible": decision_context.get("decision_eligible"),
                 "structure_score": price_action.get("structure_score"),
+                "timeframe_alignment": engine2_summary.get("timeframe_alignment"),
+                "eligible_timeframes": engine2_summary.get("eligible_timeframes", []),
+                "timeframe_weight_coverage": engine2_summary.get("timeframe_weight_coverage"),
+                "directional_structure_agreement": engine2_summary.get("directional_structure_agreement"),
+                "latest_candle_pattern_alignment": engine2_summary.get("latest_candle_pattern_alignment"),
             },
             "engine3": {
                 "calculated_status": indicators.get("status"),
@@ -164,6 +244,11 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
                 "action": decision.get("action"),
                 "command_ready": decision.get("command_ready"),
                 "reason": decision.get("reason"),
+                "chart_gate": decision.get("chart_gate"),
+                "engine2_gate": engine4_runtime["engine2_gate"],
+                "decision_readiness": engine4_runtime["readiness"],
+                "entry_eligible": engine4_runtime["entry_eligible"],
+                "candidate_action": engine4_runtime["candidate_action"],
             },
             "engine5": {
                 "status": bridge_state.get("status"),
@@ -174,11 +259,15 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
             },
         },
         "validated_mir1_envelopes": captured_commands,
+        "decision_readiness": engine4_runtime["readiness"],
+        "directional_entry_eligible": engine4_runtime["entry_eligible"],
         "overall_runtime_status": report.get("overall_status"),
         "notes": [
             "All five engines were evaluated in one runtime.collect_once cycle against one live MT5 Common Files directory.",
             "Production order publishing and MT5 expert execution permissions remained enabled.",
             "Any command-ready MIR1 envelope was checked by the production validator and observed by the harness; this diagnostic did not create an extra broker order.",
+            "A safe WAIT caused by mixed or insufficient Engine 2 structure is a successful completed decision cycle, but it is explicitly not a directional entry or a claim of trade readiness.",
+            "PASS means the five-engine live data/decision pipeline completed consistently; directional entry eligibility is reported separately.",
             "The independent broker BUY/CLOSE acceptance transaction is validated by the separate MT5 execution workflow.",
             "Engine 1 provider reachability is reported as observed and is not assumed to be complete from a hosted runner.",
         ],
@@ -186,7 +275,7 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     if summary["status"] != "PASS":
-        raise RuntimeError("Integrated runtime readiness failed: " + json.dumps(checks, ensure_ascii=False))
+        raise RuntimeError("Integrated runtime cycle or decision gate was inconsistent: " + json.dumps(checks, ensure_ascii=False))
     return summary
 
 
