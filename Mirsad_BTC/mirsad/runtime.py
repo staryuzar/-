@@ -120,7 +120,12 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  )
  bridge["daily_risk"]=risk_evaluation["report"]
  bridge["daily_risk_required"]=True
- if risk_evaluation["report"].get("status")=="READY":
+ if (
+  risk_evaluation["state"].get("schema")=="MIR-DAILY-RISK-1"
+  and risk_evaluation["state"].get("day_utc")
+ ):
+  # Persist both a verified baseline and a fail-closed pending marker. This
+  # prevents a process restart from silently inventing a new midday baseline.
   write_json_atomic(RISK_STATE_PATH,risk_evaluation["state"])
  # Broker quote telemetry is the Engine 5 execution feed, separate from intelligence.
  market=(market_engine.collect() if market_engine is not None
