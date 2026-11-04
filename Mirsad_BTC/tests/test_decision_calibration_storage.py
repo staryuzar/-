@@ -176,6 +176,35 @@ class DecisionCalibrationStorageTests(unittest.TestCase):
             self.assertAlmostEqual(sum(effective_weights.values()), 0.445)
             self.assertEqual(candle_count, 12)
 
+    def test_older_than_retention_candles_are_not_inserted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "calibration.sqlite3"
+            args = list(make_sample_inputs())
+            captured_at_ms = args[0]["captured_at_ms"]
+            old_stamp = captured_at_ms - 181 * 24 * 60 * 60 * 1000
+            args[1]["candles_by_tf"]["1d"].append({
+                "open_time_ms": old_stamp,
+                "open": 88_000.0,
+                "high": 88_100.0,
+                "low": 87_900.0,
+                "close": 88_050.0,
+                "volume": 100.0,
+                "closed": True,
+            })
+            result = save_decision_calibration_sample(
+                market=args[0], candle_history=args[1], market_intelligence=args[2],
+                engine2_price_action=args[3], indicators=args[4], decision=args[5],
+                db_path=db_path,
+            )
+            self.assertEqual(result["status"], "STORED")
+            self.assertEqual(result["candles_inserted"], 12)
+            with sqlite3.connect(db_path) as conn:
+                old_rows = conn.execute(
+                    "SELECT COUNT(*) FROM decision_calibration_candles WHERE open_time_ms=?",
+                    (old_stamp,),
+                ).fetchone()[0]
+            self.assertEqual(old_rows, 0)
+
     def test_same_closed_m1_bar_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             db_path = Path(directory) / "calibration.sqlite3"
