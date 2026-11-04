@@ -729,6 +729,9 @@ class DecisionEngine:
                     or (native_pa_direction == "BEARISH" and engine2_structure_score <= -MIN_ENGINE2_DIRECTION_SCORE)
                 )
             )
+            if native_pa_allows_candidate and not structure_valid:
+                native_pa_gate = "INSUFFICIENT_STRUCTURE_EVIDENCE_QUALITY"
+
             engine2_decision_eligible = bool(
                 native_pa_status == "READY"
                 and native_pa_allows_candidate
