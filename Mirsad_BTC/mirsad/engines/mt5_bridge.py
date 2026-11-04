@@ -42,11 +42,24 @@ def _read_mt5_deal_history(
             "deals": [],
             "reason": "The MT5 execution EA has not published deals.json yet.",
         }
-    if payload.get("schema") != "MIR1-DEALS-1" or payload.get("status") != "READY":
+    if payload.get("schema") != "MIR1-DEALS-1":
         return {
             "status": "INVALID",
             "deals": [],
-            "reason": "The MT5 deal-history schema or producer status is not valid.",
+            "reason": "The MT5 deal-history schema is not supported.",
+        }
+    producer_status = str(payload.get("status", "")).upper()
+    if producer_status == "UNAVAILABLE":
+        return {
+            "status": "UNAVAILABLE",
+            "deals": [],
+            "reason": f"MT5 HistorySelect is unavailable (error={payload.get('history_error', 'unknown')}).",
+        }
+    if producer_status != "READY":
+        return {
+            "status": "INVALID",
+            "deals": [],
+            "reason": "The MT5 deal-history producer status is not valid.",
         }
     try:
         queried_at = int(payload["queried_at_utc_ms"])
@@ -60,6 +73,16 @@ def _read_mt5_deal_history(
         magic = int(payload["magic"])
     except (KeyError, TypeError, ValueError, OverflowError):
         return {"status": "INVALID", "deals": [], "reason": "Deal-history metadata is incomplete."}
+    current_ms = int(time.time() * 1000)
+    age_seconds = (current_ms - queried_at) / 1000.0
+    if not math.isfinite(age_seconds) or age_seconds < -2 or age_seconds > 180:
+        return {
+            "status": "STALE",
+            "deals": [],
+            "queried_at_utc_ms": queried_at,
+            "age_seconds": round(age_seconds, 3) if math.isfinite(age_seconds) else None,
+            "reason": "MT5 broker deal-history snapshot is future-dated or older than 180 seconds.",
+        }
     symbol = str(payload.get("symbol", "")).strip()
     raw_deals = payload.get("deals")
     if (
@@ -144,6 +167,7 @@ def _read_mt5_deal_history(
         "deals": validated,
         "history_matching_total": history_matching_total,
         "truncated": bool(payload.get("truncated")),
+        "age_seconds": round(age_seconds, 3),
         "reason": None,
     }
 
