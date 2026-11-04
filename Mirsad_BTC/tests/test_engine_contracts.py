@@ -838,7 +838,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["chart_gate"], "20_55_25_NATIVE_OHLC_CONFIRMED")
 
     def test_waiting_score_diagnostic_uses_current_20_55_25_weight_profile(self) -> None:
-        market = self._market("up")
+        market = self._market()
         chart = self._chart()
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         price_action = make_engine2_price_action("BULLISH", score=0.30)
