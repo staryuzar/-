@@ -11,7 +11,7 @@ from PIL import Image
 from mirsad.runtime import _analyze_mt5_observer_chart
 
 
-def fixture_capture(root: Path) -> tuple[dict, dict, dict]:
+def fixture_capture(root: Path) -> tuple[dict, dict]:
     image_path = root / "observer.png"
     Image.new("RGB", (640, 360), (20, 25, 35)).save(image_path, format="PNG")
     bars = []
@@ -51,25 +51,19 @@ def fixture_capture(root: Path) -> tuple[dict, dict, dict]:
             "price_scale_type": "linear",
         },
     }
-    market = {
-        "symbol": "BTCUSDT",
-        "status": "LIVE",
-        "primary_venue": "OKX Spot",
-        "venues": {"OKX Spot": {"status": "LIVE", "candles_by_tf": {"1m": [{}]}}},
-    }
     bridge = {
         "status": "CONNECTED",
         "symbol": "BTC",
         "market_symbol": "BTCUSDT",
         "account": {"server": "Headway-Demo"},
     }
-    return observer, market, bridge
+    return observer, bridge
 
 
 class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
     def test_valid_capture_is_passed_to_engine2_with_native_forming_bar_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             expected_analysis = {
                 "status": "READY",
                 "decision_eligible": True,
@@ -79,7 +73,7 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
                 "reference_ohlc_override_applied": True,
             }
             with patch("mirsad.runtime.analyze_chart_image", return_value=expected_analysis) as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
 
             self.assertTrue(result["decision_eligible"])
             self.assertEqual(result["source"], "MT5_OBSERVER")
@@ -98,7 +92,7 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
 
     def test_flat_forming_bar_uses_previous_closed_mt5_candle_as_visual_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             flat_price = float(observer["bars"][-1]["close"])
             observer["bars"][-1].update({
                 "open": flat_price, "high": flat_price,
@@ -114,7 +108,7 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
                 "reference_anchor": {"status": "READY", "offset_from_right": 1},
             }
             with patch("mirsad.runtime.analyze_chart_image", return_value=expected_analysis) as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
 
             self.assertTrue(result["decision_eligible"])
             self.assertFalse(result["observer_capture"]["forming_bar_used_as_reference"])
@@ -130,67 +124,65 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
 
     def test_changed_image_after_inbox_validation_is_rejected_by_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             Image.new("RGB", (640, 360), (220, 20, 20)).save(observer["image_path"], format="PNG")
             with patch("mirsad.runtime.analyze_chart_image") as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
             analyzer.assert_not_called()
             self.assertFalse(result["decision_eligible"])
             self.assertEqual(result["status"], "OBSERVER_IMAGE_CHANGED")
 
     def test_capture_with_small_source_viewport_never_reaches_visual_analysis(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             observer["visual_calibration_eligible"] = False
             observer["chart"]["source_dimensions_usable"] = False
             with patch("mirsad.runtime.analyze_chart_image") as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
             analyzer.assert_not_called()
             self.assertFalse(result["decision_eligible"])
             self.assertEqual(result["status"], "OBSERVER_VIEWPORT_UNSUITABLE")
 
     def test_capture_with_unsynchronized_image_and_ohlc_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             observer["capture_data_skew_ms"] = 2_001
             with patch("mirsad.runtime.analyze_chart_image") as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
             analyzer.assert_not_called()
             self.assertEqual(result["status"], "OBSERVER_CAPTURE_NOT_SYNCHRONIZED")
 
     def test_capture_scrolled_away_from_latest_candles_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             observer["chart"]["first_visible_bar_shift"] = 100
             with patch("mirsad.runtime.analyze_chart_image") as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
             analyzer.assert_not_called()
             self.assertFalse(result["decision_eligible"])
             self.assertEqual(result["status"], "OBSERVER_NOT_AT_LIVE_EDGE")
 
     def test_capture_without_autoscroll_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             observer["chart"]["chart_autoscroll"] = False
             with patch("mirsad.runtime.analyze_chart_image") as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
             analyzer.assert_not_called()
             self.assertEqual(result["status"], "OBSERVER_NOT_AT_LIVE_EDGE")
 
-    def test_wrong_broker_to_market_symbol_mapping_is_blocked(self) -> None:
+    def test_missing_engine5_market_symbol_mapping_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
-            bridge["market_symbol"] = "ETHUSDT"
+            observer, bridge = fixture_capture(Path(directory))
+            bridge["market_symbol"] = ""
             with patch("mirsad.runtime.analyze_chart_image") as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
             analyzer.assert_not_called()
             self.assertFalse(result["decision_eligible"])
 
-    def test_stale_engine1_quote_does_not_block_valid_engine2_image_analysis(self) -> None:
+    def test_engine2_image_analysis_has_no_engine1_data_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
-            market["status"] = "STALE"
-            market["venues"]["OKX Spot"]["status"] = "STALE"
+            observer, bridge = fixture_capture(Path(directory))
             expected_analysis = {
                 "status": "READY",
                 "decision_eligible": True,
@@ -201,36 +193,36 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
                 "reference_anchor": {"status": "READY", "offset_from_right": 0},
             }
             with patch("mirsad.runtime.analyze_chart_image", return_value=expected_analysis) as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
 
             analyzer.assert_called_once()
             self.assertEqual(result["status"], "READY")
             self.assertTrue(result["decision_eligible"])
             self.assertFalse(
-                result["observer_capture"]["engine_1_quote_freshness_required_for_visual_analysis"]
+                result["observer_capture"]["engine_1_data_required_for_visual_analysis"]
             )
 
     def test_wrong_broker_server_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             bridge["account"]["server"] = "Other-Demo"
             with patch("mirsad.runtime.analyze_chart_image") as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
             analyzer.assert_not_called()
             self.assertFalse(result["decision_eligible"])
 
     def test_forming_bar_is_required_and_old_bar_cannot_be_used_as_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             observer["bars"][-1]["is_closed"] = True
             with patch("mirsad.runtime.analyze_chart_image") as analyzer:
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
             analyzer.assert_not_called()
             self.assertEqual(result["status"], "OBSERVER_BAR_STATE_INVALID")
 
     def test_failed_reference_candle_geometry_keeps_engine2_ineligible(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            observer, market, bridge = fixture_capture(Path(directory))
+            observer, bridge = fixture_capture(Path(directory))
             expected_analysis = {
                 "status": "READY",
                 "decision_eligible": True,
@@ -239,13 +231,13 @@ class MT5ObserverEngine2IntegrationTests(unittest.TestCase):
                 "reference_ohlc_override_applied": False,
             }
             with patch("mirsad.runtime.analyze_chart_image", return_value=expected_analysis):
-                result = _analyze_mt5_observer_chart(observer, market, bridge)
+                result = _analyze_mt5_observer_chart(observer, bridge)
             self.assertFalse(result["decision_eligible"])
             self.assertEqual(result["status"], "OBSERVER_REFERENCE_NOT_VERIFIED")
             self.assertEqual(result["observer_reference_status"], "NOT_REQUESTED")
 
     def test_missing_capture_allows_existing_manual_chart_fallback(self) -> None:
-        result = _analyze_mt5_observer_chart({"status": "WAITING_FOR_CAPTURE"}, {}, {})
+        result = _analyze_mt5_observer_chart({"status": "WAITING_FOR_CAPTURE"}, {})
         self.assertIsNone(result)
 
 
