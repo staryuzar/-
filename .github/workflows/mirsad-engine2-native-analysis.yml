@@ -4,30 +4,21 @@ on:
   push:
     branches: [mini]
     paths:
-      - 'Mirsad_BTC/mirsad/engines/chart*.py'
-      - 'Mirsad_BTC/mirsad/engines/visual_knowledge.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_observer.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_chart_pipeline.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_chart_geometry.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
       - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_classical_patterns.py'
+      - 'Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py'
       - 'Mirsad_BTC/mirsad/engines/indicators.py'
       - 'Mirsad_BTC/mirsad/engines/decision.py'
       - 'Mirsad_BTC/mirsad/engines/market_intelligence.py'
-      - 'Mirsad_BTC/tests/test_indicators.py'
-      - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
-      - 'Mirsad_BTC/mirsad/engines/chart_structure_knowledge.py'
-      - 'Mirsad_BTC/mirsad/engines/chart_classical_patterns.py'
-      - 'Mirsad_BTC/mirsad/engines/chart_continuation_patterns.py'
-      - 'Mirsad_BTC/mirsad/engines/chart_pattern_knowledge.py'
       - 'Mirsad_BTC/mirsad/runtime.py'
       - 'Mirsad_BTC/mirsad/health.py'
-      - 'Mirsad_BTC/dashboard.py'
-      - 'Mirsad_BTC/tests/test_dashboard_health.py'
       - 'Mirsad_BTC/mirsad/engines/daily_risk.py'
-      - 'Mirsad_BTC/tests/test_daily_risk.py'
-      - 'Mirsad_BTC/scripts/analyze_mt5_native_price_action.py'
-      - 'Mirsad_BTC/scripts/analyze_mt5_observer_capture.py'
+      - 'Mirsad_BTC/dashboard.py'
       - 'Mirsad_BTC/tests/**'
       - 'Mirsad_BTC/requirements.txt'
       - '.github/workflows/mirsad-engine2-native-analysis.yml'
@@ -66,27 +57,13 @@ jobs:
         run: |
           python -m compileall -q Mirsad_BTC/mirsad Mirsad_BTC/tests
           python -m py_compile Mirsad_BTC/dashboard.py
-          python -m py_compile Mirsad_BTC/scripts/analyze_mt5_observer_capture.py
+          python -m py_compile Mirsad_BTC/scripts/analyze_mt5_native_price_action.py
 
       - name: Run native OHLC price-action and separate Engine 3 indicator tests
         env:
           PYTHONPATH: Mirsad_BTC
         run: |
-          # Engine 2 visual chart pipeline: image loading, layout, OCR, extraction,
-          # calibration, candle geometry, multi-timeframe handling and visual knowledge.
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_engine.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_multireference_calibration.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_geometry.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_extraction.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_header_ocr.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_multi_timeframe.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_multi_timeframe_storage.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_ocr.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pixel_metrics.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_chart_pattern_reference.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_pipeline.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_observer_engine2_integration.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_visual_knowledge.py' -v
+          # No image, screenshot, OCR or pixel-calibration work is part of the native live engine.
           # Native OHLC price-action and market structure.
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_price_action.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_chart_candles.py' -v
@@ -103,12 +80,9 @@ jobs:
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_runtime_observer_flow.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_dashboard_health.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_mt5_observer.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_hf_btc_chart_image_benchmark.py' -v
           # PyArrow fixture assertions pass, but the hosted runner aborts during
           # interpreter shutdown (exit 134); keep this external dataset adapter out
           # of the required Engine 2 gate until the upstream native shutdown issue is isolated.
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_public_chart_image_benchmark.py' -v
-          python -m unittest discover -s Mirsad_BTC/tests -p 'test_candlestick_pattern_benchmark.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_daily_risk.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_engine_contracts.py' -v
           python -m unittest discover -s Mirsad_BTC/tests -p 'test_position_management.py' -v
