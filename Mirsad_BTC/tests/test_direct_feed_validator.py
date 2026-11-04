@@ -90,13 +90,17 @@ def ready_indicators() -> dict:
 
 
 class DirectFeedValidatorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.bridge_patch = patch(
+            "scripts.validate_mt5_direct_feed.MT5BridgeEngine.inspect",
+            return_value=ready_bridge(),
+        )
+        self.bridge_patch.start()
+        self.addCleanup(self.bridge_patch.stop)
+
     def test_direct_feed_passes_without_any_image_capture_input(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with (
-                patch(
-                    "scripts.validate_mt5_direct_feed.MT5BridgeEngine.inspect",
-                    return_value=ready_bridge(),
-                ),
                 patch(
                     "scripts.validate_mt5_direct_feed.MT5MarketDataEngine.collect",
                     return_value=ready_market(),
