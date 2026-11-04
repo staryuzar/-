@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//| Mirsad Chart Observer — read-only MT5 chart capture agent        |
-//| Captures one attached chart plus its native MqlRates snapshot.   |
+//| Mirsad Chart Observer — read-only MT5 direct-feed agent         |
+//| Publishes native MqlRates; optional chart images are diagnostics.|
 //| No trade functions. Does not publish MIR1 commands.               |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.003"
-#property description "Mirsad read-only MT5 chart screenshot and OHLC observer"
+#property version   "1.004"
+#property description "Mirsad read-only MT5 native OHLC and market data publisher"
 
 #define MIRSAD_OBSERVER_MIN_SOURCE_WIDTH 640
 #define MIRSAD_OBSERVER_MIN_SOURCE_HEIGHT 360
