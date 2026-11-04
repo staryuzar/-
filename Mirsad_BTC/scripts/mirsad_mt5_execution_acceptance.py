@@ -141,7 +141,9 @@ def build_open_decision(state: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         raise RuntimeError("MT5 quote is stale or outside the configured 0.3% spread gate.")
 
     minimum_stop_gap = max(stops_points, freeze_points) * point + 2.0 * tick_size
-    gap = max(minimum_stop_gap, spread * 4.0, tick_size * 10.0)
+    # BTC can move several dollars between Python publishing and the EA timer.
+    # Use a wider 0.25% protective gap so a fresh tick does not invalidate SL/TP.
+    gap = max(minimum_stop_gap, spread * 4.0, tick_size * 10.0, ask * 0.0025)
     stop_loss = math.floor((ask - gap) / tick_size + 1e-10) * tick_size
     take_profit = math.ceil((ask + 3.0 * gap) / tick_size - 1e-10) * tick_size
     stop_loss = round(stop_loss, digits)
@@ -159,13 +161,25 @@ def build_open_decision(state: dict[str, Any]) -> tuple[dict[str, Any], dict[str
     raw_volume = risk_cash / loss_per_lot
     if raw_volume < volume_min - 1e-12:
         raise RuntimeError(
-            "Broker minimum volume would exceed the configured 0.5% per-trade risk budget; "
+            "Broker minimum volume would exceed the configured per-trade risk budget; "
             "acceptance order was not sent."
         )
-    steps = math.floor((min(raw_volume, volume_max) - volume_min + 1e-12) / volume_step)
+    # This is a one-off acceptance probe, not a trading signal. Cap its
+    # notional exposure at USD 1,000 in addition to the normal 0.5% risk cap.
+    max_test_notional = 1000.0
+    notional_volume_cap = min(volume_max, max_test_notional / ask)
+    if notional_volume_cap < volume_min - 1e-12:
+        raise RuntimeError("Broker minimum lot exceeds the USD 1,000 acceptance notional cap.")
+    allowed_volume_cap = volume_min + math.floor(
+        (notional_volume_cap - volume_min + 1e-12) / volume_step
+    ) * volume_step
+    effective_volume_cap = min(volume_max, allowed_volume_cap)
+    steps = math.floor((min(raw_volume, effective_volume_cap) - volume_min + 1e-12) / volume_step)
     volume = round(volume_min + max(0, steps) * volume_step, 8)
     if volume < volume_min - 1e-9 or volume > volume_max + 1e-9:
         raise RuntimeError("Calculated acceptance volume violates broker min/max limits.")
+    if volume * ask > max_test_notional + 1e-6:
+        raise RuntimeError("Acceptance order exceeds the USD 1,000 notional cap.")
     estimated_loss = loss_per_lot * volume
     if estimated_loss > risk_cash + max(0.01, risk_cash * 1e-8):
         raise RuntimeError("Acceptance volume exceeds the configured per-trade risk budget.")
@@ -193,6 +207,8 @@ def build_open_decision(state: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         "risk_fraction": risk_fraction,
         "risk_budget": round(risk_cash, 8),
         "estimated_stop_loss": round(estimated_loss, 8),
+        "max_test_notional": max_test_notional,
+        "estimated_notional": round(volume * ask, 8),
         "volume": volume,
         "broker_volume_min": volume_min,
         "broker_volume_step": volume_step,
@@ -331,18 +347,63 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
             if not settled:
                 raise RuntimeError("A previous MIR1 command has not reached a reconciled terminal state.")
 
-        decision, sizing = build_open_decision(state)
-        result["steps"].append({
-            "step": "LIVE_SIZE_AND_PROTECTIVE_LEVELS",
-            "status": "PASS",
-            "details": sizing,
-        })
-        publish(engine, decision, state)
-        open_command_published = True
-        result["steps"].append({"step": "PYTHON_BRIDGE_PUBLISHED_BUY", "status": "PASS"})
-        opened_state, open_ack = wait_for_reconciliation(
-            engine, decision["signal_id"], timeout_seconds=timeout_seconds
-        )
+        opened_state: dict[str, Any] | None = None
+        open_ack: dict[str, Any] | None = None
+        decision: dict[str, Any] | None = None
+        sizing: dict[str, Any] | None = None
+        last_rejection = ""
+        for attempt in range(1, 4):
+            state = engine.inspect()
+            if symbol_positions(state, symbol):
+                raise RuntimeError("A BTC position appeared before the acceptance BUY; refusing to add exposure.")
+            decision, sizing = build_open_decision(state)
+            result["steps"].append({
+                "step": f"LIVE_SIZE_AND_PROTECTIVE_LEVELS_ATTEMPT_{attempt}",
+                "status": "PASS",
+                "details": sizing,
+            })
+            publish(engine, decision, state)
+            open_command_published = True
+            result["steps"].append({
+                "step": f"PYTHON_BRIDGE_PUBLISHED_BUY_ATTEMPT_{attempt}",
+                "status": "PASS",
+            })
+            try:
+                opened_state, open_ack = wait_for_reconciliation(
+                    engine, decision["signal_id"], timeout_seconds=timeout_seconds
+                )
+                break
+            except RuntimeError as exc:
+                refreshed = engine.inspect()
+                candidates = [
+                    row for row in symbol_positions(refreshed, symbol)
+                    if int(row.get("magic", -1)) == magic
+                ]
+                if candidates:
+                    if len(candidates) == 1:
+                        tracked_ticket = int(candidates[0].get("ticket", 0) or 0)
+                    raise RuntimeError(
+                        "The BUY result was not fully reconciled but broker exposure is visible; "
+                        "automatic retry is prohibited and cleanup will target that position."
+                    ) from exc
+                ack_state = refreshed.get("last_order_ack") or {}
+                last_rejection = str(ack_state.get("message", exc))
+                if str(ack_state.get("state", "")).upper() != "REJECTED":
+                    raise
+                retryable = any(
+                    token in last_rejection.lower()
+                    for token in ("price", "stop", "requote", "off quotes", "invalid stops", "ordercheck")
+                )
+                if not retryable or attempt >= 3:
+                    raise RuntimeError(f"MT5 rejected the acceptance BUY: {last_rejection}") from exc
+                result["steps"].append({
+                    "step": f"REQUOTE_RETRY_{attempt}",
+                    "status": "RETRY",
+                    "reason": last_rejection[:300],
+                })
+                time.sleep(1)
+        if opened_state is None or open_ack is None or decision is None or sizing is None:
+            raise RuntimeError("MIR1 acceptance BUY could not be reconciled after three fresh-price attempts.")
         open_rec = opened_state.get("position_reconciliation") or {}
         new_positions = [
             row for row in symbol_positions(opened_state, symbol)
