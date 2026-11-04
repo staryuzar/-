@@ -110,13 +110,17 @@ class MT5ChartCandleHistoryTests(unittest.TestCase):
             result = self._engine(directory).collect()
         self.assertEqual(result["status"], "STALE")
 
-    def test_engine2_requires_matching_engine1_market_identity(self) -> None:
+    def test_engine2_does_not_depend_on_engine1_market_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             self._write(directory, make_payload())
             market = self._market()
+            market["symbol"] = "ETHUSDT"
             market["feed_health"]["broker_symbol"] = "BTCUSD"
+            market["feed_health"]["account_server"] = "Different-Server"
             result = self._engine(directory).collect(market=market)
-        self.assertEqual(result["status"], "MARKET_IDENTITY_MISMATCH")
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["symbol"], "BTCUSDT")
+        self.assertEqual(result["broker_symbol"], "BTC")
 
     def test_engine2_requires_matching_engine5_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

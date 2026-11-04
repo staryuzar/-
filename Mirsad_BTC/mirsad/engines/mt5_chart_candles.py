@@ -20,7 +20,7 @@ class MT5ChartCandleHistory:
     """Engine 2 native candle inbox, paired with the real chart Observer.
 
     This module owns the OHLC history contract consumed by Engine 3. Engine 1
-    never reads this file and never receives candle arrays.
+    neither reads this file nor supplies identity or candle data to Engine 2.
     """
 
     def __init__(
@@ -164,14 +164,11 @@ class MT5ChartCandleHistory:
 
         if not isinstance(account, dict):
             account = {}
-        if isinstance(market, dict) and market.get("status") == "LIVE":
-            if str(market.get("symbol", "")).strip().upper() != market_symbol:
-                return self._blocked("MARKET_IDENTITY_MISMATCH", "Engine 1 and Engine 2 market-symbol mappings differ.")
-            market_feed = market.get("feed_health") if isinstance(market.get("feed_health"), dict) else {}
-            if str(market_feed.get("broker_symbol", "")).strip() != broker_symbol:
-                return self._blocked("MARKET_IDENTITY_MISMATCH", "Engine 1 and Engine 2 broker symbols differ.")
-            if str(market_feed.get("account_server", "")).strip().casefold() != server.casefold():
-                return self._blocked("MARKET_IDENTITY_MISMATCH", "Engine 1 and Engine 2 account servers differ.")
+        # The optional legacy `market` argument is intentionally not inspected:
+        # Engine 2 must not depend on Engine 1 output. The Observer candle
+        # snapshot carries its own identity, and Engine 5 bridge is the only
+        # cross-component identity confirmation.
+        _ = market
 
         if isinstance(bridge, dict) and bridge.get("status") == "CONNECTED":
             bridge_account = bridge.get("account") if isinstance(bridge.get("account"), dict) else {}
