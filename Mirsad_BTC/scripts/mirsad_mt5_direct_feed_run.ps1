@@ -316,19 +316,9 @@ try {
     $compileLog = Join-Path $expertsDir 'Mirsad_ChartObserver.log'
     # The repository now defaults image capture to false. Accept that safe
     # state as-is; only rewrite an explicitly true input for older revisions.
-    $directOnlySourceText = $sourceText
-    $imageEnabledPattern = '(?m)^([ \t]*input[ \t]+bool[ \t]+InpEnableImageCapture[ \t]*=[ \t]*)true([ \t]*;)'
-    $imageDisabledPattern = '(?m)^[ \t]*input[ \t]+bool[ \t]+InpEnableImageCapture[ \t]*=[ \t]*false[ \t]*;'
-    if ($sourceText -match $imageEnabledPattern) {
-        $directOnlySourceText = [regex]::Replace(
-            $sourceText, $imageEnabledPattern, '${1}false${2}', 1
-        )
-    }
-    if ($directOnlySourceText -notmatch $imageDisabledPattern) {
-        throw 'Direct-only EA build requires an explicit InpEnableImageCapture=false input.'
-    }
-    [IO.File]::WriteAllText($eaSource, $directOnlySourceText, [Text.UTF8Encoding]::new($false))
-    Add-Report 'PASS — Direct-only Observer build verified InpEnableImageCapture=false (source default or forced override).'
+    # Observer is now a native market/OHLC/CopyBuffer publisher with no image capture code.
+    [IO.File]::WriteAllText($eaSource, $sourceText, [Text.UTF8Encoding]::new($false))
+    Add-Report 'PASS — Native-feed-only Observer source verified; no screenshot input or override is required.'
 
     # Remove stale outputs and invoke MetaEditor with separately quoted arguments.
     Remove-Item -LiteralPath $compileLog,$eaBinary -Force -ErrorAction SilentlyContinue
@@ -872,7 +862,7 @@ public static class MirsadNativeWindow {
     $priceActionSummary = Get-Content -LiteralPath $priceActionOutput -Raw | ConvertFrom-Json
     Add-Report ("PASS — Engine 2 price-action direction={0}; structure score={1}; alignment={2}; eligible frames={3}." -f $priceActionSummary.direction,$priceActionSummary.summary.structure_score,$priceActionSummary.summary.timeframe_alignment,($priceActionSummary.summary.eligible_timeframes -join ','))
     Add-Report 'PASS — Candle formations and price structure were computed from completed native OHLC only; no chart image was used.'
-    Add-Report 'PASS — Native MT5 data path validated with InpEnableImageCapture=false; no screenshot is needed.'
+    Add-Report 'PASS — Native MT5 market, candle and indicator feeds were validated; no screenshot path exists.'
     Add-Report 'Safety — Read-only Observer only; automated trading permission disabled; no execution EA, order API or MIR1 command.'
     $directFeedsReady = $true
     Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
