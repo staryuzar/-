@@ -1059,7 +1059,7 @@ class MarketIntelligenceEngine:
         }
 
     def _collect_deribit_derivatives(self) -> dict[str, Any]:
-        """Collect public BTC inverse-perpetual funding with its provider timestamp."""
+        """Collect public BTC inverse-perpetual funding with the API provider timestamp."""
         base_currency = self.symbol.upper().replace("USDT", "").replace("USD", "")
         instrument = "BTC-PERPETUAL"
         if base_currency != "BTC":
@@ -1086,7 +1086,7 @@ class MarketIntelligenceEngine:
                 "long_short_ratio": None,
                 "long_short_timestamp_ms": None,
                 "endpoint_statuses": {"ticker": "OFFLINE"},
-                "endpoint_errors": { "ticker": f"{type(exc).__name__}: {str(exc)[:240]}" },
+                "endpoint_errors": {"ticker": f"{type(exc).__name__}: {str(exc)[:240]}"},
                 "observed_at_ms": observed_at,
             }
 
@@ -1107,11 +1107,21 @@ class MarketIntelligenceEngine:
                 "observed_at_ms": observed_at,
             }
 
+        # The REST JSON response uses snake_case. CamelCase remains only for
+        # alternate wrappers; funding freshness always uses provider timestamp.
         provider_timestamp = _parse_time(row.get("timestamp"))
-        # funding8h is the provider's normalized 8-hour rate. Keep currentFunding
-        # as context only; do not mix rates with different measurement windows.
-        funding = _finite(row.get("funding8h"))
-        open_interest = _finite(row.get("openInterest"))
+        if provider_timestamp is None:
+            provider_timestamp = _parse_time(row.get("timestamp_ms"))
+        funding_raw = row.get("funding_8h")
+        if funding_raw is None:
+            funding_raw = row.get("funding8h")
+        funding = _finite(funding_raw)
+        oi_raw = row.get("open_interest")
+        if oi_raw is None:
+            oi_raw = row.get("openInterest")
+        open_interest = _finite(oi_raw)
+        mark_raw = row.get("mark_price") if row.get("mark_price") is not None else row.get("markPrice")
+        index_raw = row.get("index_price") if row.get("index_price") is not None else row.get("indexPrice")
         status = "READY" if funding is not None or open_interest is not None else "OFFLINE"
         return {
             "status": status,
@@ -1124,8 +1134,8 @@ class MarketIntelligenceEngine:
             "long_short_timestamp_ms": None,
             "open_interest": open_interest,
             "open_interest_unit": "BTC_CONTRACTS",
-            "mark_price": _finite(row.get("markPrice")),
-            "index_price": _finite(row.get("indexPrice")),
+            "mark_price": _finite(mark_raw),
+            "index_price": _finite(index_raw),
             "timestamp_ms": provider_timestamp,
             "timestamp_basis": "PROVIDER_TIMESTAMP" if provider_timestamp is not None else "UNKNOWN",
             "endpoint_statuses": {"ticker": "RESPONSE"},

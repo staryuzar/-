@@ -567,6 +567,33 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertTrue(scored["venues"]["Deribit"]["directional_inputs_used"]["funding_rate"])
         self.assertFalse(scored["venues"]["Deribit"]["directional_inputs_used"]["long_short_ratio"])
 
+    def test_deribit_live_rest_snake_case_payload_maps_funding_and_provider_time(self) -> None:
+        engine = MarketIntelligenceEngine(symbol="BTCUSDT")
+        stamp = int(time.time() * 1000)
+        engine._json = lambda *args, **kwargs: {
+            "jsonrpc": "2.0",
+            "result": {
+                "timestamp": stamp,
+                "instrument_name": "BTC-PERPETUAL",
+                "funding_8h": 0.00007642,
+                "current_funding": 0.00008376,
+                "open_interest": 643331210,
+                "mark_price": 78196.48,
+                "index_price": 78170.39,
+            },
+        }
+        result = engine._collect_deribit_derivatives()
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["funding_rate"], 0.00007642)
+        self.assertEqual(result["funding_timestamp_ms"], stamp)
+        self.assertEqual(result["funding_rate_basis"], "8H_RATE")
+        self.assertEqual(result["open_interest"], 643331210.0)
+        self.assertEqual(result["mark_price"], 78196.48)
+        self.assertEqual(result["index_price"], 78170.39)
+        scored = score_derivatives({"Deribit": result}, now_ms=stamp)
+        self.assertEqual(scored["venues"]["Deribit"]["funding_directional_status"], "FRESH")
+        self.assertTrue(scored["venues"]["Deribit"]["directional_inputs_used"]["funding_rate"])
+
     def test_deribit_ticker_without_provider_timestamp_is_not_directional(self) -> None:
         engine = MarketIntelligenceEngine(symbol="BTCUSDT")
         engine._json = lambda *args, **kwargs: {
