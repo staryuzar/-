@@ -46,7 +46,8 @@ def evaluate_engine4_runtime(decision: dict[str, Any]) -> dict[str, Any]:
     command_ready = decision.get("command_ready") is True
     context = decision.get("engine_2_native_price_action_context")
     context = context if isinstance(context, dict) else {}
-    entry_eligible = context.get("decision_eligible") is True
+    engine2_entry_eligible = context.get("decision_eligible") is True
+    entry_eligible = engine2_entry_eligible and status != "WAITING_FOR_ENGINE_3_PARITY"
     gate = str(
         decision.get("chart_gate", "NOT_EVALUATED")
         if status == "WAITING_FOR_ENGINE_3_PARITY"
@@ -91,7 +92,9 @@ def evaluate_engine4_runtime(decision: dict[str, Any]) -> dict[str, Any]:
         readiness = "DIRECTIONAL_ENTRY_ELIGIBLE"
     elif protective_action:
         readiness = "POSITION_PROTECTION_ACTION"
-    elif safe_wait and not entry_eligible:
+    elif safe_wait and status == "WAITING_FOR_ENGINE_3_PARITY":
+        readiness = "SAFE_WAIT_ENGINE3_PARITY_NOT_VERIFIED"
+    elif safe_wait and not engine2_entry_eligible:
         readiness = "SAFE_WAIT_NO_ENGINE2_DIRECTION"
     elif safe_wait:
         readiness = "SAFE_WAIT_COMPOSITE_SCORE_OR_OTHER_GATE"
@@ -103,6 +106,7 @@ def evaluate_engine4_runtime(decision: dict[str, Any]) -> dict[str, Any]:
         "gate_consistent": gate_consistent,
         "safe_wait": safe_wait,
         "entry_eligible": entry_eligible,
+        "engine2_entry_eligible": engine2_entry_eligible,
         "readiness": readiness,
         "engine2_gate": gate,
         "engine4_status": status,
