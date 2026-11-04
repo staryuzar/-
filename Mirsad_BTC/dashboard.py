@@ -2,6 +2,7 @@ from __future__ import annotations
 import sys
 import time
 import hashlib
+import math
 import io
 import html
 from pathlib import Path
@@ -992,7 +993,34 @@ def render_engine_dashboard():
     "EMA 50":item.get("ema50"),"الشموع المغلقة":item.get("closed_candles")
    } for tf,item in indicators["timeframes"].items()]
    st.dataframe(pd.DataFrame(indicator_rows),use_container_width=True,hide_index=True)
-  st.caption(indicators.get("reason") or "المؤشرات تحسب من سجل الشموع المكتملة الذي يملكه المحرك الثاني؛ ولا تصدر أوامر أو تصويتاً مستقلاً.")
+  detailed_indicators=indicators.get("indicators_by_timeframe",{}) if isinstance(indicators.get("indicators_by_timeframe"),dict) else {}
+  if detailed_indicators:
+   with st.expander("تفاصيل المؤشرات العشرين عبر الأطر الزمنية الستة",expanded=False):
+    detail_rows=[]
+    for timeframe,values in detailed_indicators.items():
+     for indicator_name,value in values.items():
+      detail_rows.append({"الإطار":timeframe,"المؤشر":indicator_name,"القيمة":value,"الحالة":"READY" if isinstance(value,(int,float)) and math.isfinite(float(value)) else "INSUFFICIENT"})
+    st.dataframe(pd.DataFrame(detail_rows),use_container_width=True,hide_index=True)
+  native_indicators=state.get("mt5_native_indicators",{}) if isinstance(state.get("mt5_native_indicators"),dict) else {}
+  st.markdown("**التحقق المستقل من مؤشرات MT5 الأصلية — CopyBuffer**")
+  n1,n2,n3,n4=st.columns(4)
+  n1.metric("تغذية MT5",ar(native_indicators.get("status","NOT_REPORTED")))
+  n2.metric("الأطر الجاهزة",f"{native_indicators.get('ready_timeframe_count',0)}/6")
+  n3.metric("تزامن الشموع",ar(native_indicators.get("bar_alignment_status","NOT_CHECKED")))
+  n4.metric("عمر اللقطة (ث)",native_indicators.get("age_seconds","—"))
+  native_frames=native_indicators.get("timeframes",{}) if isinstance(native_indicators.get("timeframes"),dict) else {}
+  native_alignment=native_indicators.get("bar_alignment",{}) if isinstance(native_indicators.get("bar_alignment"),dict) else {}
+  if native_frames:
+   native_rows=[]
+   for timeframe,frame in native_frames.items():
+    values=frame.get("values",{}) if isinstance(frame.get("values"),dict) else {}
+    ready_count=sum(1 for value in values.values() if isinstance(value,dict) and value.get("status")=="READY")
+    missing=", ".join(frame.get("missing_required_indicators",[])) or "—"
+    native_rows.append({"الإطار":timeframe,"حالة الإطار":ar(frame.get("status")),"المؤشرات الجاهزة":f"{ready_count}/20","المؤشرات الأساسية الناقصة":missing,"مطابقة توقيت الشمعة":ar((native_alignment.get(timeframe) or {}).get("status","NOT_CHECKED"))})
+   st.dataframe(pd.DataFrame(native_rows),use_container_width=True,hide_index=True)
+  if native_indicators.get("reason"):
+   st.caption(native_indicators["reason"])
+  st.caption(indicators.get("reason") or "المؤشرات تحسب من سجل الشموع المغلقة الذي يملكه المحرك الثاني؛ CopyBuffer للمقارنة المستقلة فقط ولا يصدر أوامر أو تصويتاً مستقلاً.")
  
   candle_state=state.get("engine_2_candles",{})
   st.subheader("تغذية الشموع الأصلية — ملكية المحرك الثاني")
