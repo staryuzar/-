@@ -240,6 +240,45 @@ class MT5NativePriceActionTests(unittest.TestCase):
             self.assertIn("end_time_utc_ms", pattern)
             self.assertEqual(pattern["interpretation"], "RULE_MATCH_NOT_PROBABILITY")
 
+    def test_live_price_action_cli_does_not_pass_market_feed_into_engine2(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from scripts.analyze_mt5_native_price_action import build_report
+
+        market = {
+            "status": "LIVE",
+            "feed_health": {
+                "broker_symbol": "BTC",
+                "account_server": "Headway-Demo",
+            },
+        }
+        candles = make_history()
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch(
+                    "scripts.analyze_mt5_native_price_action.MT5MarketDataEngine.collect",
+                    return_value=market,
+                ) as market_collect,
+                patch(
+                    "scripts.analyze_mt5_native_price_action.MT5ChartCandleHistory.collect",
+                    return_value=candles,
+                ) as candle_collect,
+            ):
+                report = build_report(
+                    Path(directory),
+                    market_symbol="BTCUSDT",
+                    broker_symbol="BTC",
+                    expected_server="Headway-Demo",
+                )
+
+        market_collect.assert_called_once_with()
+        candle_collect.assert_called_once_with()
+        self.assertEqual(report["status"], "READY")
+        self.assertFalse(report["decision_eligible"])
+
+
     def test_engine2_does_not_calculate_or_depend_on_technical_indicators(self) -> None:
         import inspect
         from mirsad.engines import mt5_price_action
