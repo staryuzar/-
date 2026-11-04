@@ -62,6 +62,7 @@ def make_engine2_price_action(direction: str = "BULLISH", score: float = 0.80) -
             "timeframe_alignment": alignment,
             "timeframe_weight_coverage": 0.90,
             "directional_structure_agreement": 0.80,
+            "directional_evidence_coverage": 1.0,
             "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
         },
     }
@@ -849,6 +850,18 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["action"], "WAIT")
         self.assertEqual(result["engine_3_indicator_status"], "INVALID_INDICATOR_PAYLOAD")
 
+
+    def test_engine4_reduces_engine2_quality_when_supporting_evidence_is_absent(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = make_engine2_price_action()
+        price_action["summary"]["directional_evidence_coverage"] = 0.70
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=price_action,
+        )
+        self.assertAlmostEqual(result["decision_scores"]["engine_2_evidence_coverage"], 0.70)
+        self.assertAlmostEqual(result["decision_scores"]["engine_2_quality"], 0.70)
 
     def test_engine2_native_price_action_is_primary_only_after_multitimeframe_confluence(self) -> None:
         chart = self._chart()
