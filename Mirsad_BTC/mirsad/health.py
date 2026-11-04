@@ -120,7 +120,7 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
 
     # Engine 5 broker quote telemetry is separate from Engine 1 intelligence.
     market_age = state.get("market_age_seconds")
-    add("المحرك الخامس — جسر التواصل مع MT5", "سعر الوسيط وتغذية التنفيذ", market.get("status"),
+    add("المحرك الخامس — جسر التواصل مع MT5", "تغذية السوق وسعر MT5", market.get("status"),
         f"السعر: {market.get('price', '—')} | المصدر: {market.get('primary_venue', '—')} | عمر البيانات: {market_age if market_age is not None else '—'} ثانية.")
     venues = _dict(market.get("venues"))
     primary_name = str(market.get("primary_venue") or "")
