@@ -240,31 +240,45 @@ class MT5NativePriceActionTests(unittest.TestCase):
             self.assertIn("end_time_utc_ms", pattern)
             self.assertEqual(pattern["interpretation"], "RULE_MATCH_NOT_PROBABILITY")
 
-    def test_live_price_action_cli_does_not_pass_market_feed_into_engine2(self) -> None:
+    def test_live_price_action_cli_uses_only_native_engine2_candle_history(self) -> None:
         import tempfile
         from pathlib import Path
         from unittest.mock import patch
 
         from scripts.analyze_mt5_native_price_action import build_report
 
-        market = {
-            "status": "LIVE",
-            "feed_health": {
-                "broker_symbol": "BTC",
-                "account_server": "Headway-Demo",
-            },
-        }
         candles = make_history()
         with tempfile.TemporaryDirectory() as directory:
-            with (
-                patch(
-                    "scripts.analyze_mt5_native_price_action.MT5MarketDataEngine.collect",
-                    return_value=market,
-                ) as market_collect,
-                patch(
-                    "scripts.analyze_mt5_native_price_action.MT5ChartCandleHistory.collect",
-                    return_value=candles,
-                ) as candle_collect,
+            with patch(
+                "scripts.analyze_mt5_native_price_action.MT5ChartCandleHistory.collect",
+                return_value=candles,
+            ) as candle_collect:
+                report = build_report(
+                    Path(directory),
+                    market_symbol="BTCUSDT",
+                    broker_symbol="BTC",
+                    expected_server="Headway-Demo",
+                )
+
+        candle_collect.assert_called_once_with()
+        self.assertEqual(report["status"], "READY")
+        self.assertEqual(report["candle_feed_status"], "READY")
+        self.assertFalse(report["engine5_quote_consumed_by_engine2"])
+        self.assertFalse(report["decision_eligible"])
+
+    def test_live_price_action_cli_rejects_native_candle_identity_mismatch(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from scripts.analyze_mt5_native_price_action import build_report
+
+        candles = make_history()
+        candles["broker_symbol"] = "OTHER"
+        with tempfile.TemporaryDirectory() as directory:
+            with patch(
+                "scripts.analyze_mt5_native_price_action.MT5ChartCandleHistory.collect",
+                return_value=candles,
             ):
                 report = build_report(
                     Path(directory),
@@ -273,9 +287,8 @@ class MT5NativePriceActionTests(unittest.TestCase):
                     expected_server="Headway-Demo",
                 )
 
-        market_collect.assert_called_once_with()
-        candle_collect.assert_called_once_with()
-        self.assertEqual(report["status"], "READY")
+        self.assertEqual(report["status"], "FAILED")
+        self.assertIn("candle broker symbol identity mismatch.", report["failures"])
         self.assertFalse(report["decision_eligible"])
 
 

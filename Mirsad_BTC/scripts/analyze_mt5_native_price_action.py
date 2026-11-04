@@ -10,7 +10,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from mirsad.engines.mt5_chart_candles import MT5ChartCandleHistory
-from mirsad.engines.mt5_market import MT5MarketDataEngine
 from mirsad.engines.mt5_price_action import analyze_mt5_native_price_action
 
 
@@ -21,34 +20,26 @@ def build_report(
     broker_symbol: str,
     expected_server: str,
 ) -> dict[str, Any]:
-    market = MT5MarketDataEngine(
-        common_files=str(common_files),
-        symbol=market_symbol,
-    ).collect()
+    # Engine 2 must consume only its own native Observer OHLC history.
+    # Engine 5 quote telemetry is validated independently by the direct-feed
+    # validator; it is not an input or readiness prerequisite for price action.
     candles = MT5ChartCandleHistory(
         common_files=str(common_files),
         symbol=market_symbol,
     ).collect()
     failures: list[str] = []
-    if market.get("status") != "LIVE":
-        failures.append(f"Market feed is not LIVE: {market.get('status')}.")
     if candles.get("status") != "READY":
         failures.append(f"Native candle feed is not READY: {candles.get('status')}.")
-    for name, feed in (("market", market), ("candles", candles)):
-        actual_symbol = (
-            str((feed.get("feed_health") or {}).get("broker_symbol", "")).strip()
-            if name == "market"
-            else str(feed.get("broker_symbol", "")).strip()
-        )
-        if actual_symbol != broker_symbol:
-            failures.append(f"{name} broker symbol identity mismatch.")
-        server = (
-            str((feed.get("feed_health") or {}).get("account_server", "")).strip()
-            if name == "market"
-            else str(feed.get("account_server", "")).strip()
-        )
-        if expected_server and server.casefold() != expected_server.casefold():
-            failures.append(f"{name} broker server identity mismatch.")
+
+    actual_symbol = str(candles.get("broker_symbol", "")).strip()
+    if actual_symbol != broker_symbol:
+        failures.append("candle broker symbol identity mismatch.")
+    candle_market_symbol = str(candles.get("symbol", "")).strip().upper()
+    if candle_market_symbol != market_symbol:
+        failures.append("candle Mirsad market-symbol mapping mismatch.")
+    server = str(candles.get("account_server", "")).strip()
+    if expected_server and server.casefold() != expected_server.casefold():
+        failures.append("candle broker server identity mismatch.")
 
     analysis = analyze_mt5_native_price_action(candles)
     if analysis.get("status") != "READY":
@@ -90,8 +81,8 @@ def build_report(
         "source": "MT5_COPYRATES_CLOSED_BARS",
         "symbol": market_symbol,
         "broker_symbol": broker_symbol,
-        "market_feed_status": market.get("status"),
         "candle_feed_status": candles.get("status"),
+        "engine5_quote_consumed_by_engine2": False,
         "analysis_status": analysis.get("status"),
         "direction": analysis.get("direction"),
         "direction_ar": analysis.get("direction_ar"),
