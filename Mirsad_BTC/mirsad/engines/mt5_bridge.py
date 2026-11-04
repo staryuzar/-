@@ -28,6 +28,118 @@ def _read_json_array(path: Path) -> list[Any] | None:
         return None
 
 
+def _read_mt5_deal_history(
+    path: Path,
+    *,
+    expected_symbol: str,
+    expected_magic: int,
+) -> dict[str, Any]:
+    """Read and strictly validate the bounded MIR1 broker-deal history file."""
+    payload = _read_object(path)
+    if not payload:
+        return {
+            "status": "NOT_REPORTED",
+            "deals": [],
+            "reason": "The MT5 execution EA has not published deals.json yet.",
+        }
+    if payload.get("schema") != "MIR1-DEALS-1" or payload.get("status") != "READY":
+        return {
+            "status": "INVALID",
+            "deals": [],
+            "reason": "The MT5 deal-history schema or producer status is not valid.",
+        }
+    try:
+        queried_at = int(payload["queried_at_utc_ms"])
+        window_start = int(payload["window_start_utc_ms"])
+        window_end = int(payload["window_end_utc_ms"])
+        history_total = int(payload["history_total_selected"])
+        start_index = int(payload["history_start_index"])
+        returned_count = int(payload["returned_count"])
+        magic = int(payload["magic"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {"status": "INVALID", "deals": [], "reason": "Deal-history metadata is incomplete."}
+    symbol = str(payload.get("symbol", "")).strip()
+    raw_deals = payload.get("deals")
+    if (
+        queried_at <= 0 or window_start <= 0 or window_end < window_start
+        or history_total < 0 or start_index < 0 or returned_count < 0
+        or not isinstance(raw_deals, list) or returned_count != len(raw_deals)
+        or magic <= 0 or magic != expected_magic
+        or symbol.casefold() != expected_symbol.casefold()
+        or payload.get("time_basis") != "UTC_NORMALIZED_FROM_MT5_SERVER_TIME"
+    ):
+        return {
+            "status": "INVALID",
+            "deals": [],
+            "reason": "Deal-history identity, time window, count or time basis is inconsistent.",
+        }
+
+    validated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    numeric_fields = (
+        "volume", "price", "profit", "commission", "swap", "fee", "net_cashflow"
+    )
+    for index, raw in enumerate(raw_deals):
+        if not isinstance(raw, dict):
+            return {"status": "INVALID", "deals": [], "reason": f"Deal {index} is not an object."}
+        try:
+            ticket = str(int(raw["deal_ticket"]))
+            order_ticket = str(int(raw.get("order_ticket", 0) or 0))
+            position_id = str(int(raw["position_id"]))
+            row_magic = int(raw["magic"])
+            deal_time = int(raw["time_utc_ms"])
+            deal_type = int(raw["type"])
+            deal_entry = int(raw["entry"])
+            deal_reason = int(raw.get("reason", 0) or 0)
+            values = {name: float(raw[name]) for name in numeric_fields}
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return {"status": "INVALID", "deals": [], "reason": f"Deal {index} has missing or invalid fields."}
+        row_symbol = str(raw.get("symbol", "")).strip()
+        currency = str(raw.get("currency", "")).strip()
+        if (
+            int(ticket) <= 0 or int(position_id) <= 0 or row_magic != magic
+            or row_symbol.casefold() != symbol.casefold()
+            or deal_time < window_start or deal_time > window_end
+            or not currency or ticket in seen
+            or any(not math.isfinite(value) for value in values.values())
+            or values["volume"] < 0 or values["price"] < 0
+            or abs(values["net_cashflow"] - (
+                values["profit"] + values["commission"] + values["swap"] + values["fee"]
+            )) > 0.02
+        ):
+            return {
+                "status": "INVALID",
+                "deals": [],
+                "reason": f"Deal {index} failed identity, numeric, time-window or net-cashflow validation.",
+            }
+        seen.add(ticket)
+        validated.append({
+            "deal_ticket": ticket,
+            "order_ticket": order_ticket,
+            "position_id": position_id,
+            "magic": row_magic,
+            "symbol": row_symbol,
+            "type": deal_type,
+            "entry": deal_entry,
+            "reason": deal_reason,
+            "time_utc_ms": deal_time,
+            **values,
+            "currency": currency,
+            "comment": str(raw.get("comment", "")),
+        })
+    if returned_count > history_total or start_index > history_total:
+        return {"status": "INVALID", "deals": [], "reason": "Deal-history pagination counters are inconsistent."}
+    return {
+        **payload,
+        "status": "READY",
+        "symbol": symbol,
+        "magic": magic,
+        "deals": validated,
+        "truncated": bool(payload.get("truncated")),
+        "reason": None,
+    }
+
+
 def _read_jsonl_tail(path: Path, *, limit: int = 100, max_bytes: int = 131072) -> list[dict[str, Any]]:
     """Read a bounded tail of the EA event journal without loading an unbounded file."""
     try:
@@ -108,12 +220,26 @@ class MT5BridgeEngine:
         positions_file = _read_json_array(self.root / "positions.json")
         positions_file_valid = positions_file is not None and all(isinstance(item, dict) for item in positions_file)
         event_log = _read_jsonl_tail(self.root / "events.jsonl")
+        try:
+            expected_magic = int(payload.get("magic_number", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            expected_magic = 0
+        deal_history = _read_mt5_deal_history(
+            self.root / "deals.json",
+            expected_symbol=str(payload.get("symbol", "")),
+            expected_magic=expected_magic,
+        ) if expected_magic > 0 and payload.get("symbol") else {
+            "status": "INVALID",
+            "deals": [],
+            "reason": "MIR1 heartbeat is missing the configured symbol or magic number.",
+        }
         files = {
             "status.json": (self.root / "status.json").is_file(),
             "command.json": (self.root / "command.json").is_file(),
             "ack.json": (self.root / "ack.json").is_file(),
             "positions.json": (self.root / "positions.json").is_file(),
             "events.jsonl": (self.root / "events.jsonl").is_file(),
+            "deals.json": (self.root / "deals.json").is_file(),
         }
         return {
             **base, "status": "CONNECTED" if alive else "STALE",
@@ -135,6 +261,7 @@ class MT5BridgeEngine:
             "last_order_ack": ack,
             "position_reconciliation": reconciliation,
             "event_log": event_log,
+            "deal_history": deal_history,
             "common_files_directory": str(self.root),
             "common_files_files": files,
             "message": "Fresh EA telemetry received." if alive else "EA heartbeat missing, stale or protocol schema mismatch.",
