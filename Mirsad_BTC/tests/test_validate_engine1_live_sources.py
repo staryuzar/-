@@ -67,7 +67,7 @@ class Engine1LiveSourceValidatorTests(unittest.TestCase):
             self.assertEqual(report["provider_response_count"], 4)
             self.assertNotIn("mt5_broker", report["economic_calendar"]["source_statuses"])
             self.assertIn("standalone", report["scope"].lower())
-            self.assertIn("no MT5 quote", report["scope"])
+            self.assertIn("no mt5 quote", report["scope"].lower())
 
     def test_cli_rejects_legacy_mt5_snapshot_argument(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
