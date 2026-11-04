@@ -156,10 +156,10 @@ class RiskSizingTests(unittest.TestCase):
 
 
 class WeightedDecisionTests(unittest.TestCase):
-    def test_engine_decision_weights_are_20_50_30_and_total_one_hundred_percent(self) -> None:
+    def test_engine_decision_weights_are_20_55_25_and_total_one_hundred_percent(self) -> None:
         self.assertAlmostEqual(ENGINE1_DECISION_WEIGHT, 0.20)
-        self.assertAlmostEqual(ENGINE2_DECISION_WEIGHT, 0.50)
-        self.assertAlmostEqual(ENGINE3_DECISION_WEIGHT, 0.30)
+        self.assertAlmostEqual(ENGINE2_DECISION_WEIGHT, 0.55)
+        self.assertAlmostEqual(ENGINE3_DECISION_WEIGHT, 0.25)
         self.assertAlmostEqual(
             ENGINE1_DECISION_WEIGHT + ENGINE2_DECISION_WEIGHT + ENGINE3_DECISION_WEIGHT,
             1.0,
@@ -174,10 +174,10 @@ class WeightedDecisionTests(unittest.TestCase):
             engine2_quality=1.0,
             engine3_quality=1.0,
         )
-        self.assertAlmostEqual(score, 0.24)
+        self.assertAlmostEqual(score, 0.29)
         self.assertAlmostEqual(weights["engine_1_market_intelligence"], 0.20)
-        self.assertAlmostEqual(weights["engine_2_price_action"], 0.50)
-        self.assertAlmostEqual(weights["engine_3_indicators"], 0.30)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.55)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.25)
         self.assertAlmostEqual(sum(weights.values()), 1.0)
 
     def test_missing_engine1_evidence_is_not_redistributed_to_engines2_and3(self) -> None:
@@ -189,7 +189,7 @@ class WeightedDecisionTests(unittest.TestCase):
             engine2_quality=1.0,
             engine3_quality=1.0,
         )
-        self.assertAlmostEqual(score, 0.34)
+        self.assertAlmostEqual(score, 0.39)
         self.assertEqual(weights["engine_1_market_intelligence"], 0.0)
         self.assertAlmostEqual(weights["engine_2_price_action"], 0.50)
         self.assertAlmostEqual(weights["engine_3_indicators"], 0.30)
@@ -272,8 +272,8 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         configured = result["decision_weights"]["configured"]
         self.assertEqual(configured, {
             "engine_1_market_intelligence": 0.20,
-            "engine_2_price_action": 0.50,
-            "engine_3_indicators": 0.30,
+            "engine_2_price_action": 0.55,
+            "engine_3_indicators": 0.25,
         })
         self.assertAlmostEqual(
             sum(result["decision_weights"][key] for key in configured),
@@ -495,7 +495,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertAlmostEqual(result["decision_scores"]["engine_3_quality"], 0.60)
         self.assertAlmostEqual(
             result["decision_weights"]["engine_3_indicators"],
-            0.30 * 0.60,
+            0.25 * 0.60,
         )
 
     def test_engine4_rejects_missing_or_low_quality_composite_indicator_signal(self) -> None:
@@ -955,7 +955,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             market_intelligence=aligned_intelligence,
         )
         self.assertEqual(aligned["candidate_action"], "BUY")
-        self.assertAlmostEqual(aligned["decision_scores"]["combined_score"], 0.46)
+        self.assertAlmostEqual(aligned["decision_scores"]["combined_score"], 0.43)
         self.assertEqual(aligned["engine_2_score_source"], "NATIVE_MT5_OHLC_ONLY")
         self.assertAlmostEqual(aligned["decision_scores"]["engine_2_score"], 0.25)
         self.assertEqual(
