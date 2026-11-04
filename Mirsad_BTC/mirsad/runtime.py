@@ -193,7 +193,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  readiness={
   "engine_5_execution_quote_feed":market_status=="LIVE",
   "engine_1_market_intelligence":market_intelligence.get("status")=="READY",
-  # Screenshot/image analysis is diagnostic only and is not a readiness gate.
+  # Engine 2 native OHLC price action must be ready before a directional entry is eligible.
   "engine_2_candles":candle_history.get("status")=="READY",
   "engine_2_multi_timeframe_structure":engine2_multitimeframe.get("status")=="READY",
   "engine_2_price_action":engine2_price_action.get("status")=="READY",
@@ -264,7 +264,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "engine_2_native_price_action_to_engine_4":True,
    "engine_2_chart_images_to_engine_4":False,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
-   "engine_2_price_action_to_engine_4":"fail_closed_confluence_gate_not_an_independent_directional_vote",
+   "engine_2_price_action_to_engine_4":"weighted_directional_vote_50_percent_after_native_ohlc_quality_gates",
    "engine_2_price_action_requires_chart_image":False,
    "mt5_native_indicator_buffers_to_engine_3_report":True,
    "engine_4_daily_risk_guard":"persistent_utc_day_equity_drawdown_gate",
@@ -276,17 +276,17 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "Engine 1 directional context is an explainable evidence score with source coverage, not a calibrated probability or profit forecast. News sentiment is a keyword heuristic; headline risk is exposed for review.",
    "High-importance macro events create a bounded new-entry WAIT window; CLOSE and protective MODIFY management remain available.",
    "Engine 2 price action: determines BTC direction from candle formations and confirmed peaks/troughs, BOS/CHOCH, liquidity-sweep candidates and multi-timeframe structure. It calculates no technical indicators and requires no chart image.",
-   "Engine 2 image capture and pixel extraction are not called in the live runtime. Native MT5 OHLC is the sole live input for candle and price-structure analysis.",
-   "Engine 2 price-action analysis uses only completed native MT5 OHLC bars at a common snapshot cutoff; stale frames, gaps and forming bars cannot create direction evidence. In Engine 4 it is a fail-closed confluence gate, not a separate directional vote.",
+   "Native MT5 OHLC is the sole live input for Engine 2 candle and price-structure analysis; no chart-image capture or pixel extraction is part of the runtime.",
+   "Engine 2 price-action analysis uses only completed native MT5 OHLC bars at a common snapshot cutoff; its eligible directional score contributes the configured 50% Engine 4 baseline weight, subject to structure, freshness and multi-timeframe quality gates.",
    "Engine 3: EMA/RSI/ATR and multi-timeframe technical measures calculated exclusively from Engine 2 completed candles. Native MT5 CopyBuffer indicator values are separately attached for comparison and validation.",
-   "Native MT5 indicator snapshots are read independently from chart images every market-feed cycle; closed-bar and forming-bar values remain separate and are not decision-eligible until independently validated.",
+   "Native MT5 indicator snapshots are read independently every market-feed cycle; closed-bar and forming-bar values remain separate and are not decision-eligible until independently validated."
    "Engine 4: central synthesis, decision, position monitoring and risk ownership. Engine 5: MT5 communication bridge.",
    "Engine 5 quote updates describe broker quote movement only; they are not represented as executed trades, taker flow or consolidated order-book depth.",
    "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
    "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
    "Engine 4 daily loss cap is intentionally disabled by default during development (MIRSAD_DAILY_LOSS_LIMIT_ENABLED=0); the 2% cap can be re-enabled by configuration. Per-trade sizing, quote validity, signal-quality gates and position protections remain active.",
    "No market simulation or simulated order is used.",
-   "Chart-image extraction and pixel calibration are outside the live runtime and cannot affect Engine 2 readiness, score, direction or Engine 4 decisions.",
+   "Engine 2 direction and score come exclusively from validated native OHLC evidence and cannot be overridden by a visual input.",
    "Engine 5 owns the fresh MT5 broker quote feed and execution bridge. Engine 4 validates broker symbol, account server, quote age, spread and price agreement; Engine 1 independently collects public intelligence and does not consume MT5 or other-engine data.",
    "A broker quote must be fresh, close to the spot reference and within the configured spread threshold.",
    "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions through Engine 5; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
