@@ -282,6 +282,7 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
         "trade": {},
     }
     tracked_ticket: int | None = None
+    open_command_published = False
     symbol = ""
     magic = 0
     try:
@@ -336,6 +337,7 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
             "details": sizing,
         })
         publish(engine, decision, state)
+        open_command_published = True
         result["steps"].append({"step": "PYTHON_BRIDGE_PUBLISHED_BUY", "status": "PASS"})
         opened_state, open_ack = wait_for_reconciliation(
             engine, decision["signal_id"], timeout_seconds=timeout_seconds
@@ -429,6 +431,32 @@ def run_acceptance(common_files: Path, *, timeout_seconds: int, report_path: Pat
     finally:
         # If a BUY was confirmed but any later acceptance assertion failed,
         # make a best-effort close of only the tracked test ticket.
+        if open_command_published and tracked_ticket is None and symbol and magic:
+            try:
+                # If the broker filled the request but the normal ACK wait timed
+                # out, recover the only new Mirsad BTC ticket before exiting.
+                deadline = time.monotonic() + 20
+                while time.monotonic() < deadline and tracked_ticket is None:
+                    current = engine.inspect()
+                    candidates = [
+                        row for row in symbol_positions(current, symbol)
+                        if int(row.get("magic", -1)) == magic
+                    ]
+                    if len(candidates) == 1:
+                        tracked_ticket = int(candidates[0].get("ticket", 0) or 0)
+                        break
+                    if len(candidates) > 1:
+                        raise RuntimeError(
+                            "More than one Mirsad BTC position appeared during acceptance recovery; "
+                            "automatic cleanup is withheld to avoid closing an unrelated position."
+                        )
+                    time.sleep(1)
+                if tracked_ticket:
+                    result["recovered_position_ticket_for_cleanup"] = tracked_ticket
+            except Exception as recovery_error:
+                result["cleanup_error"] = f"{type(recovery_error).__name__}: {recovery_error}"
+                result["status"] = "FAILED"
+
         if tracked_ticket and symbol and magic:
             try:
                 current = engine.inspect()
