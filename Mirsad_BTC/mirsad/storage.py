@@ -39,6 +39,32 @@ CREATE TABLE IF NOT EXISTS market_intelligence_snapshots (
  payload_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_market_intelligence_time ON market_intelligence_snapshots(captured_at_ms);
+CREATE TABLE IF NOT EXISTS mt5_deals (
+ deal_ticket TEXT PRIMARY KEY,
+ order_ticket TEXT NOT NULL,
+ position_id TEXT NOT NULL,
+ magic INTEGER NOT NULL,
+ symbol TEXT NOT NULL,
+ deal_type INTEGER NOT NULL,
+ deal_entry INTEGER NOT NULL,
+ deal_reason INTEGER NOT NULL,
+ time_utc_ms INTEGER NOT NULL,
+ volume REAL NOT NULL,
+ price REAL NOT NULL,
+ profit REAL NOT NULL,
+ commission REAL NOT NULL,
+ swap REAL NOT NULL,
+ fee REAL NOT NULL,
+ net_cashflow REAL NOT NULL,
+ currency TEXT NOT NULL,
+ comment TEXT NOT NULL,
+ payload_json TEXT NOT NULL,
+ observed_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_mt5_deals_position_time
+ ON mt5_deals(magic,symbol,position_id,time_utc_ms);
+CREATE INDEX IF NOT EXISTS ix_mt5_deals_time
+ ON mt5_deals(magic,symbol,time_utc_ms);
 CREATE TABLE IF NOT EXISTS storage_migrations (
  migration_id TEXT PRIMARY KEY,
  applied_at_ms INTEGER NOT NULL
@@ -453,6 +479,171 @@ def load_candles_by_timeframe(
 
             result[timeframe] = candles
         return result
+    finally:
+        conn.close()
+
+
+def save_mt5_deal_history(
+    history: dict[str, Any] | None,
+    db_path: Path | str = DB_PATH,
+) -> dict[str, Any]:
+    """Persist validated Mirsad-owned broker deals idempotently by deal ticket."""
+    if not isinstance(history, dict) or history.get("schema") != "MIR1-DEALS-1":
+        return {"status": "NOT_REPORTED", "received": 0, "stored": 0}
+    if history.get("status") != "READY":
+        return {"status": "UNAVAILABLE", "received": 0, "stored": 0,
+                "reason": str(history.get("reason") or "MT5 deal history is not ready.")}
+    try:
+        observed_at = int(history["queried_at_utc_ms"])
+        magic = int(history["magic"])
+        symbol = str(history["symbol"]).strip().upper()
+        currency = str(history["currency"]).strip()
+        rows = history["deals"]
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {"status": "INVALID", "received": 0, "stored": 0}
+    if observed_at <= 0 or magic <= 0 or not symbol or not currency or not isinstance(rows, list):
+        return {"status": "INVALID", "received": 0, "stored": 0}
+
+    validated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            return {"status": "INVALID", "received": len(rows), "stored": 0,
+                    "reason": f"Deal {index} is not an object."}
+        try:
+            item = {
+                "deal_ticket": str(int(row["deal_ticket"])),
+                "order_ticket": str(int(row.get("order_ticket", 0) or 0)),
+                "position_id": str(int(row["position_id"])),
+                "magic": int(row["magic"]),
+                "symbol": str(row["symbol"]).strip().upper(),
+                "deal_type": int(row["type"]),
+                "deal_entry": int(row["entry"]),
+                "deal_reason": int(row.get("reason", 0) or 0),
+                "time_utc_ms": int(row["time_utc_ms"]),
+                "volume": float(row["volume"]),
+                "price": float(row["price"]),
+                "profit": float(row["profit"]),
+                "commission": float(row["commission"]),
+                "swap": float(row["swap"]),
+                "fee": float(row["fee"]),
+                "net_cashflow": float(row["net_cashflow"]),
+                "currency": str(row["currency"]).strip(),
+                "comment": str(row.get("comment", "")),
+            }
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return {"status": "INVALID", "received": len(rows), "stored": 0,
+                    "reason": f"Deal {index} contains missing or invalid fields."}
+        numeric = (
+            item["volume"], item["price"], item["profit"], item["commission"],
+            item["swap"], item["fee"], item["net_cashflow"],
+        )
+        if (
+            int(item["deal_ticket"]) <= 0 or int(item["position_id"]) <= 0
+            or item["magic"] != magic or item["symbol"] != symbol
+            or item["time_utc_ms"] <= 0 or not item["currency"]
+            or item["deal_ticket"] in seen
+            or any(not math.isfinite(value) for value in numeric)
+            or item["volume"] < 0 or item["price"] < 0
+            or abs(item["net_cashflow"] - (
+                item["profit"] + item["commission"] + item["swap"] + item["fee"]
+            )) > 0.02
+        ):
+            return {"status": "INVALID", "received": len(rows), "stored": 0,
+                    "reason": f"Deal {index} failed identity or financial validation."}
+        seen.add(item["deal_ticket"])
+        validated.append(item)
+
+    conn = connect(db_path)
+    try:
+        with conn:
+            for item in validated:
+                conn.execute(
+                    """INSERT INTO mt5_deals
+                       (deal_ticket,order_ticket,position_id,magic,symbol,deal_type,
+                        deal_entry,deal_reason,time_utc_ms,volume,price,profit,
+                        commission,swap,fee,net_cashflow,currency,comment,
+                        payload_json,observed_at_ms)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(deal_ticket) DO UPDATE SET
+                        order_ticket=excluded.order_ticket,
+                        position_id=excluded.position_id,
+                        magic=excluded.magic,
+                        symbol=excluded.symbol,
+                        deal_type=excluded.deal_type,
+                        deal_entry=excluded.deal_entry,
+                        deal_reason=excluded.deal_reason,
+                        time_utc_ms=excluded.time_utc_ms,
+                        volume=excluded.volume,
+                        price=excluded.price,
+                        profit=excluded.profit,
+                        commission=excluded.commission,
+                        swap=excluded.swap,
+                        fee=excluded.fee,
+                        net_cashflow=excluded.net_cashflow,
+                        currency=excluded.currency,
+                        comment=excluded.comment,
+                        payload_json=excluded.payload_json,
+                        observed_at_ms=excluded.observed_at_ms""",
+                    (
+                        item["deal_ticket"], item["order_ticket"], item["position_id"],
+                        item["magic"], item["symbol"], item["deal_type"],
+                        item["deal_entry"], item["deal_reason"], item["time_utc_ms"],
+                        item["volume"], item["price"], item["profit"],
+                        item["commission"], item["swap"], item["fee"],
+                        item["net_cashflow"], item["currency"], item["comment"],
+                        json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+                        observed_at,
+                    ),
+                )
+    except sqlite3.Error as exc:
+        return {"status": "STORAGE_ERROR", "received": len(rows), "stored": 0,
+                "reason": f"{type(exc).__name__}: {exc}"}
+    finally:
+        conn.close()
+    return {
+        "status": "READY",
+        "received": len(validated),
+        "stored": len(validated),
+        "queried_at_utc_ms": observed_at,
+        "magic": magic,
+        "symbol": symbol,
+        "currency": currency,
+        "truncated": bool(history.get("truncated")),
+    }
+
+
+def load_mt5_deal_history(
+    *,
+    magic_number: int,
+    symbol: str,
+    from_ms: int = 0,
+    limit: int = 1000,
+    db_path: Path | str = DB_PATH,
+) -> list[dict[str, Any]]:
+    """Load persisted broker deals for one Mirsad magic number and symbol."""
+    clean_symbol = str(symbol).strip().upper()
+    if int(magic_number) <= 0 or not clean_symbol:
+        raise ValueError("A positive Mirsad magic number and symbol are required.")
+    if not isinstance(from_ms, int) or from_ms < 0:
+        raise ValueError("from_ms must be a non-negative Unix timestamp in milliseconds.")
+    if not isinstance(limit, int) or not 1 <= limit <= 10000:
+        raise ValueError("limit must be between 1 and 10000.")
+    conn = connect(db_path)
+    try:
+        rows = conn.execute(
+            """SELECT deal_ticket,order_ticket,position_id,magic,symbol,deal_type,
+                      deal_entry,deal_reason,time_utc_ms,volume,price,profit,
+                      commission,swap,fee,net_cashflow,currency,comment
+               FROM mt5_deals
+               WHERE magic=? AND symbol=? AND time_utc_ms>=?
+               ORDER BY time_utc_ms DESC, deal_ticket DESC LIMIT ?""",
+            (int(magic_number), clean_symbol, from_ms, limit),
+        ).fetchall()
+        return [
+            {key: row[key] for key in row.keys()}
+            for row in rows
+        ]
     finally:
         conn.close()
 
