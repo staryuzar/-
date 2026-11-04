@@ -163,11 +163,8 @@ class MT5ChartCandleHistory:
 
         if not isinstance(account, dict):
             account = {}
-        # The optional legacy `market` argument is intentionally not inspected:
-        # Engine 2 must not depend on Engine 1 output. The Observer candle
-        # snapshot carries its own identity, and Engine 5 bridge is the only
-        # cross-component identity confirmation.
-        _ = market
+        # The Observer candle snapshot carries its own identity, and Engine 5
+        # bridge is the only cross-component identity confirmation.
 
         if isinstance(bridge, dict) and bridge.get("status") == "CONNECTED":
             bridge_account = bridge.get("account") if isinstance(bridge.get("account"), dict) else {}
