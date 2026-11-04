@@ -276,14 +276,50 @@ try {
     $compileLog = Join-Path $expertsDir 'Mirsad_ChartObserver.log'
     Copy-Item -LiteralPath $source -Destination $eaSource -Force
 
-    $compiler = Start-Process -FilePath $editor.FullName -ArgumentList ('/compile:"' + $eaSource + '" /log') -WorkingDirectory $installDir -PassThru
-    if (!$compiler.WaitForExit(90000)) {
+    # Remove stale outputs and invoke MetaEditor with separately quoted arguments.
+    Remove-Item -LiteralPath $compileLog,$eaBinary -Force -ErrorAction SilentlyContinue
+    $compileArgument = '/compile:' + $eaSource
+    Add-Report ("MetaEditor compile target: {0}" -f $eaSource)
+    $compiler = Start-Process -FilePath $editor.FullName -ArgumentList @($compileArgument, '/log') -WorkingDirectory $installDir -PassThru
+    $compilerExited = $compiler.WaitForExit(90000)
+    if (!$compilerExited) {
         Stop-Process -Id $compiler.Id -Force -ErrorAction SilentlyContinue
-        throw 'MetaEditor Observer compilation timed out.'
+        throw 'MetaEditor Observer compilation timed out after 90 seconds.'
     }
-    Start-Sleep -Seconds 2
+    $compiler.Refresh()
+    Add-Report ("MetaEditor launcher exit code: {0}" -f $compiler.ExitCode)
+
+    # MetaEditor may hand compilation to its already-running GUI process.
+    # Poll for the real outputs rather than assuming launcher exit == compile completion.
+    $compileDeadline = [DateTime]::UtcNow.AddSeconds(60)
+    do {
+        if ((Test-Path -LiteralPath $compileLog) -and (Test-Path -LiteralPath $eaBinary)) {
+            break
+        }
+        Start-Sleep -Milliseconds 1000
+    } while ([DateTime]::UtcNow -lt $compileDeadline)
+
     if (!(Test-Path -LiteralPath $compileLog) -or !(Test-Path -LiteralPath $eaBinary)) {
-        throw 'MetaEditor did not create the Observer compile log and EX5 binary.'
+        $diagnostic = Join-Path $evidence 'MetaEditor_diagnostics.txt'
+        $lines = [System.Collections.Generic.List[string]]::new()
+        $lines.Add("Editor=$($editor.FullName)")
+        $lines.Add("Source=$eaSource")
+        $lines.Add("ExpectedLog=$compileLog")
+        $lines.Add("ExpectedBinary=$eaBinary")
+        $lines.Add("LauncherExitCode=$($compiler.ExitCode)")
+        $lines.Add("LogExists=$(Test-Path -LiteralPath $compileLog)")
+        $lines.Add("BinaryExists=$(Test-Path -LiteralPath $eaBinary)")
+        $lines.Add("--- matching logs in install directory ---")
+        Get-ChildItem -LiteralPath $installDir -Filter '*ChartObserver*.log' -File -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 20 FullName,Length,LastWriteTime |
+            ForEach-Object { $lines.Add(($_ | Format-List | Out-String).Trim()) }
+        $lines.Add("--- MetaEditor processes ---")
+        Get-CimInstance Win32_Process -Filter "Name='metaeditor64.exe' OR Name='metaeditor.exe'" -ErrorAction SilentlyContinue |
+            ForEach-Object { $lines.Add("PID=$($_.ProcessId) Path=$($_.ExecutablePath) CommandLine=$($_.CommandLine)") }
+        $lines | Set-Content -LiteralPath $diagnostic -Encoding utf8
+        Add-Report ("FAIL — MetaEditor outputs missing after 60s. ExitCode={0}; Log={1}; EX5={2}." -f $compiler.ExitCode,(Test-Path -LiteralPath $compileLog),(Test-Path -LiteralPath $eaBinary))
+        Get-Content -LiteralPath $diagnostic | ForEach-Object { Write-Output $_ }
+        throw 'MetaEditor did not create the Observer compile log and EX5 binary within 60 seconds.'
     }
     $compileText = Get-Content -LiteralPath $compileLog -Raw
     $compileText | Set-Content -LiteralPath (Join-Path $evidence 'Mirsad_ChartObserver_compile.log') -Encoding utf8
