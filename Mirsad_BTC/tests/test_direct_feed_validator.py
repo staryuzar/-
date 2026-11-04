@@ -138,6 +138,48 @@ class DirectFeedValidatorTests(unittest.TestCase):
         self.assertEqual(result["engine3"]["status"], "READY")
         self.assertFalse(result["safety"]["trading_api_used"])
 
+    def test_direct_feed_does_not_require_execution_ea_for_read_only_validation(self) -> None:
+        waiting_bridge = {
+            "engine": "engine_5_communication_bridge",
+            "status": "WAITING_FOR_EXPERT",
+            "message": "Read-only Observer test does not install execution EA.",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch(
+                    "scripts.validate_mt5_direct_feed.MT5BridgeEngine.inspect",
+                    return_value=waiting_bridge,
+                ),
+                patch(
+                    "scripts.validate_mt5_direct_feed.MT5MarketDataEngine.collect",
+                    return_value=ready_market(),
+                ) as market_collect,
+                patch(
+                    "scripts.validate_mt5_direct_feed.MT5ChartCandleHistory.collect",
+                    return_value=ready_candles(),
+                ) as candle_collect,
+                patch(
+                    "scripts.validate_mt5_direct_feed.MT5NativeIndicatorHistory.collect",
+                    return_value=ready_indicators(),
+                ),
+            ):
+                result = validate(
+                    Path(directory),
+                    market_symbol="BTCUSDT",
+                    broker_symbol="BTC",
+                    expected_server="Headway-Demo",
+                )
+        market_collect.assert_called_once_with(bridge=None)
+        candle_collect.assert_called_once_with(bridge=None)
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["engine5_bridge"]["status"], "WAITING_FOR_EXPERT")
+        self.assertEqual(
+            result["engine5_bridge"]["cross_check"],
+            "NOT_PART_OF_READ_ONLY_FEED_TEST",
+        )
+        self.assertTrue(result["engine5_bridge"]["required_for_live_decision"])
+        self.assertFalse(result["decision_eligible"])
+
     def test_direct_feed_rejects_any_timeframe_below_engine2_closed_bar_minimum(self) -> None:
         candles = ready_candles()
         candles["closed_candles"]["1d"] = 23
