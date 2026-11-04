@@ -1080,6 +1080,6 @@ class DecisionEngine:
             "reason": (
                 "BUY/SELL combines Engine 1 market intelligence (20%), Engine 2 native multi-timeframe OHLC price action (50%), and Engine 3 indicators (30%). "
                 "Engine 2 uses only validated native MT5 OHLC candle formations and confirmed price structure. "
-                "Evidence-quality weighting re-normalizes available contributions; the resulting score is not a calibrated probability of profit. Engine 5 supplies execution and account facts only."
+                "Evidence quality discounts each engine's fixed 20/50/30 base share without redistributing missing weight; the combined value is an evidence-weighted score, not a calibrated probability of profit. Engine 5 supplies execution and account facts only."
             ),
         }
