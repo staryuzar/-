@@ -928,12 +928,140 @@ class MarketIntelligenceEngine:
             "observed_at_ms": observed_at,
         }
 
+    def _collect_gateio_derivatives(self) -> dict[str, Any]:
+        """Collect public Gate USDT-perpetual positioning as an independent venue.
+
+        The contract-stat endpoint carries its own Unix-second timestamp.
+        Ticker funding is retained for diagnostics only because that response
+        does not provide an observation timestamp suitable for directional use.
+        """
+        base_currency = None
+        contract = None
+        if self.symbol.endswith("USDT") and len(self.symbol) > 4:
+            base_currency = self.symbol[:-4]
+            contract = f"{base_currency}_USDT"
+        if not contract or not base_currency:
+            return {
+                "status": "OFFLINE",
+                "source": "Gate.io USDT perpetual futures",
+                "reason": f"Unsupported symbol mapping for {self.symbol}.",
+                "endpoint_statuses": {
+                    "ticker": "NOT_REQUESTED",
+                    "contract_stats": "NOT_REQUESTED",
+                },
+                "endpoint_errors": {},
+            }
+
+        base = "https://api.gateio.ws/api/v4/futures/usdt"
+        query = urllib.parse.urlencode({"contract": contract})
+        urls = {
+            "ticker": base + "/tickers?" + query,
+            "contract_stats": base + "/contract_stats?" + query + "&interval=5m&limit=8",
+        }
+        payloads: dict[str, Any] = {}
+        endpoint_errors: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {
+                pool.submit(self._json, url, ttl_seconds=30 if key == "ticker" else 120): key
+                for key, url in urls.items()
+            }
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    payloads[key] = future.result()
+                except Exception as exc:
+                    payloads[key] = None
+                    endpoint_errors[key] = f"{type(exc).__name__}: {str(exc)[:240]}"
+
+        endpoint_statuses: dict[str, str] = {}
+        ticker_payload = payloads.get("ticker")
+        if ticker_payload is None:
+            endpoint_statuses["ticker"] = "OFFLINE"
+        elif not isinstance(ticker_payload, list):
+            endpoint_statuses["ticker"] = "API_ERROR"
+            endpoint_errors["ticker"] = "Malformed Gate ticker response."
+        else:
+            endpoint_statuses["ticker"] = "RESPONSE"
+
+        stats_payload = payloads.get("contract_stats")
+        if stats_payload is None:
+            endpoint_statuses["contract_stats"] = "OFFLINE"
+        elif not isinstance(stats_payload, list):
+            endpoint_statuses["contract_stats"] = "API_ERROR"
+            endpoint_errors["contract_stats"] = "Malformed Gate contract-statistics response."
+        else:
+            endpoint_statuses["contract_stats"] = "RESPONSE"
+
+        ticker_rows = ticker_payload if isinstance(ticker_payload, list) else []
+        ticker_row = next(
+            (row for row in ticker_rows
+             if isinstance(row, dict) and str(row.get("contract", "")).upper() == contract),
+            {},
+        )
+        raw_stats = stats_payload if isinstance(stats_payload, list) else []
+        stats_rows = [
+            row for row in raw_stats
+            if isinstance(row, dict) and _parse_time(row.get("time")) is not None
+        ]
+        stats_rows.sort(key=lambda row: _parse_time(row.get("time")) or 0)
+        latest = stats_rows[-1] if stats_rows else {}
+        first = stats_rows[0] if stats_rows else {}
+
+        funding_rate = _finite(ticker_row.get("funding_rate"))
+        current_oi = _finite(latest.get("open_interest"))
+        current_oi_usd = _finite(latest.get("open_interest_usd"))
+        oi_change = None
+        first_oi = _finite(first.get("open_interest"))
+        last_oi = _finite(latest.get("open_interest"))
+        if len(stats_rows) >= 2 and first_oi is not None and last_oi is not None and first_oi > 0:
+            oi_change = (last_oi - first_oi) / first_oi * 100.0
+
+        # lsr_account is Gate's account-level long/short ratio. Top-trader
+        # account/position and taker ratios remain separately labelled evidence.
+        account_ratio = _finite(latest.get("lsr_account"))
+        ratio_timestamp = _parse_time(latest.get("time")) if account_ratio is not None else None
+        stat_timestamp = _parse_time(latest.get("time"))
+        observed_at = int(time.time() * 1000)
+        source_stamps = [stamp for stamp in (stat_timestamp,) if stamp is not None]
+        status = "READY" if any(value is not None for value in (
+            funding_rate, current_oi, account_ratio,
+        )) else "OFFLINE"
+        return {
+            "status": status,
+            "source": "Gate.io USDT perpetual futures",
+            "contract": contract,
+            "funding_rate": funding_rate,
+            "funding_timestamp_ms": None,
+            "funding_timestamp_basis": "UNSTAMPED_TICKER_SNAPSHOT_NOT_USED_DIRECTIONALLY",
+            "mark_price": _finite(ticker_row.get("mark_price") or latest.get("mark_price")),
+            "index_price": _finite(ticker_row.get("index_price")),
+            "open_interest": current_oi,
+            "open_interest_usd": current_oi_usd,
+            "open_interest_change_pct_35m": round(oi_change, 5) if oi_change is not None else None,
+            "long_short_ratio": account_ratio,
+            "long_short_ratio_scope": "Gate USDT-perpetual account-level position-user ratio (lsr_account)",
+            "long_short_sample_count": len(stats_rows),
+            "long_short_timestamp_ms": ratio_timestamp,
+            "directional_timestamp_ms": ratio_timestamp,
+            "top_trader_long_short_account_ratio": _finite(latest.get("top_lsr_account")),
+            "top_trader_long_short_position_ratio": _finite(latest.get("top_lsr_size")),
+            "taker_long_short_ratio": _finite(latest.get("lsr_taker")),
+            "long_liquidation_usd": _finite(latest.get("long_liq_usd_new") or latest.get("long_liq_usd")),
+            "short_liquidation_usd": _finite(latest.get("short_liq_usd_new") or latest.get("short_liq_usd")),
+            "timestamp_ms": max(source_stamps) if source_stamps else None,
+            "timestamp_basis": "PROVIDER_TIMESTAMP" if source_stamps else "UNKNOWN",
+            "endpoint_statuses": endpoint_statuses,
+            "endpoint_errors": endpoint_errors,
+            "observed_at_ms": observed_at,
+        }
+
     def _collect_derivatives(self) -> dict[str, Any]:
         venues: dict[str, Any] = {}
         collectors = {
             "Binance": self._collect_binance_derivatives,
             "Bybit": self._collect_bybit_derivatives,
             "OKX": self._collect_okx_derivatives,
+            "Gate.io": self._collect_gateio_derivatives,
         }
         with ThreadPoolExecutor(max_workers=len(collectors)) as pool:
             futures = {pool.submit(fn): name for name, fn in collectors.items()}
