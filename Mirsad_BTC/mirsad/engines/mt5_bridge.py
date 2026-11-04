@@ -356,6 +356,12 @@ class MT5BridgeEngine:
         except (TypeError, ValueError, OverflowError):
             ack_at = heartbeat = 0
         if ack_at <= 0 or heartbeat <= 0:
+            if state == "PARTIAL":
+                return outcome(
+                    "ACK_PENDING",
+                    "The partial execution does not yet have valid ACK/heartbeat timestamps; keep waiting for broker reconciliation.",
+                    ack_state=state,
+                )
             return outcome("ACK_TIMESTAMP_INVALID", "ACK and heartbeat timestamps are required for reconciliation.")
         # MQL5's UTC millisecond helper is second-resolution. Equality can
         # therefore mean "telemetry was written immediately before the ACK".
