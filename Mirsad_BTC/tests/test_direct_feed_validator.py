@@ -32,12 +32,31 @@ def ready_market() -> dict:
 
 
 def ready_candles() -> dict:
+    frames = {}
+    for timeframe_index, timeframe in enumerate(TIMEFRAMES):
+        bars = []
+        for index in range(90):
+            close = 90_000.0 + timeframe_index * 100.0 + index * 10.0
+            bars.append({
+                "open_time_ms": 1_798_000_000_000 - (89 - index) * 60_000,
+                "open": close - 2.0,
+                "high": close + 5.0,
+                "low": close - 5.0,
+                "close": close,
+                "volume": 10.0,
+                "closed": True,
+            })
+        frames[timeframe] = bars
     return {
         "status": "READY",
+        "source": "MT5_CHART_OBSERVER",
+        "captured_at_ms": 1_798_000_000_000,
         "broker_symbol": "BTC",
+        "symbol": "BTCUSDT",
         "account_server": "Headway-Demo",
         "timeframes": {name: 120 for name in TIMEFRAMES},
         "closed_candles": {name: 119 for name in TIMEFRAMES},
+        "candles_by_tf": frames,
     }
 
 
@@ -90,6 +109,11 @@ class DirectFeedValidatorTests(unittest.TestCase):
         self.assertFalse(result["decision_eligible"])
         self.assertEqual(result["candles"]["timeframes"]["1m"], 120)
         self.assertEqual(result["native_indicators"]["ready_timeframe_count"], 6)
+        self.assertEqual(result["engine3"]["calculated_status"], "READY")
+        self.assertIsNotNone(result["engine3"]["signal_score"])
+        self.assertGreaterEqual(result["engine3"]["signal_quality"], 0.60)
+        self.assertEqual(set(result["engine3"]["signal_components_by_timeframe"]), set(TIMEFRAMES))
+        self.assertEqual(result["engine3"]["status"], "READY")
         self.assertFalse(result["safety"]["trading_api_used"])
 
     def test_direct_feed_rejects_any_timeframe_below_engine2_closed_bar_minimum(self) -> None:
@@ -181,6 +205,26 @@ class DirectFeedValidatorTests(unittest.TestCase):
         self.assertEqual(result["engine3"]["status"], "PARTIAL")
         self.assertFalse(result["engine2"]["failures"])
         self.assertTrue(any("native indicator feed" in item for item in result["engine3"]["warnings"]))
+
+
+    def test_direct_feed_is_partial_when_native_buffers_ready_but_composite_signal_is_not(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch("scripts.validate_mt5_direct_feed.MT5MarketDataEngine.collect", return_value=ready_market()),
+                patch("scripts.validate_mt5_direct_feed.MT5ChartCandleHistory.collect", return_value=ready_candles()),
+                patch("scripts.validate_mt5_direct_feed.MT5NativeIndicatorHistory.collect", return_value=ready_indicators()),
+                patch("scripts.validate_mt5_direct_feed.IndicatorsEngine.analyze", return_value={
+                    "status": "NOT_READY", "reason": "test quality gate",
+                    "signal_score": None, "signal_quality": 0.0,
+                }),
+            ):
+                result = validate(Path(directory), market_symbol="BTCUSDT",
+                    broker_symbol="BTC", expected_server="Headway-Demo")
+        self.assertEqual(result["engine2"]["status"], "READY")
+        self.assertEqual(result["engine3"]["native_status"], "READY")
+        self.assertEqual(result["engine3"]["calculated_status"], "NOT_READY")
+        self.assertEqual(result["engine3"]["status"], "PARTIAL")
+        self.assertTrue(any("calculated Engine 3 signal" in item for item in result["engine3"]["warnings"]))
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from mirsad.engines.mt5_native_indicators import (
     TIMEFRAMES,
     MT5NativeIndicatorHistory,
 )
+from mirsad.engines.indicators import IndicatorsEngine
 
 
 def validate(
@@ -40,6 +41,7 @@ def validate(
         common_files=str(common_files),
         symbol=market_symbol,
     ).collect(candle_history=candles)
+    calculated_indicators = IndicatorsEngine().analyze(candles)
 
     engine2_failures: list[str] = []
     engine3_warnings: list[str] = []
@@ -81,6 +83,11 @@ def validate(
     if indicators.get("status") != "READY":
         engine3_warnings.append(
             f"native indicator feed: {indicators.get('status')} — {indicators.get('reason')}"
+        )
+    if calculated_indicators.get("status") != "READY":
+        engine3_warnings.append(
+            "calculated Engine 3 signal: "
+            f"{calculated_indicators.get('status')} — {calculated_indicators.get('reason')}"
         )
 
     candle_frames = candles.get("timeframes") or {}
@@ -137,7 +144,16 @@ def validate(
         },
         "engine3": {
             "status": engine3_status,
-            "source": "MT5_COPYBUFFER",
+            "source": "ENGINE2_CLOSED_OHLC_WITH_MT5_COPYBUFFER_PARITY",
+            "native_status": indicators.get("status"),
+            "calculated_status": calculated_indicators.get("status"),
+            "signal_score": calculated_indicators.get("signal_score"),
+            "signal_quality": calculated_indicators.get("signal_quality"),
+            "signal_timeframe_weight_coverage": calculated_indicators.get("signal_timeframe_weight_coverage"),
+            "trend_score": calculated_indicators.get("trend_score"),
+            "signal_group_weights": calculated_indicators.get("signal_group_weights", {}),
+            "signal_components_by_timeframe": calculated_indicators.get("signal_components_by_timeframe", {}),
+            "missing_signal_timeframes": calculated_indicators.get("missing_signal_timeframes", []),
             "warnings": engine3_warnings,
         },
         "image_capture_enabled": False,
@@ -220,9 +236,13 @@ def main() -> int:
         "ready_timeframes": report["native_indicators"]["ready_timeframe_count"],
         "failures": report["engine2"]["failures"],
         "engine3_warnings": report["engine3"]["warnings"],
+        "engine3_signal_score": report["engine3"]["signal_score"],
+        "engine3_signal_quality": report["engine3"]["signal_quality"],
+        "engine3_calculated_status": report["engine3"]["calculated_status"],
     }, ensure_ascii=False))
-    # Engine 2 is validated independently from Engine 3's CopyBuffer status.
-    return 0 if report["engine2"]["status"] == "READY" else 1
+    # Integrated validation requires both Engine 2's native OHLC history and
+    # Engine 3's calculated signal plus native MT5 buffer readiness.
+    return 0 if report["engine2"]["status"] == "READY" and report["engine3"]["status"] == "READY" else 1
 
 
 if __name__ == "__main__":

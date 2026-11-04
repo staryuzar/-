@@ -757,11 +757,14 @@ public static class MirsadNativeWindow {
         throw 'Engine 2 native MT5 market/OHLC feed is not READY.'
     }
     Add-Report ("PASS — Engine 2 feed: market={0}; native OHLC candles={1}." -f $directSummary.market.status,$directSummary.candles.status)
-    Add-Report ("Engine 3 native indicator feed: {0}; ready timeframes={1}." -f $directSummary.engine3.status,$directSummary.native_indicators.ready_timeframe_count)
-    if ([string]$directSummary.engine3.status -ne 'READY') {
-        throw 'Engine 3 required native indicator buffers are not READY on 1m, 5m and 15m; refusing to mark the integrated direct-feed check complete.'
+    Add-Report ("Engine 3 feed: overall={0}; native={1}; calculated={2}; signal={3}; quality={4}; coverage={5}%; ready timeframes={6}." -f $directSummary.engine3.status,$directSummary.engine3.native_status,$directSummary.engine3.calculated_status,$directSummary.engine3.signal_score,$directSummary.engine3.signal_quality,([double]$directSummary.engine3.signal_timeframe_weight_coverage*100),$directSummary.native_indicators.ready_timeframe_count)
+    if ([string]$directSummary.engine3.status -ne 'READY' -or
+        [string]$directSummary.engine3.calculated_status -ne 'READY' -or
+        $null -eq $directSummary.engine3.signal_score -or
+        [double]$directSummary.engine3.signal_quality -lt 0.60) {
+        throw 'Engine 3 calculated signal or native MT5 buffers are not READY with at least 60 percent evidence quality.'
     }
-    Add-Report 'PASS — Engine 3 core native indicator buffers are READY on 1m, 5m and 15m; optional higher-timeframe gaps are reported separately.'
+    Add-Report 'PASS — Engine 3 composite signal, quality gate, core MT5 buffers and all six native indicator frames are READY.'
     Add-Report ("Direct movement: quote ticks={0}; Last ticks={1}; volume updates={2}; depth={3}." -f $directSummary.market.quote_tick_count,$directSummary.market.last_price_tick_count,$directSummary.market.volume_update_count,$directSummary.market.depth_of_market_status)
     $priceActionAnalyzer = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\\scripts\\analyze_mt5_native_price_action.py'
     $priceActionOutput = Join-Path $evidence 'engine2-price-action-analysis.json'
