@@ -2,7 +2,7 @@ name: Mirsad BTC — MT5 direct feed (images disabled)
 
 on:
   push:
-    branches: [main]
+    branches: [mini]
     paths:
       - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
       - 'Mirsad_BTC/scripts/mirsad_mt5_observer_run.ps1'
@@ -43,7 +43,7 @@ jobs:
       - name: Checkout Mirsad branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Set up Python for direct MT5 feed readers
         uses: actions/setup-python@v5
