@@ -600,6 +600,7 @@ class MarketIntelligenceEngine:
             "long_short": f"{base}/futures/data/globalLongShortAccountRatio?{params}&period=5m&limit=8",
         }
         values: dict[str, Any] = {}
+        endpoint_errors: dict[str, str] = {}
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = {pool.submit(self._json, url, ttl_seconds=30 if key in {"premium", "open_interest"} else 120): key
                        for key, url in urls.items()}
@@ -607,8 +608,22 @@ class MarketIntelligenceEngine:
                 key = futures[future]
                 try:
                     values[key] = future.result()
-                except Exception:
+                except Exception as exc:
                     values[key] = None
+                    endpoint_errors[key] = f"{type(exc).__name__}: {str(exc)[:240]}"
+        endpoint_statuses = {
+            key: "OFFLINE" if value is None else (
+                "API_ERROR" if isinstance(value, dict) and value.get("code") not in (None, 0, "0")
+                and value.get("msg") else "RESPONSE"
+            )
+            for key, value in values.items()
+        }
+        for key, value in values.items():
+            if (
+                endpoint_statuses.get(key) == "API_ERROR"
+                and isinstance(value, dict)
+            ):
+                endpoint_errors[key] = str(value.get("msg"))[:240]
         premium = values.get("premium") if isinstance(values.get("premium"), dict) else {}
         interest = values.get("open_interest") if isinstance(values.get("open_interest"), dict) else {}
         oi_history = values.get("oi_history") if isinstance(values.get("oi_history"), list) else []
@@ -651,6 +666,8 @@ class MarketIntelligenceEngine:
             "directional_timestamp_ms": directional_stamp,
             "funding_timestamp_ms": funding_timestamp,
             "long_short_timestamp_ms": ratio_timestamp,
+            "endpoint_statuses": endpoint_statuses,
+            "endpoint_errors": endpoint_errors,
             "timestamp_basis": "PROVIDER_TIMESTAMP" if source_stamps else "LOCAL_FETCH_TIME",
             "observed_at_ms": observed_at,
         }
@@ -665,6 +682,7 @@ class MarketIntelligenceEngine:
             "category": "linear", "symbol": self.symbol, "period": "5min", "limit": 8,
         })
         payloads: dict[str, Any] = {}
+        endpoint_errors: dict[str, str] = {}
         requests = {
             ticker_url: ("ticker", 30),
             interest_url: ("interest", 120),
@@ -679,8 +697,19 @@ class MarketIntelligenceEngine:
                 key = futures[future]
                 try:
                     payloads[key] = future.result()
-                except Exception:
+                except Exception as exc:
                     payloads[key] = None
+                    endpoint_errors[key] = f"{type(exc).__name__}: {str(exc)[:240]}"
+
+        endpoint_statuses: dict[str, str] = {}
+        for key, payload in payloads.items():
+            if payload is None:
+                endpoint_statuses[key] = "OFFLINE"
+            elif isinstance(payload, dict) and payload.get("retCode", 0) != 0:
+                endpoint_statuses[key] = "API_ERROR"
+                endpoint_errors[key] = str(payload.get("retMsg") or payload.get("retCode"))[:240]
+            else:
+                endpoint_statuses[key] = "RESPONSE"
 
         ticker_payload = payloads.get("ticker") if isinstance(payloads.get("ticker"), dict) else {}
         ticker_rows = ((ticker_payload.get("result") or {}).get("list") or [])
@@ -746,6 +775,8 @@ class MarketIntelligenceEngine:
             "directional_timestamp_ms": directional_stamp,
             "funding_timestamp_ms": funding_timestamp,
             "long_short_timestamp_ms": ratio_timestamp,
+            "endpoint_statuses": endpoint_statuses,
+            "endpoint_errors": endpoint_errors,
             "timestamp_ms": max(
                 [stamp for stamp in (
                     _parse_time(ticker_payload.get("time")),

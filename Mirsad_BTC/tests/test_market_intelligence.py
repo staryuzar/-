@@ -93,6 +93,9 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(result["long_short_sample_count"], 1)
         self.assertEqual(result["funding_timestamp_ms"], 1_794_000_000_000)
         self.assertEqual(result["long_short_timestamp_ms"], 1_794_000_000_000)
+        self.assertEqual(result["endpoint_statuses"]["ticker"], "RESPONSE")
+        self.assertEqual(result["endpoint_statuses"]["interest"], "RESPONSE")
+        self.assertEqual(result["endpoint_statuses"]["account_ratio"], "RESPONSE")
 
     def test_context_requires_two_independent_evidence_categories_for_ready(self) -> None:
         result = compose_directional_context(
@@ -348,6 +351,23 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["duplicate_count"], 2)
         self.assertEqual(set(items[0]["sources"]), {"Arabic Publisher A", "Arabic Publisher B"})
+
+
+    def test_binance_derivative_endpoint_failures_preserve_provider_reasons(self) -> None:
+        engine = MarketIntelligenceEngine()
+
+        def fake_json(url: str, *, ttl_seconds: int = 30):
+            if "/premiumIndex?" in url:
+                raise TimeoutError("provider request timed out")
+            raise OSError("network route unavailable")
+
+        engine._json = fake_json
+        result = engine._collect_binance_derivatives()
+        self.assertEqual(result["status"], "OFFLINE")
+        self.assertEqual(result["endpoint_statuses"]["premium"], "OFFLINE")
+        self.assertIn("TimeoutError", result["endpoint_errors"]["premium"])
+        self.assertIn("OSError", result["endpoint_errors"]["open_interest"])
+        self.assertNotIn("api_key", result["endpoint_errors"]["premium"].lower())
 
 
 if __name__ == "__main__":

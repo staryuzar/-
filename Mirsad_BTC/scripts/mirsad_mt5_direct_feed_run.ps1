@@ -758,6 +758,7 @@ public static class MirsadNativeWindow {
     }
     Add-Report ("PASS — Engine 2 feed: market={0}; native OHLC candles={1}." -f $directSummary.market.status,$directSummary.candles.status)
     Add-Report ("Engine 3 feed: overall={0}; native={1}; calculated={2}; signal={3}; quality={4}; coverage={5}%; ready timeframes={6}." -f $directSummary.engine3.status,$directSummary.engine3.native_status,$directSummary.engine3.calculated_status,$directSummary.engine3.signal_score,$directSummary.engine3.signal_quality,([double]$directSummary.engine3.signal_timeframe_weight_coverage*100),$directSummary.native_indicators.ready_timeframe_count)
+    Add-Report ("Engine 3 volume basis: {0}" -f $directSummary.engine3.signal_volume_basis)
     if ([string]$directSummary.engine3.status -ne 'READY' -or
         [string]$directSummary.engine3.calculated_status -ne 'READY' -or
         $null -eq $directSummary.engine3.signal_score -or

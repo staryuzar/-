@@ -1018,6 +1018,7 @@ def render_engine_dashboard():
     if isinstance(group_weights,dict):
      st.caption("الأوزان الداخلية: "+" · ".join(f"{name}: {float(weight)*100:.0f}%" for name,weight in group_weights.items()))
     st.caption("تُحسب عائلة الاتجاه والزخم وقوة الاتجاه والمتذبذبات وتدفق الحجم مرةً لكل مجموعة؛ المؤشرات المترابطة لا تُحسب أصواتاً مستقلة. ATR مقياس تقلب وتطبيع فقط، وليس تصويتاً اتجاهياً.")
+    st.caption("أساس عائلة الحجم: "+str(indicators.get("signal_volume_basis","غير محدد")))
   if indicators.get("missing_signal_timeframes"):
    st.warning("تغطية التصويت الفني غير مكتملة في: "+", ".join(indicators.get("missing_signal_timeframes",[])))
   native_indicators=state.get("mt5_native_indicators",{}) if isinstance(state.get("mt5_native_indicators"),dict) else {}

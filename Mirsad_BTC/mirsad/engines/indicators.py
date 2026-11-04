@@ -14,6 +14,10 @@ INDICATOR_SIGNAL_GROUP_WEIGHTS = {
     "volume_flow": 0.15,
 }
 MIN_INDICATOR_SIGNAL_QUALITY = 0.60
+SIGNAL_VOLUME_BASIS = (
+    "MT5 broker candle tick_volume (exposed by Engine 2 as volume); "
+    "activity proxy, not consolidated executed-trade volume."
+)
 
 
 def _finite_values(values: list[float]) -> bool:
@@ -528,6 +532,7 @@ class IndicatorsEngine:
                 "cci20", "mfi14", "momentum14", "wpr14", "obv", "osma",
             ],
             "signal_group_weights": dict(INDICATOR_SIGNAL_GROUP_WEIGHTS),
+            "signal_volume_basis": SIGNAL_VOLUME_BASIS,
         }
         if not isinstance(chart_candles, dict) or chart_candles.get("status") != "READY":
             return {
@@ -663,5 +668,6 @@ __all__ = [
     "CORE_INDICATORS",
     "INDICATOR_SIGNAL_GROUP_WEIGHTS",
     "MIN_INDICATOR_SIGNAL_QUALITY",
+    "SIGNAL_VOLUME_BASIS",
     "IndicatorsEngine",
 ]

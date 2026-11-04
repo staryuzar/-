@@ -152,6 +152,7 @@ def validate(
             "signal_timeframe_weight_coverage": calculated_indicators.get("signal_timeframe_weight_coverage"),
             "trend_score": calculated_indicators.get("trend_score"),
             "signal_group_weights": calculated_indicators.get("signal_group_weights", {}),
+            "signal_volume_basis": calculated_indicators.get("signal_volume_basis"),
             "signal_components_by_timeframe": calculated_indicators.get("signal_components_by_timeframe", {}),
             "missing_signal_timeframes": calculated_indicators.get("missing_signal_timeframes", []),
             "warnings": engine3_warnings,
@@ -238,6 +239,7 @@ def main() -> int:
         "engine3_warnings": report["engine3"]["warnings"],
         "engine3_signal_score": report["engine3"]["signal_score"],
         "engine3_signal_quality": report["engine3"]["signal_quality"],
+        "engine3_signal_volume_basis": report["engine3"]["signal_volume_basis"],
         "engine3_calculated_status": report["engine3"]["calculated_status"],
     }, ensure_ascii=False))
     # Integrated validation requires both Engine 2's native OHLC history and

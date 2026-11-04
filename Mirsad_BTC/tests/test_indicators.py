@@ -206,6 +206,8 @@ class IndicatorsEngineTests(unittest.TestCase):
         self.assertAlmostEqual(sum(INDICATOR_SIGNAL_GROUP_WEIGHTS.values()), 1.0)
         self.assertGreater(result["signal_score"], 0.25)
         self.assertAlmostEqual(result["signal_quality"], 1.0)
+        self.assertIn("tick_volume", result["signal_volume_basis"])
+        self.assertIn("not consolidated executed-trade volume", result["signal_volume_basis"])
         groups = result["signal_components_by_timeframe"]["1m"]["groups"]
         self.assertEqual(set(groups), {
             "trend", "momentum", "directional_strength", "oscillator", "volume_flow",

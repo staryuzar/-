@@ -96,6 +96,7 @@ jobs:
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/indicators-snapshot.json
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/engine3-indicator-parity.json
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/engine2-price-action-analysis.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/engine1-live-source-report.json
             ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/mirsad-observer-report.txt
           if-no-files-found: warn
           retention-days: 14

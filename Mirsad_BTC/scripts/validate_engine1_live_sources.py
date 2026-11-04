@@ -38,6 +38,9 @@ def build_report(result: dict[str, Any]) -> dict[str, Any]:
         diagnostic = venue_scores.get(name) if isinstance(venue_scores.get(name), dict) else {}
         venue_report[name] = {
             "provider_status": _status(raw.get("status")),
+            "reason": raw.get("reason"),
+            "endpoint_statuses": raw.get("endpoint_statuses", {}),
+            "endpoint_errors": raw.get("endpoint_errors", {}),
             "directional_status": _status(diagnostic.get("directional_status")),
             "age_seconds": diagnostic.get("age_seconds"),
             "funding_directional_status": diagnostic.get("funding_directional_status"),
