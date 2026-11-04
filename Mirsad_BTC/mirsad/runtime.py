@@ -116,7 +116,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
   history_status=str(deal_history_snapshot.get("status","") if isinstance(deal_history_snapshot,dict) else ""),
   truncated=deal_history_snapshot.get("truncated",True) if isinstance(deal_history_snapshot,dict) else True,
   queried_at_utc_ms=deal_history_snapshot.get("queried_at_utc_ms",0) if isinstance(deal_history_snapshot,dict) else 0,
-  now_ms=started,
+  now_ms=int(time.time()*1000),
  )
  bridge["deal_ledger_persistence"]=deal_ledger_persistence
  if isinstance(deal_history_snapshot,dict):
