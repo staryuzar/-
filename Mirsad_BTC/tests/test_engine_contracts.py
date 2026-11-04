@@ -13,8 +13,6 @@ from mirsad.engines.decision import (
     ENGINE1_DECISION_WEIGHT,
     ENGINE2_DECISION_WEIGHT,
     ENGINE3_DECISION_WEIGHT,
-    ENGINE2_NATIVE_OHLC_WEIGHT,
-    ENGINE2_VISUAL_WEIGHT,
     DecisionEngine,
     _market_intelligence_signal,
     _matching_positions,
@@ -57,7 +55,6 @@ def make_engine2_price_action(direction: str = "BULLISH", score: float = 0.80) -
         "schema": "MIR-ENGINE2-PRICE-ACTION-1",
         "source": "MT5_COPYRATES_CLOSED_BARS",
         "status": "READY",
-        "decision_eligible": True,
         "direction": direction,
         "structure_score": score if direction == "BULLISH" else -abs(score),
         "summary": {
@@ -166,9 +163,6 @@ class WeightedDecisionTests(unittest.TestCase):
             ENGINE1_DECISION_WEIGHT + ENGINE2_DECISION_WEIGHT + ENGINE3_DECISION_WEIGHT,
             1.0,
         )
-        self.assertAlmostEqual(ENGINE2_NATIVE_OHLC_WEIGHT, 1.0)
-        self.assertAlmostEqual(ENGINE2_VISUAL_WEIGHT, 0.0)
-        self.assertAlmostEqual(ENGINE2_NATIVE_OHLC_WEIGHT + ENGINE2_VISUAL_WEIGHT, 1.0)
 
     def test_all_three_engines_are_combined_using_the_configured_baseline(self) -> None:
         score, weights = _weighted_three_engine_score(
@@ -256,12 +250,10 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "venues": {"MT5 Broker": {"status": "LIVE", "price": 100.0}},
         }
 
-    def test_image_only_candidate_is_rejected_without_native_engine2_price_action(self) -> None:
+    def test_directional_candidate_is_rejected_without_native_engine2_price_action(self) -> None:
         result = DecisionEngine().analyze(
             self._market("down"),
-            {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-             "analysis_score": 0.95, "analysis_confidence": 0.90, "image": "chart.png",
-             "candle_history": make_engine2_candle_history("down")},
+            {"status": "READY", "candle_history": make_engine2_candle_history("down")},
             {},
             market_intelligence={
                 "status": "READY", "direction": "BEARISH", "directional_score": -0.75,
@@ -302,11 +294,7 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
                 "active_high_impact_events": [{"name": "US CPI", "minutes_to_event": 5}],
             },
         }
-        chart = {
-            "status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-            "analysis_score": 0.95, "analysis_confidence": 0.90, "image": "chart.png",
-            "candle_history": make_engine2_candle_history("up"),
-        }
+        chart = {"status": "READY", "candle_history": make_engine2_candle_history("up")}
         indicators = {
             "status": "READY", "engine": "engine_3_indicators",
             "source": "engine_2_chart_candles",
@@ -389,24 +377,20 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         self.assertTrue(close_unavailable_calendar["command_ready"])
         self.assertEqual(close_unavailable_calendar["macro_event_gate"]["status"], "UNKNOWN")
 
-    def test_market_cannot_create_direction_when_chart_is_weak(self) -> None:
+    def test_market_cannot_create_direction_without_engine2_price_action(self) -> None:
         result = DecisionEngine().analyze(
             self._market("up"),
-            {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-             "analysis_score": 0.10, "analysis_confidence": 0.90, "image": "chart.png",
-             "candle_history": make_engine2_candle_history("up")},
+            {"status": "READY", "candle_history": make_engine2_candle_history("up")},
             {},
         )
         self.assertEqual(result["candidate_action"], "WAIT")
         self.assertIsNone(result["decision_scores"]["engine_2_score"])
         self.assertEqual(result["chart_gate"], "WAITING_FOR_ENGINE_2_NATIVE_OHLC")
 
-    def test_low_confidence_chart_never_creates_direction_even_with_extreme_market(self) -> None:
+    def test_missing_engine2_vote_never_creates_direction_even_with_extreme_market(self) -> None:
         result = DecisionEngine().analyze(
             self._market("up"),
-            {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-             "analysis_score": 1.0, "analysis_confidence": 0.30, "image": "chart.png",
-             "candle_history": make_engine2_candle_history("up")},
+            {"status": "READY", "candle_history": make_engine2_candle_history("up")},
             {},
         )
         self.assertEqual(result["candidate_action"], "WAIT")
@@ -427,12 +411,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
 
     def _chart(self) -> dict:
         history = make_engine2_candle_history("up", 90)
-        return {
-            "status": "READY", "decision_eligible": True,
-            "visual_bias": "BULLISH", "analysis_score": 0.95,
-            "analysis_confidence": 0.90, "image": "contract-fixture.png",
-            "candle_history": history,
-        }
+        return {"status": "READY", "candle_history": history}
 
     def test_engine3_consumes_engine2_history_and_engine4_accepts_valid_contract(self) -> None:
         chart = self._chart()
@@ -550,50 +529,40 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             self.assertEqual(envelope["take_profit"], decision["take_profit"])
             self.assertEqual(envelope["magic_number"], 26110201)
 
-    def test_optional_chart_image_does_not_change_open_or_close_signal_ids(self) -> None:
+    def test_market_snapshot_time_does_not_change_order_signal_identity(self) -> None:
         intelligence = {
             "status": "PARTIAL",
-            "economic_calendar": {
-                "status": "EMPTY",
-                "high_impact_window_active": False,
-                "events": [],
-            },
+            "economic_calendar": {"status": "EMPTY", "high_impact_window_active": False, "events": []},
         }
-        chart_a = self._chart()
-        chart_a["image"] = "capture-a.png"
-        chart_b = {**chart_a, "image": "capture-b.png"}
-        indicators = IndicatorsEngine().analyze(chart_a["candle_history"])
+        engine2_data = self._chart()
+        indicators = IndicatorsEngine().analyze(engine2_data["candle_history"])
         price_action = make_engine2_price_action()
-
+        market_a = self._market()
+        market_b = {**market_a, "captured_at_ms": market_a["captured_at_ms"] + 5000}
         open_a = DecisionEngine().analyze(
-            self._market(), chart_a, self._daily_risk_bridge(locked=False),
-            indicators, engine2_price_action=price_action,
-            market_intelligence=intelligence,
+            market_a, engine2_data, self._daily_risk_bridge(locked=False),
+            indicators, engine2_price_action=price_action, market_intelligence=intelligence,
         )
         open_b = DecisionEngine().analyze(
-            self._market(), chart_b, self._daily_risk_bridge(locked=False),
-            indicators, engine2_price_action=price_action,
-            market_intelligence=intelligence,
+            market_b, engine2_data, self._daily_risk_bridge(locked=False),
+            indicators, engine2_price_action=price_action, market_intelligence=intelligence,
         )
         self.assertEqual(open_a["candidate_action"], "BUY")
         self.assertEqual(open_a["action"], "BUY")
         self.assertEqual(open_a["signal_id"], open_b["signal_id"])
-
         opposite_position = [{
             "ticket": 7654321, "symbol": "BTC", "type": 1,
             "magic": 26110201, "volume": 0.1,
         }]
         close_a = DecisionEngine().analyze(
-            self._market(), chart_a,
+            market_a, engine2_data,
             self._daily_risk_bridge(locked=False, positions=opposite_position),
-            indicators, engine2_price_action=price_action,
-            market_intelligence=intelligence,
+            indicators, engine2_price_action=price_action, market_intelligence=intelligence,
         )
         close_b = DecisionEngine().analyze(
-            self._market(), chart_b,
+            market_b, engine2_data,
             self._daily_risk_bridge(locked=False, positions=opposite_position),
-            indicators, engine2_price_action=price_action,
-            market_intelligence=intelligence,
+            indicators, engine2_price_action=price_action, market_intelligence=intelligence,
         )
         self.assertEqual(close_a["action"], "CLOSE")
         self.assertEqual(close_a["position_ticket"], 7654321)
@@ -743,10 +712,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             repeated.get("position_management", {}).get("stage") == "PARTIAL_TAKE_PROFIT"
         )
 
-    def test_engine4_protective_stop_management_has_priority_over_visual_chart_gate(self) -> None:
+    def test_engine4_protective_stop_management_precedes_directional_entry_gates(self) -> None:
         chart = self._chart()
-        chart["status"] = "WAITING_FOR_IMAGE"
-        chart["decision_eligible"] = False
+        chart["status"] = "NOT_READY"
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         now = int(time.time() * 1000)
         market = self._market()
@@ -787,14 +755,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["action"], "WAIT")
         self.assertEqual(result["engine_3_indicator_status"], "INVALID_PROVENANCE")
 
-    def test_native_ohlc_price_action_can_drive_engine2_when_chart_image_is_not_eligible(self) -> None:
+    def test_native_ohlc_price_action_contributes_its_engine2_vote(self) -> None:
         market = self._market()
         chart = self._chart()
-        chart["status"] = "REFERENCE_NOT_VERIFIED"
-        chart["decision_eligible"] = False
-        chart["visual_bias"] = "BEARISH"
-        chart["analysis_score"] = -0.99
-        chart["analysis_confidence"] = 0.99
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         price_action = {
             "engine": "engine_2_native_price_action",
@@ -816,13 +779,8 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         )
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertEqual(result["status"], "READY")
-        self.assertFalse(result["engine_2_visual_evidence_used"])
         self.assertEqual(result["engine_2_score_source"], "NATIVE_MT5_OHLC_ONLY")
         self.assertAlmostEqual(result["decision_scores"]["engine_2_score"], 0.80)
-        self.assertEqual(
-            result["decision_weights"]["engine_2_internal"]["applied"],
-            {"native_ohlc_price_action": 1.0, "calibrated_visual_chart": 0.0},
-        )
         self.assertIn("NATIVE_OHLC_CONFIRMED", result["chart_gate"])
 
     def test_engine4_rejects_missing_or_nonfinite_required_indicator_values(self) -> None:
@@ -838,7 +796,6 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
 
     def test_engine2_native_price_action_is_primary_only_after_multitimeframe_confluence(self) -> None:
         chart = self._chart()
-        chart["decision_eligible"] = True
         chart["status"] = "READY"
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         price_action = {
@@ -900,13 +857,8 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             self._market(), chart, {}, indicators, engine2_price_action=aligned_price_action
         )
         self.assertEqual(aligned["candidate_action"], "BUY")
-        self.assertFalse(aligned["engine_2_visual_evidence_used"])
         self.assertEqual(aligned["engine_2_score_source"], "NATIVE_MT5_OHLC_ONLY")
         self.assertAlmostEqual(aligned["decision_scores"]["engine_2_score"], 0.25)
-        self.assertEqual(
-            aligned["decision_weights"]["engine_2_internal"]["applied"],
-            {"native_ohlc_price_action": 1.0, "calibrated_visual_chart": 0.0},
-        )
         self.assertEqual(
             aligned["engine_2_native_price_action_context"]["gate"],
             "BULLISH_CONFLUENCE",
@@ -1069,9 +1021,7 @@ class DecisionBoundaryTests(unittest.TestCase):
                 "volume_step": 0.01, "volume_max": 10.0, "stops_level_points": 0,
             },
         }
-        chart = {"status": "READY", "decision_eligible": True,
-                 "visual_bias": "NEUTRAL", "image": "unit.png",
-                 "candle_history": make_engine2_candle_history("up", 80)}
+        chart = {"status": "READY", "candle_history": make_engine2_candle_history("up", 80)}
         result = DecisionEngine().analyze(market, chart, bridge)
         self.assertGreater(result["broker_market_price_divergence_pct"], 1.0)
         self.assertIsNone(result["broker_quote"])
