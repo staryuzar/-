@@ -584,6 +584,134 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             self.assertEqual(envelope["take_profit"], decision["take_profit"])
             self.assertEqual(envelope["magic_number"], 26110201)
 
+    def test_full_engine1_to_engine5_open_ack_position_reconciliation(self) -> None:
+        """Exercise a complete simulated E1/E2/E3 -> E4 -> E5 command/ACK/reconciliation cycle."""
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["mt5_native"] = {"status": "READY"}
+        indicators["mt5_native_parity"] = {
+            "status": "PASS",
+            "passed_metrics": 120,
+            "total_metrics": 120,
+            "failures": [],
+        }
+        bridge = self._daily_risk_bridge(locked=False)
+        bridge.update({
+            "terminal_connected": True,
+            "execution_enabled": True,
+            "execution_input_enabled": True,
+            "trade_permissions_available": True,
+        })
+        intelligence = {
+            "status": "PARTIAL",
+            "economic_calendar": {
+                "status": "EMPTY",
+                "high_impact_window_active": False,
+                "events": [],
+            },
+        }
+
+        decision = DecisionEngine().analyze(
+            self._market(),
+            chart,
+            bridge,
+            indicators,
+            engine2_price_action=make_engine2_price_action(),
+            market_intelligence=intelligence,
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(decision["status"], "READY")
+        self.assertEqual(decision["action"], "BUY")
+        self.assertTrue(decision["command_ready"])
+        self.assertEqual(decision["risk_plan"]["status"], "READY")
+        self.assertAlmostEqual(
+            sum(decision["decision_weights"]["configured"].values()), 1.0
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                published = engine.publish_decision(decision, bridge)
+            self.assertEqual(published["status"], "PUBLISHED")
+
+            root = Path(temp) / "MirsadBTC"
+            command_path = root / "command.json"
+            self.assertTrue(command_path.is_file())
+            command = json.loads(command_path.read_text(encoding="utf-8"))
+            self.assertEqual(command["schema"], "MIR1")
+            self.assertEqual(command["command_id"], decision["signal_id"])
+            self.assertEqual(command["action"], "BUY")
+            self.assertEqual(command["magic_number"], bridge["magic_number"])
+            self.assertEqual(command["position_snapshot_before"], [])
+
+            # Simulate the EA ACK and a later MT5 positions heartbeat. No broker
+            # connection or order is made; only the exact MIR1 filesystem contract
+            # consumed by Engine 5 is exercised in this temporary directory.
+            ack_at_ms = int(time.time() * 1000)
+            heartbeat_at_ms = ack_at_ms + 1000
+            position = {
+                "ticket": 987654,
+                "position_id": 987654,
+                "symbol": command["symbol"],
+                "type": 0,
+                "magic": command["magic_number"],
+                "volume": command["volume"],
+                "price_open": command["entry_reference"],
+                "stop_loss": command["stop_loss"],
+                "take_profit": command["take_profit"],
+                "profit": 0.0,
+            }
+            ack = {
+                "schema": "MIR1",
+                "command_id": command["command_id"],
+                "state": "FILLED",
+                "ack_at_ms": ack_at_ms,
+                "filled_volume": command["volume"],
+                "position_ticket": position["ticket"],
+                "message": "SIMULATED_ACCEPTANCE_ONLY",
+            }
+            status = {
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "execution_enabled": True,
+                "execution_input_enabled": True,
+                "trade_permissions_available": True,
+                "heartbeat_at_ms": heartbeat_at_ms,
+                "symbol": command["symbol"],
+                "market_symbol": command["market_symbol"],
+                "magic_number": command["magic_number"],
+                "account": {"equity": bridge["account"]["equity"], "currency": "USD"},
+                "quote": {
+                    "time_ms": heartbeat_at_ms,
+                    "bid": command["entry_reference"] - 0.1,
+                    "ask": command["entry_reference"],
+                    "tick_age_seconds": 1.0,
+                },
+                "symbol_spec": bridge["symbol_spec"],
+                "positions": [position],
+            }
+            (root / "ack.json").write_text(json.dumps(ack), encoding="utf-8")
+            (root / "positions.json").write_text(json.dumps([position]), encoding="utf-8")
+            (root / "status.json").write_text(json.dumps(status), encoding="utf-8")
+
+            with patch(
+                "mirsad.engines.mt5_bridge.time.time",
+                return_value=heartbeat_at_ms / 1000.0,
+            ):
+                inspected = engine.inspect()
+
+            self.assertEqual(inspected["status"], "CONNECTED")
+            self.assertTrue(inspected["positions_snapshot_valid"])
+            self.assertTrue(inspected["positions_file_valid"])
+            self.assertEqual(inspected["last_order_ack"]["state"], "FILLED")
+            self.assertEqual(
+                inspected["position_reconciliation"]["status"], "CONFIRMED"
+            )
+            self.assertEqual(
+                inspected["position_reconciliation"]["observed_volume_delta"],
+                command["volume"],
+            )
+
     def test_market_snapshot_time_does_not_change_order_signal_identity(self) -> None:
         intelligence = {
             "status": "PARTIAL",
