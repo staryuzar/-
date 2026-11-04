@@ -61,6 +61,7 @@ def make_engine2_price_action(direction: str = "BULLISH", score: float = 0.80) -
             "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"],
             "timeframe_alignment": alignment,
             "timeframe_weight_coverage": 0.90,
+            "directional_frame_coverage": 1.0,
             "directional_structure_agreement": 0.80,
             "directional_evidence_coverage": 1.0,
             "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
@@ -823,6 +824,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h"],
                 "timeframe_alignment": "BULLISH_STRUCTURE_CONFLUENCE",
                 "timeframe_weight_coverage": 0.90,
+                "directional_frame_coverage": 0.80,
                 "directional_structure_agreement": 0.80,
                 "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
             },
@@ -885,6 +887,34 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertAlmostEqual(result["decision_scores"]["engine_2_evidence_coverage"], 0.70)
         self.assertAlmostEqual(result["decision_scores"]["engine_2_quality"], 0.70)
 
+    def test_engine4_requires_sufficient_directional_frame_coverage(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = make_engine2_price_action()
+        price_action["summary"]["directional_structure_agreement"] = 1.0
+        price_action["summary"]["directional_frame_coverage"] = 0.50
+
+        blocked = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=price_action,
+        )
+        context = blocked["engine_2_native_price_action_context"]
+        self.assertFalse(context["decision_eligible"])
+        self.assertEqual(context["gate"], "INSUFFICIENT_DIRECTIONAL_FRAME_COVERAGE")
+        self.assertEqual(blocked["candidate_action"], "WAIT")
+        self.assertEqual(
+            blocked["decision_scores"]["engine_2_directional_frame_coverage"],
+            0.50,
+        )
+
+        price_action["summary"]["directional_frame_coverage"] = 0.6667
+        accepted = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=price_action,
+        )
+        self.assertTrue(accepted["engine_2_native_price_action_context"]["decision_eligible"])
+        self.assertAlmostEqual(accepted["decision_scores"]["engine_2_quality"], 0.6667, places=4)
+
     def test_engine4_blocks_engine2_direction_below_core_evidence_coverage(self) -> None:
         chart = self._chart()
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
@@ -915,6 +945,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h"],
                 "timeframe_alignment": "MIXED_TIMEFRAME_DIRECTIONS",
                 "timeframe_weight_coverage": 0.90,
+                "directional_frame_coverage": 0.80,
                 "directional_structure_agreement": 0.80,
                 "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
             },
@@ -960,7 +991,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             },
         }
         # A valid price-action confluence is necessary but still not enough
-        # by itself: the composite must cross the fixed-share 20/50/30 gate.
+        # by itself: the composite must cross the fixed-share 20/55/25 gate.
         aligned_indicators = {
             **indicators,
             "signal_score": 0.80,
@@ -1063,6 +1094,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "eligible_timeframes": ["5m", "15m", "1h", "4h"],
                 "timeframe_alignment": "NO_CLEAR_STRUCTURE_CONFLUENCE",
                 "timeframe_weight_coverage": 0.6842,
+                "directional_frame_coverage": 1.0,
                 "directional_structure_agreement": 1.0,
                 "latest_candle_pattern_alignment": "NO_LATEST_DIRECTIONAL_CANDLE_PATTERN",
             },

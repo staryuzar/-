@@ -267,6 +267,7 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
                 "timeframe_alignment": engine2_summary.get("timeframe_alignment"),
                 "eligible_timeframes": engine2_summary.get("eligible_timeframes", []),
                 "timeframe_weight_coverage": engine2_summary.get("timeframe_weight_coverage"),
+                "directional_frame_coverage": engine2_summary.get("directional_frame_coverage"),
                 "directional_structure_agreement": engine2_summary.get("directional_structure_agreement"),
                 "latest_candle_pattern_alignment": engine2_summary.get("latest_candle_pattern_alignment"),
             },

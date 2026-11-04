@@ -367,6 +367,7 @@ ENGINE3_DECISION_WEIGHT = 0.25
 DIRECTIONAL_SCORE_THRESHOLD = 0.40
 MIN_ENGINE2_DIRECTION_SCORE = 0.20
 MIN_ENGINE2_TIMEFRAME_COVERAGE = 0.65
+MIN_ENGINE2_DIRECTIONAL_FRAME_COVERAGE = 0.60
 MIN_ENGINE2_DIRECTIONAL_AGREEMENT = 0.60
 MIN_ENGINE2_EVIDENCE_COVERAGE = 0.70
 
@@ -676,6 +677,9 @@ class DecisionEngine:
             native_pa_alignment = str(price_action_summary.get("timeframe_alignment", "NOT_AVAILABLE")).upper()
             engine2_structure_score = _finite_value(price_action.get("structure_score"))
             timeframe_coverage = _finite_value(price_action_summary.get("timeframe_weight_coverage"))
+            directional_frame_coverage = _finite_value(
+                price_action_summary.get("directional_frame_coverage")
+            )
             directional_agreement = _finite_value(price_action_summary.get("directional_structure_agreement"))
             directional_evidence_coverage = _finite_value(
                 price_action_summary.get("directional_evidence_coverage", 1.0)
@@ -723,6 +727,8 @@ class DecisionEngine:
                 and -1.0 <= engine2_structure_score <= 1.0
                 and timeframe_coverage is not None
                 and MIN_ENGINE2_TIMEFRAME_COVERAGE <= timeframe_coverage <= 1.0
+                and directional_frame_coverage is not None
+                and MIN_ENGINE2_DIRECTIONAL_FRAME_COVERAGE <= directional_frame_coverage <= 1.0
                 and directional_agreement is not None
                 and MIN_ENGINE2_DIRECTIONAL_AGREEMENT <= directional_agreement <= 1.0
                 and directional_evidence_coverage is not None
@@ -733,7 +739,13 @@ class DecisionEngine:
                 )
             )
             if native_pa_allows_candidate and not structure_valid:
-                native_pa_gate = "INSUFFICIENT_STRUCTURE_EVIDENCE_QUALITY"
+                if (
+                    directional_frame_coverage is None
+                    or directional_frame_coverage < MIN_ENGINE2_DIRECTIONAL_FRAME_COVERAGE
+                ):
+                    native_pa_gate = "INSUFFICIENT_DIRECTIONAL_FRAME_COVERAGE"
+                else:
+                    native_pa_gate = "INSUFFICIENT_STRUCTURE_EVIDENCE_QUALITY"
 
             engine2_decision_eligible = bool(
                 native_pa_status == "READY"
@@ -744,13 +756,14 @@ class DecisionEngine:
                 engine2_direction = native_pa_direction
                 engine2_score = float(engine2_structure_score)
                 engine2_quality = min(
-                    float(timeframe_coverage), float(directional_agreement),
-                    float(directional_evidence_coverage),
+                    float(timeframe_coverage), float(directional_frame_coverage),
+                    float(directional_agreement), float(directional_evidence_coverage),
                 )
                 engine2_source = "NATIVE_MT5_OHLC_ONLY"
             price_action_context["decision_eligible"] = engine2_decision_eligible
             price_action_context["gate"] = native_pa_gate
             price_action_context["timeframe_weight_coverage"] = timeframe_coverage
+            price_action_context["directional_frame_coverage"] = directional_frame_coverage
             price_action_context["directional_structure_agreement"] = directional_agreement
             price_action_context["directional_evidence_coverage"] = directional_evidence_coverage
         else:
@@ -1013,6 +1026,11 @@ class DecisionEngine:
                 "engine_2_score": round(engine2_score, 4) if engine2_score is not None else None,
                 "engine_2_native_ohlc_score": round(float(engine2_structure_score), 4) if engine2_structure_score is not None else None,
                 "engine_2_quality": round(engine2_quality, 4),
+                "engine_2_directional_frame_coverage": (
+                    round(float(price_action_context.get("directional_frame_coverage")), 4)
+                    if _finite_value(price_action_context.get("directional_frame_coverage")) is not None
+                    else None
+                ),
                 "engine_2_evidence_coverage": (
                     round(float(price_action_context.get("directional_evidence_coverage")), 4)
                     if _finite_value(price_action_context.get("directional_evidence_coverage")) is not None
@@ -1030,6 +1048,7 @@ class DecisionEngine:
                 "combined_score": round(combined_score, 4) if combined_score is not None else None,
                 "threshold": DIRECTIONAL_SCORE_THRESHOLD,
                 "minimum_engine_2_direction_score": MIN_ENGINE2_DIRECTION_SCORE,
+                "minimum_engine_2_directional_frame_coverage": MIN_ENGINE2_DIRECTIONAL_FRAME_COVERAGE,
                 "minimum_engine_2_evidence_coverage": MIN_ENGINE2_EVIDENCE_COVERAGE,
             },
             "indicators": indicator_values,
