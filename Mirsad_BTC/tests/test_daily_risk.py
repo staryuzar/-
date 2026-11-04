@@ -17,7 +17,7 @@ class DailyRiskBaselineTests(unittest.TestCase):
     def test_first_valid_snapshot_initializes_utc_day_baseline(self) -> None:
         result = evaluate_daily_risk(
             self._account(), {}, max_daily_loss_fraction=0.02,
-            now_ms=1_800_000_000_000,
+            now_ms=1_799_971_200_000,
         )
         report = result["report"]
         self.assertEqual(report["status"], "READY")
@@ -31,11 +31,11 @@ class DailyRiskBaselineTests(unittest.TestCase):
     def test_daily_loss_limit_locks_new_entries_and_survives_restart(self) -> None:
         first = evaluate_daily_risk(
             self._account(), {}, max_daily_loss_fraction=0.02,
-            now_ms=1_800_000_000_000,
+            now_ms=1_799_971_200_000,
         )
         second = evaluate_daily_risk(
             self._account(978.0), first["state"], max_daily_loss_fraction=0.02,
-            now_ms=1_800_000_060_000,
+            now_ms=(1_799_971_200_000 + 60_000),
         )
         report = second["report"]
         self.assertEqual(report["status"], "READY")
@@ -49,15 +49,15 @@ class DailyRiskBaselineTests(unittest.TestCase):
     def test_loss_below_limit_remains_unlocked_and_profit_does_not_count_as_loss(self) -> None:
         baseline = evaluate_daily_risk(
             self._account(), {}, max_daily_loss_fraction=0.02,
-            now_ms=1_800_000_000_000,
+            now_ms=1_799_971_200_000,
         )
         loss = evaluate_daily_risk(
             self._account(990.0), baseline["state"],
-            max_daily_loss_fraction=0.02, now_ms=1_800_000_060_000,
+            max_daily_loss_fraction=0.02, now_ms=(1_799_971_200_000 + 60_000),
         )
         gain = evaluate_daily_risk(
             self._account(1030.0), baseline["state"],
-            max_daily_loss_fraction=0.02, now_ms=1_800_000_060_000,
+            max_daily_loss_fraction=0.02, now_ms=(1_799_971_200_000 + 60_000),
         )
         self.assertFalse(loss["report"]["locked"])
         self.assertAlmostEqual(loss["report"]["daily_loss_fraction"], 0.01)
@@ -67,7 +67,7 @@ class DailyRiskBaselineTests(unittest.TestCase):
     def test_new_utc_day_and_account_change_reset_the_baseline(self) -> None:
         first = evaluate_daily_risk(
             self._account(), {}, max_daily_loss_fraction=0.02,
-            now_ms=1_800_000_000_000,
+            now_ms=1_799_971_200_000,
         )
         new_day = evaluate_daily_risk(
             self._account(970.0), first["state"],
@@ -75,7 +75,7 @@ class DailyRiskBaselineTests(unittest.TestCase):
         )
         other_account = evaluate_daily_risk(
             self._account(970.0, login="67890"), first["state"],
-            max_daily_loss_fraction=0.02, now_ms=1_800_000_060_000,
+            max_daily_loss_fraction=0.02, now_ms=(1_799_971_200_000 + 60_000),
         )
         self.assertEqual(new_day["report"]["baseline_reset_reason"], "NEW_UTC_DAY")
         self.assertEqual(new_day["report"]["starting_equity"], 970.0)
@@ -86,7 +86,7 @@ class DailyRiskBaselineTests(unittest.TestCase):
         previous_state = {"marker": "preserve-existing-baseline"}
         result = evaluate_daily_risk(
             None, previous_state, max_daily_loss_fraction=0.02,
-            enabled=False, now_ms=1_800_000_000_000,
+            enabled=False, now_ms=1_799_971_200_000,
         )
         report = result["report"]
         self.assertEqual(report["status"], "READY")
@@ -111,7 +111,7 @@ class DailyRiskBaselineTests(unittest.TestCase):
             with self.subTest(account=account, cap=cap):
                 result = evaluate_daily_risk(
                     account, {}, max_daily_loss_fraction=cap,
-                    now_ms=1_800_000_000_000,
+                    now_ms=1_799_971_200_000,
                 )
                 self.assertNotEqual(result["report"]["status"], "READY")
                 self.assertTrue(result["report"]["locked"])
