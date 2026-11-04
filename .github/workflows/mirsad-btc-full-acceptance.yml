@@ -61,6 +61,11 @@ jobs:
           PYTHONPATH: Mirsad_BTC
         run: python Mirsad_BTC/scripts/live_smoke.py
 
+      - name: Smoke-test Streamlit dashboard and health endpoint
+        env:
+          PYTHONPATH: Mirsad_BTC
+        run: python Mirsad_BTC/scripts/smoke_dashboard.py
+
       - name: Upload complete Python test and Engine 1 diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
