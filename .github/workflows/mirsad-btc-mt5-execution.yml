@@ -2,7 +2,7 @@ name: Mirsad BTC — MT5 OPEN/CLOSE EA runtime and execution permissions
 
 on:
   # Normal pushes run the Windows compile/heartbeat check in read-only mode.
-  # Broker BUY/CLOSE acceptance is limited to explicit workflow_dispatch or a one-time authorized commit marker.
+  # Broker BUY/CLOSE acceptance is limited to explicit workflow_dispatch or a one-time authorized commit marker ([MIRSAD_BROKER_ACCEPTANCE_ONCE]).
   push:
     branches: [mini]
     paths:
