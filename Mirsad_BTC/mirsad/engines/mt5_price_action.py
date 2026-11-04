@@ -15,12 +15,12 @@ TIMEFRAME_MS = {
     "1d": 86_400_000,
 }
 TIMEFRAME_WEIGHTS = {
-    "1m": 1.0,
-    "5m": 1.5,
-    "15m": 2.5,
-    "1h": 4.0,
-    "4h": 5.0,
-    "1d": 5.0,
+    "1m": 4.0,
+    "5m": 8.0,
+    "15m": 18.0,
+    "1h": 25.0,
+    "4h": 30.0,
+    "1d": 15.0,
 }
 MIN_CLOSED_BARS = 24
 MAX_STALENESS_INTERVALS = 1
@@ -344,8 +344,8 @@ def _forming_candle_summary(
 
 
 DIRECTIONAL_EVIDENCE_WEIGHTS = {
-    "confirmed_swing_structure": 0.70,
-    "latest_confirmed_bos_choch": 0.15,
+    "confirmed_swing_structure": 0.65,
+    "latest_confirmed_bos_choch": 0.20,
     "latest_candle_pattern": 0.10,
     "latest_liquidity_sweep": 0.05,
 }
