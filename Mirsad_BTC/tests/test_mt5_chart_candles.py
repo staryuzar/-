@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import tempfile
 import time
@@ -47,12 +48,6 @@ class MT5ChartCandleHistoryTests(unittest.TestCase):
         root.mkdir(parents=True, exist_ok=True)
         (root / "candles.json").write_text(json.dumps(payload), encoding="utf-8")
 
-    def _market(self) -> dict:
-        return {
-            "status": "LIVE", "symbol": "BTCUSDT",
-            "feed_health": {"broker_symbol": "BTC", "account_server": "Headway-Demo"},
-        }
-
     def _bridge(self) -> dict:
         return {
             "status": "CONNECTED", "symbol": "BTC", "market_symbol": "BTCUSDT",
@@ -62,7 +57,7 @@ class MT5ChartCandleHistoryTests(unittest.TestCase):
     def test_engine2_reads_separate_multi_timeframe_candle_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             self._write(directory, make_payload())
-            result = self._engine(directory).collect(bridge=self._bridge(), market=self._market())
+            result = self._engine(directory).collect(bridge=self._bridge())
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["source"], "MT5_CHART_OBSERVER")
         self.assertEqual(result["closed_candles"]["1m"], 69)
@@ -76,7 +71,7 @@ class MT5ChartCandleHistoryTests(unittest.TestCase):
                 payload["timeframes"][timeframe]["bars"] = bars
                 payload["timeframes"][timeframe]["copied"] = len(bars)
             self._write(directory, payload)
-            result = self._engine(directory).collect(bridge=self._bridge(), market=self._market())
+            result = self._engine(directory).collect(bridge=self._bridge())
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["engine2_status"], "READY")
         self.assertEqual(result["engine3_history_status"], "INSUFFICIENT")
@@ -110,14 +105,13 @@ class MT5ChartCandleHistoryTests(unittest.TestCase):
             result = self._engine(directory).collect()
         self.assertEqual(result["status"], "STALE")
 
-    def test_engine2_does_not_depend_on_engine1_market_output(self) -> None:
+    def test_engine2_candle_history_has_no_engine1_market_input(self) -> None:
+        self.assertNotIn("market", inspect.signature(
+            MT5ChartCandleHistory.collect
+        ).parameters)
         with tempfile.TemporaryDirectory() as directory:
             self._write(directory, make_payload())
-            market = self._market()
-            market["symbol"] = "ETHUSDT"
-            market["feed_health"]["broker_symbol"] = "BTCUSD"
-            market["feed_health"]["account_server"] = "Different-Server"
-            result = self._engine(directory).collect(market=market)
+            result = self._engine(directory).collect(bridge=self._bridge())
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["symbol"], "BTCUSDT")
         self.assertEqual(result["broker_symbol"], "BTC")
