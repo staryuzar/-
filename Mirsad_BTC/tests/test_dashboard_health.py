@@ -64,6 +64,9 @@ class ComponentHealthTests(unittest.TestCase):
                 "status": "READY", "action": "WAIT", "candidate_action": "WAIT",
                 "command_ready": False, "risk_plan": {"status": "READY", "volume": 0.1, "risk_cash": 5},
             },
+            "decision_calibration_persistence": {
+                "status": "STORED", "profile_version": "v6.1", "sample_count": 7,
+            },
             "daily_risk": {"status": "READY", "enabled": False, "mode": "DISABLED_FOR_DEVELOPMENT"},
             "bridge": {
                 "status": "CONNECTED", "heartbeat_age_seconds": 1.0,
@@ -88,6 +91,8 @@ class ComponentHealthTests(unittest.TestCase):
         self.assertEqual(by_name["متابعة المراكز المفتوحة وحمايتها"]["health"], "HEALTHY")
         self.assertEqual(by_name["دفتر صفقات الوسيط المحفوظ"]["health"], "HEALTHY")
         self.assertEqual(by_name["دفتر صفقات الوسيط المحفوظ"]["status"], "READY")
+        self.assertEqual(by_name["حفظ أدلة معايرة القرار"]["health"], "HEALTHY")
+        self.assertEqual(by_name["حفظ أدلة معايرة القرار"]["status"], "STORED")
         self.assertEqual(by_name["حاجز حد الخسارة اليومية"]["health"], "SAFE_DISABLED")
         self.assertEqual(by_name["بوابة نشر أوامر MIR1"]["health"], "SAFE_DISABLED")
         self.assertFalse(any(any(token in item["component"] for token in ("صورة", "بصري", "معايرة", "OCR")) for item in items))
@@ -125,6 +130,27 @@ class ComponentHealthTests(unittest.TestCase):
         item = next(x for x in build_component_health(state) if x["component"] == "دفتر صفقات الوسيط المحفوظ")
         self.assertEqual(item["status"], "INVALID")
         self.assertEqual(item["health"], "ATTENTION")
+
+    def test_runtime_cycle_error_is_not_hidden_by_a_fresh_error_heartbeat(self) -> None:
+        state = self.healthy_state()
+        state["overall_status"] = "ERROR"
+        state["runtime_error"] = "sqlite3.OperationalError: database is locked"
+        item = next(x for x in build_component_health(state) if x["component"] == "نبض ودورة البرنامج الرئيسية")
+        self.assertEqual(item["status"], "ERROR")
+        self.assertEqual(item["health"], "ATTENTION")
+        self.assertIn("database is locked", item["detail"])
+
+    def test_calibration_storage_failure_is_a_visible_health_item(self) -> None:
+        state = self.healthy_state()
+        state["decision_calibration_persistence"] = {
+            "status": "ERROR",
+            "profile_version": "v6.1",
+            "reason": "disk is full",
+        }
+        item = next(x for x in build_component_health(state) if x["component"] == "حفظ أدلة معايرة القرار")
+        self.assertEqual(item["status"], "ERROR")
+        self.assertEqual(item["health"], "ATTENTION")
+        self.assertIn("disk is full", item["detail"])
 
     def test_missing_telemetry_is_never_reported_as_healthy(self) -> None:
         self.assertEqual(build_component_health({}), [])

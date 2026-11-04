@@ -35,6 +35,9 @@ _STATUS_AR = {
     "INVALID": "بيانات غير صالحة",
     "NOT_VERIFIED": "لم يجتز التحقق",
     "LOCKED": "حاجز المخاطر مفعّل",
+    "STORED": "حُفظت عينة المعايرة",
+    "ALREADY_STORED": "العينة محفوظة مسبقاً",
+    "SKIPPED": "تُخطيت العينة لعدم اكتمال شروطها",
 }
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -49,7 +52,7 @@ def _health(value: Any) -> str:
     if status in {
         "RUNNING", "LIVE", "READY", "READY_FOR_ENGINE_2_VALIDATION",
         "CONNECTED", "CONFIRMED", "NO_PENDING_COMMAND", "NO_OPEN_POSITIONS",
-        "VERIFIED",
+        "VERIFIED", "STORED", "ALREADY_STORED",
     }:
         return "HEALTHY"
     if status in {"PUBLISH_DISABLED", "DISABLED_FOR_DEVELOPMENT", "LOCKED", "OPTIONAL_DISABLED"}:
@@ -107,9 +110,21 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     except (TypeError, ValueError, OverflowError):
         age = None
     limit = max(30, 3 * COLLECT_INTERVAL_SECONDS)
-    runtime_status = "RUNNING" if age is not None and 0 <= age <= limit else "STALE" if age is not None else "NOT_REPORTED"
-    add("التشغيل", "نبض ودورة البرنامج الرئيسية", runtime_status,
-        f"آخر نبض: {age:.1f} ثانية؛ حد المراقبة: {limit} ثانية." if age is not None else "لم يسجل runtime نبضاً صالحاً.")
+    runtime_error = str(state.get("runtime_error") or "").strip()
+    runtime_failed = str(state.get("overall_status") or "").upper() == "ERROR" or bool(runtime_error)
+    runtime_status = (
+        "ERROR" if runtime_failed
+        else "RUNNING" if age is not None and 0 <= age <= limit
+        else "STALE" if age is not None
+        else "NOT_REPORTED"
+    )
+    if runtime_failed:
+        runtime_detail = f"فشلت آخر دورة تشغيل: {runtime_error or 'runtime أعلن ERROR دون تفاصيل نصية.'}"
+    elif age is not None:
+        runtime_detail = f"آخر نبض: {age:.1f} ثانية؛ حد المراقبة: {limit} ثانية."
+    else:
+        runtime_detail = "لم يسجل runtime نبضاً صالحاً."
+    add("التشغيل", "نبض ودورة البرنامج الرئيسية", runtime_status, runtime_detail)
 
     # Engine 5 broker quote telemetry is separate from Engine 1 intelligence.
     market_age = state.get("market_age_seconds")
@@ -176,6 +191,14 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     # Engine 4
     add("المحرك الرابع — القرار وإدارة الصفقات", "محرك القرار المركزي", decision.get("status"),
         f"القرار: {decision.get('action', '—')} | الإشارة المرشحة: {decision.get('candidate_action', '—')} | جاهزية الأمر: {'نعم' if decision.get('command_ready') else 'لا'} | {decision.get('reason') or ''}")
+    calibration = _dict(state.get("decision_calibration_persistence"))
+    calibration_count = calibration.get("sample_count", calibration.get("write_reported_sample_count", "—"))
+    add(
+        "المحرك الرابع — القرار وإدارة الصفقات",
+        "حفظ أدلة معايرة القرار",
+        calibration.get("status"),
+        f"ملف الأوزان: {calibration.get('profile_version', '—')} | عينة الحفظ الأخيرة: {calibration_count} | {calibration.get('reason') or ''}",
+    )
     risk_plan = _dict(decision.get("risk_plan"))
     add("المحرك الرابع — القرار وإدارة الصفقات", "حساب الدخول والوقف والهدف والحجم", risk_plan.get("status"),
         f"الحجم: {risk_plan.get('volume', '—')} | المخاطرة النقدية: {risk_plan.get('risk_cash', '—')} | {risk_plan.get('reason') or ''}")

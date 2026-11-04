@@ -470,6 +470,11 @@ def render_engine_dashboard():
  if state:
   st.metric("الحالة العامة",ar(state.get("overall_status","PARTIAL_OR_WAITING")))
   st.caption(age_text(state.get("heartbeat_at_ms")))
+  runtime_error=str(state.get("runtime_error") or "").strip()
+  if runtime_error:
+   st.error("سبب فشل آخر دورة تشغيل: "+runtime_error)
+  elif str(state.get("overall_status") or "").upper()=="ERROR":
+   st.error("أعلن البرنامج فشل آخر دورة تشغيل، لكن لم تصل تفاصيل الخطأ في ملف الحالة.")
  else:
   st.warning("خدمة البرنامج لم تبدأ بعد. شغّل run_mirsad.py لتشغيل محركات البيانات والتحليل.")
  if state:
@@ -887,7 +892,15 @@ def render_engine_dashboard():
    _score_label(scores.get("engine_3_indicators")),
    help="المؤشرات المحسوبة من سجل الشموع المغلقة الذي يملكه المحرك الثاني.")
   s4.metric("النتيجة المركبة",_score_label(scores.get("combined_score")))
-  st.caption("الأوزان الأساسية للمحركات: المحرك 1 = 20%، المحرك 2 = 50%، المحرك 3 = 30%. داخل المحرك الثاني تُوزّع أدلة OHLC بين بنية التأرجح وBOS/CHOCH والشموع وسحب السيولة؛ لا يوجد تصويت بصري.")
+  def _configured_weight_text(name):
+   value=configured.get(name)
+   return f"{float(value)*100:.0f}%" if isinstance(value,(int,float)) else "غير وارد"
+  base_weight_text="، ".join((
+   f"المحرك 1 = {_configured_weight_text('engine_1_market_intelligence')}",
+   f"المحرك 2 = {_configured_weight_text('engine_2_price_action')}",
+   f"المحرك 3 = {_configured_weight_text('engine_3_indicators')}",
+  ))
+  st.caption("الأوزان الأساسية الفعلية الواردة من المحرك الرابع: "+base_weight_text+". تُعرض الأوزان الداخلية لأدلة OHLC في قسم المحرك الثاني؛ لا يوجد تصويت بصري.")
   e1,e2,e3,e4=st.columns(4)
   e1.metric("دخول مرجعي",f"{decision.get('entry_reference'):,.2f}" if decision.get("entry_reference") else "—")
   e2.metric("وقف الخسارة",f"{decision.get('stop_loss'):,.2f}" if decision.get("stop_loss") else "—")
