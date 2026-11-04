@@ -102,9 +102,21 @@ class MT5DealHistoryBridgeTests(unittest.TestCase):
             history = make_deal_history(
                 history_total_selected=6000,
                 history_matching_total=12,
-                history_start_index=4200,
+                history_start_index=5000,
                 truncated=False,
             )
+            base_deal = history["deals"][0]
+            history["deals"] = [
+                {
+                    **base_deal,
+                    "deal_ticket": str(10001 + index),
+                    "order_ticket": str(20001 + index),
+                    "position_id": str(30001 + index),
+                    "time_server_ms": base_deal["time_server_ms"] + index,
+                }
+                for index in range(12)
+            ]
+            history["returned_count"] = 12
             (root / "deals.json").write_text(json.dumps(history), encoding="utf-8")
 
             result = MT5BridgeEngine(str(directory)).inspect()
@@ -112,7 +124,7 @@ class MT5DealHistoryBridgeTests(unittest.TestCase):
             self.assertEqual(result["deal_history"]["status"], "READY")
             self.assertEqual(result["deal_history"]["history_matching_total"], 12)
             self.assertFalse(result["deal_history"]["truncated"])
-            self.assertEqual(len(result["deal_history"]["deals"]), 1)
+            self.assertEqual(len(result["deal_history"]["deals"]), 12)
 
     def test_bridge_rejects_inconsistent_filtered_deal_truncation(self):
         with tempfile.TemporaryDirectory() as directory:
