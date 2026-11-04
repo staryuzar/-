@@ -36,7 +36,7 @@
 - [MT5 Direct Feed #152 — PASS، صور معطلة](https://github.com/staryuzar/-/actions/runs/41819348643).
 - [Integrated five-engine runtime #28 — PASS](https://github.com/staryuzar/-/actions/runs/41819216595) على SHA `3136f5a...`: E1 READY، E2 READY لكن mixed، E3 READY، E4 WAITING_FOR_ENGINE_2، E5 CONNECTED. لا أمر دخول في تلك الدورة.
 - نتيجة E3 في #152: READY، تغطية 6/6 أطر، جودة 1.0، parity **120/120**.
-- نتيجة E2 في #152: الأطر الستة صالحة للتحليل، لكن `MIXED_TIMEFRAME_DIRECTIONS`، score `0.1427` أقل من حد `0.20`، لذلك `decision_eligible=false`. هذا يمنع E4 الدخول على نحو صحيح.
+- نتيجة E2 في #152: الأطر الستة صالحة للتحليل، لكن `MIXED_TIMEFRAME_DIRECTIONS`، score `0.10` أقل من حد `0.20`، لذلك `decision_eligible=false`. هذا يمنع E4 الدخول على نحو صحيح.
 - تشخيص E1 الحي: status READY، ثلاثة مكونات اتجاهية صالحة؛ Trading Economics غير مهيأ، وبعض نقاط نهاية المشتقات واجهت HTTP 451 في runner.
 - تقرير الدرجات التقديرية الحالية: E1 84%، E2 88%، E3 93%، E4 78%، E5 91% (متوسط 87% تقريباً). هذه جاهزية هندسية لا احتمال ربح ولا تصريحاً بأن هناك إشارة دخول.
 
@@ -48,6 +48,14 @@
 - لا توجد بوابة تصنيف نوع الحساب.
 - سير قبول BUY/CLOSE المنفصل يرسل أوامر حقيقية للحساب المهيأ عند اختياره؛ لا تشغله كاختبار شكلي ولا تفترض أن الحساب تجريبي. لا ترسل صفقة إلا بتفويض واضح، وبوابة E4 جاهزة.
 - لم يتم تغيير إعدادات تداول في هذا التدقيق.
+
+## تحديث التحقق الأخير — بعد تصحيح اختبار 50% القديم
+
+- [Live Validation #1010](https://github.com/staryuzar/-/actions/runs/41821833938): 359 tests OK على SHA `1c468ff`.
+- [Engine 2 #373](https://github.com/staryuzar/-/actions/runs/41820911528): PASS على `c62effe`.
+- [MT5 Direct Feed #153](https://github.com/staryuzar/-/actions/runs/41820911507): PASS؛ E3 parity 120/120، quality 1.0، coverage 100%، E2 mixed score 0.10.
+- [Integrated Runtime #29](https://github.com/staryuzar/-/actions/runs/41820911525): PASS على `c62effe`؛ E1 READY، E2 mixed، E3 READY، E4 WAIT، E5 CONNECTED، MIR1 envelopes=0، no acceptance order.
+- فشل #1008/#1009 كان بسبب assertion قديم في اختبار runtime يتوقع 50%؛ تم تحديثه إلى 55% في `test_mt5_observer_engine2_integration.py`، ثم اجتازت المجموعة كاملة 359/359 في #1010.
 
 ## الأعمال المفتوحة
 1. معايرة زمنية خارج العينة لأوزان E1/E2/E3 مع رسوم وانزلاق وEmbargo ومجموعة اختبار نهائية.
