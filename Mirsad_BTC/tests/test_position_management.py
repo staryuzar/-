@@ -117,6 +117,9 @@ class PartialTakeProfitTests(unittest.TestCase):
 
     def plan(self, *, side="BUY", history=None, bid=106.1, ask=106.2, **kwargs):
         pos = position(side=side)
+        if side == "SELL":
+            pos["stop_loss"] = 110.0
+            pos["take_profit"] = 70.0
         pos["position_id"] = 501
         return plan_partial_take_profit(
             [pos], history=history or self.history(side=side),
