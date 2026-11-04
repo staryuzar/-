@@ -220,7 +220,7 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
    "Engine 2 determines BTC direction from completed OHLC candle formations, confirmed peaks/troughs, BOS/CHOCH, liquidity sweeps and multi-timeframe structure; its directional contribution is weighted at 50% in Engine 4.",
       "Engine 2 price-action analysis uses only completed native MT5 OHLC bars at a common snapshot cutoff; its eligible directional score contributes the configured 50% Engine 4 baseline weight, subject to structure, freshness and multi-timeframe quality gates.",
    "Engine 3: EMA/RSI/ATR and multi-timeframe technical measures calculated exclusively from Engine 2 completed candles. Native MT5 CopyBuffer indicator values are separately attached for comparison and validation.",
-   "Native MT5 indicator snapshots are read independently every market-feed cycle; closed-bar and forming-bar values remain separate and are not decision-eligible until independently validated."
+   "Native MT5 indicator snapshots are read independently every market-feed cycle; closed-bar and forming-bar values remain separate and are not decision-eligible until independently validated.",
    "Engine 4: central synthesis, decision, position monitoring and risk ownership. Engine 5: MT5 communication bridge.",
    "Engine 5 quote updates describe broker quote movement only; they are not represented as executed trades, taker flow or consolidated order-book depth.",
    "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
