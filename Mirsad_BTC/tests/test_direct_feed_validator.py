@@ -9,6 +9,17 @@ from scripts.validate_mt5_direct_feed import validate
 from mirsad.engines.mt5_native_indicators import REQUIRED_INDICATORS, TIMEFRAMES
 
 
+def ready_bridge() -> dict:
+    return {
+        "engine": "engine_5_communication_bridge",
+        "status": "CONNECTED",
+        "symbol": "BTC",
+        "market_symbol": "BTCUSDT",
+        "account": {"server": "Headway-Demo"},
+        "quote_age_seconds": 1.0,
+    }
+
+
 def ready_market() -> dict:
     return {
         "status": "LIVE",
@@ -83,13 +94,17 @@ class DirectFeedValidatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with (
                 patch(
+                    "scripts.validate_mt5_direct_feed.MT5BridgeEngine.inspect",
+                    return_value=ready_bridge(),
+                ),
+                patch(
                     "scripts.validate_mt5_direct_feed.MT5MarketDataEngine.collect",
                     return_value=ready_market(),
-                ),
+                ) as market_collect,
                 patch(
                     "scripts.validate_mt5_direct_feed.MT5ChartCandleHistory.collect",
                     return_value=ready_candles(),
-                ),
+                ) as candle_collect,
                 patch(
                     "scripts.validate_mt5_direct_feed.MT5NativeIndicatorHistory.collect",
                     return_value=ready_indicators(),
@@ -102,6 +117,9 @@ class DirectFeedValidatorTests(unittest.TestCase):
                     expected_server="Headway-Demo",
                 )
 
+        market_collect.assert_called_once_with(bridge=ready_bridge())
+        candle_collect.assert_called_once_with(bridge=ready_bridge())
+        self.assertEqual(result["engine5_bridge"]["status"], "CONNECTED")
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["engine2"]["status"], "READY")
         self.assertEqual(result["engine3"]["status"], "READY")
