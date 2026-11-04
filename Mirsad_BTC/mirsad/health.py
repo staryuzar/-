@@ -246,6 +246,20 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     reconciliation = _dict(bridge.get("position_reconciliation"))
     add("المحرك الخامس — جسر التواصل مع MT5", "مطابقة إقرار ACK مع المراكز الفعلية",
         reconciliation.get("status"), reconciliation.get("reason") or "يجب مطابقة ACK مع لقطة مراكز لاحقة؛ ACK وحده لا يثبت التنفيذ.")
+    deal_history = _dict(bridge.get("deal_history"))
+    deal_persistence = _dict(bridge.get("deal_ledger_persistence"))
+    deal_status = str(deal_history.get("status", "NOT_REPORTED"))
+    if deal_status == "READY" and deal_persistence.get("status") == "READY":
+        add("المحرك الخامس — جسر التواصل مع MT5", "دفتر صفقات الوسيط المحفوظ",
+            "READY",
+            f"صفقات مرصاد المطابقة: {deal_history.get('deal_count', deal_persistence.get('received', 0))} | العملة: {deal_persistence.get('currency', '—')} | نافذة السجل: {deal_history.get('truncated', False) and 'مقتطعة بسبب حد التصدير' or 'ضمن الحد'}.",
+            "HEALTHY")
+    elif deal_status in {"NOT_REPORTED", "WAITING_FOR_EXPERT"}:
+        add("المحرك الخامس — جسر التواصل مع MT5", "دفتر صفقات الوسيط المحفوظ",
+            "NOT_REPORTED", deal_history.get("reason") or "بانتظار ملف سجل الصفقات من خبير MT5.")
+    else:
+        add("المحرك الخامس — جسر التواصل مع MT5", "دفتر صفقات الوسيط المحفوظ",
+            "INVALID", deal_history.get("reason") or deal_persistence.get("reason") or "تعذر التحقق من سجل صفقات الوسيط.")
     if controls.get("order_publish_enabled") is False:
         add("المحرك الخامس — جسر التواصل مع MT5", "بوابة نشر أوامر MIR1", "PUBLISH_DISABLED",
             "نشر الأوامر معطّل في إعداد البرنامج (MIRSAD_ENABLE_ORDER_PUBLISH=0).", "SAFE_DISABLED")
