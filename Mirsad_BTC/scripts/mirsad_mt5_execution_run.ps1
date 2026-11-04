@@ -11,6 +11,7 @@ $loginConfig=$null
 $terminalProcess=$null
 $accountPassword=$null
 $credentialRaw=[string]$env:MT5_CREDENTIALS
+$runBrokerAcceptance=($env:MIRSAD_RUN_BROKER_ACCEPTANCE -eq 'true' -or $env:MIRSAD_RUN_BROKER_ACCEPTANCE -eq '1')
 function Add-Report([string]$Line){$Line|Add-Content -LiteralPath $report -Encoding utf8}
 function Find-CommonFolder {
  $paths=@(
@@ -83,7 +84,14 @@ try{
  $eaSource=Join-Path $experts 'Mirsad_BTC_ExecutionBridge.mq5'
  $eaBinary=Join-Path $experts 'Mirsad_BTC_ExecutionBridge.ex5'
  $compileLog=Join-Path $experts 'Mirsad_BTC_ExecutionBridge.log'
- Copy-Item -LiteralPath $source -Destination $eaSource -Force
+ $eaSourceText=$sourceText
+ if(-not $runBrokerAcceptance){
+  $executionEnabledPattern='(?m)^([ \t]*input[ \t]+bool[ \t]+InpAllowExecution[ \t]*=[ \t]*)true([ \t]*;)'
+  $executionDisabledPattern='(?m)^[ \t]*input[ \t]+bool[ \t]+InpAllowExecution[ \t]*=[ \t]*false[ \t]*;'
+  $eaSourceText=[regex]::Replace($eaSourceText,$executionEnabledPattern,'${1}false${2}',1)
+  if($eaSourceText -notmatch $executionDisabledPattern){throw 'Read-only validation build could not force InpAllowExecution=false.'}
+ }
+ [IO.File]::WriteAllText($eaSource,$eaSourceText,[Text.UTF8Encoding]::new($false))
  $compiler=Start-Process -FilePath $editor.FullName -ArgumentList ('/compile:"'+$eaSource+'" /log') -WorkingDirectory $installDir -PassThru
  if(!$compiler.WaitForExit(90000)){Stop-Process -Id $compiler.Id -Force -ErrorAction SilentlyContinue;throw 'MetaEditor compile timeout.'}
  Start-Sleep -Seconds 2
@@ -96,6 +104,7 @@ try{
  Add-Report 'PASS — MetaEditor compiled Mirsad_BTC_ExecutionBridge.ex5 with zero errors and zero warnings.'
 
  $loginConfig=Join-Path $root 'mt5-demo.ini'
+ $allowLiveTrading=if($runBrokerAcceptance){'1'}else{'0'}
  $ini=@"
 [Common]
 Login=$login
@@ -108,7 +117,7 @@ CertInstall=0
 
 [Experts]
 Enabled=1
-AllowLiveTrading=1
+AllowLiveTrading=$allowLiveTrading
 AllowDllImport=0
 
 [Charts]
@@ -135,10 +144,13 @@ Period=M1
     try{$accountLogin=[int64]$telemetry.account.login}catch{$accountLogin=0}
     $accountServer=[string]$telemetry.account.server
     $accountIdentityValid=($accountLogin -gt 0 -and -not [string]::IsNullOrWhiteSpace($accountServer))
+    $executionStateMatches=(
+      ([bool]$telemetry.execution_enabled -eq $runBrokerAcceptance) -and
+      ([bool]$telemetry.execution_input_enabled -eq $runBrokerAcceptance)
+    )
+    $permissionsMatch=((-not $runBrokerAcceptance) -or [bool]$telemetry.trade_permissions_available)
     $heartbeat=($telemetry.schema -eq 'MIR1' -and [bool]$telemetry.terminal_connected -and
-      [bool]$telemetry.execution_enabled -and
-      [bool]$telemetry.execution_input_enabled -and
-      [bool]$telemetry.trade_permissions_available -and
+      $executionStateMatches -and $permissionsMatch -and
       $accountIdentityValid -and
       [int64]$telemetry.heartbeat_at_ms -gt 0 -and $telemetry.symbol -eq 'BTC')
     $tickAgeValue=$telemetry.quote.tick_age_seconds
@@ -153,7 +165,11 @@ Period=M1
  }
  if(!$heartbeat){throw 'MT5 did not publish a fresh connected MIR1 heartbeat with account identity and all execution permissions enabled.'}
  if(!$quoteFresh){throw 'MT5 broker quote did not become fresh within the 150-second observation window.'}
- Add-Report 'PASS — Mirsad EA heartbeat is live; the EA input and MT5 automated-trading permissions are enabled.'
+ if($runBrokerAcceptance){
+  Add-Report 'PASS — Mirsad EA heartbeat is live; execution input and MT5 automated-trading permissions are enabled for the explicitly requested broker acceptance test.'
+ }else{
+  Add-Report 'PASS — Mirsad EA heartbeat is live in read-only mode; InpAllowExecution=false and MT5 AllowLiveTrading=0.'
+ }
  Add-Report ("Broker symbol: {0}; market mapping: {1}; account currency: {2}" -f $telemetry.symbol,$telemetry.market_symbol,$telemetry.account.currency)
  Add-Report ("Current Ask quote available: {0}" -f ([double]$telemetry.quote.ask -gt 0))
  Add-Report ("Broker tick age (seconds): {0}" -f $telemetry.quote.tick_age_seconds)
@@ -217,7 +233,7 @@ Period=M1
  # read-only: compile, attach, observe the MIR1 heartbeat/quote and validate
  # the broker deal-history envelope without creating a position.
  $commonFilesRoot=Split-Path -Parent $folder
- if ($env:MIRSAD_RUN_BROKER_ACCEPTANCE -eq 'true' -or $env:MIRSAD_RUN_BROKER_ACCEPTANCE -eq '1') {
+ if ($runBrokerAcceptance) {
   $env:PYTHONPATH=(Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC')
   $env:MIRSAD_MT5_COMMON_FILES=$commonFilesRoot
   $env:MIRSAD_ENABLE_ORDER_PUBLISH='1'
