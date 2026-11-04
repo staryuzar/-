@@ -113,16 +113,16 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  engine2_multitimeframe=engine2_price_action.get("multi_timeframe_structure",{})
  indicators=IndicatorsEngine().analyze(candle_history)
  indicators["mt5_native"]=native_indicators
- chart["engine_2_candle_history"]={
+ engine2_data["candle_history_summary"]={
   "status":candle_history.get("status"),
   "source":candle_history.get("source"),
   "timeframes":candle_history.get("timeframes",{}),
   "closed_candles":candle_history.get("closed_candles",{}),
   "reason":candle_history.get("reason"),
  }
- chart["engine_2_multi_timeframe_structure"]=engine2_multitimeframe
+ engine2_data["multi_timeframe_structure"]=engine2_multitimeframe
  decision=DecisionEngine().analyze(
-  market,chart,bridge,indicators,
+  market,engine2_data,bridge,indicators,
   engine2_price_action=engine2_price_action,
   market_intelligence=market_intelligence,
  )
