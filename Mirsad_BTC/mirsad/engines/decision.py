@@ -673,6 +673,9 @@ class DecisionEngine:
             engine2_structure_score = _finite_value(price_action.get("structure_score"))
             timeframe_coverage = _finite_value(price_action_summary.get("timeframe_weight_coverage"))
             directional_agreement = _finite_value(price_action_summary.get("directional_structure_agreement"))
+            directional_evidence_coverage = _finite_value(
+                price_action_summary.get("directional_evidence_coverage", 1.0)
+            )
             if (
                 native_pa_status == "READY"
                 and native_pa_direction == "BULLISH"
@@ -718,6 +721,8 @@ class DecisionEngine:
                 and MIN_ENGINE2_TIMEFRAME_COVERAGE <= timeframe_coverage <= 1.0
                 and directional_agreement is not None
                 and MIN_ENGINE2_DIRECTIONAL_AGREEMENT <= directional_agreement <= 1.0
+                and directional_evidence_coverage is not None
+                and 0.0 <= directional_evidence_coverage <= 1.0
                 and (
                     (native_pa_direction == "BULLISH" and engine2_structure_score >= MIN_ENGINE2_DIRECTION_SCORE)
                     or (native_pa_direction == "BEARISH" and engine2_structure_score <= -MIN_ENGINE2_DIRECTION_SCORE)
@@ -731,12 +736,16 @@ class DecisionEngine:
             if engine2_decision_eligible:
                 engine2_direction = native_pa_direction
                 engine2_score = float(engine2_structure_score)
-                engine2_quality = min(float(timeframe_coverage), float(directional_agreement))
+                engine2_quality = min(
+                    float(timeframe_coverage), float(directional_agreement),
+                    float(directional_evidence_coverage),
+                )
                 engine2_source = "NATIVE_MT5_OHLC_ONLY"
             price_action_context["decision_eligible"] = engine2_decision_eligible
             price_action_context["gate"] = native_pa_gate
             price_action_context["timeframe_weight_coverage"] = timeframe_coverage
             price_action_context["directional_structure_agreement"] = directional_agreement
+            price_action_context["directional_evidence_coverage"] = directional_evidence_coverage
         else:
             # Without native Engine 2 OHLC price-action evidence,
             # directional decisions fail closed.
@@ -997,6 +1006,11 @@ class DecisionEngine:
                 "engine_2_score": round(engine2_score, 4) if engine2_score is not None else None,
                 "engine_2_native_ohlc_score": round(float(engine2_structure_score), 4) if engine2_structure_score is not None else None,
                 "engine_2_quality": round(engine2_quality, 4),
+                "engine_2_evidence_coverage": (
+                    round(float(price_action_context.get("directional_evidence_coverage")), 4)
+                    if _finite_value(price_action_context.get("directional_evidence_coverage")) is not None
+                    else None
+                ),
                 "engine_3_indicators": round(signal_score, 4),
                 "engine_3_ema_trend_score": round(trend_score, 4),
                 "engine_3_quality": round(engine3_quality, 4),
