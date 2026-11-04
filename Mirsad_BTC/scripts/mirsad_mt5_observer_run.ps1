@@ -732,7 +732,7 @@ public static class MirsadNativeWindow {
         Add-Report 'FAIL — Direct market/candle/indicator snapshots did not refresh to a connected, fresh, identity-matched account.'
         throw 'MT5 direct feed snapshots were stale or disconnected at image-analysis time.'
     }
-    Add-Report 'PASS — Direct MT5 market, candle and native indicator snapshots are fresh, connected and identity-matched to the captured chart.'
+    Add-Report 'PASS — Engine 5 broker quote, Engine 2 candle and Engine 3 native indicator snapshots are fresh, connected and identity-matched to the captured chart.'
 
     foreach ($feedPath in @($marketFeedPath,$candleFeedPath,$indicatorFeedPath)) {
         if (!(Test-Path -LiteralPath $feedPath)) {
@@ -762,11 +762,11 @@ public static class MirsadNativeWindow {
     $analysisExitCode = $LASTEXITCODE
     foreach ($line in $analysisLines) { Add-Report ("Engine 2 smoke: {0}" -f [string]$line) }
     if ($analysisExitCode -ne 0) {
-        Add-Report ("FAIL — MT5 Engine 1/2 validation script exited with code {0}." -f $analysisExitCode)
-        throw 'The actual MT5 market/candle/chart validation script failed.'
+        Add-Report ("FAIL — MT5 Engine 2 Observer validation script exited with code {0}." -f $analysisExitCode)
+        throw 'The actual Engine 2 Observer image/candle validation script failed.'
     }
     if (!(Test-Path -LiteralPath $analysisOutput)) {
-        throw 'MT5 Engine 1/2 validation did not create its sanitized summary.'
+        throw 'MT5 Engine 2 Observer validation did not create its sanitized summary.'
     }
     $engine2Summary = Get-Content -LiteralPath $analysisOutput -Raw | ConvertFrom-Json
     $engine2CaptureId = [string]$engine2Summary.capture_id
@@ -781,10 +781,10 @@ public static class MirsadNativeWindow {
     }
     $safe | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'observer-live-capture-summary.json') -Encoding utf8
     Add-Report ("Engine 2 analysis capture id={0}; matches initial manifest={1}; image hash matches={2}; skew={3} ms; age={4} seconds." -f $engine2CaptureId,$safe['engine2_analysis_capture'].matches_initial_capture,$safe['engine2_analysis_capture'].image_hash_matches_initial_capture,$engine2Summary.capture.capture_data_skew_ms,$engine2Summary.capture.age_seconds)
-    $engine1Status = [string]$engine2Summary.engine1_market.status
+    $engine5QuoteStatus = [string]$engine2Summary.engine5_quote_feed.status
     $engine2CandleStatus = [string]$engine2Summary.engine2_candle_history.status
-    Add-Report ("Engine 1 actual MT5 market result: status={0}; price={1}; tick status={2}; tick count={3}; economic calendar={4}; events={5}." -f $engine1Status,$engine2Summary.engine1_market.price,$engine2Summary.engine1_market.microstructure.status,$engine2Summary.engine1_market.microstructure.tick_count,$engine2Summary.engine1_market.economic_calendar.status,$engine2Summary.engine1_market.economic_calendar.event_count)
-    Add-Report ("Engine 2 actual MT5 candle result: status={0}; timeframes={1}; closed 1m={2}; 5m={3}; 15m={4}." -f $engine2CandleStatus,($engine2Summary.engine2_candle_history.timeframes | ConvertTo-Json -Compress),$engine2Summary.engine2_candle_history.closed_candles.'1m',$engine2Summary.engine2_candle_history.closed_candles.'5m',$engine2Summary.engine2_candle_history.closed_candles.'15m')
+    Add-Report ("Engine 5 broker quote result: status={0}; price={1}; quote status={2}; quote updates={3}; spread={4}." -f $engine5QuoteStatus,$engine2Summary.engine5_quote_feed.price,$engine2Summary.engine5_quote_feed.microstructure.status,$engine2Summary.engine5_quote_feed.microstructure.quote_tick_count,$engine2Summary.engine5_quote_feed.microstructure.current_spread_pct)
+    Add-Report ("Engine 2 Observer candle result: status={0}; timeframes={1}; closed 1m={2}; 5m={3}; 15m={4}." -f $engine2CandleStatus,($engine2Summary.engine2_candle_history.timeframes | ConvertTo-Json -Compress),$engine2Summary.engine2_candle_history.closed_candles.'1m',$engine2Summary.engine2_candle_history.closed_candles.'5m',$engine2Summary.engine2_candle_history.closed_candles.'15m')
     Add-Report ("Engine 2 native MT5 indicators: status={0}; ready timeframes={1}; missing required={2}." -f $engine2Summary.engine2_native_indicators.status,$engine2Summary.engine2_native_indicators.ready_timeframe_count,($engine2Summary.engine2_native_indicators.missing_required_timeframes -join ','))
     Add-Report ("Engine 2 MT5 image result: status={0}; visual eligible={1}; reference calibration={2}; detected bars={3}." -f $engine2Summary.engine2.status,$engine2Summary.engine2.visual_eligible,$engine2Summary.engine2.reference_calibration_status,$engine2Summary.engine2.detected_bars)
     $slotAssignment = $engine2Summary.engine2.native_geometry_slot_assignment
@@ -858,12 +858,12 @@ public static class MirsadNativeWindow {
     if ($engine2VisualStatus -ne 'READY' -or -not $engine2VisualEligible) {
         throw ("Engine 2 actual MT5 chart image is not visually eligible: {0}. {1}" -f $engine2VisualStatus,$engine2Summary.engine2.reason)
     }
-    if ($engine1Status -eq 'LIVE') {
-        Add-Report 'PASS — Engine 1 MT5 market feed is LIVE.'
+    if ($engine5QuoteStatus -eq 'LIVE') {
+        Add-Report 'PASS — Engine 5 broker quote telemetry is LIVE; this is a price-safety feed, not Engine 1 directional intelligence.'
     }
     else {
-        Add-Report ("WARN — Engine 1 market feed is independently unavailable/stale: {0}. {1}" -f $engine1Status,$engine2Summary.engine1_market.reason)
-        Add-Report 'This does not invalidate the Engine 2 image/candle result. Engine 4 must continue to block trading decisions until Engine 1 returns LIVE.'
+        Add-Report ("WARN — Engine 5 broker quote telemetry is unavailable/stale: {0}. {1}" -f $engine5QuoteStatus,$engine2Summary.engine5_quote_feed.reason)
+        Add-Report 'This does not invalidate the isolated Engine 2 image/candle result. Engine 4 must keep live decision eligibility blocked until its Engine 5 quote/bridge checks pass.'
     }
     Add-Report 'PASS — Engine 2 image and native candle history validated independently from the MT5 Observer capture.'
     Add-Report 'Safety — Observer and diagnostics only. Automated trading permission is disabled; no execution EA or MIR1 command is used.'
