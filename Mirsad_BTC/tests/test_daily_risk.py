@@ -53,7 +53,7 @@ class DailyRiskBaselineTests(unittest.TestCase):
         )
         loss = evaluate_daily_risk(
             self._account(990.0), baseline["state"],
-            max_daily_loss_fraction=0.02, now_ms=(1_799_971_200_000 + 60_000),
+            max_daily_loss_fraction=0.02, now_ms=(1_799_971_200_000 + 3_600_000),
         )
         gain = evaluate_daily_risk(
             self._account(1030.0), baseline["state"],
