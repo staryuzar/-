@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import unittest
 from datetime import datetime, timezone
 
@@ -48,7 +49,7 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
             "Binance": {
                 "status": "READY", "funding_rate": 0.0005,
                 "long_short_ratio": 3.0, "timestamp_ms": 1_798_000_000_000,
-                "funding_timestamp_ms": 1_798_000_000_000,
+                "funding_timestamp_ms": current_stamp,
                 "long_short_timestamp_ms": 1_798_000_000_000,
             },
             "Bybit": {
@@ -579,6 +580,7 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
 
     def test_derivatives_collector_registers_deribit_as_an_independent_venue(self) -> None:
         engine = MarketIntelligenceEngine(symbol="BTCUSDT")
+        current_stamp = int(time.time() * 1000)
         engine._collect_binance_derivatives = lambda: {"status": "OFFLINE"}
         engine._collect_bybit_derivatives = lambda: {"status": "OFFLINE"}
         engine._collect_okx_derivatives = lambda: {"status": "OFFLINE"}
