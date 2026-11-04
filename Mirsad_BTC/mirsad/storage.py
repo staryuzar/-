@@ -472,7 +472,7 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
         conn.close()
 
 
-DECISION_CALIBRATION_PROFILE_VERSION = "mirsad-engine-weights-fixed-share-v5-2026-11-04"
+DECISION_CALIBRATION_PROFILE_VERSION = "mirsad-engine-weights-fixed-share-v6-2026-11-04"
 DECISION_CALIBRATION_RETENTION_DAYS = 180
 
 
@@ -588,7 +588,12 @@ def save_decision_calibration_sample(
         "engine2_directional_evidence_weights": engine2_summary.get("directional_evidence_weights"),
         "engine2_timeframe_weights": engine2_summary.get("timeframe_weights"),
         "engine3_signal_group_weights": indicators.get("signal_group_weights"),
+        "engine3_signal_feature_weights": indicators.get("signal_feature_weights"),
         "engine3_timeframe_weights": indicators.get("timeframe_weights"),
+        "engine1_derivative_input_weights": (
+            market_intelligence.get("derivatives", {}).get("directional_input_weights")
+            if isinstance(market_intelligence.get("derivatives"), dict) else None
+        ),
         "directional_threshold": scores.get("threshold"),
         "minimum_engine2_direction_score": scores.get("minimum_engine_2_direction_score"),
     }
