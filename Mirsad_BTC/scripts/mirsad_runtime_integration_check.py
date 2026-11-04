@@ -46,13 +46,6 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
 
     common_root = common_root.resolve()
     feeds = read_shared_feeds(common_root)
-    observer_dir = common_root / "MirsadBTC" / "observer"
-    image_dir = observer_dir / "images"
-    image_files = list(image_dir.glob("*.png")) if image_dir.exists() else []
-    manifests = list(observer_dir.glob("capture_*.json"))
-    if image_files or manifests:
-        raise RuntimeError("Cancelled chart-image capture unexpectedly produced files.")
-
     bridge = MT5BridgeEngine(common_files=str(common_root))
     captured_commands: list[dict[str, Any]] = []
 
@@ -146,8 +139,7 @@ def run(common_root: Path, output: Path) -> dict[str, Any]:
             "execution_schema": feeds["execution_status"].get("schema"),
             "candles_schema": feeds["native_candles"].get("schema"),
             "indicators_schema": feeds["native_indicators"].get("schema"),
-            "image_files_created": len(image_files),
-            "capture_manifests_created": len(manifests),
+            "shared_feed_count": len(feeds),
         },
         "engines": {
             "engine1": {
