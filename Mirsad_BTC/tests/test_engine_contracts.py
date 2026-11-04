@@ -50,6 +50,26 @@ def make_engine2_candle_history(direction: str = "up", count: int = 90) -> dict:
     }
 
 
+def make_engine2_price_action(direction: str = "BULLISH", score: float = 0.80) -> dict:
+    alignment = "BULLISH_STRUCTURE_CONFLUENCE" if direction == "BULLISH" else "BEARISH_STRUCTURE_CONFLUENCE"
+    return {
+        "engine": "engine_2_native_price_action",
+        "schema": "MIR-ENGINE2-PRICE-ACTION-1",
+        "source": "MT5_COPYRATES_CLOSED_BARS",
+        "status": "READY",
+        "decision_eligible": True,
+        "direction": direction,
+        "structure_score": score if direction == "BULLISH" else -abs(score),
+        "summary": {
+            "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"],
+            "timeframe_alignment": alignment,
+            "timeframe_weight_coverage": 0.90,
+            "directional_structure_agreement": 0.80,
+            "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
+        },
+    }
+
+
 def make_open_decision(command_id: str = "MIR-" + "a" * 24) -> dict:
     return {
         "status": "READY",
@@ -146,8 +166,8 @@ class WeightedDecisionTests(unittest.TestCase):
             ENGINE1_DECISION_WEIGHT + ENGINE2_DECISION_WEIGHT + ENGINE3_DECISION_WEIGHT,
             1.0,
         )
-        self.assertAlmostEqual(ENGINE2_NATIVE_OHLC_WEIGHT, 0.70)
-        self.assertAlmostEqual(ENGINE2_VISUAL_WEIGHT, 0.30)
+        self.assertAlmostEqual(ENGINE2_NATIVE_OHLC_WEIGHT, 1.0)
+        self.assertAlmostEqual(ENGINE2_VISUAL_WEIGHT, 0.0)
         self.assertAlmostEqual(ENGINE2_NATIVE_OHLC_WEIGHT + ENGINE2_VISUAL_WEIGHT, 1.0)
 
     def test_all_three_engines_are_combined_using_the_configured_baseline(self) -> None:
@@ -236,7 +256,7 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "venues": {"MT5 Broker": {"status": "LIVE", "price": 100.0}},
         }
 
-    def test_conflicting_engine1_and_engine3_evidence_can_veto_a_visual_only_candidate(self) -> None:
+    def test_image_only_candidate_is_rejected_without_native_engine2_price_action(self) -> None:
         result = DecisionEngine().analyze(
             self._market("down"),
             {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
@@ -250,7 +270,7 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             result["direction_inputs"],
-            ["engine_1_market_intelligence", "engine_2_price_action_and_calibrated_visual", "engine_3_indicators"],
+            ["engine_1_market_intelligence", "engine_2_native_ohlc_price_action", "engine_3_indicators"],
         )
         self.assertEqual(
             result["calculation_inputs"],
@@ -265,7 +285,9 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         })
         self.assertAlmostEqual(sum(result["decision_weights"][key] for key in configured), 1.0)
         self.assertAlmostEqual(result["decision_scores"]["market_score"], -0.75)
-        self.assertGreater(result["decision_scores"]["engine_2_score"], 0)
+        self.assertIsNone(result["decision_scores"]["engine_2_score"])
+        self.assertEqual(result["engine_2_score_source"], "NATIVE_OHLC_NOT_PROVIDED")
+        self.assertEqual(result["chart_gate"], "WAITING_FOR_ENGINE_2_NATIVE_OHLC")
 
     def test_high_impact_macro_window_pauses_new_entries_but_not_position_close(self) -> None:
         now = int(time.time() * 1000)
@@ -310,7 +332,9 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "positions": [],
         }
         paused = DecisionEngine().analyze(
-            market, chart, bridge, indicators, market_intelligence=market["market_intelligence"]
+            market, chart, bridge, indicators,
+            engine2_price_action=make_engine2_price_action(),
+            market_intelligence=market["market_intelligence"],
         )
         self.assertEqual(paused["candidate_action"], "BUY")
         self.assertEqual(paused["action"], "WAIT")
@@ -326,7 +350,9 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "economic_calendar": {"status": "NOT_AVAILABLE", "events": []},
         }
         unavailable = DecisionEngine().analyze(
-            market, chart, bridge, indicators, market_intelligence=unavailable_calendar
+            market, chart, bridge, indicators,
+            engine2_price_action=make_engine2_price_action(),
+            market_intelligence=unavailable_calendar,
         )
         self.assertEqual(unavailable["candidate_action"], "BUY")
         self.assertEqual(unavailable["action"], "WAIT")
@@ -369,10 +395,8 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             {},
         )
         self.assertEqual(result["candidate_action"], "WAIT")
-        self.assertLess(
-            result["decision_scores"]["engine_2_score"],
-            result["decision_scores"]["minimum_engine_2_direction_score"],
-        )
+        self.assertIsNone(result["decision_scores"]["engine_2_score"])
+        self.assertEqual(result["chart_gate"], "WAITING_FOR_ENGINE_2_NATIVE_OHLC")
 
     def test_low_confidence_chart_never_creates_direction_even_with_extreme_market(self) -> None:
         result = DecisionEngine().analyze(
@@ -383,7 +407,8 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             {},
         )
         self.assertEqual(result["candidate_action"], "WAIT")
-        self.assertEqual(result["chart_gate"], "INSUFFICIENT_ANALYSIS_CONFIDENCE")
+        self.assertEqual(result["chart_gate"], "WAITING_FOR_ENGINE_2_NATIVE_OHLC")
+        self.assertIsNone(result["decision_scores"]["engine_2_score"])
         self.assertIsNone(result["decision_scores"]["combined_score"])
 
 
@@ -413,7 +438,10 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(indicators["source"], "engine_2_chart_candles")
         self.assertEqual(indicators["status"], "READY")
 
-        result = DecisionEngine().analyze(self._market(), chart, {}, indicators)
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=make_engine2_price_action(),
+        )
         self.assertEqual(result["engine_3_indicator_status"], "READY")
         self.assertEqual(result["engine_inputs"]["indicators_from_engine_3"], "READY")
         self.assertEqual(result["candidate_action"], "BUY")
@@ -426,7 +454,10 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         indicators["trend_score"] = -0.80
         indicators["signal_score"] = 0.23
         indicators["signal_quality"] = 0.80
-        result = DecisionEngine().analyze(self._market(), chart, {}, indicators)
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=make_engine2_price_action(),
+        )
         self.assertAlmostEqual(result["decision_scores"]["engine_3_indicators"], 0.23)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_ema_trend_score"], -0.80)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_quality"], 0.80)
@@ -472,6 +503,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         result = DecisionEngine().analyze(
             self._market(), chart, self._daily_risk_bridge(locked=True), indicators,
+            engine2_price_action=make_engine2_price_action(),
             market_intelligence={
                 "status": "PARTIAL",
                 "economic_calendar": {
@@ -514,6 +546,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         }
         result = DecisionEngine().analyze(
             self._market(), chart, bridge, indicators,
+            engine2_price_action=make_engine2_price_action(),
             market_intelligence=verified_empty_calendar,
         )
 
@@ -547,7 +580,10 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         bridge = self._daily_risk_bridge(locked=False)
         bridge["daily_risk"] = {"status": "ACCOUNT_EQUITY_UNAVAILABLE", "locked": True}
-        result = DecisionEngine().analyze(self._market(), chart, bridge, indicators)
+        result = DecisionEngine().analyze(
+            self._market(), chart, bridge, indicators,
+            engine2_price_action=make_engine2_price_action(),
+        )
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertEqual(result["action"], "WAIT")
         self.assertFalse(result["command_ready"])
@@ -680,9 +716,10 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         )
         self.assertEqual(
             with_context["engine_2_native_price_action_context"]["role"],
-            "PRIMARY_ENGINE_2_DIRECTIONAL_INPUT_WITH_OPTIONAL_CALIBRATED_VISUAL_CONFIRMATION",
+            "PRIMARY_ENGINE_2_NATIVE_OHLC_ONLY_NO_IMAGE_DEPENDENCY",
         )
-        self.assertEqual(without_context["candidate_action"], "BUY")
+        self.assertEqual(without_context["candidate_action"], "WAIT")
+        self.assertIsNone(without_context["decision_scores"]["engine_2_score"])
         self.assertEqual(with_context["candidate_action"], "WAIT")
         self.assertIsNone(with_context["decision_scores"]["combined_score"])
         self.assertEqual(with_context["chart_gate"], "WAITING_FOR_ENGINE_2_PRICE_ACTION_CONFLUENCE")
@@ -706,12 +743,12 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             self._market(), chart, {}, indicators, engine2_price_action=aligned_price_action
         )
         self.assertEqual(aligned["candidate_action"], "BUY")
-        self.assertTrue(aligned["engine_2_visual_evidence_used"])
-        self.assertEqual(aligned["engine_2_score_source"], "NATIVE_OHLC_PLUS_CALIBRATED_VISUAL")
-        self.assertAlmostEqual(aligned["decision_scores"]["engine_2_score"], 0.70 * 0.25 + 0.30 * 0.95)
+        self.assertFalse(aligned["engine_2_visual_evidence_used"])
+        self.assertEqual(aligned["engine_2_score_source"], "NATIVE_MT5_OHLC_ONLY")
+        self.assertAlmostEqual(aligned["decision_scores"]["engine_2_score"], 0.25)
         self.assertEqual(
             aligned["decision_weights"]["engine_2_internal"]["applied"],
-            {"native_ohlc_price_action": 0.70, "calibrated_visual_chart": 0.30},
+            {"native_ohlc_price_action": 1.0, "calibrated_visual_chart": 0.0},
         )
         self.assertEqual(
             aligned["engine_2_native_price_action_context"]["gate"],
