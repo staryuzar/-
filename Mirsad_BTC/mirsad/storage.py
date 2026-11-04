@@ -472,7 +472,7 @@ def save_market_snapshot(snapshot: dict[str,Any],db_path: Path | str = DB_PATH) 
         conn.close()
 
 
-DECISION_CALIBRATION_PROFILE_VERSION = "mirsad-engine-weights-fixed-share-v6-2026-11-04"
+DECISION_CALIBRATION_PROFILE_VERSION = "mirsad-engine-weights-fixed-share-v6.1-gap-aware-2026-11-04"
 DECISION_CALIBRATION_RETENTION_DAYS = 180
 
 
