@@ -180,7 +180,7 @@ class WeightedDecisionTests(unittest.TestCase):
         self.assertAlmostEqual(weights["engine_3_indicators"], 0.30)
         self.assertAlmostEqual(sum(weights.values()), 1.0)
 
-    def test_missing_engine1_evidence_is_redistributed_between_engines2_and3(self) -> None:
+    def test_missing_engine1_evidence_is_not_redistributed_to_engines2_and3(self) -> None:
         score, weights = _weighted_three_engine_score(
             engine1_score=None,
             engine2_score=0.80,
@@ -189,11 +189,11 @@ class WeightedDecisionTests(unittest.TestCase):
             engine2_quality=1.0,
             engine3_quality=1.0,
         )
-        self.assertAlmostEqual(score, 0.425)
+        self.assertAlmostEqual(score, 0.34)
         self.assertEqual(weights["engine_1_market_intelligence"], 0.0)
-        self.assertAlmostEqual(weights["engine_2_price_action"], 0.625)
-        self.assertAlmostEqual(weights["engine_3_indicators"], 0.375)
-        self.assertAlmostEqual(sum(weights.values()), 1.0)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.50)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.30)
+        self.assertAlmostEqual(sum(weights.values()), 0.80)
 
     def test_low_quality_engine1_evidence_receives_less_than_its_baseline_weight(self) -> None:
         score, weights = _weighted_three_engine_score(
@@ -204,12 +204,11 @@ class WeightedDecisionTests(unittest.TestCase):
             engine2_quality=1.0,
             engine3_quality=1.0,
         )
-        self.assertAlmostEqual(weights["engine_1_market_intelligence"], (0.20 * 0.50) / 0.90, places=6)
-        self.assertAlmostEqual(weights["engine_2_price_action"], 0.50 / 0.90)
-        self.assertAlmostEqual(weights["engine_3_indicators"], 0.30 / 0.90)
-        self.assertAlmostEqual(score, 0.90 * weights["engine_1_market_intelligence"]
-                               + 0.50 * weights["engine_2_price_action"]
-                               + 0.10 * weights["engine_3_indicators"])
+        self.assertAlmostEqual(weights["engine_1_market_intelligence"], 0.10)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.50)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.30)
+        self.assertAlmostEqual(score, 0.90 * 0.10 + 0.50 * 0.50 + 0.10 * 0.30)
+        self.assertAlmostEqual(sum(weights.values()), 0.90)
 
     def test_engine1_uses_only_its_standalone_report_and_never_quote_pulse(self) -> None:
         report = {
@@ -276,7 +275,11 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "engine_2_price_action": 0.50,
             "engine_3_indicators": 0.30,
         })
-        self.assertAlmostEqual(sum(result["decision_weights"][key] for key in configured), 1.0)
+        self.assertAlmostEqual(
+            sum(result["decision_weights"][key] for key in configured),
+            result["decision_scores"]["effective_weight_coverage"],
+        )
+        self.assertAlmostEqual(result["decision_scores"]["effective_weight_coverage"], 0.16)
         self.assertAlmostEqual(result["decision_scores"]["market_score"], -0.75)
         self.assertIsNone(result["decision_scores"]["engine_2_score"])
         self.assertEqual(result["engine_2_score_source"], "NATIVE_OHLC_NOT_PROVIDED")
@@ -488,17 +491,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertAlmostEqual(result["decision_scores"]["engine_3_core_quality"], 1.0)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_timeframe_weight_coverage"], 0.60)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_quality"], 0.60)
-        expected_engine3_effective_weight = (
-            0.30 * 0.60
-            / (
-                0.20 * result["decision_scores"]["engine_1_quality"]
-                + 0.50 * result["decision_scores"]["engine_2_quality"]
-                + 0.30 * 0.60
-            )
-        )
         self.assertAlmostEqual(
             result["decision_weights"]["engine_3_indicators"],
-            expected_engine3_effective_weight,
+            0.30 * 0.60,
         )
 
     def test_engine4_rejects_missing_or_low_quality_composite_indicator_signal(self) -> None:
