@@ -118,24 +118,16 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     add("التشغيل", "نبض ودورة البرنامج الرئيسية", runtime_status,
         f"آخر نبض: {age:.1f} ثانية؛ حد المراقبة: {limit} ثانية." if age is not None else "لم يسجل runtime نبضاً صالحاً.")
 
-    # Engine 1
+    # Engine 5 broker quote telemetry is separate from Engine 1 intelligence.
     market_age = state.get("market_age_seconds")
-    add("المحرك الأول — استخبارات السوق", "تغذية السوق وسعر MT5", market.get("status"),
+    add("المحرك الخامس — جسر التواصل مع MT5", "سعر الوسيط وتغذية التنفيذ", market.get("status"),
         f"السعر: {market.get('price', '—')} | المصدر: {market.get('primary_venue', '—')} | عمر البيانات: {market_age if market_age is not None else '—'} ثانية.")
     venues = _dict(market.get("venues"))
     primary_name = str(market.get("primary_venue") or "")
     primary = _dict(venues.get(primary_name))
     micro = _dict(primary.get("microstructure"))
-    add("المحرك الأول — استخبارات السوق", "نبض عروض الأسعار والسبريد", micro.get("status"),
+    add("المحرك الخامس — جسر التواصل مع MT5", "نبض عروض الأسعار والسبريد", micro.get("status"),
         f"المصدر: {primary_name or 'غير محدد'} | تحديث/دقيقة: {micro.get('tick_rate_per_minute', '—')} | السبريد: {micro.get('current_spread_pct', '—')}. حركة Bid/Ask وليست صفقات منفذة.")
-    calendars = [str(_dict(row).get("economic_calendar_status") or "NOT_REPORTED").upper() for row in venues.values()]
-    calendar_status = (
-        "READY" if any(value in {"READY", "LIVE", "AVAILABLE"} for value in calendars)
-        else "NOT_AVAILABLE" if calendars and all(value in {"NOT_AVAILABLE", "UNAVAILABLE", "DISABLED"} for value in calendars)
-        else "NOT_REPORTED"
-    )
-    add("المحرك الأول — استخبارات السوق", "تقويم MT5 الاقتصادي", calendar_status,
-        "مصدره تقويم الوسيط في MT5 وليس موجز أخبار BTC النصي.")
 
     intel_news = _dict(market_intelligence.get("news"))
     add("المحرك الأول — استخبارات السوق", "موجز الأخبار متعدد المصادر", intel_news.get("status"),
@@ -149,8 +141,9 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
     add("المحرك الأول — استخبارات السوق", "السياق الكلي والسيناريو السوقي", market_intelligence.get("status"),
         f"الميل: {market_intelligence.get('direction', 'UNKNOWN')} | درجة السياق: {market_intelligence.get('directional_score', '—')} | تغطية الأدلة: {market_intelligence.get('evidence_coverage', 0)} | الثقة ليست احتمال ربح.")
     intel_calendar = _dict(market_intelligence.get("economic_calendar"))
-    add("المحرك الأول — استخبارات السوق", "بوابة الأحداث الاقتصادية عالية الأهمية", "LOCKED" if intel_calendar.get("high_impact_window_active") else intel_calendar.get("status"),
-        f"بوابة المداخل: {intel_calendar.get('new_entry_gate', 'NOT_REPORTED')} | الأحداث النشطة: {len(intel_calendar.get('active_high_impact_events', []))}.")
+    calendar_sources = _dict(intel_calendar.get("sources"))
+    add("المحرك الأول — استخبارات السوق", "التقويم الاقتصادي العام المستقل", "LOCKED" if intel_calendar.get("high_impact_window_active") else intel_calendar.get("status"),
+        f"المزودون: {', '.join(f'{name}={status}' for name, status in calendar_sources.items()) or 'لا يوجد'} | بوابة المداخل: {intel_calendar.get('new_entry_gate', 'NOT_REPORTED')} | الأحداث النشطة: {len(intel_calendar.get('active_high_impact_events', []))}.")
 
     # Engine 2
     observer_chart = _dict(observer.get("chart"))

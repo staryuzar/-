@@ -482,7 +482,7 @@ def render_engine_dashboard():
   st.warning("خدمة البرنامج لم تبدأ بعد. شغّل run_mirsad.py لتشغيل محركات البيانات والتحليل.")
  if state:
   labels=[
-   ("1 — السوق والمعلومات","engine_1_market"),
+   ("1 — استخبارات السوق","engine_1_market_intelligence"),
    ("2 — التحليل البصري","engine_2_chart"),
    ("3 — المؤشرات","engine_3_indicators"),
    ("4 — القرار ومتابعة الصفقات","engine_4_decision"),
@@ -499,20 +499,20 @@ def render_engine_dashboard():
   st.divider()
 
  if market:
-  st.subheader("المحرك الأول — استخبارات السوق")
+  st.subheader("المحرك الخامس — سعر الوسيط وتغذية التنفيذ")
   cols=st.columns(4)
   cols[0].metric("السعر المرجعي BTC/USDT",f"{market['price']:,.2f}" if market.get("price") else "غير متاح")
-  cols[1].metric("مصدر التشغيل",f"{market.get('venue_count',0)} / 1 — MT5")
+  cols[1].metric("مصدر السعر",f"{market.get('venue_count',0)} / 1 — MT5")
   cols[2].metric("الطرفية",market.get("primary_venue") or "غير متاح")
   cols[3].metric("حالة السوق",ar(market.get("status")))
   rows=[]
   for name,row in market.get("venues",{}).items():
    pulse=row.get("microstructure") or {}
-   rows.append({"المصدر":name,"الاتصال":ar(row.get("status")),"معدل التحديث/دقيقة":pulse.get("tick_rate_per_minute"),"توازن عروض الأسعار":pulse.get("quote_direction_balance"),"السبريد %":pulse.get("current_spread_pct"),"التقويم":ar((row.get("economic_calendar") or {}).get("status","NOT_AVAILABLE")),"الخطأ":row.get("error") or "—"})
+   rows.append({"المصدر":name,"الاتصال":ar(row.get("status")),"معدل التحديث/دقيقة":pulse.get("tick_rate_per_minute"),"توازن عروض الأسعار":pulse.get("quote_direction_balance"),"السبريد %":pulse.get("current_spread_pct"),"الخطأ":row.get("error") or "—"})
   if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
   for name,row in market.get("venues",{}).items():
    if row.get("status")=="LIVE":
-    with st.expander(f"تفاصيل نبض السوق والأحداث الاقتصادية — {name}"):
+    with st.expander(f"تفاصيل نبض سعر الوسيط — {name}"):
      pulse=row.get("microstructure") or {}
      p1,p2,p3,p4,p5=st.columns(5)
      p1.metric("تحديثات السعر",pulse.get("tick_count","—"))
@@ -521,15 +521,7 @@ def render_engine_dashboard():
      p4.metric("اتزان التحديثات",pulse.get("quote_direction_balance","—"))
      p5.metric("تغير منتصف السعر %",pulse.get("midpoint_change_pct","—"))
      st.caption(pulse.get("scope","تحديثات عروض الأسعار وليست صفقات منفذة."))
-     calendar=row.get("economic_calendar") or {}
-     st.markdown("**تقويم MT5 الاقتصادي**")
-     st.caption("المصدر: تقويم الوسيط عبر MT5؛ ليس موجز عناوين أخبار BTC.")
-     events=calendar.get("events") or []
-     if events:
-      event_rows=[{"الحدث":event.get("name"),"العملة":event.get("currency"),"الأهمية":event.get("importance"),"وقت UTC":time.strftime("%Y-%m-%d %H:%M:%S",time.gmtime(event.get("event_time_utc_ms",0)/1000))} for event in events]
-      st.dataframe(pd.DataFrame(event_rows),use_container_width=True,hide_index=True)
-     else:
-      st.info("تقويم الأحداث غير متاح من وسيط MT5 حالياً.")
+     st.caption("هذه التغذية خاصة بسعر الوسيط وتحديثات Bid/Ask والسبريد، ولا تدخل في تصويت المحرك الأول.")
  else:
   st.info("لم تصل بيانات سوق حقيقية بعد.")
 
@@ -579,7 +571,7 @@ def render_engine_dashboard():
     now_ms=int(time.time()*1000)
     funding_age=round((now_ms-float(funding_stamp))/1000.0,1) if isinstance(funding_stamp,(int,float)) else None
     ratio_age=round((now_ms-float(ratio_stamp))/1000.0,1) if isinstance(ratio_stamp,(int,float)) else None
-    derivative_rows.append({"المنصة":name,"الحالة":ar(row.get("status")),"حداثة الدرجة":ar(diagnostic.get("directional_status","NOT_REPORTED")),"حالة التمويل":ar(diagnostic.get("funding_directional_status","NOT_REPORTED")),"عمر التمويل ث":funding_age,"حالة Long/Short":ar(diagnostic.get("long_short_directional_status","NOT_REPORTED")),"عمر Long/Short ث":ratio_age,"عمر الدليل ث":diagnostic.get("age_seconds"),"درجة المساهمة":diagnostic.get("directional_score"),"Funding Rate":row.get("funding_rate"),"Open Interest":row.get("open_interest"),"تغير OI %":row.get("open_interest_change_pct_35m"),"Long/Short":row.get("long_short_ratio"),"Mark Price":row.get("mark_price")})
+    derivative_rows.append({"المنصة":name,"الحالة":ar(row.get("status")),"حداثة الدرجة":ar(diagnostic.get("directional_status","NOT_REPORTED")),"حالة التمويل":ar(diagnostic.get("funding_directional_status","NOT_REPORTED")),"عمر التمويل ث":funding_age,"حالة Long/Short":ar(diagnostic.get("long_short_directional_status","NOT_REPORTED")),"عمر Long/Short ث":ratio_age,"عمر الدليل ث":diagnostic.get("age_seconds"),"درجة المساهمة":diagnostic.get("directional_score"),"Funding Rate":row.get("funding_rate"),"أساس التمويل":row.get("funding_basis",""),"Open Interest":row.get("open_interest"),"وحدة OI":row.get("open_interest_unit",""),"Open Interest USD":row.get("open_interest_usd"),"تغير OI %":row.get("open_interest_change_pct_35m"),"Long/Short":row.get("long_short_ratio"),"Mark Price":row.get("mark_price"),"حالة نقاط API":row.get("endpoint_statuses",{}),"أخطاء API":row.get("endpoint_errors",{})})
   if derivative_rows:
    st.markdown("**المشتقات والتموضع — ليس دفتر أوامر السوق الفوري**")
    st.dataframe(pd.DataFrame(derivative_rows),use_container_width=True,hide_index=True)
@@ -607,7 +599,7 @@ def render_engine_dashboard():
   calendar=intel.get("economic_calendar",{}) if isinstance(intel.get("economic_calendar"),dict) else {}
   c_events=calendar.get("events",[]) if isinstance(calendar.get("events"),list) else []
   if calendar.get("countries_covered"):
-   st.caption("تغطية تقويم Trading Economics: "+"، ".join(calendar.get("countries_covered",[])))
+   st.caption("تغطية التقويم الاقتصادي المستقل: "+"، ".join(calendar.get("countries_covered",[])))
   st.caption("مصادر التقويم: "+", ".join(f"{name}: {ar(status)}" for name,status in (calendar.get("sources",{}) or {}).items()))
   if c_events:
    st.markdown("**الأحداث الاقتصادية القادمة والحديثة**")
