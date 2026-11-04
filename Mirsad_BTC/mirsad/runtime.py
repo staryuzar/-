@@ -62,7 +62,7 @@ def _append_runtime_error(error: Exception, *, max_bytes: int = 1_000_000) -> Pa
   "message":str(error)[:800],
  }
  with log_path.open("a",encoding="utf-8") as stream:
-  stream.write(json.dumps(record,ensure_ascii=False,separators=(",",":"))+"\\n")
+  stream.write(json.dumps(record,ensure_ascii=False,separators=(",",":"))+"\n")
   stream.flush()
   os.fsync(stream.fileno())
  return log_path
