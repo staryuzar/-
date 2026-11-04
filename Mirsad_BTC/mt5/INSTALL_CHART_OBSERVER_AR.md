@@ -1,5 +1,7 @@
 # تثبيت Mirsad Chart Observer على MetaTrader 5
 
+> **وضع التشغيل المعتمد:** ينشر الخبير بيانات السوق وOHLC الأصلي إلى `MirsadBTC/observer/candles.json` مباشرة من MT5. التصوير اختياري ومعطّل افتراضياً (`InpEnableImageCapture=false`). لا يلزم وجود صورة أو manifest أو معايرة محور لتشغيل المحرك الثاني والثالث.
+
 ## ما هذه الإضافة؟
 
 Mirsad Chart Observer خبير مستقل للقراءة فقط. يلتقط صورة PNG من المخطط المثبت عليه، ويأخذ معه بيانات OHLC من MT5، ثم ينشر الحزمة في مجلد Observer المشترك ليقرأها برنامج مرصاد.
