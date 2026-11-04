@@ -1,0 +1,79 @@
+name: Mirsad BTC — Integrated five-engine MT5 runtime
+
+on:
+  push:
+    branches: [mini]
+    paths:
+      - 'Mirsad_BTC/scripts/mirsad_mt5_integrated_runtime_run.ps1'
+      - 'Mirsad_BTC/scripts/mirsad_runtime_integration_check.py'
+      - 'Mirsad_BTC/scripts/mirsad_mt5_execution_run.ps1'
+      - 'Mirsad_BTC/scripts/mirsad_mt5_direct_feed_run.ps1'
+      - 'Mirsad_BTC/mt5/Mirsad_ChartObserver.mq5'
+      - 'Mirsad_BTC/mt5/Mirsad_BTC_ExecutionBridge.mq5'
+      - 'Mirsad_BTC/mirsad/runtime.py'
+      - 'Mirsad_BTC/mirsad/engines/decision.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_bridge.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_market.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_chart_candles.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_native_indicators.py'
+      - 'Mirsad_BTC/mirsad/engines/mt5_price_action.py'
+      - 'Mirsad_BTC/mirsad/engines/indicators.py'
+      - '.github/workflows/mirsad-live-runtime-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirsad-integrated-mt5-runtime
+  cancel-in-progress: false
+
+jobs:
+  integrated-live-runtime:
+    runs-on: windows-2022
+    timeout-minutes: 55
+    steps:
+      - name: Checkout Mirsad branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python for runtime integration
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Observer and ExecutionBridge on one shared MT5 Common Files directory
+        env:
+          MT5_CREDENTIALS: ${{ secrets.mt5 }}
+          MIRSAD_MT5_SERVER: 'mt5.demo.trade-hw.online'
+          MIRSAD_MT5_EXPECTED_ACCOUNT_SERVER: 'Headway-Demo'
+          MIRSAD_MT5_OBSERVER_SYMBOL: 'BTC'
+          MIRSAD_MT5_OBSERVER_TIMEFRAME: 'M1'
+          MIRSAD_MT5_MARKET_SYMBOL: 'BTCUSDT'
+        shell: pwsh
+        run: ./Mirsad_BTC/scripts/mirsad_mt5_integrated_runtime_run.ps1
+
+      - name: Upload integrated runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirsad-integrated-five-engine-runtime
+          path: |
+            ${{ runner.temp }}/mirsad-mt5-integrated-runtime/observer-stdout.log
+            ${{ runner.temp }}/mirsad-mt5-integrated-runtime/observer-stderr.log
+            ${{ runner.temp }}/mirsad-mt5-integrated-runtime/execution-runtime.log
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver.ex5
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/Mirsad_ChartObserver_compile.log
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/direct-feed-validation.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/market-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/candles-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-observer-check/evidence/indicators-snapshot.json
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-execution-report.txt
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/Mirsad_BTC_ExecutionBridge_compile.log
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/Mirsad_BTC_ExecutionBridge.ex5
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-telemetry.json
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-runtime-integration.json
+            ${{ runner.temp }}/mirsad-mt5-execution-check/evidence/mirsad-live-runtime-integration.log
+          if-no-files-found: warn
+          retention-days: 14
