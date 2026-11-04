@@ -426,6 +426,7 @@ def _directional_evidence_score(
             "applied_weights": {},
             "component_scores": {},
             "evidence_count": 0,
+            "evidence_coverage": 0.0,
         }
 
     applied_weights = {
@@ -445,6 +446,9 @@ def _directional_evidence_score(
             name: round(value, 6) for name, value in component_scores.items()
         },
         "evidence_count": len(component_scores),
+        "evidence_coverage": round(
+            active_weight / sum(DIRECTIONAL_EVIDENCE_WEIGHTS.values()), 6
+        ),
         "interpretation": "WEIGHTED_NATIVE_OHLC_PRICE_ACTION_EVIDENCE_NOT_PROBABILITY",
     }
 
@@ -703,6 +707,15 @@ def analyze_mt5_native_price_action(
     expected_weight = sum(TIMEFRAME_WEIGHTS.values())
     available_weight = sum(TIMEFRAME_WEIGHTS[name] for name in eligible)
     weight_coverage = available_weight / expected_weight if expected_weight else 0.0
+    evidence_coverage = (
+        sum(
+            TIMEFRAME_WEIGHTS[name] * _valid_number(
+                (reports[name].get("directional_evidence") or {}).get("evidence_coverage")
+            )
+            for name in eligible
+        ) / available_weight
+        if available_weight > 0 else 0.0
+    )
 
     latest_pattern_biases = {
         timeframe: reports[timeframe].get("candle_analysis", {}).get("latest_pattern_bias")
@@ -764,6 +777,7 @@ def analyze_mt5_native_price_action(
             "mixed_or_unconfirmed_timeframes": mixed,
             "directional_structure_agreement": round(agreement, 4),
             "timeframe_weight_coverage": round(weight_coverage, 4),
+            "directional_evidence_coverage": round(evidence_coverage, 4),
             "latest_candle_pattern_alignment": pattern_alignment,
             "bullish_pattern_timeframes": bullish_pattern_frames,
             "bearish_pattern_timeframes": bearish_pattern_frames,
@@ -785,6 +799,7 @@ def analyze_mt5_native_price_action(
             "expected_timeframe_count": len(TIMEFRAME_MS),
             "timeframe_weight_coverage": round(weight_coverage, 4),
             "directional_structure_agreement": round(agreement, 4),
+            "directional_evidence_coverage": round(evidence_coverage, 4),
             "interpretation": "STRUCTURAL_EVIDENCE_COVERAGE_NOT_STATISTICAL_PROBABILITY",
         },
         "warnings": warnings,
