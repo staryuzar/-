@@ -40,10 +40,10 @@ def make_geometry(bars: list[dict]) -> dict:
             "visible": True,
             "x_px": float(x),
             "x_alignment_error_px": 0,
-            "open": {"x_px": x, "y_px": base_y + 2},
-            "high": {"x_px": x, "y_px": base_y},
-            "low": {"x_px": x, "y_px": base_y + 5},
-            "close": {"x_px": x, "y_px": base_y + 1},
+            "open": {"x_px": x, "y_px": base_y + 2, "roundtrip_ok": True, "roundtrip_sub_window": 0, "roundtrip_price": bar["open"], "roundtrip_time_delta_seconds": 0},
+            "high": {"x_px": x, "y_px": base_y, "roundtrip_ok": True, "roundtrip_sub_window": 0, "roundtrip_price": bar["high"], "roundtrip_time_delta_seconds": 0},
+            "low": {"x_px": x, "y_px": base_y + 5, "roundtrip_ok": True, "roundtrip_sub_window": 0, "roundtrip_price": bar["low"], "roundtrip_time_delta_seconds": 0},
+            "close": {"x_px": x, "y_px": base_y + 1, "roundtrip_ok": True, "roundtrip_sub_window": 0, "roundtrip_price": bar["close"], "roundtrip_time_delta_seconds": 0},
         })
     return {
         "schema": "MIR-MT5-CHART-GEOMETRY-1",
@@ -85,6 +85,31 @@ class MT5ChartGeometryTests(unittest.TestCase):
         self.assertEqual(result["mapping_status"], "UNVERIFIED_PROVISIONAL_DIMENSION_RATIO")
         self.assertFalse(result["decision_eligible"])
         self.assertEqual(result["bars"][0]["x_image_px_provisional"], 40.0)
+        self.assertEqual(result["roundtrip_validation"]["status"], "PASS")
+        self.assertEqual(result["roundtrip_validation"]["checked_points"], len(bars) * 4)
+        self.assertEqual(result["roundtrip_validation"]["failed_points"], 0)
+
+    def test_inverse_transform_price_mismatch_is_reported_without_approving_image_alignment(self) -> None:
+        bars = make_bars()
+        geometry = make_geometry(bars)
+        geometry["bars"][3]["high"]["roundtrip_price"] += 1.0
+        result = validate_mt5_chart_geometry(
+            geometry,
+            bars=bars,
+            chart={
+                "source_width_px": 600,
+                "source_main_window_height_px": 500,
+                "visible_bars": len(bars),
+                "digits": 2,
+            },
+            image_width=1200,
+            image_height=1000,
+        )
+        self.assertEqual(result["status"], "READY_FOR_PIXEL_ALIGNMENT")
+        self.assertEqual(result["roundtrip_validation"]["status"], "FAIL")
+        self.assertEqual(result["roundtrip_validation"]["failed_points"], 1)
+        self.assertFalse(result["decision_eligible"])
+        self.assertEqual(result["mapping_status"], "UNVERIFIED_PROVISIONAL_DIMENSION_RATIO")
 
     def test_off_chart_invalid_points_are_skipped_without_poisoning_visible_geometry(self) -> None:
         bars = make_bars()

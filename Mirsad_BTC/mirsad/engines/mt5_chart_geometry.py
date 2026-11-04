@@ -680,6 +680,13 @@ def validate_mt5_chart_geometry(
     output: list[dict[str, Any]] = []
     valid_count = 0
     visible_count = 0
+    roundtrip_checked = 0
+    roundtrip_failed = 0
+    roundtrip_missing = 0
+    roundtrip_max_price_delta = 0.0
+    roundtrip_max_time_delta_seconds = 0
+    digits = int(chart.get("digits", 8) or 8)
+    roundtrip_price_tolerance = max(1e-9, (10.0 ** (-max(0, min(digits, 12)))) * 1.1)
     previous_x: float | None = None
 
     for index, (item, native) in enumerate(zip(raw_items, bars)):
@@ -756,6 +763,28 @@ def validate_mt5_chart_geometry(
                     "x": float(point["x_px"]),
                     "y": float(point["y_px"]),
                 }
+                if visible:
+                    if "roundtrip_ok" not in point:
+                        roundtrip_missing += 1
+                    else:
+                        roundtrip_checked += 1
+                        if point.get("roundtrip_ok") is not True:
+                            roundtrip_failed += 1
+                        else:
+                            try:
+                                roundtrip_window = int(point.get("roundtrip_sub_window", -1))
+                                roundtrip_price = float(point["roundtrip_price"])
+                                roundtrip_time_delta = int(point.get("roundtrip_time_delta_seconds", 0))
+                                price_delta = abs(roundtrip_price - float(native[name]))
+                            except (KeyError, TypeError, ValueError, OverflowError):
+                                roundtrip_failed += 1
+                            else:
+                                roundtrip_max_price_delta = max(roundtrip_max_price_delta, price_delta)
+                                roundtrip_max_time_delta_seconds = max(
+                                    roundtrip_max_time_delta_seconds, abs(roundtrip_time_delta)
+                                )
+                                if roundtrip_window != 0 or price_delta > roundtrip_price_tolerance:
+                                    roundtrip_failed += 1
         except (KeyError, TypeError, ValueError, OverflowError):
             return {
                 "status": "INVALID_BAR_GEOMETRY",
@@ -837,6 +866,29 @@ def validate_mt5_chart_geometry(
             "visible_bars": visible_count,
         }
 
+    def roundtrip_summary() -> dict[str, Any]:
+        expected = visible_count * len(_POINT_FIELDS)
+        if roundtrip_checked == 0:
+            status = "NOT_AVAILABLE"
+        elif roundtrip_failed:
+            status = "FAIL"
+        elif roundtrip_missing:
+            status = "PARTIAL"
+        else:
+            status = "PASS"
+        return {
+            "status": status,
+            "method": "MQL5_CHART_XY_TO_TIME_PRICE_INVERSE",
+            "checked_points": roundtrip_checked,
+            "expected_visible_points": expected,
+            "missing_points": roundtrip_missing,
+            "failed_points": roundtrip_failed,
+            "price_tolerance": roundtrip_price_tolerance,
+            "maximum_absolute_price_delta": round(roundtrip_max_price_delta, digits + 2),
+            "maximum_time_delta_seconds": roundtrip_max_time_delta_seconds,
+            "decision_eligible": False,
+        }
+
     minimum_visible = max(8, int(chart.get("visible_bars", 0) * 0.50))
     if valid_count < 8 or visible_count < minimum_visible:
         return {
@@ -866,7 +918,8 @@ def validate_mt5_chart_geometry(
         "scale_x": scale_x,
         "scale_y": scale_y,
         "mapping_status": "UNVERIFIED_PROVISIONAL_DIMENSION_RATIO",
-        "reason": "Native geometry passed structural validation; PNG coordinate alignment still requires an independent visual overlay test.",
+        "roundtrip_validation": roundtrip_summary(),
+        "reason": "Native geometry passed structural validation; inverse MT5 coordinate checks are diagnostic only, and PNG coordinate alignment still requires an independent visual overlay test.",
         "bars": output,
     }
 

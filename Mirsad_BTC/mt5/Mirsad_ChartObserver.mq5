@@ -425,11 +425,49 @@ string BuildRatesJson(const MqlRates &rates[],
    return output;
 }
 
-string ChartPixelPointJson(const bool valid, const int x, const int y)
+string ChartPixelPointJson(const bool valid,
+                            const int x,
+                            const int y,
+                            const datetime expected_time,
+                            const double expected_price,
+                            const int digits)
 {
    if(!valid)
       return "null";
-   return StringFormat("{\"x_px\":%d,\"y_px\":%d}", x, y);
+
+   // Verify the forward time/price -> pixel transform with the documented
+   // inverse. This does not validate PNG alignment; the image overlay remains
+   // an independent hold-out gate.
+   int roundtrip_sub_window = -1;
+   datetime roundtrip_time = 0;
+   double roundtrip_price = 0.0;
+   ResetLastError();
+   bool roundtrip_ok = ChartXYToTimePrice(
+      g_chart_id, x, y,
+      roundtrip_sub_window, roundtrip_time, roundtrip_price
+   );
+   if(!roundtrip_ok)
+   {
+      int roundtrip_error = GetLastError();
+      return StringFormat(
+         "{\"x_px\":%d,\"y_px\":%d,\"roundtrip_ok\":false,\"roundtrip_error_code\":%d}",
+         x, y, roundtrip_error
+      );
+   }
+
+   return StringFormat(
+      "{\"x_px\":%d,\"y_px\":%d,\"roundtrip_ok\":true,"
+      "\"roundtrip_sub_window\":%d,"
+      "\"roundtrip_time_server_ms\":%I64d,"
+      "\"roundtrip_price\":%s,"
+      "\"roundtrip_time_delta_seconds\":%d,"
+      "\"roundtrip_price_delta\":%s}",
+      x, y, roundtrip_sub_window,
+      (long)roundtrip_time * 1000,
+      DoubleToString(roundtrip_price, digits),
+      (int)MathAbs((double)(roundtrip_time - expected_time)),
+      DoubleToString(MathAbs(roundtrip_price - expected_price), digits)
+   );
 }
 
 string BuildChartPixelGeometryJson(const MqlRates &rates[],
@@ -503,10 +541,10 @@ string BuildChartPixelGeometryJson(const MqlRates &rates[],
          JsonBool(visible),
          DoubleToString(x_center, 3),
          (x_aligned ? max_x - min_x : -1),
-         ChartPixelPointJson(open_ok, open_x, open_y),
-         ChartPixelPointJson(high_ok, high_x, high_y),
-         ChartPixelPointJson(low_ok, low_x, low_y),
-         ChartPixelPointJson(close_ok, close_x, close_y)
+         ChartPixelPointJson(open_ok, open_x, open_y, rates[i].time, rates[i].open, digits),
+         ChartPixelPointJson(high_ok, high_x, high_y, rates[i].time, rates[i].high, digits),
+         ChartPixelPointJson(low_ok, low_x, low_y, rates[i].time, rates[i].low, digits),
+         ChartPixelPointJson(close_ok, close_x, close_y, rates[i].time, rates[i].close, digits)
       );
       if(point_set_valid) valid_count++;
       if(visible && point_set_valid) visible_count++;
