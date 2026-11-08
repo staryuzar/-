@@ -97,6 +97,14 @@ class DirectFeedValidatorTests(unittest.TestCase):
         )
         self.bridge_patch.start()
         self.addCleanup(self.bridge_patch.stop)
+        self.parity_patch = patch(
+            "scripts.validate_mt5_direct_feed.validate_native_indicator_parity",
+            return_value={
+                "status": "PASS", "passed_metrics": 120, "total_metrics": 120, "failures": []
+            },
+        )
+        self.parity_patch.start()
+        self.addCleanup(self.parity_patch.stop)
 
     def test_direct_feed_passes_without_any_image_capture_input(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -291,5 +299,40 @@ class DirectFeedValidatorTests(unittest.TestCase):
         self.assertTrue(any("calculated Engine 3 signal" in item for item in result["engine3"]["warnings"]))
 
 
+    def test_numeric_indicator_parity_failure_keeps_engine3_partial(self) -> None:
+        with (
+            patch(
+                "scripts.validate_mt5_direct_feed.MT5MarketDataEngine.collect",
+                return_value=ready_market(),
+            ),
+            patch(
+                "scripts.validate_mt5_direct_feed.MT5ChartCandleHistory.collect",
+                return_value=ready_candles(),
+            ),
+            patch(
+                "scripts.validate_mt5_direct_feed.MT5NativeIndicatorHistory.collect",
+                return_value=ready_indicators(),
+            ),
+            patch(
+                "scripts.validate_mt5_direct_feed.validate_native_indicator_parity",
+                return_value={
+                    "status": "FAIL", "passed_metrics": 119, "total_metrics": 120,
+                    "failures": ["5m: rsi14 mismatch"],
+                },
+            ),
+        ):
+            result = validate(
+                Path(tempfile.mkdtemp()),
+                market_symbol="BTCUSDT",
+                broker_symbol="BTC",
+                expected_server="Headway-Demo",
+            )
+        self.assertEqual(result["engine2"]["status"], "READY")
+        self.assertEqual(result["engine3"]["status"], "PARTIAL")
+        self.assertEqual(result["engine3"]["numeric_parity"]["status"], "FAIL")
+        self.assertTrue(any("numeric parity" in item for item in result["engine3"]["warnings"]))
+
+
 if __name__ == "__main__":
     unittest.main()
+
