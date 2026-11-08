@@ -330,7 +330,23 @@ class MT5MarketDataEngine:
             return self._blocked(
                 "SYMBOL_MISMATCH", "MT5 broker symbol is not mapped to the configured Mirsad market symbol.",
                 captured_at_ms=captured_at_ms,
+                feed_health={
+                    "terminal_connected": payload.get("terminal_connected") is True,
+                    "account_server": server,
+                    "broker_symbol": broker_symbol,
+                    "market_symbol": market_symbol,
+                },
             )
+
+        # Retain the verified broker identity on every later blocked result.
+        # Diagnostic consumers must not report a second, false symbol-missing
+        # failure merely because the current tick is stale or divergent.
+        feed_identity = {
+            "terminal_connected": True,
+            "account_server": server,
+            "broker_symbol": broker_symbol,
+            "market_symbol": market_symbol,
+        }
 
         quote = payload.get("quote") if isinstance(payload.get("quote"), dict) else {}
         bid, ask = self._finite(quote.get("bid")), self._finite(quote.get("ask"))
@@ -343,7 +359,12 @@ class MT5MarketDataEngine:
             return self._blocked(
                 "STALE_QUOTE", "MT5 bid/ask quote is invalid, crossed or older than the configured tick limit.",
                 captured_at_ms=captured_at_ms,
-                feed_health={"snapshot_age_seconds": round(age_seconds, 3), "tick_age_seconds": tick_age},
+                feed_health={
+                    **feed_identity,
+                    "quote_fresh": False,
+                    "snapshot_age_seconds": round(age_seconds, 3),
+                    "tick_age_seconds": tick_age,
+                },
             )
 
         bridge_check: dict[str, Any] = {"status": "NOT_CHECKED"}
@@ -351,7 +372,10 @@ class MT5MarketDataEngine:
             bridge_account = bridge.get("account") if isinstance(bridge.get("account"), dict) else {}
             bridge_quote = bridge.get("quote") if isinstance(bridge.get("quote"), dict) else {}
             bridge_bid, bridge_ask = self._finite(bridge_quote.get("bid")), self._finite(bridge_quote.get("ask"))
-            bridge_age = self._finite(bridge.get("quote_age_seconds"))
+            # Check the age of the actual broker tick, not the age of the
+            # status.json publication. The EA refreshes that heartbeat even
+            # when SymbolInfoTick has not received a new market tick.
+            bridge_age = self._finite(bridge_quote.get("tick_age_seconds"))
             same_identity = (
                 str(bridge.get("symbol", "")).strip() == broker_symbol
                 and str(bridge.get("market_symbol", "")).strip().upper() == self.symbol
@@ -362,6 +386,7 @@ class MT5MarketDataEngine:
                     "BRIDGE_IDENTITY_MISMATCH",
                     "MT5 market feed and execution bridge do not identify the same broker symbol, market mapping and account server.",
                     captured_at_ms=captured_at_ms,
+                    feed_health={**feed_identity, "quote_fresh": True, "bridge_quote_check": {"status": "IDENTITY_MISMATCH"}},
                 )
             if (
                 bridge_bid is None or bridge_ask is None or bridge_age is None
@@ -371,6 +396,7 @@ class MT5MarketDataEngine:
                 return self._blocked(
                     "BRIDGE_QUOTE_STALE", "Execution bridge quote is invalid or stale; MT5 feed cannot be cross-checked.",
                     captured_at_ms=captured_at_ms,
+                    feed_health={**feed_identity, "quote_fresh": True, "bridge_quote_check": {"status": "STALE"}},
                 )
             market_mid, bridge_mid = (bid + ask) / 2.0, (bridge_bid + bridge_ask) / 2.0
             divergence = abs(market_mid - bridge_mid) / market_mid if market_mid > 0 else math.inf
@@ -382,7 +408,8 @@ class MT5MarketDataEngine:
                 return self._blocked(
                     "QUOTE_DIVERGENCE",
                     "The read-only MT5 market quote and Engine 5 terminal quote exceed the permitted divergence.",
-                    captured_at_ms=captured_at_ms, feed_health=bridge_check,
+                    captured_at_ms=captured_at_ms,
+                    feed_health={**feed_identity, "quote_fresh": True, "bridge_quote_check": bridge_check},
                 )
 
         ticks, tick_status = self._parse_ticks(payload.get("ticks"), captured_at_ms=captured_at_ms)
@@ -431,3 +458,4 @@ class MT5MarketDataEngine:
             },
             "reason": None,
         }
+
