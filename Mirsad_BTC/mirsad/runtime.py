@@ -1,34 +1,40 @@
 from __future__ import annotations
 import argparse
+import json
+import os
 import time
-import hashlib
 import math
+import traceback
 from pathlib import Path
 from typing import Any
-from .config import CHART_DIR,CHART_METADATA_PATH,COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,CHART_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,RISK_STATE_PATH,SYMBOL
-from .engines.market import MarketEngine  # Research/benchmark adapter; not used for live runtime.
+from .config import COLLECT_INTERVAL_SECONDS,SNAPSHOT_PATH,STATUS_PATH,MARKET_MAX_AGE_SECONDS,ENABLE_ORDER_PUBLISH,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,RISK_STATE_PATH
 from .engines.mt5_market import MT5MarketDataEngine
 from .engines.market_intelligence import MarketIntelligenceEngine
 from .engines.mt5_chart_candles import MT5ChartCandleHistory
 from .engines.mt5_native_indicators import MT5NativeIndicatorHistory
 from .engines.mt5_price_action import analyze_mt5_native_price_action
-from .engines.chart import analyze_chart_image
-from .engines.chart_multi_timeframe import analyze_multi_timeframe_structure
-from .engines.indicators import IndicatorsEngine
+from .engines.indicators import IndicatorsEngine, validate_native_indicator_parity
 from .engines.decision import DecisionEngine
 from .engines.mt5_bridge import MT5BridgeEngine
-from .engines.mt5_chart_pipeline import Engine2MT5ChartImagePipeline
 from .storage import (
  save_market_snapshot,save_market_intelligence_snapshot,save_mt5_deal_history,
- write_json_atomic,read_json,
+ write_json_atomic,read_json,save_decision_calibration_sample,
+ summarize_decision_calibration_archive,
 )
 from .engines.daily_risk import evaluate_daily_risk
+from .engines.position_ledger import build_position_management_history
 from .health import build_component_health,summarize_component_health
 
 def _daily_risk_guard_ready(report:Any)->bool:
- """A risk guard is ready only when its enabled baseline is valid and persistent."""
+ """Return whether the configured daily-risk policy is internally consistent.
+
+ An explicitly disabled development cap is ready as configured; when enabled,
+ it must have a valid persistent UTC-day equity baseline.
+ """
  if not isinstance(report,dict) or report.get("status")!="READY":
   return False
+ if report.get("enabled") is False and report.get("mode")=="DISABLED_FOR_DEVELOPMENT":
+  return report.get("locked") is False and report.get("new_entries_blocked") is False
  if report.get("enabled") is not True or report.get("mode")!="ENABLED":
   return False
  try:
@@ -43,57 +49,56 @@ def _daily_risk_guard_ready(report:Any)->bool:
  )
 
 
-def _analyze_engine2_multi_timeframe_structure(candle_history:dict[str,Any])->dict[str,Any]:
- if not isinstance(candle_history,dict) or candle_history.get("status")!="READY":
-  return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
-   "status":"NOT_READY","alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
-   "available_timeframes":[],"eligible_timeframes":[],
-   "reason":"Engine 2 has no validated native MT5 multi-timeframe candle history."}
- frames=candle_history.get("candles_by_tf")
- if not isinstance(frames,dict) or not frames:
-  return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
-   "status":"NOT_READY","alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
-   "available_timeframes":[],"eligible_timeframes":[],
-   "reason":"Engine 2 candle history is missing its timeframe map."}
+def _engine4_cycle_operational(decision: Any) -> bool:
+ """Treat a correctly gated Engine-2 WAIT as a completed, safe decision cycle."""
+ if not isinstance(decision, dict):
+  return False
+ status=str(decision.get("status", "NOT_READY")).upper()
+ action=str(decision.get("action", "UNKNOWN")).upper()
+ candidate=str(decision.get("candidate_action", "WAIT")).upper()
+ command_ready=decision.get("command_ready") is True
+ if status == "WAITING_FOR_ENGINE_2":
+  return action == "WAIT" and candidate == "WAIT" and not command_ready
+ if status == "READY":
+  return action in {"BUY", "SELL", "WAIT", "CLOSE", "MODIFY"} and (action != "WAIT" or not command_ready)
+ return False
+
+
+def _market_age_seconds(now_ms: Any, captured_at_ms: Any) -> float | None:
+ """Return a safe market-snapshot age; missing timestamps are stale, not fatal."""
  try:
-  as_of_ms=int(candle_history["captured_at_ms"])
-  last_closed={
-   timeframe:bool(rows and rows[-1].get("closed"))
-   for timeframe,rows in frames.items()
-  }
-  result=analyze_multi_timeframe_structure(
-   frames,as_of_ms=as_of_ms,
-   last_candle_closed_by_timeframe=last_closed,
-  )
- except (KeyError,TypeError,ValueError,OverflowError) as exc:
-  return {"engine":"engine_2_multi_timeframe_structure","source":"MT5_CHART_OBSERVER",
-   "status":"ERROR","alignment":"INSUFFICIENT_TIMEFRAME_CONFLUENCE",
-   "available_timeframes":[],"eligible_timeframes":[],
-   "reason":f"{type(exc).__name__}: {exc}"}
- return {
-  **result,
-  "engine":"engine_2_multi_timeframe_structure",
-  "source":"MT5_CHART_OBSERVER",
-  "ownership":"engine_2_native_candles_only",
-  "reason":None if result.get("status")=="READY" else "Fewer than two fresh timeframes have complete confirmed price structure.",
+  now=int(now_ms)
+  captured=int(captured_at_ms)
+ except (TypeError,ValueError,OverflowError):
+  return None
+ if now<=0 or captured<=0:
+  return None
+ return max(0.0,(now-captured)/1000.0)
+
+
+def _append_runtime_error(
+ error: Exception, *, traceback_text: str | None = None, max_bytes: int = 1_000_000
+) -> Path:
+ """Append a bounded, structured error record without replacing previous failures."""
+ if max_bytes < 1:
+  raise ValueError("max_bytes must be positive")
+ log_path=STATUS_PATH.with_name("runtime_errors.jsonl")
+ log_path.parent.mkdir(parents=True,exist_ok=True)
+ if log_path.is_file() and log_path.stat().st_size >= max_bytes:
+  rotated=log_path.with_name(log_path.name+".1")
+  os.replace(log_path,rotated)
+ record={
+  "timestamp_utc_ms":int(time.time()*1000),
+  "exception_type":type(error).__name__,
+  "message":str(error)[:800],
  }
-
-def _chart_file()->Path|None:
- if not CHART_DIR.exists(): return None
- files=[p for p in CHART_DIR.iterdir() if p.is_file() and p.suffix.lower() in {".png",".jpg",".jpeg",".webp"}]
- return max(files,key=lambda p:p.stat().st_mtime) if files else None
-
-def _inspect_mt5_chart_observer(now_ms:int|None=None)->dict[str,Any]:
- pipeline=Engine2MT5ChartImagePipeline(common_files=MT5_COMMON_FILES)
- return pipeline.inspect_latest(now_ms=now_ms)
-
-
-def _analyze_mt5_observer_chart(
- observer:dict[str,Any], bridge:dict[str,Any],
-)->dict[str,Any]|None:
- return Engine2MT5ChartImagePipeline(
-  image_analyzer=analyze_chart_image,
- ).analyze_capture(observer,bridge)
+ if traceback_text:
+  record["traceback"]=str(traceback_text)[-8000:]
+ with log_path.open("a",encoding="utf-8") as stream:
+  stream.write(json.dumps(record,ensure_ascii=False,separators=(",",":"))+"\n")
+  stream.flush()
+  os.fsync(stream.fileno())
+ return log_path
 
 
 def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)->dict[str,Any]:
@@ -102,6 +107,15 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  bridge=bridge_adapter.inspect()
  deal_history_snapshot=bridge.get("deal_history")
  deal_ledger_persistence=save_mt5_deal_history(deal_history_snapshot)
+ bridge["position_management_history"]=build_position_management_history(
+  deal_history_snapshot.get("deals") if isinstance(deal_history_snapshot,dict) else None,
+  bridge.get("positions") if isinstance(bridge.get("positions"),list) else [],
+  expected_magic=bridge.get("magic_number",0),
+  history_status=str(deal_history_snapshot.get("status","") if isinstance(deal_history_snapshot,dict) else ""),
+  truncated=deal_history_snapshot.get("truncated",True) if isinstance(deal_history_snapshot,dict) else True,
+  queried_at_utc_ms=deal_history_snapshot.get("queried_at_utc_ms",0) if isinstance(deal_history_snapshot,dict) else 0,
+  now_ms=int(time.time()*1000),
+ )
  bridge["deal_ledger_persistence"]=deal_ledger_persistence
  if isinstance(deal_history_snapshot,dict):
   bridge["deal_history"]={
@@ -120,7 +134,12 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  )
  bridge["daily_risk"]=risk_evaluation["report"]
  bridge["daily_risk_required"]=True
- if risk_evaluation["report"].get("status")=="READY":
+ if (
+  risk_evaluation["state"].get("schema")=="MIR-DAILY-RISK-1"
+  and risk_evaluation["state"].get("day_utc")
+ ):
+  # Persist both a verified baseline and a fail-closed pending marker. This
+  # prevents a process restart from silently inventing a new midday baseline.
   write_json_atomic(RISK_STATE_PATH,risk_evaluation["state"])
  # Broker quote telemetry is the Engine 5 execution feed, separate from intelligence.
  market=(market_engine.collect() if market_engine is not None
@@ -135,25 +154,14 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  save_market_intelligence_snapshot(market_intelligence)
  save_market_snapshot(market)
  write_json_atomic(SNAPSHOT_PATH,market)
- # The live decision path is deliberately image-free. Engine 2 receives native
- # MT5 CopyRates through candles.json; legacy image tools remain isolated and
- # are never called from this runtime cycle.
- chart_observer={
-  "engine":"engine_2_optional_visual_diagnostics",
-  "status":"OPTIONAL_DISABLED",
-  "decision_eligible":False,
-  "reason":"Chart images are disabled by design; native MT5 OHLC is the Engine 2 source.",
- }
- chart={
+ # Engine 2 consumes only native MT5 CopyRates in the live cycle.
+ candle_history=MT5ChartCandleHistory().collect(bridge=bridge)
+ engine2_data={
   "engine":"engine_2_native_price_action",
   "source":"NATIVE_MT5_OHLC",
-  "status":"NATIVE_OHLC_ONLY",
-  "decision_eligible":False,
-  "visual_analysis":"OPTIONAL_DISABLED",
-  "ai_used":False,
+  "status":candle_history.get("status","NOT_READY"),
+  "candle_history":candle_history,
  }
- # Engine 2's native candle inbox is the sole live input for price action.
- candle_history=MT5ChartCandleHistory().collect(bridge=bridge)
  engine2_multitimeframe={}
  native_indicators=MT5NativeIndicatorHistory().collect(
   bridge=bridge,candle_history=candle_history,
@@ -161,64 +169,94 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
  engine2_price_action=analyze_mt5_native_price_action(candle_history)
  engine2_multitimeframe=engine2_price_action.get("multi_timeframe_structure",{})
  indicators=IndicatorsEngine().analyze(candle_history)
+ native_indicator_parity=validate_native_indicator_parity(candle_history,native_indicators)
  indicators["mt5_native"]=native_indicators
- chart["engine_2_candle_history"]={
+ indicators["mt5_native_parity"]=native_indicator_parity
+ engine2_data["candle_history_summary"]={
   "status":candle_history.get("status"),
   "source":candle_history.get("source"),
   "timeframes":candle_history.get("timeframes",{}),
   "closed_candles":candle_history.get("closed_candles",{}),
   "reason":candle_history.get("reason"),
  }
- chart["engine_2_multi_timeframe_structure"]=engine2_multitimeframe
+ engine2_data["multi_timeframe_structure"]=engine2_multitimeframe
  decision=DecisionEngine().analyze(
-  market,chart,bridge,indicators,
+  market,engine2_data,bridge,indicators,
   engine2_price_action=engine2_price_action,
   market_intelligence=market_intelligence,
+  require_mt5_native_parity=True,
  )
  command_publish={"status":"NOT_READY","message":"No command-ready OPEN/CLOSE instruction from Engine 4."}
  if decision.get("command_ready") and ENABLE_ORDER_PUBLISH:
   command_publish=bridge_adapter.publish_decision(decision,bridge)
  elif decision.get("command_ready"):
   command_publish={"status":"PUBLISH_DISABLED","message":"Decision is sized but the bridge command switch is disabled."}
+ # Non-executing research archive: one sample per completed M1 signal bar.
+ # Storage failures must never change the live decision or execution path.
+ try:
+  decision_calibration_persistence=save_decision_calibration_sample(
+   market=market,candle_history=candle_history,
+   market_intelligence=market_intelligence,
+   engine2_price_action=engine2_price_action,
+   indicators=indicators,decision=decision,
+  )
+ except Exception as exc:
+  decision_calibration_persistence={"status":"ERROR","reason":f"{type(exc).__name__}: {exc}"}
+ try:
+  decision_calibration_archive=summarize_decision_calibration_archive()
+ except Exception as exc:
+  decision_calibration_archive={"status":"ERROR","reason":f"{type(exc).__name__}: {str(exc)[:240]}","validation_status":"UNVALIDATED"}
  now=int(time.time()*1000)
- age=max(0,(now-int(market.get("captured_at_ms",now)))/1000)
+ age=_market_age_seconds(now,market.get("captured_at_ms"))
  market_status=market.get("status","OFFLINE")
- if age>MARKET_MAX_AGE_SECONDS: market_status="STALE"
+ if age is None or age>MARKET_MAX_AGE_SECONDS: market_status="STALE"
+ execution_ready=(
+  bool(ENABLE_ORDER_PUBLISH)
+  and bridge.get("status")=="CONNECTED"
+  and bridge.get("terminal_connected") is True
+  and bridge.get("execution_enabled") is True
+  and bridge.get("execution_input_enabled") is True
+  and bridge.get("trade_permissions_available") is True
+ )
  readiness={
   "engine_5_execution_quote_feed":market_status=="LIVE",
   "engine_1_market_intelligence":market_intelligence.get("status")=="READY",
-  # Screenshot/image analysis is diagnostic only and is not a readiness gate.
+  # Engine 2 native OHLC price action must be ready before a directional entry is eligible.
   "engine_2_candles":candle_history.get("status")=="READY",
   "engine_2_multi_timeframe_structure":engine2_multitimeframe.get("status")=="READY",
   "engine_2_price_action":engine2_price_action.get("status")=="READY",
   "engine_3_indicators":indicators.get("status")=="READY",
   "mt5_native_indicator_feed":native_indicators.get("status")=="READY",
+  "engine_3_mt5_numeric_parity":native_indicator_parity.get("status")=="PASS",
   "engine_4_daily_risk_guard":_daily_risk_guard_ready(bridge.get("daily_risk")),
-  "engine_4_decision":decision.get("status")=="READY",
+  "engine_4_decision":_engine4_cycle_operational(decision),
   "engine_5_communication_bridge":bridge.get("status")=="CONNECTED",
+  "engine_5_command_execution_gate":execution_ready,
  }
  overall="FULLY_OPERATIONAL" if all(readiness.values()) else "PARTIAL_OR_WAITING"
  engine_states={
   "engine_5_execution_quote_feed":market_status,"engine_1_market_intelligence":market_intelligence.get("status","NOT_STARTED"),
-  "engine_2_chart":engine2_price_action.get("status","NOT_STARTED"),
-  "engine_2_visual_chart":"OPTIONAL_DISABLED",
   "engine_2_price_action":engine2_price_action.get("status","NOT_STARTED"),
   "engine_3_indicators":indicators.get("status","NOT_STARTED"),
   "mt5_native_indicator_feed":native_indicators.get("status","NOT_STARTED"),
+  "engine_3_mt5_numeric_parity":native_indicator_parity.get("status","NOT_STARTED"),
   "engine_4_daily_risk_guard":("LOCKED" if (bridge.get("daily_risk") or {}).get("locked") is True else ((bridge.get("daily_risk") or {}).get("mode") or (bridge.get("daily_risk") or {}).get("status","NOT_STARTED"))),
   "engine_4_decision":decision.get("status","NOT_STARTED"),
   "engine_5_communication_bridge":bridge.get("status","NOT_STARTED"),
  }
  report={
   "project":"Mirsad BTC","version":"0.2.0","heartbeat_at_ms":now,
-  "cycle_started_at_ms":started,"market_age_seconds":round(age,2),
+  "cycle_started_at_ms":started,"market_age_seconds":round(age,2) if age is not None else None,
   "overall_status":overall,"readiness":readiness,"engines":engine_states,
   "daily_loss_limit_mode":("ENABLED" if DAILY_LOSS_LIMIT_ENABLED else "DISABLED_FOR_DEVELOPMENT"),
   "execution_controls":{
    "order_publish_enabled":bool(ENABLE_ORDER_PUBLISH),
+   "order_execution_ready":execution_ready,
    "daily_loss_limit_enabled":bool(DAILY_LOSS_LIMIT_ENABLED),
    "terminal_connected":bridge.get("terminal_connected"),
    "expert_execution_enabled":bridge.get("execution_enabled"),
+   "expert_execution_input_enabled":bridge.get("execution_input_enabled"),
+   "expert_trade_permissions_available":bridge.get("trade_permissions_available"),
    "expert_execution_telemetry":(
     "REPORTED_ENABLED" if bridge.get("execution_enabled") is True
     else "REPORTED_DISABLED" if bridge.get("execution_enabled") is False
@@ -235,48 +273,41 @@ def collect_once(market_engine:Any=None,bridge_engine:MT5BridgeEngine|None=None)
     "order_book":v.get("order_book",{}),
     "order_book_status":(v.get("order_book") or {}).get("status")} for n,v in market.get("venues",{}).items()}},
   "market_intelligence":market_intelligence,
-  "chart":chart,"chart_observer":chart_observer,"engine_2_candles":{
+  "engine_2_candles":{
    "status":candle_history.get("status"),"timeframes":candle_history.get("timeframes",{}),
    "closed_candles":candle_history.get("closed_candles",{}),"reason":candle_history.get("reason")},
   "engine_2_multi_timeframe_structure":engine2_multitimeframe,
   "engine_2_price_action":engine2_price_action,
-  "engine_2_visual_analysis":{
-   "status":"OPTIONAL_DISABLED",
-   "decision_eligible":False,
-   "scope":"DISABLED_BY_DESIGN",
-   "required_for_native_direction_analysis":False,
-  },
   "indicators":indicators,
   "mt5_native_indicators":native_indicators,
   "bridge":bridge,"mt5_deal_ledger":deal_ledger_persistence,
   "daily_risk":bridge.get("daily_risk"),"decision":decision,"command_publish":command_publish,
+  "decision_calibration_persistence":decision_calibration_persistence,
+  "decision_calibration_archive":decision_calibration_archive,
   "wiring":{"engine_5_execution_quote_feed_to_engine_4":True,"engine_1_standalone_report_to_engine_4":True,
    "engine_2_native_price_action_to_engine_4":True,
-   "engine_2_chart_images_to_engine_4":False,
    "engine_2_candles_to_engine_3":True,"engine_3_to_engine_4":True,
-   "engine_2_price_action_to_engine_4":"fail_closed_confluence_gate_not_an_independent_directional_vote",
-   "engine_2_price_action_requires_chart_image":False,
+   "engine_2_price_action_to_engine_4":"weighted_directional_vote_55_percent_after_native_ohlc_quality_gates",
    "mt5_native_indicator_buffers_to_engine_3_report":True,
    "engine_4_daily_risk_guard":"persistent_utc_day_equity_drawdown_gate",
    "engine_4_to_engine_5_command_envelope":"implemented_idempotent_user_authorized",
    "engine_5_to_engine_4_ack_and_positions":"read_from_common_files",
    "expert_connection":bridge.get("status","NOT_CONFIGURED")},
   "notices":[
-   "Engine 1: independent market intelligence from multi-publisher crypto news, macro calendar, Fear and Greed, global crypto market context and multi-venue perpetual funding/open-interest/long-short positioning. It does not read images, OHLC candles or technical indicators.",
    "Engine 1 directional context is an explainable evidence score with source coverage, not a calibrated probability or profit forecast. News sentiment is a keyword heuristic; headline risk is exposed for review.",
    "High-importance macro events create a bounded new-entry WAIT window; CLOSE and protective MODIFY management remain available.",
-   "Engine 2 price action: determines BTC direction from candle formations and confirmed peaks/troughs, BOS/CHOCH, liquidity-sweep candidates and multi-timeframe structure. It calculates no technical indicators and requires no chart image.",
-   "Engine 2 image capture and pixel extraction are not called in the live runtime. Native MT5 OHLC is the sole live input for candle and price-structure analysis.",
-   "Engine 2 price-action analysis uses only completed native MT5 OHLC bars at a common snapshot cutoff; stale frames, gaps and forming bars cannot create direction evidence. In Engine 4 it is a fail-closed confluence gate, not a separate directional vote.",
+   "Engine 2 determines BTC direction from completed OHLC candle formations, confirmed peaks/troughs, BOS/CHOCH, liquidity sweeps and multi-timeframe structure; its directional contribution is weighted at 55% in Engine 4.",
+      "Engine 2 price-action analysis uses only completed native MT5 OHLC bars at a common snapshot cutoff; its eligible directional score contributes the configured 55% Engine 4 baseline weight, subject to structure, freshness and multi-timeframe quality gates.",
    "Engine 3: EMA/RSI/ATR and multi-timeframe technical measures calculated exclusively from Engine 2 completed candles. Native MT5 CopyBuffer indicator values are separately attached for comparison and validation.",
-   "Native MT5 indicator snapshots are read independently from chart images every market-feed cycle; closed-bar and forming-bar values remain separate and are not decision-eligible until independently validated.",
+   "Native MT5 indicator snapshots are read independently every market-feed cycle; closed-bar and forming-bar values remain separate and are not decision-eligible until independently validated.",
    "Engine 4: central synthesis, decision, position monitoring and risk ownership. Engine 5: MT5 communication bridge.",
    "Engine 5 quote updates describe broker quote movement only; they are not represented as executed trades, taker flow or consolidated order-book depth.",
    "Engine 5 never classifies direction or computes risk; it supplies execution/account facts and transports MIR1.",
    "Engine 4 owns every decision, stop, target, volume calculation and position-management instruction.",
-   "Engine 4 daily loss cap is enabled by default at 2% (MIRSAD_DAILY_LOSS_LIMIT_ENABLED=1); new entries fail closed if account equity or a persistent UTC-day baseline is unavailable. Protective CLOSE and MODIFY management remain available.",
+   "Engine 4 daily loss cap is enabled by default at 20% of persistent UTC-day opening equity (MIRSAD_DAILY_LOSS_LIMIT_ENABLED=1, MIRSAD_MAX_DAILY_LOSS_FRACTION=0.20). If a trustworthy opening baseline is unavailable, new entries remain blocked; protective CLOSE/MODIFY management remains available.",
    "No market simulation or simulated order is used.",
-   "Chart-image extraction and pixel calibration are outside the live runtime and cannot affect Engine 2 readiness, score, direction or Engine 4 decisions.",
+   "Decision calibration samples archive Engine 1/2/3 scores, quality, effective weights, parity evidence and matching closed OHLC bars; this archive does not modify live weights or authorize orders.",
+   "Engine 2 direction and score come from validated native OHLC evidence, independently of the Engine 1 intelligence report and Engine 3 indicator calculations.",
    "Engine 5 owns the fresh MT5 broker quote feed and execution bridge. Engine 4 validates broker symbol, account server, quote age, spread and price agreement; Engine 1 independently collects public intelligence and does not consume MT5 or other-engine data.",
    "A broker quote must be fresh, close to the spot reference and within the configured spread threshold.",
    "The MQL5 expert accepts Engine 4 MIR1 BUY/SELL/CLOSE instructions through Engine 5; a command is sent only when Engine 4 marks it ready and the live bridge is connected."
@@ -294,9 +325,22 @@ def run_forever(interval:int=COLLECT_INTERVAL_SECONDS)->None:
    report=collect_once()
    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | overall={report['overall_status']} | engines={report['engines']} | BTC={report['market'].get('price')}")
   except Exception as exc:
+   traceback_text=traceback.format_exc(limit=20)
    print(f"Runtime cycle error: {type(exc).__name__}: {exc}")
-   write_json_atomic(STATUS_PATH,{"project":"Mirsad BTC","heartbeat_at_ms":int(time.time()*1000),
-    "overall_status":"ERROR","engines":{"runtime":"ERROR"},"runtime_error":f"{type(exc).__name__}: {exc}"})
+   print(traceback_text)
+   error_log=None
+   try:
+    error_log=str(_append_runtime_error(exc,traceback_text=traceback_text))
+   except Exception as log_error:
+    print(f"Runtime error log write failed: {type(log_error).__name__}: {log_error}")
+   try:
+    write_json_atomic(STATUS_PATH,{"project":"Mirsad BTC","heartbeat_at_ms":int(time.time()*1000),
+     "overall_status":"ERROR","engines":{"runtime":"ERROR"},
+     "runtime_error":f"{type(exc).__name__}: {str(exc)[:800]}",
+     "runtime_error_log":error_log})
+   except OSError as status_error:
+    # A brief Windows lock on the status file must not terminate the retry loop.
+    print(f"Runtime status publish failed: {type(status_error).__name__}: {status_error}")
   time.sleep(max(5,int(interval)))
 
 def main()->None:
@@ -310,3 +354,4 @@ def main()->None:
    "decision":report["decision"].get("action"),"command_ready":report["decision"].get("command_ready")})
  else: run_forever(args.interval)
 if __name__=="__main__": main()
+
