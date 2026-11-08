@@ -3,15 +3,22 @@ from __future__ import annotations
 import math
 from typing import Any
 
-TIMEFRAME_WEIGHTS = {"1m": 1.0, "5m": 2.0, "15m": 3.0, "1h": 4.0, "4h": 5.0, "1d": 5.0}
+TIMEFRAME_WEIGHTS = {"1m": 4.0, "5m": 8.0, "15m": 18.0, "1h": 25.0, "4h": 30.0, "1d": 15.0}
 REQUIRED_TIMEFRAMES = ("1m", "5m", "15m")
 CORE_INDICATORS = ("ema20", "ema50", "rsi14", "atr14")
 INDICATOR_SIGNAL_GROUP_WEIGHTS = {
-    "trend": 0.25,
+    "trend": 0.30,
     "momentum": 0.30,
-    "directional_strength": 0.15,
-    "oscillator": 0.15,
-    "volume_flow": 0.15,
+    "directional_strength": 0.20,
+    "oscillator": 0.10,
+    "volume_flow": 0.10,
+}
+INDICATOR_SIGNAL_FEATURE_WEIGHTS = {
+    "trend": {"ema_structure": 0.70, "bollinger_position": 0.30},
+    "momentum": {"rsi14": 0.30, "macd_family": 0.40, "momentum14": 0.30},
+    "directional_strength": {"adx_di": 1.00},
+    "oscillator": {"stochastic_family": 0.40, "cci20": 0.30, "wpr14": 0.30},
+    "volume_flow": {"mfi14": 0.55, "obv_flow": 0.45},
 }
 MIN_INDICATOR_SIGNAL_QUALITY = 0.60
 SIGNAL_VOLUME_BASIS = (
@@ -181,11 +188,22 @@ def _adx(candles: list[dict[str, Any]], period: int = 14) -> tuple[float | None,
         minus_dm: list[float] = []
         true_ranges: list[float] = []
         for previous, current in zip(candles[:-1], candles[1:]):
-            up = float(current["high"]) - float(previous["high"])
-            down = float(previous["low"]) - float(current["low"])
+            previous_high = float(previous["high"])
+            previous_low = float(previous["low"])
+            high = float(current["high"])
+            low = float(current["low"])
+            previous_close = float(previous["close"])
+            if (
+                not _finite_values([previous_high, previous_low, high, low, previous_close])
+                or min(previous_high, previous_low, high, low, previous_close) <= 0
+                or previous_high < previous_low
+                or high < low
+            ):
+                return None, None, None
+            up = high - previous_high
+            down = previous_low - low
             plus_dm.append(up if up > down and up > 0 else 0.0)
             minus_dm.append(down if down > up and down > 0 else 0.0)
-            high, low, previous_close = float(current["high"]), float(current["low"]), float(previous["close"])
             true_ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
         if not _finite_values(plus_dm + minus_dm + true_ranges) or len(true_ranges) < period * 2 - 1:
             return None, None, None
@@ -475,20 +493,42 @@ def _timeframe_indicator_signal(
     mfi_score = _clamp_signal((float(values["mfi14"]) - 50.0) / 25.0) if values.get("mfi14") is not None else None
     obv_score = _obv_flow_score(candles)
 
+    # MACD and OsMA are algebraically related; Stochastic %K and %D
+    # are two smoothed views of the same oscillator. Treat each pair as one
+    # family vote so correlated outputs cannot double-count inside Engine 3.
+    def family_mean(values: list[float | None]) -> float | None:
+        valid = [
+            float(value) for value in values
+            if value is not None and math.isfinite(float(value))
+        ]
+        return sum(valid) / len(valid) if valid else None
+
+    macd_family_score = family_mean([macd_score, osma_score])
+    stochastic_family_score = family_mean([stochastic_k_score, stochastic_d_score])
     features = {
-        "trend": [trend_direction, bb_score],
-        "momentum": [rsi_score, macd_score, osma_score, momentum_score],
-        "directional_strength": [dmi_score],
-        "oscillator": [stochastic_k_score, stochastic_d_score, cci_score, wpr_score],
-        "volume_flow": [mfi_score, obv_score],
+        "trend": {"ema_structure": trend_direction, "bollinger_position": bb_score},
+        "momentum": {"rsi14": rsi_score, "macd_family": macd_family_score, "momentum14": momentum_score},
+        "directional_strength": {"adx_di": dmi_score},
+        "oscillator": {"stochastic_family": stochastic_family_score, "cci20": cci_score, "wpr14": wpr_score},
+        "volume_flow": {"mfi14": mfi_score, "obv_flow": obv_score},
     }
     groups: dict[str, dict[str, Any]] = {}
     effective_total = 0.0
     weighted_score = 0.0
     for name, expected_values in features.items():
-        valid = [float(value) for value in expected_values if value is not None and math.isfinite(float(value))]
-        coverage = len(valid) / len(expected_values) if expected_values else 0.0
-        group_score = sum(valid) / len(valid) if valid else None
+        configured_feature_weights = INDICATOR_SIGNAL_FEATURE_WEIGHTS[name]
+        if set(expected_values) != set(configured_feature_weights):
+            raise ValueError(f"Indicator feature-weight contract mismatch for {name}.")
+        valid = [
+            (feature, float(value), configured_feature_weights[feature])
+            for feature, value in expected_values.items()
+            if value is not None and math.isfinite(float(value))
+        ]
+        coverage = sum(weight for _, _, weight in valid)
+        group_score = (
+            sum(value * weight for _, value, weight in valid) / coverage
+            if coverage > 0.0 else None
+        )
         base_weight = INDICATOR_SIGNAL_GROUP_WEIGHTS[name]
         effective_weight = base_weight * coverage
         if group_score is not None:
@@ -501,6 +541,10 @@ def _timeframe_indicator_signal(
             "expected_features": len(expected_values),
             "base_weight": base_weight,
             "effective_weight": round(effective_weight, 6),
+            "configured_feature_weights": dict(configured_feature_weights),
+            "applied_feature_weights": {
+                feature: round(weight / coverage, 8) for feature, _, weight in valid
+            } if coverage > 0.0 else {},
         }
     if effective_total <= 0:
         return {
@@ -532,6 +576,10 @@ class IndicatorsEngine:
                 "cci20", "mfi14", "momentum14", "wpr14", "obv", "osma",
             ],
             "signal_group_weights": dict(INDICATOR_SIGNAL_GROUP_WEIGHTS),
+            "signal_feature_weights": {
+                name: dict(weights) for name, weights in INDICATOR_SIGNAL_FEATURE_WEIGHTS.items()
+            },
+            "timeframe_weights": dict(TIMEFRAME_WEIGHTS),
             "signal_volume_basis": SIGNAL_VOLUME_BASIS,
         }
         if not isinstance(chart_candles, dict) or chart_candles.get("status") != "READY":
@@ -662,6 +710,203 @@ class IndicatorsEngine:
         }
 
 
+
+PARITY_TIMEFRAMES = tuple(TIMEFRAME_WEIGHTS)
+PARITY_MIN_CLOSED_BARS = 500
+PARITY_TOLERANCES = {
+    "ema20": 0.10, "ema50": 0.10, "rsi14": 0.35, "atr14": 0.50,
+    "macd_main": 0.10, "macd_signal": 0.10, "osma": 0.10,
+    "bollinger_middle": 0.10, "bollinger_upper": 0.10, "bollinger_lower": 0.10,
+    "stochastic_k": 0.75, "stochastic_d": 0.75,
+    "adx14": 1.00, "plus_di14": 1.00, "minus_di14": 1.00,
+    "cci20": 3.00, "mfi14": 1.00, "momentum14": 0.20, "wpr14": 1.00,
+    "obv_delta": 0.01,
+}
+PARITY_INDICATORS = tuple(name for name in PARITY_TOLERANCES if name != "obv_delta")
+
+
+def validate_native_indicator_parity(
+    candle_history: dict[str, Any],
+    native_indicators: dict[str, Any],
+) -> dict[str, Any]:
+    """Compare Engine 3's closed-OHLC calculations with MT5 CopyBuffer values.
+
+    The check is intentionally performed against the same Engine 2 bars and
+    matching closed/forming bar timestamps. It is a validation gate, not a
+    directional signal.
+    """
+    failures: list[str] = []
+    frames_out: dict[str, Any] = {}
+    if not isinstance(candle_history, dict) or candle_history.get("status") != "READY":
+        failures.append("Engine 2 candle history is not READY.")
+    if not isinstance(native_indicators, dict) or native_indicators.get("status") != "READY":
+        failures.append("Native MT5 CopyBuffer feed is not READY.")
+
+    if isinstance(candle_history, dict) and isinstance(native_indicators, dict):
+        for field in ("symbol", "broker_symbol", "account_server"):
+            left = str(candle_history.get(field, "")).strip()
+            right = str(native_indicators.get(field, "")).strip()
+            if not left or not right or left.casefold() != right.casefold():
+                failures.append(f"Engine 2 and native indicators {field} identity is missing or different.")
+
+    candle_sets = candle_history.get("candles_by_tf") if isinstance(candle_history, dict) else None
+    native_frames = native_indicators.get("timeframes") if isinstance(native_indicators, dict) else None
+    if not isinstance(candle_sets, dict):
+        failures.append("Engine 2 candle timeframe map is missing.")
+        candle_sets = {}
+    if not isinstance(native_frames, dict):
+        failures.append("Native MT5 indicator timeframe map is missing.")
+        native_frames = {}
+
+    def finite(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return number if math.isfinite(number) else None
+
+    passed_metrics = 0
+    total_metrics = 0
+    for timeframe in PARITY_TIMEFRAMES:
+        bars = candle_sets.get(timeframe)
+        native_frame = native_frames.get(timeframe)
+        frame_failures: list[str] = []
+        metrics: dict[str, Any] = {}
+        if not isinstance(bars, list) or not isinstance(native_frame, dict):
+            frame_failures.append("Engine 2 bars or native MT5 frame is missing.")
+            frames_out[timeframe] = {
+                "status": "FAIL", "closed_bars": 0, "metrics": {}, "failures": frame_failures,
+            }
+            failures.extend(f"{timeframe}: {item}" for item in frame_failures)
+            continue
+
+        closed_bars = [
+            row for row in bars if isinstance(row, dict) and row.get("closed") is True
+        ]
+        if len(closed_bars) < PARITY_MIN_CLOSED_BARS:
+            frame_failures.append(
+                f"Only {len(closed_bars)} closed bars are available; "
+                f"at least {PARITY_MIN_CLOSED_BARS} are required."
+            )
+
+        expected_closed = expected_forming = native_closed = native_forming = 0
+        try:
+            expected_closed = int(closed_bars[-1]["open_time_ms"]) if closed_bars else 0
+            expected_forming = int(bars[-1]["open_time_ms"]) if bars else 0
+            native_closed = int(native_frame.get("closed_bar_time_utc_ms", 0) or 0)
+            native_forming = int(native_frame.get("forming_bar_time_utc_ms", 0) or 0)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            frame_failures.append("Closed/forming bar timestamps are invalid.")
+        if expected_closed <= 0 or expected_closed != native_closed:
+            frame_failures.append(
+                f"Closed-bar timestamp mismatch: Engine2={expected_closed}, MT5={native_closed}."
+            )
+        if expected_forming <= 0 or expected_forming != native_forming:
+            frame_failures.append(
+                f"Forming-bar timestamp mismatch: Engine2={expected_forming}, MT5={native_forming}."
+            )
+        if not bars or not isinstance(bars[-1], dict) or bars[-1].get("closed") is not False:
+            frame_failures.append("Engine 2 history must end with exactly one forming candle.")
+
+        calculated = _calculate_timeframe_indicators(bars)
+        native_values = native_frame.get("values")
+        if not isinstance(native_values, dict):
+            native_values = {}
+        for name in PARITY_INDICATORS:
+            total_metrics += 1
+            local_value = finite(calculated.get(name))
+            native_item = native_values.get(name)
+            native_value = (
+                finite(native_item.get("closed"))
+                if isinstance(native_item, dict) and native_item.get("status") == "READY"
+                else None
+            )
+            tolerance = PARITY_TOLERANCES[name]
+            if local_value is None or native_value is None:
+                metrics[name] = {
+                    "status": "MISSING", "engine3": local_value,
+                    "mt5": native_value, "tolerance": tolerance,
+                }
+                frame_failures.append(f"{name}: Engine 3 or MT5 closed-bar value is unavailable.")
+                continue
+            error = abs(local_value - native_value)
+            passed = error <= tolerance
+            metrics[name] = {
+                "status": "PASS" if passed else "FAIL",
+                "engine3": local_value, "mt5": native_value,
+                "absolute_error": error, "tolerance": tolerance,
+            }
+            if passed:
+                passed_metrics += 1
+            else:
+                frame_failures.append(
+                    f"{name}: absolute error {error:.8g} exceeds tolerance {tolerance}."
+                )
+
+        total_metrics += 1
+        obv_item = native_values.get("obv")
+        native_obv_delta = None
+        if isinstance(obv_item, dict) and obv_item.get("status") == "READY":
+            previous = finite(obv_item.get("previous_closed"))
+            latest = finite(obv_item.get("closed"))
+            if previous is not None and latest is not None:
+                native_obv_delta = latest - previous
+        local_obv_delta = None
+        if len(closed_bars) >= 2:
+            previous_bar, current_bar = closed_bars[-2], closed_bars[-1]
+            close_before = finite(previous_bar.get("close"))
+            close_now = finite(current_bar.get("close"))
+            volume = finite(current_bar.get("volume", current_bar.get("tick_volume")))
+            if close_before is not None and close_now is not None and volume is not None and volume >= 0:
+                local_obv_delta = volume if close_now > close_before else (
+                    -volume if close_now < close_before else 0.0
+                )
+        if native_obv_delta is None or local_obv_delta is None:
+            metrics["obv_delta"] = {
+                "status": "MISSING", "engine3": local_obv_delta,
+                "mt5": native_obv_delta, "tolerance": PARITY_TOLERANCES["obv_delta"],
+            }
+            frame_failures.append("OBV delta: previous-closed MT5 value or OHLC tick volume is unavailable.")
+        else:
+            error = abs(local_obv_delta - native_obv_delta)
+            tolerance = PARITY_TOLERANCES["obv_delta"]
+            passed = error <= tolerance
+            metrics["obv_delta"] = {
+                "status": "PASS" if passed else "FAIL",
+                "engine3": local_obv_delta, "mt5": native_obv_delta,
+                "absolute_error": error, "tolerance": tolerance,
+            }
+            if passed:
+                passed_metrics += 1
+            else:
+                frame_failures.append(
+                    f"OBV delta: absolute error {error:.8g} exceeds tolerance {tolerance}."
+                )
+
+        frames_out[timeframe] = {
+            "status": "PASS" if not frame_failures else "FAIL",
+            "closed_bars": len(closed_bars),
+            "closed_bar_time_utc_ms": expected_closed or None,
+            "metrics": metrics,
+            "failures": frame_failures,
+        }
+        failures.extend(f"{timeframe}: {item}" for item in frame_failures)
+
+    return {
+        "schema": "MIR-ENGINE3-MT5-INDICATOR-PARITY-1",
+        "status": "PASS" if not failures and total_metrics == 120 and passed_metrics == 120 else "FAIL",
+        "method": "same closed Engine2 OHLC bars versus native MT5 CopyBuffer values",
+        "timeframes": frames_out,
+        "passed_metrics": passed_metrics,
+        "total_metrics": total_metrics,
+        "failures": failures,
+        "decision_eligible": False,
+        "minimum_closed_bars_per_timeframe": PARITY_MIN_CLOSED_BARS,
+        "tolerances": dict(PARITY_TOLERANCES),
+        "note": "Parity validates calculation consistency only; it is not a trade signal or profitability claim.",
+    }
+
+
 __all__ = [
     "TIMEFRAME_WEIGHTS",
     "REQUIRED_TIMEFRAMES",
@@ -671,3 +916,4 @@ __all__ = [
     "SIGNAL_VOLUME_BASIS",
     "IndicatorsEngine",
 ]
+
