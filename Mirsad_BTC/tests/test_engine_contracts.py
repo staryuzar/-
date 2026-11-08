@@ -13,8 +13,6 @@ from mirsad.engines.decision import (
     ENGINE1_DECISION_WEIGHT,
     ENGINE2_DECISION_WEIGHT,
     ENGINE3_DECISION_WEIGHT,
-    ENGINE2_NATIVE_OHLC_WEIGHT,
-    ENGINE2_VISUAL_WEIGHT,
     DecisionEngine,
     _market_intelligence_signal,
     _matching_positions,
@@ -57,14 +55,15 @@ def make_engine2_price_action(direction: str = "BULLISH", score: float = 0.80) -
         "schema": "MIR-ENGINE2-PRICE-ACTION-1",
         "source": "MT5_COPYRATES_CLOSED_BARS",
         "status": "READY",
-        "decision_eligible": True,
         "direction": direction,
         "structure_score": score if direction == "BULLISH" else -abs(score),
         "summary": {
             "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"],
             "timeframe_alignment": alignment,
             "timeframe_weight_coverage": 0.90,
+            "directional_frame_coverage": 1.0,
             "directional_structure_agreement": 0.80,
+            "directional_evidence_coverage": 1.0,
             "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
         },
     }
@@ -123,6 +122,7 @@ class RiskSizingTests(unittest.TestCase):
             volume_min=0.1,
             volume_step=0.05,
             volume_max=2.0,
+            commission_per_lot=0.0,
             risk_fraction=0.001,
         )
         self.assertEqual(result["status"], "READY")
@@ -139,6 +139,7 @@ class RiskSizingTests(unittest.TestCase):
             volume_min=0.1,
             volume_step=0.1,
             volume_max=10,
+            commission_per_lot=0.0,
             risk_fraction=0.001,
         )
         self.assertEqual(result["status"], "BLOCKED")
@@ -153,22 +154,70 @@ class RiskSizingTests(unittest.TestCase):
             volume_min=0.1,
             volume_step=0.1,
             volume_max=10,
+            commission_per_lot=0.0,
+        )
+        self.assertEqual(result["status"], "UNAVAILABLE")
+
+
+    def test_headway_btc_commission_is_included_in_position_sizing(self) -> None:
+        # Observed MT5 deal history: 0.06 lot incurred USD 1.50 commission
+        # (USD 25 per lot). A 39.48 USD stop distance then sizes to 0.03 lot,
+        # not 0.06, so stop loss plus entry commission stays within 0.5% equity.
+        result = calculate_volume(
+            equity=501.81,
+            entry=75777.79,
+            stop_loss=75817.27,
+            tick_size=0.01,
+            tick_value_loss=0.01,
+            volume_min=0.01,
+            volume_step=0.01,
+            volume_max=100.0,
+            commission_per_lot=25.0,
+            risk_fraction=0.005,
+        )
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["volume"], 0.03)
+        self.assertAlmostEqual(result["estimated_stop_loss"], 1.1844, places=4)
+        self.assertAlmostEqual(result["estimated_commission"], 0.75, places=4)
+        self.assertAlmostEqual(result["estimated_loss"], 1.9344, places=4)
+        self.assertLessEqual(result["estimated_loss"], result["risk_cash"])
+
+    def test_minimum_lot_is_blocked_when_commission_pushes_risk_over_budget(self) -> None:
+        result = calculate_volume(
+            equity=100.0,
+            entry=100.0,
+            stop_loss=90.0,
+            tick_size=1.0,
+            tick_value_loss=1.0,
+            volume_min=0.1,
+            volume_step=0.1,
+            volume_max=10.0,
+            commission_per_lot=2.0,
+            risk_fraction=0.001,
+        )
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertIn("commission", result["reason"].lower())
+        self.assertGreater(result["estimated_loss_at_minimum"], result["risk_cash"])
+
+    def test_negative_commission_is_rejected(self) -> None:
+        result = calculate_volume(
+            equity=1000.0, entry=100.0, stop_loss=90.0,
+            tick_size=1.0, tick_value_loss=1.0,
+            volume_min=0.01, volume_step=0.01, volume_max=10.0,
+            commission_per_lot=-1.0,
         )
         self.assertEqual(result["status"], "UNAVAILABLE")
 
 
 class WeightedDecisionTests(unittest.TestCase):
-    def test_engine_decision_weights_are_20_50_30_and_total_one_hundred_percent(self) -> None:
+    def test_engine_decision_weights_are_20_55_25_and_total_one_hundred_percent(self) -> None:
         self.assertAlmostEqual(ENGINE1_DECISION_WEIGHT, 0.20)
-        self.assertAlmostEqual(ENGINE2_DECISION_WEIGHT, 0.50)
-        self.assertAlmostEqual(ENGINE3_DECISION_WEIGHT, 0.30)
+        self.assertAlmostEqual(ENGINE2_DECISION_WEIGHT, 0.55)
+        self.assertAlmostEqual(ENGINE3_DECISION_WEIGHT, 0.25)
         self.assertAlmostEqual(
             ENGINE1_DECISION_WEIGHT + ENGINE2_DECISION_WEIGHT + ENGINE3_DECISION_WEIGHT,
             1.0,
         )
-        self.assertAlmostEqual(ENGINE2_NATIVE_OHLC_WEIGHT, 1.0)
-        self.assertAlmostEqual(ENGINE2_VISUAL_WEIGHT, 0.0)
-        self.assertAlmostEqual(ENGINE2_NATIVE_OHLC_WEIGHT + ENGINE2_VISUAL_WEIGHT, 1.0)
 
     def test_all_three_engines_are_combined_using_the_configured_baseline(self) -> None:
         score, weights = _weighted_three_engine_score(
@@ -179,13 +228,13 @@ class WeightedDecisionTests(unittest.TestCase):
             engine2_quality=1.0,
             engine3_quality=1.0,
         )
-        self.assertAlmostEqual(score, 0.24)
+        self.assertAlmostEqual(score, 0.29)
         self.assertAlmostEqual(weights["engine_1_market_intelligence"], 0.20)
-        self.assertAlmostEqual(weights["engine_2_price_action"], 0.50)
-        self.assertAlmostEqual(weights["engine_3_indicators"], 0.30)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.55)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.25)
         self.assertAlmostEqual(sum(weights.values()), 1.0)
 
-    def test_missing_engine1_evidence_is_redistributed_between_engines2_and3(self) -> None:
+    def test_missing_engine1_evidence_is_not_redistributed_to_engines2_and3(self) -> None:
         score, weights = _weighted_three_engine_score(
             engine1_score=None,
             engine2_score=0.80,
@@ -194,11 +243,11 @@ class WeightedDecisionTests(unittest.TestCase):
             engine2_quality=1.0,
             engine3_quality=1.0,
         )
-        self.assertAlmostEqual(score, 0.425)
+        self.assertAlmostEqual(score, 0.39)
         self.assertEqual(weights["engine_1_market_intelligence"], 0.0)
-        self.assertAlmostEqual(weights["engine_2_price_action"], 0.625)
-        self.assertAlmostEqual(weights["engine_3_indicators"], 0.375)
-        self.assertAlmostEqual(sum(weights.values()), 1.0)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.55)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.25)
+        self.assertAlmostEqual(sum(weights.values()), 0.80)
 
     def test_low_quality_engine1_evidence_receives_less_than_its_baseline_weight(self) -> None:
         score, weights = _weighted_three_engine_score(
@@ -209,12 +258,11 @@ class WeightedDecisionTests(unittest.TestCase):
             engine2_quality=1.0,
             engine3_quality=1.0,
         )
-        self.assertAlmostEqual(weights["engine_1_market_intelligence"], (0.20 * 0.50) / 0.90, places=6)
-        self.assertAlmostEqual(weights["engine_2_price_action"], 0.50 / 0.90)
-        self.assertAlmostEqual(weights["engine_3_indicators"], 0.30 / 0.90)
-        self.assertAlmostEqual(score, 0.90 * weights["engine_1_market_intelligence"]
-                               + 0.50 * weights["engine_2_price_action"]
-                               + 0.10 * weights["engine_3_indicators"])
+        self.assertAlmostEqual(weights["engine_1_market_intelligence"], 0.10)
+        self.assertAlmostEqual(weights["engine_2_price_action"], 0.55)
+        self.assertAlmostEqual(weights["engine_3_indicators"], 0.25)
+        self.assertAlmostEqual(score, 0.90 * 0.10 + 0.50 * 0.55 + 0.10 * 0.25)
+        self.assertAlmostEqual(sum(weights.values()), 0.90)
 
     def test_engine1_uses_only_its_standalone_report_and_never_quote_pulse(self) -> None:
         report = {
@@ -256,12 +304,10 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "venues": {"MT5 Broker": {"status": "LIVE", "price": 100.0}},
         }
 
-    def test_image_only_candidate_is_rejected_without_native_engine2_price_action(self) -> None:
+    def test_directional_candidate_is_rejected_without_native_engine2_price_action(self) -> None:
         result = DecisionEngine().analyze(
             self._market("down"),
-            {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-             "analysis_score": 0.95, "analysis_confidence": 0.90, "image": "chart.png",
-             "candle_history": make_engine2_candle_history("down")},
+            {"status": "READY", "candle_history": make_engine2_candle_history("down")},
             {},
             market_intelligence={
                 "status": "READY", "direction": "BEARISH", "directional_score": -0.75,
@@ -280,14 +326,20 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         configured = result["decision_weights"]["configured"]
         self.assertEqual(configured, {
             "engine_1_market_intelligence": 0.20,
-            "engine_2_price_action": 0.50,
-            "engine_3_indicators": 0.30,
+            "engine_2_price_action": 0.55,
+            "engine_3_indicators": 0.25,
         })
-        self.assertAlmostEqual(sum(result["decision_weights"][key] for key in configured), 1.0)
+        self.assertAlmostEqual(
+            sum(result["decision_weights"][key] for key in configured),
+            result["decision_scores"]["effective_weight_coverage"],
+        )
+        self.assertAlmostEqual(result["decision_scores"]["effective_weight_coverage"], 0.41)
         self.assertAlmostEqual(result["decision_scores"]["market_score"], -0.75)
         self.assertIsNone(result["decision_scores"]["engine_2_score"])
         self.assertEqual(result["engine_2_score_source"], "NATIVE_OHLC_NOT_PROVIDED")
         self.assertEqual(result["chart_gate"], "WAITING_FOR_ENGINE_2_NATIVE_OHLC")
+        self.assertNotIn("re-normalizes", result["reason"].lower())
+        self.assertIn("without redistributing missing weight", result["reason"].lower())
 
     def test_high_impact_macro_window_pauses_new_entries_but_not_position_close(self) -> None:
         now = int(time.time() * 1000)
@@ -302,17 +354,14 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
                 "active_high_impact_events": [{"name": "US CPI", "minutes_to_event": 5}],
             },
         }
-        chart = {
-            "status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-            "analysis_score": 0.95, "analysis_confidence": 0.90, "image": "chart.png",
-            "candle_history": make_engine2_candle_history("up"),
-        }
+        chart = {"status": "READY", "candle_history": make_engine2_candle_history("up")}
         indicators = {
             "status": "READY", "engine": "engine_3_indicators",
             "source": "engine_2_chart_candles",
             "trend_score": 0.70,
             "signal_score": 0.62,
             "signal_quality": 1.0,
+            "signal_timeframe_weight_coverage": 1.0,
             "last_closed_candle_time_ms": now - 60_000,
             "values": {
                 "ema20_1m": 101.0, "ema50_1m": 100.0, "rsi14_1m": 60.0,
@@ -389,24 +438,20 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
         self.assertTrue(close_unavailable_calendar["command_ready"])
         self.assertEqual(close_unavailable_calendar["macro_event_gate"]["status"], "UNKNOWN")
 
-    def test_market_cannot_create_direction_when_chart_is_weak(self) -> None:
+    def test_market_cannot_create_direction_without_engine2_price_action(self) -> None:
         result = DecisionEngine().analyze(
             self._market("up"),
-            {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-             "analysis_score": 0.10, "analysis_confidence": 0.90, "image": "chart.png",
-             "candle_history": make_engine2_candle_history("up")},
+            {"status": "READY", "candle_history": make_engine2_candle_history("up")},
             {},
         )
         self.assertEqual(result["candidate_action"], "WAIT")
         self.assertIsNone(result["decision_scores"]["engine_2_score"])
         self.assertEqual(result["chart_gate"], "WAITING_FOR_ENGINE_2_NATIVE_OHLC")
 
-    def test_low_confidence_chart_never_creates_direction_even_with_extreme_market(self) -> None:
+    def test_missing_engine2_vote_never_creates_direction_even_with_extreme_market(self) -> None:
         result = DecisionEngine().analyze(
             self._market("up"),
-            {"status": "READY", "decision_eligible": True, "visual_bias": "BULLISH",
-             "analysis_score": 1.0, "analysis_confidence": 0.30, "image": "chart.png",
-             "candle_history": make_engine2_candle_history("up")},
+            {"status": "READY", "candle_history": make_engine2_candle_history("up")},
             {},
         )
         self.assertEqual(result["candidate_action"], "WAIT")
@@ -427,12 +472,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
 
     def _chart(self) -> dict:
         history = make_engine2_candle_history("up", 90)
-        return {
-            "status": "READY", "decision_eligible": True,
-            "visual_bias": "BULLISH", "analysis_score": 0.95,
-            "analysis_confidence": 0.90, "image": "contract-fixture.png",
-            "candle_history": history,
-        }
+        return {"status": "READY", "candle_history": history}
 
     def test_engine3_consumes_engine2_history_and_engine4_accepts_valid_contract(self) -> None:
         chart = self._chart()
@@ -451,6 +491,36 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertFalse(result["command_ready"])
 
 
+    def test_engine4_requires_live_native_indicator_parity_before_using_engine3_vote(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["mt5_native"] = {"status": "READY"}
+        indicators["mt5_native_parity"] = {
+            "status": "FAIL", "passed_metrics": 119, "total_metrics": 120,
+            "failures": ["5m: rsi14 mismatch"],
+        }
+
+        blocked = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=make_engine2_price_action(),
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(blocked["status"], "WAITING_FOR_ENGINE_3_PARITY")
+        self.assertEqual(blocked["action"], "WAIT")
+        self.assertFalse(blocked["command_ready"])
+        self.assertEqual(blocked["engine_3_native_parity_status"], "FAIL")
+
+        indicators["mt5_native_parity"] = {
+            "status": "PASS", "passed_metrics": 120, "total_metrics": 120, "failures": []
+        }
+        accepted = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=make_engine2_price_action(),
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(accepted["candidate_action"], "BUY")
+        self.assertEqual(accepted["status"], "READY")
+
     def test_engine4_uses_grouped_indicator_signal_instead_of_ema_trend_score(self) -> None:
         chart = self._chart()
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
@@ -464,6 +534,23 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertAlmostEqual(result["decision_scores"]["engine_3_indicators"], 0.23)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_ema_trend_score"], -0.80)
         self.assertAlmostEqual(result["decision_scores"]["engine_3_quality"], 0.80)
+
+    def test_engine4_reduces_engine3_weight_when_higher_timeframe_coverage_is_missing(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["signal_quality"] = 1.0
+        indicators["signal_timeframe_weight_coverage"] = 0.60
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=make_engine2_price_action(),
+        )
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_core_quality"], 1.0)
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_timeframe_weight_coverage"], 0.60)
+        self.assertAlmostEqual(result["decision_scores"]["engine_3_quality"], 0.60)
+        self.assertAlmostEqual(
+            result["decision_weights"]["engine_3_indicators"],
+            0.25 * 0.60,
+        )
 
     def test_engine4_rejects_missing_or_low_quality_composite_indicator_signal(self) -> None:
         chart = self._chart()
@@ -501,7 +588,16 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             },
         }
 
-    def test_optional_chart_image_does_not_change_open_or_close_signal_ids(self) -> None:
+    def test_engine4_ready_decision_is_published_through_engine5_mir1(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        bridge = self._daily_risk_bridge(locked=False)
+        bridge.update({
+            "terminal_connected": True,
+            "execution_enabled": True,
+            "execution_input_enabled": True,
+            "trade_permissions_available": True,
+        })
         intelligence = {
             "status": "PARTIAL",
             "economic_calendar": {
@@ -510,41 +606,312 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "events": [],
             },
         }
-        chart_a = self._chart()
-        chart_a["image"] = "capture-a.png"
-        chart_b = {**chart_a, "image": "capture-b.png"}
-        indicators = IndicatorsEngine().analyze(chart_a["candle_history"])
-        price_action = make_engine2_price_action()
 
-        open_a = DecisionEngine().analyze(
-            self._market(), chart_a, self._daily_risk_bridge(locked=False),
-            indicators, engine2_price_action=price_action,
+        decision = DecisionEngine().analyze(
+            self._market(),
+            chart,
+            bridge,
+            indicators,
+            engine2_price_action=make_engine2_price_action(),
             market_intelligence=intelligence,
         )
-        open_b = DecisionEngine().analyze(
-            self._market(), chart_b, self._daily_risk_bridge(locked=False),
-            indicators, engine2_price_action=price_action,
+        self.assertEqual(decision["action"], "BUY")
+        self.assertTrue(decision["command_ready"])
+        self.assertEqual(decision["risk_plan"]["status"], "READY")
+
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                published = engine.publish_decision(decision, bridge)
+
+            self.assertEqual(published["status"], "PUBLISHED")
+            command_path = Path(temp) / "MirsadBTC" / "command.json"
+            self.assertTrue(command_path.is_file())
+            envelope = json.loads(command_path.read_text(encoding="utf-8"))
+            self.assertEqual(envelope["command_id"], decision["signal_id"])
+            self.assertEqual(envelope["action"], "BUY")
+            self.assertEqual(envelope["symbol"], "BTC")
+            self.assertEqual(envelope["market_symbol"], "BTCUSDT")
+            self.assertEqual(envelope["volume"], decision["risk_plan"]["volume"])
+            self.assertEqual(envelope["stop_loss"], decision["stop_loss"])
+            self.assertEqual(envelope["take_profit"], decision["take_profit"])
+            self.assertEqual(envelope["magic_number"], 26110201)
+
+    def test_full_engine1_to_engine5_open_ack_position_reconciliation(self) -> None:
+        """Exercise a complete simulated E1/E2/E3 -> E4 -> E5 command/ACK/reconciliation cycle."""
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["mt5_native"] = {"status": "READY"}
+        indicators["mt5_native_parity"] = {
+            "status": "PASS",
+            "passed_metrics": 120,
+            "total_metrics": 120,
+            "failures": [],
+        }
+        bridge = self._daily_risk_bridge(locked=False)
+        bridge.update({
+            "terminal_connected": True,
+            "execution_enabled": True,
+            "execution_input_enabled": True,
+            "trade_permissions_available": True,
+        })
+        intelligence = {
+            "status": "PARTIAL",
+            "economic_calendar": {
+                "status": "EMPTY",
+                "high_impact_window_active": False,
+                "events": [],
+            },
+        }
+
+        decision = DecisionEngine().analyze(
+            self._market(),
+            chart,
+            bridge,
+            indicators,
+            engine2_price_action=make_engine2_price_action(),
             market_intelligence=intelligence,
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(decision["status"], "READY")
+        self.assertEqual(decision["action"], "BUY")
+        self.assertTrue(decision["command_ready"])
+        self.assertEqual(decision["risk_plan"]["status"], "READY")
+        self.assertAlmostEqual(
+            sum(decision["decision_weights"]["configured"].values()), 1.0
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                published = engine.publish_decision(decision, bridge)
+            self.assertEqual(published["status"], "PUBLISHED")
+
+            root = Path(temp) / "MirsadBTC"
+            command_path = root / "command.json"
+            self.assertTrue(command_path.is_file())
+            command = json.loads(command_path.read_text(encoding="utf-8"))
+            self.assertEqual(command["schema"], "MIR1")
+            self.assertEqual(command["command_id"], decision["signal_id"])
+            self.assertEqual(command["action"], "BUY")
+            self.assertEqual(command["magic_number"], bridge["magic_number"])
+            self.assertEqual(command["position_snapshot_before"], [])
+
+            # Simulate the EA ACK and a later MT5 positions heartbeat. No broker
+            # connection or order is made; only the exact MIR1 filesystem contract
+            # consumed by Engine 5 is exercised in this temporary directory.
+            ack_at_ms = int(time.time() * 1000)
+            heartbeat_at_ms = ack_at_ms + 1000
+            position = {
+                "ticket": 987654,
+                "position_id": 987654,
+                "symbol": command["symbol"],
+                "type": 0,
+                "magic": command["magic_number"],
+                "volume": command["volume"],
+                "price_open": command["entry_reference"],
+                "stop_loss": command["stop_loss"],
+                "take_profit": command["take_profit"],
+                "profit": 0.0,
+            }
+            ack = {
+                "schema": "MIR1",
+                "command_id": command["command_id"],
+                "state": "FILLED",
+                "ack_at_ms": ack_at_ms,
+                "filled_volume": command["volume"],
+                "position_ticket": position["ticket"],
+                "message": "SIMULATED_ACCEPTANCE_ONLY",
+            }
+            status = {
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "execution_enabled": True,
+                "execution_input_enabled": True,
+                "trade_permissions_available": True,
+                "heartbeat_at_ms": heartbeat_at_ms,
+                "symbol": command["symbol"],
+                "market_symbol": command["market_symbol"],
+                "magic_number": command["magic_number"],
+                "account": {"equity": bridge["account"]["equity"], "currency": "USD"},
+                "quote": {
+                    "time_ms": heartbeat_at_ms,
+                    "bid": command["entry_reference"] - 0.1,
+                    "ask": command["entry_reference"],
+                    "tick_age_seconds": 1.0,
+                },
+                "symbol_spec": bridge["symbol_spec"],
+                "positions": [position],
+            }
+            (root / "ack.json").write_text(json.dumps(ack), encoding="utf-8")
+            (root / "positions.json").write_text(json.dumps([position]), encoding="utf-8")
+            (root / "status.json").write_text(json.dumps(status), encoding="utf-8")
+
+            with patch(
+                "mirsad.engines.mt5_bridge.time.time",
+                return_value=heartbeat_at_ms / 1000.0,
+            ):
+                inspected = engine.inspect()
+
+            self.assertEqual(inspected["status"], "CONNECTED")
+            self.assertTrue(inspected["positions_snapshot_valid"])
+            self.assertTrue(inspected["positions_file_valid"])
+            self.assertEqual(inspected["last_order_ack"]["state"], "FILLED")
+            self.assertEqual(
+                inspected["position_reconciliation"]["status"], "CONFIRMED"
+            )
+            self.assertEqual(
+                inspected["position_reconciliation"]["observed_volume_delta"],
+                command["volume"],
+            )
+
+    def test_full_engine1_to_engine5_sell_and_mixed_wait_no_publish(self) -> None:
+        """Verify bearish end-to-end publishing and mixed-structure fail-closed behavior."""
+        chart = {
+            "status": "READY",
+            "candle_history": make_engine2_candle_history("down", 90),
+        }
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators["mt5_native"] = {"status": "READY"}
+        indicators["mt5_native_parity"] = {
+            "status": "PASS",
+            "passed_metrics": 120,
+            "total_metrics": 120,
+            "failures": [],
+        }
+        bridge = self._daily_risk_bridge(locked=False)
+        bridge.update({
+            "terminal_connected": True,
+            "execution_enabled": True,
+            "execution_input_enabled": True,
+            "trade_permissions_available": True,
+        })
+        intelligence = {
+            "status": "PARTIAL",
+            "direction": "BEARISH",
+            "directional_score": -0.90,
+            "confidence": 0.95,
+            "evidence_coverage": 0.95,
+            "economic_calendar": {
+                "status": "EMPTY",
+                "high_impact_window_active": False,
+                "events": [],
+            },
+        }
+
+        decision = DecisionEngine().analyze(
+            self._market(),
+            chart,
+            bridge,
+            indicators,
+            engine2_price_action=make_engine2_price_action(
+                direction="BEARISH", score=-0.80
+            ),
+            market_intelligence=intelligence,
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(decision["status"], "READY")
+        self.assertEqual(decision["candidate_action"], "SELL")
+        self.assertEqual(decision["action"], "SELL")
+        self.assertTrue(decision["command_ready"])
+        self.assertLess(
+            decision["take_profit"],
+            decision["entry_reference"],
+        )
+        self.assertLess(
+            decision["entry_reference"],
+            decision["stop_loss"],
+        )
+        self.assertEqual(decision["risk_plan"]["status"], "READY")
+
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                published = engine.publish_decision(decision, bridge)
+            self.assertEqual(published["status"], "PUBLISHED")
+            command = json.loads(
+                (Path(temp) / "MirsadBTC" / "command.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(command["schema"], "MIR1")
+            self.assertEqual(command["action"], "SELL")
+            self.assertEqual(command["command_id"], decision["signal_id"])
+            self.assertEqual(command["magic_number"], bridge["magic_number"])
+
+        mixed_price_action = {
+            "engine": "engine_2_native_price_action",
+            "source": "MT5_COPYRATES_CLOSED_BARS",
+            "status": "READY",
+            "direction": "MIXED_TIMEFRAME_DIRECTIONS",
+            "structure_score": -0.08,
+            "summary": {
+                "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"],
+                "timeframe_alignment": "MIXED_TIMEFRAME_DIRECTIONS",
+                "timeframe_weight_coverage": 1.0,
+                "directional_frame_coverage": 0.50,
+                "directional_structure_agreement": 0.6667,
+                "directional_evidence_coverage": 0.95,
+                "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
+            },
+        }
+        wait = DecisionEngine().analyze(
+            self._market(),
+            chart,
+            bridge,
+            indicators,
+            engine2_price_action=mixed_price_action,
+            market_intelligence=intelligence,
+            require_mt5_native_parity=True,
+        )
+        self.assertEqual(wait["action"], "WAIT")
+        self.assertEqual(wait["candidate_action"], "WAIT")
+        self.assertFalse(wait["command_ready"])
+        self.assertEqual(wait["status"], "WAITING_FOR_ENGINE_2")
+
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                rejected = engine.publish_decision(wait, bridge)
+            self.assertEqual(rejected["status"], "REJECTED")
+            self.assertFalse(
+                (Path(temp) / "MirsadBTC" / "command.json").exists()
+            )
+
+    def test_market_snapshot_time_does_not_change_order_signal_identity(self) -> None:
+        intelligence = {
+            "status": "PARTIAL",
+            "economic_calendar": {"status": "EMPTY", "high_impact_window_active": False, "events": []},
+        }
+        engine2_data = self._chart()
+        indicators = IndicatorsEngine().analyze(engine2_data["candle_history"])
+        price_action = make_engine2_price_action()
+        market_a = self._market()
+        market_b = {**market_a, "captured_at_ms": market_a["captured_at_ms"] + 5000}
+        open_a = DecisionEngine().analyze(
+            market_a, engine2_data, self._daily_risk_bridge(locked=False),
+            indicators, engine2_price_action=price_action, market_intelligence=intelligence,
+        )
+        open_b = DecisionEngine().analyze(
+            market_b, engine2_data, self._daily_risk_bridge(locked=False),
+            indicators, engine2_price_action=price_action, market_intelligence=intelligence,
         )
         self.assertEqual(open_a["candidate_action"], "BUY")
         self.assertEqual(open_a["action"], "BUY")
         self.assertEqual(open_a["signal_id"], open_b["signal_id"])
-
         opposite_position = [{
             "ticket": 7654321, "symbol": "BTC", "type": 1,
             "magic": 26110201, "volume": 0.1,
         }]
         close_a = DecisionEngine().analyze(
-            self._market(), chart_a,
+            market_a, engine2_data,
             self._daily_risk_bridge(locked=False, positions=opposite_position),
-            indicators, engine2_price_action=price_action,
-            market_intelligence=intelligence,
+            indicators, engine2_price_action=price_action, market_intelligence=intelligence,
         )
         close_b = DecisionEngine().analyze(
-            self._market(), chart_b,
+            market_b, engine2_data,
             self._daily_risk_bridge(locked=False, positions=opposite_position),
-            indicators, engine2_price_action=price_action,
-            market_intelligence=intelligence,
+            indicators, engine2_price_action=price_action, market_intelligence=intelligence,
         )
         self.assertEqual(close_a["action"], "CLOSE")
         self.assertEqual(close_a["position_ticket"], 7654321)
@@ -644,10 +1011,59 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertFalse(result["command_ready"])
         self.assertEqual(result["daily_risk_gate"]["status"], "ACCOUNT_EQUITY_UNAVAILABLE")
 
-    def test_engine4_protective_stop_management_has_priority_over_visual_chart_gate(self) -> None:
+    def test_engine4_partial_take_profit_requires_complete_history_and_precedes_stop_update(self) -> None:
         chart = self._chart()
-        chart["status"] = "WAITING_FOR_IMAGE"
-        chart["decision_eligible"] = False
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        atr5 = float(indicators["values"]["atr14_5m"])
+        market = self._market()
+        bid = 100.0 + 1.8 * atr5
+        bridge = self._daily_risk_bridge(
+            locked=False,
+            positions=[{
+                "ticket": 123456, "position_id": 501, "symbol": "BTC", "type": 0,
+                "magic": 26110201, "volume": 0.10, "price_open": 100.0,
+                "stop_loss": 90.0, "take_profit": 130.0,
+            }],
+        )
+        bridge["quote"] = {
+            "bid": bid, "ask": bid + 0.1,
+            "time_ms": int(time.time() * 1000), "tick_age_seconds": 1.0,
+        }
+        bridge["position_management_history"] = {
+            "status": "READY",
+            "cycles": {"501": {
+                "state": "OPEN_FROM_CAPTURED_ENTRY", "direction": "LONG",
+                "entry_count": 1, "exit_count": 0, "reversal_count": 0,
+                "history_starts_with_entry": True,
+                "opened_volume": 0.10, "remaining_signed_volume": 0.10,
+            }},
+        }
+
+        result = DecisionEngine().analyze(market, chart, bridge, indicators)
+
+        self.assertEqual(result["action"], "CLOSE")
+        self.assertTrue(result["command_ready"])
+        self.assertEqual(result["position_ticket"], 123456)
+        self.assertEqual(result["risk_plan"]["purpose"], "one_time_partial_take_profit")
+        self.assertAlmostEqual(result["risk_plan"]["volume"], 0.05)
+        self.assertEqual(result["position_management"]["stage"], "PARTIAL_TAKE_PROFIT")
+        self.assertTrue(result["position_management"]["history_verified"])
+
+        # Once any exit is recorded, that position is never offered another
+        # partial take-profit; its remaining exposure returns to stop management.
+        bridge["positions"][0]["volume"] = 0.05
+        bridge["position_management_history"]["cycles"]["501"].update({
+            "exit_count": 1, "opened_volume": 0.10, "remaining_signed_volume": 0.05,
+        })
+        repeated = DecisionEngine().analyze(market, chart, bridge, indicators)
+        self.assertNotEqual(repeated["action"], "CLOSE")
+        self.assertFalse(
+            repeated.get("position_management", {}).get("stage") == "PARTIAL_TAKE_PROFIT"
+        )
+
+    def test_engine4_protective_stop_management_precedes_directional_entry_gates(self) -> None:
+        chart = self._chart()
+        chart["status"] = "NOT_READY"
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         now = int(time.time() * 1000)
         market = self._market()
@@ -688,14 +1104,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["action"], "WAIT")
         self.assertEqual(result["engine_3_indicator_status"], "INVALID_PROVENANCE")
 
-    def test_native_ohlc_price_action_can_drive_engine2_when_chart_image_is_not_eligible(self) -> None:
+    def test_native_ohlc_price_action_contributes_its_engine2_vote(self) -> None:
         market = self._market()
         chart = self._chart()
-        chart["status"] = "REFERENCE_NOT_VERIFIED"
-        chart["decision_eligible"] = False
-        chart["visual_bias"] = "BEARISH"
-        chart["analysis_score"] = -0.99
-        chart["analysis_confidence"] = 0.99
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         price_action = {
             "engine": "engine_2_native_price_action",
@@ -707,6 +1118,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h"],
                 "timeframe_alignment": "BULLISH_STRUCTURE_CONFLUENCE",
                 "timeframe_weight_coverage": 0.90,
+                "directional_frame_coverage": 0.80,
                 "directional_structure_agreement": 0.80,
                 "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
             },
@@ -717,14 +1129,34 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         )
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertEqual(result["status"], "READY")
-        self.assertFalse(result["engine_2_visual_evidence_used"])
         self.assertEqual(result["engine_2_score_source"], "NATIVE_MT5_OHLC_ONLY")
         self.assertAlmostEqual(result["decision_scores"]["engine_2_score"], 0.80)
-        self.assertEqual(
-            result["decision_weights"]["engine_2_internal"]["applied"],
-            {"native_ohlc_price_action": 1.0, "calibrated_visual_chart": 0.0},
+        self.assertEqual(result["chart_gate"], "20_55_25_NATIVE_OHLC_CONFIRMED")
+
+    def test_waiting_score_diagnostic_uses_current_20_55_25_weight_profile(self) -> None:
+        market = self._market()
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = make_engine2_price_action("BULLISH", score=0.30)
+        intelligence = {
+            "status": "READY",
+            "direction": "BEARISH",
+            "directional_score": -1.0,
+            "confidence": 1.0,
+            "evidence_coverage": 1.0,
+        }
+
+        result = DecisionEngine().analyze(
+            market, chart, {}, indicators,
+            engine2_price_action=price_action,
+            market_intelligence=intelligence,
         )
-        self.assertIn("NATIVE_OHLC_CONFIRMED", result["chart_gate"])
+
+        self.assertEqual(result["candidate_action"], "WAIT")
+        self.assertEqual(
+            result["chart_gate"],
+            "20_55_25_SCORE_BELOW_THRESHOLD_OR_CONFLICT",
+        )
 
     def test_engine4_rejects_missing_or_nonfinite_required_indicator_values(self) -> None:
         chart = self._chart()
@@ -737,9 +1169,63 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         self.assertEqual(result["engine_3_indicator_status"], "INVALID_INDICATOR_PAYLOAD")
 
 
+    def test_engine4_reduces_engine2_quality_when_supporting_evidence_is_absent(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = make_engine2_price_action()
+        price_action["summary"]["directional_evidence_coverage"] = 0.70
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=price_action,
+        )
+        self.assertAlmostEqual(result["decision_scores"]["engine_2_evidence_coverage"], 0.70)
+        self.assertAlmostEqual(result["decision_scores"]["engine_2_quality"], 0.70)
+
+    def test_engine4_requires_sufficient_directional_frame_coverage(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = make_engine2_price_action()
+        price_action["summary"]["directional_structure_agreement"] = 1.0
+        price_action["summary"]["directional_frame_coverage"] = 0.50
+
+        blocked = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=price_action,
+        )
+        context = blocked["engine_2_native_price_action_context"]
+        self.assertFalse(context["decision_eligible"])
+        self.assertEqual(context["gate"], "INSUFFICIENT_DIRECTIONAL_FRAME_COVERAGE")
+        self.assertEqual(blocked["candidate_action"], "WAIT")
+        self.assertEqual(
+            blocked["decision_scores"]["engine_2_directional_frame_coverage"],
+            0.50,
+        )
+
+        price_action["summary"]["directional_frame_coverage"] = 0.6667
+        accepted = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=price_action,
+        )
+        self.assertTrue(accepted["engine_2_native_price_action_context"]["decision_eligible"])
+        self.assertAlmostEqual(accepted["decision_scores"]["engine_2_quality"], 0.6667, places=4)
+
+    def test_engine4_blocks_engine2_direction_below_core_evidence_coverage(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        price_action = make_engine2_price_action()
+        price_action["summary"]["directional_evidence_coverage"] = 0.69
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=price_action,
+        )
+        self.assertFalse(result["engine_2_native_price_action_context"]["decision_eligible"])
+        self.assertEqual(result["engine_2_native_price_action_context"]["gate"],
+                         "INSUFFICIENT_STRUCTURE_EVIDENCE_QUALITY")
+        self.assertEqual(result["candidate_action"], "WAIT")
+        self.assertIsNone(result["decision_scores"]["combined_score"])
+
     def test_engine2_native_price_action_is_primary_only_after_multitimeframe_confluence(self) -> None:
         chart = self._chart()
-        chart["decision_eligible"] = True
         chart["status"] = "READY"
         indicators = IndicatorsEngine().analyze(chart["candle_history"])
         price_action = {
@@ -753,6 +1239,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "eligible_timeframes": ["1m", "5m", "15m", "1h", "4h"],
                 "timeframe_alignment": "MIXED_TIMEFRAME_DIRECTIONS",
                 "timeframe_weight_coverage": 0.90,
+                "directional_frame_coverage": 0.80,
                 "directional_structure_agreement": 0.80,
                 "latest_candle_pattern_alignment": "NO_DIRECTIONAL_CANDLE_PATTERN",
             },
@@ -765,15 +1252,25 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
 
         self.assertEqual(with_context["action"], "WAIT")
         self.assertEqual(with_context["status"], "WAITING_FOR_ENGINE_2")
+        self.assertEqual(with_context["engine_2_analysis_status"], "READY")
+        self.assertEqual(with_context["engine_2_observed_direction"], "MIXED_TIMEFRAME_DIRECTIONS")
+        self.assertFalse(with_context["engine_2_decision_eligible"])
+        self.assertEqual(with_context["engine_2_direction"], "UNKNOWN")
+        self.assertEqual(
+            with_context["engine_2_score_source"],
+            "NATIVE_MT5_OHLC_ANALYZED_NOT_ELIGIBLE",
+        )
         self.assertEqual(
             with_context["engine_2_native_price_action_context"]["direction"],
             "MIXED_TIMEFRAME_DIRECTIONS",
         )
         self.assertEqual(
             with_context["engine_2_native_price_action_context"]["role"],
-            "PRIMARY_ENGINE_2_NATIVE_OHLC_ONLY_NO_IMAGE_DEPENDENCY",
+            "PRIMARY_ENGINE_2_NATIVE_OHLC_DIRECTIONAL_VOTE",
         )
         self.assertEqual(without_context["candidate_action"], "WAIT")
+        self.assertEqual(without_context["engine_2_analysis_status"], "NOT_PROVIDED")
+        self.assertEqual(without_context["engine_2_score_source"], "NATIVE_OHLC_NOT_PROVIDED")
         self.assertIsNone(without_context["decision_scores"]["engine_2_score"])
         self.assertEqual(with_context["candidate_action"], "WAIT")
         self.assertIsNone(with_context["decision_scores"]["combined_score"])
@@ -797,17 +1294,30 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "timeframe_weight_coverage": 0.90,
             },
         }
+        # A valid price-action confluence is necessary but still not enough
+        # by itself: the composite must cross the fixed-share 20/55/25 gate.
+        aligned_indicators = {
+            **indicators,
+            "signal_score": 0.80,
+            "signal_quality": 1.0,
+            "signal_timeframe_weight_coverage": 1.0,
+        }
+        aligned_intelligence = {
+            "status": "READY",
+            "direction": "BULLISH",
+            "directional_score": 0.60,
+            "confidence": 1.0,
+            "evidence_coverage": 1.0,
+        }
         aligned = DecisionEngine().analyze(
-            self._market(), chart, {}, indicators, engine2_price_action=aligned_price_action
+            self._market(), chart, {}, aligned_indicators,
+            engine2_price_action=aligned_price_action,
+            market_intelligence=aligned_intelligence,
         )
         self.assertEqual(aligned["candidate_action"], "BUY")
-        self.assertFalse(aligned["engine_2_visual_evidence_used"])
+        self.assertAlmostEqual(aligned["decision_scores"]["combined_score"], 0.43)
         self.assertEqual(aligned["engine_2_score_source"], "NATIVE_MT5_OHLC_ONLY")
         self.assertAlmostEqual(aligned["decision_scores"]["engine_2_score"], 0.25)
-        self.assertEqual(
-            aligned["decision_weights"]["engine_2_internal"]["applied"],
-            {"native_ohlc_price_action": 1.0, "calibrated_visual_chart": 0.0},
-        )
         self.assertEqual(
             aligned["engine_2_native_price_action_context"]["gate"],
             "BULLISH_CONFLUENCE",
@@ -822,7 +1332,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
             },
         }
         aligned_pattern_result = DecisionEngine().analyze(
-            self._market(), chart, {}, indicators, engine2_price_action=aligned_patterns
+            self._market(), chart, {}, aligned_indicators,
+            engine2_price_action=aligned_patterns,
+            market_intelligence=aligned_intelligence,
         )
         self.assertEqual(aligned_pattern_result["candidate_action"], "BUY")
         self.assertEqual(
@@ -838,17 +1350,22 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "bearish_pattern_timeframes": ["5m", "15m"],
             },
         }
-        pattern_veto = DecisionEngine().analyze(
-            self._market(), chart, {}, indicators, engine2_price_action=conflicting_patterns
+        pattern_discount = DecisionEngine().analyze(
+            self._market(), chart, {}, aligned_indicators,
+            engine2_price_action=conflicting_patterns,
+            market_intelligence=aligned_intelligence,
         )
-        self.assertEqual(pattern_veto["candidate_action"], "WAIT")
+        self.assertEqual(pattern_discount["candidate_action"], "BUY")
         self.assertEqual(
-            pattern_veto["engine_2_native_price_action_context"]["gate"],
-            "CANDLE_PATTERN_DIRECTION_CONFLICT",
+            pattern_discount["engine_2_native_price_action_context"]["gate"],
+            "BULLISH_CONFLUENCE_PATTERN_CONFLICT_DISCOUNTED",
         )
-        self.assertEqual(pattern_veto["chart_gate"], "WAITING_FOR_ENGINE_2_CANDLE_PATTERN_CONFLUENCE")
+        self.assertTrue(pattern_discount["engine_2_native_price_action_context"]["candle_pattern_conflict"])
         self.assertEqual(
-            pattern_veto["engine_2_native_price_action_context"]["latest_candle_pattern_alignment"],
+            pattern_discount["engine_2_native_price_action_context"]["candle_pattern_quality_factor"], 0.85
+        )
+        self.assertEqual(
+            pattern_discount["engine_2_native_price_action_context"]["latest_candle_pattern_alignment"],
             "BEARISH_CANDLE_PATTERN_EVIDENCE",
         )
 
@@ -859,16 +1376,67 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "latest_candle_pattern_alignment": "MIXED_CANDLE_PATTERN_EVIDENCE",
             },
         }
-        mixed_pattern_veto = DecisionEngine().analyze(
-            self._market(), chart, {}, indicators, engine2_price_action=mixed_patterns
+        mixed_pattern_discount = DecisionEngine().analyze(
+            self._market(), chart, {}, aligned_indicators,
+            engine2_price_action=mixed_patterns,
+            market_intelligence=aligned_intelligence,
         )
-        self.assertEqual(mixed_pattern_veto["candidate_action"], "WAIT")
+        self.assertEqual(mixed_pattern_discount["candidate_action"], "BUY")
         self.assertEqual(
-            mixed_pattern_veto["engine_2_native_price_action_context"]["gate"],
-            "MIXED_CANDLE_PATTERN_EVIDENCE",
+            mixed_pattern_discount["engine_2_native_price_action_context"]["gate"],
+            "BULLISH_CONFLUENCE_PATTERN_CONFLICT_DISCOUNTED",
         )
-        self.assertEqual(mixed_pattern_veto["chart_gate"], "WAITING_FOR_ENGINE_2_CANDLE_PATTERN_CONFLUENCE")
+        self.assertTrue(mixed_pattern_discount["engine_2_native_price_action_context"]["candle_pattern_conflict"])
+        self.assertEqual(
+            mixed_pattern_discount["engine_2_native_price_action_context"]["candle_pattern_quality_factor"], 0.85
+        )
 
+
+    def test_engine4_accepts_weighted_native_majority_with_conflicting_patterns_at_reduced_quality(self) -> None:
+        chart = self._chart()
+        indicators = IndicatorsEngine().analyze(chart["candle_history"])
+        indicators.update({
+            "signal_score": -0.80,
+            "signal_quality": 1.0,
+            "signal_timeframe_weight_coverage": 1.0,
+        })
+        intelligence = {
+            "status": "READY", "direction": "BEARISH",
+            "directional_score": -0.80, "confidence": 1.0,
+            "evidence_coverage": 1.0,
+        }
+        price_action = {
+            "engine": "engine_2_native_price_action",
+            "source": "MT5_COPYRATES_CLOSED_BARS",
+            "status": "READY", "direction": "BEARISH",
+            "structure_score": -0.35,
+            "summary": {
+                "eligible_timeframes": ["5m", "15m", "1h", "4h", "1d"],
+                "timeframe_alignment": "BEARISH_WEIGHTED_STRUCTURE_MAJORITY",
+                "timeframe_weight_coverage": 0.85,
+                "directional_frame_coverage": 0.60,
+                "directional_structure_agreement": 0.6667,
+                "directional_evidence_coverage": 0.95,
+                "latest_candle_pattern_alignment": "MIXED_CANDLE_PATTERN_EVIDENCE",
+            },
+        }
+        result = DecisionEngine().analyze(
+            self._market(), chart, {}, indicators,
+            engine2_price_action=price_action,
+            market_intelligence=intelligence,
+        )
+        context = result["engine_2_native_price_action_context"]
+        self.assertTrue(context["decision_eligible"])
+        self.assertEqual(context["gate"], "BEARISH_WEIGHTED_MAJORITY_PATTERN_CONFLICT_DISCOUNTED")
+        self.assertEqual(result["engine_2_direction"], "BEARISH")
+        self.assertEqual(result["candidate_action"], "SELL")
+        self.assertTrue(context["candle_pattern_conflict"])
+        self.assertEqual(context["candle_pattern_quality_factor"], 0.85)
+        self.assertAlmostEqual(
+            result["decision_scores"]["engine_2_quality"],
+            min(0.85, 0.60, 0.6667, 0.95) * 0.85,
+            places=4,
+        )
 
     def test_engine4_waits_when_live_like_engine2_structure_has_no_timeframe_confluence(self) -> None:
         chart = self._chart()
@@ -886,6 +1454,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
                 "eligible_timeframes": ["5m", "15m", "1h", "4h"],
                 "timeframe_alignment": "NO_CLEAR_STRUCTURE_CONFLUENCE",
                 "timeframe_weight_coverage": 0.6842,
+                "directional_frame_coverage": 1.0,
                 "directional_structure_agreement": 1.0,
                 "latest_candle_pattern_alignment": "NO_LATEST_DIRECTIONAL_CANDLE_PATTERN",
             },
@@ -970,9 +1539,7 @@ class DecisionBoundaryTests(unittest.TestCase):
                 "volume_step": 0.01, "volume_max": 10.0, "stops_level_points": 0,
             },
         }
-        chart = {"status": "READY", "decision_eligible": True,
-                 "visual_bias": "NEUTRAL", "image": "unit.png",
-                 "candle_history": make_engine2_candle_history("up", 80)}
+        chart = {"status": "READY", "candle_history": make_engine2_candle_history("up", 80)}
         result = DecisionEngine().analyze(market, chart, bridge)
         self.assertGreater(result["broker_market_price_divergence_pct"], 1.0)
         self.assertIsNone(result["broker_quote"])
@@ -1060,6 +1627,8 @@ class BridgeProtocolTests(unittest.TestCase):
                 "schema": "MIR1",
                 "terminal_connected": True,
                 "execution_enabled": False,
+                "execution_input_enabled": False,
+                "trade_permissions_available": True,
                 "heartbeat_at_ms": now,
                 "symbol": "BTC",
                 "market_symbol": "BTCUSDT",
@@ -1082,11 +1651,102 @@ class BridgeProtocolTests(unittest.TestCase):
             self.assertEqual(bridge["status"], "CONNECTED")
             self.assertIs(bridge["terminal_connected"], True)
             self.assertIs(bridge["execution_enabled"], False)
+            self.assertIs(bridge["execution_input_enabled"], False)
+            self.assertIs(bridge["trade_permissions_available"], True)
             self.assertEqual(bridge["current_command"]["command_id"], command["command_id"])
             self.assertEqual(bridge["last_order_ack"]["state"], "REJECTED")
             self.assertTrue(bridge["positions_file_valid"])
             self.assertEqual(bridge["event_log"][0]["event"], "COMMAND_REJECTED")
             self.assertTrue(bridge["common_files_files"]["events.jsonl"])
+
+    def test_quote_age_uses_broker_tick_not_fresh_heartbeat_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            now = int(time.time() * 1000)
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "heartbeat_at_ms": now,
+                "symbol": "BTC",
+                "market_symbol": "BTCUSDT",
+                "magic_number": 26110201,
+                "account": {"server": "Headway-Demo"},
+                "quote": {
+                    "bid": 90000.0,
+                    "ask": 90000.1,
+                    "time_ms": now,
+                    "broker_time_msc": now - 45000,
+                    "tick_age_seconds": 45,
+                },
+                "symbol_spec": {
+                    "tick_size": 0.01, "tick_value_loss": 0.01,
+                    "volume_min": 0.01, "volume_step": 0.01, "volume_max": 100.0,
+                    "point": 0.01, "digits": 2,
+                },
+                "positions": [],
+            }), encoding="utf-8")
+
+            bridge = MT5BridgeEngine(common_files=temp).inspect()
+
+        self.assertEqual(bridge["status"], "CONNECTED")
+        self.assertGreaterEqual(bridge["quote_age_seconds"], 44)
+        self.assertLess(bridge["quote_snapshot_age_seconds"], 5)
+        self.assertFalse(bridge["quote_fresh"])
+        self.assertFalse(bridge["bridge_diagnostics"]["quote_fresh"])
+
+    def test_fresh_heartbeat_with_malformed_positions_is_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "heartbeat_at_ms": int(time.time() * 1000),
+                "symbol": "BTC",
+                "market_symbol": "BTCUSDT",
+                "magic_number": 26110201,
+                "positions": [{
+                    "ticket": 123,
+                    "position_id": 456,
+                    "symbol": "BTC",
+                    "type": 0,
+                    "magic": 26110201,
+                    "volume": "0.1",
+                    "price_open": "60000",
+                    "stop_loss": "59000",
+                    "take_profit": "62000",
+                    "profit": "0",
+                }, {"ticket": "invalid"}],
+            }), encoding="utf-8")
+
+            bridge = MT5BridgeEngine(common_files=temp).inspect()
+
+            self.assertEqual(bridge["status"], "STALE")
+            self.assertFalse(bridge["positions_snapshot_valid"])
+            self.assertEqual(bridge["positions"], [])
+            self.assertIn("missing required", bridge["positions_snapshot_reason"])
+            self.assertIn("missing required", bridge["message"])
+
+    def test_fresh_heartbeat_requires_a_positions_array(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            (root / "status.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "terminal_connected": True,
+                "heartbeat_at_ms": int(time.time() * 1000),
+                "symbol": "BTC",
+                "market_symbol": "BTCUSDT",
+                "magic_number": 26110201,
+            }), encoding="utf-8")
+
+            bridge = MT5BridgeEngine(common_files=temp).inspect()
+
+            self.assertEqual(bridge["status"], "STALE")
+            self.assertFalse(bridge["positions_snapshot_valid"])
+            self.assertEqual(bridge["positions"], [])
+            self.assertIn("must be a JSON array", bridge["message"])
 
     def test_future_heartbeat_is_not_treated_as_connected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1134,15 +1794,47 @@ class BridgeProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MT5BridgeEngine._validate_decision(decision)
 
+    def test_same_command_id_with_unknown_ack_is_never_published_again_after_restart(self) -> None:
+        state = {
+            "status": "CONNECTED",
+            "terminal_connected": True,
+            "execution_enabled": True,
+            "execution_input_enabled": True,
+            "trade_permissions_available": True,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            first_engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                published = first_engine.publish_decision(make_open_decision(), state)
+            self.assertEqual(published["status"], "PUBLISHED")
+            root = Path(temp) / "MirsadBTC"
+            command_path = root / "command.json"
+            original_bytes = command_path.read_bytes()
+            command = json.loads(original_bytes)
+            (root / "ack.json").write_text(json.dumps({
+                "schema": "MIR1",
+                "command_id": command["command_id"],
+                "state": "UNKNOWN",
+            }), encoding="utf-8")
+
+            restarted_engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                duplicate = restarted_engine.publish_decision(make_open_decision(), state)
+
+            self.assertEqual(duplicate["status"], "ALREADY_ACKNOWLEDGED")
+            self.assertEqual(command_path.read_bytes(), original_bytes)
+
     def test_command_is_not_replaced_while_previous_command_is_unsettled(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             engine = MT5BridgeEngine(common_files=temp)
             with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
-                first = engine.publish_decision(make_open_decision(), {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True})
+                first = engine.publish_decision(make_open_decision(), {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True, "execution_input_enabled": True, "trade_permissions_available": True})
                 self.assertEqual(first["status"], "PUBLISHED")
 
+                # Recreate the bridge object to simulate a Python process restart.
+                engine = MT5BridgeEngine(common_files=temp)
                 second = make_open_decision("MIR-" + "c" * 24)
-                blocked = engine.publish_decision(second, {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True})
+                blocked = engine.publish_decision(second, {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True, "execution_input_enabled": True, "trade_permissions_available": True})
                 self.assertEqual(blocked["status"], "PENDING_COMMAND_BLOCKED")
 
                 command_path = Path(temp) / "MirsadBTC" / "command.json"
@@ -1154,12 +1846,14 @@ class BridgeProtocolTests(unittest.TestCase):
                     "state": "FILLED",
                 }), encoding="utf-8")
 
-                unconfirmed = engine.publish_decision(second, {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True})
+                unconfirmed = engine.publish_decision(second, {"status": "CONNECTED", "terminal_connected": True, "execution_enabled": True, "execution_input_enabled": True, "trade_permissions_available": True})
                 self.assertEqual(unconfirmed["status"], "PENDING_COMMAND_BLOCKED")
                 published = engine.publish_decision(second, {
                     "status": "CONNECTED",
                     "terminal_connected": True,
                     "execution_enabled": True,
+                    "execution_input_enabled": True,
+                    "trade_permissions_available": True,
                     "position_reconciliation": {
                         "status": "CONFIRMED",
                         "command_id": command["command_id"],
@@ -1188,6 +1882,36 @@ class BridgeProtocolTests(unittest.TestCase):
                 unknown = engine.publish_decision(make_open_decision(), base)
             self.assertEqual(disabled["status"], "EXECUTION_DISABLED")
             self.assertEqual(unknown["status"], "EXECUTION_STATE_UNKNOWN")
+            self.assertFalse((Path(temp) / "MirsadBTC" / "command.json").exists())
+
+    def test_publish_requires_explicit_execution_input_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            state = {
+                "status": "CONNECTED",
+                "terminal_connected": True,
+                "execution_enabled": True,
+                "execution_input_enabled": False,
+                "trade_permissions_available": True,
+            }
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                result = engine.publish_decision(make_open_decision(), state)
+            self.assertEqual(result["status"], "EXECUTION_INPUT_DISABLED")
+            self.assertFalse((Path(temp) / "MirsadBTC" / "command.json").exists())
+
+    def test_publish_requires_explicit_mt5_trading_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            state = {
+                "status": "CONNECTED",
+                "terminal_connected": True,
+                "execution_enabled": True,
+                "execution_input_enabled": True,
+                "trade_permissions_available": False,
+            }
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                result = engine.publish_decision(make_open_decision(), state)
+            self.assertEqual(result["status"], "TRADE_PERMISSIONS_UNAVAILABLE")
             self.assertFalse((Path(temp) / "MirsadBTC" / "command.json").exists())
 
     def test_publish_requires_terminal_connected_flag(self) -> None:
@@ -1282,6 +2006,86 @@ class BridgeProtocolTests(unittest.TestCase):
         )
         self.assertEqual(applied["status"], "CONFIRMED")
 
+    def test_filled_modify_is_settled_when_complete_mt5_history_proves_later_full_close(self) -> None:
+        now = int(time.time() * 1000)
+        ack_at = now - 20_000
+        close_utc = now - 10_000
+        server_offset = 7200
+        command_id = "MIR-" + "e" * 24
+        before = {
+            "ticket": 1438304329, "symbol": "BTC", "type": 1,
+            "magic": 26110201, "volume": 0.03,
+            "stop_loss": 75749.82, "take_profit": 75701.20,
+        }
+        command = {
+            "command_id": command_id, "action": "MODIFY", "symbol": "BTC",
+            "magic_number": 26110201, "position_ticket": 1438304329,
+            "volume": 0.03, "volume_step": 0.01, "tick_size": 0.01,
+            "stop_loss": 75743.12, "take_profit": 75701.20,
+            "position_snapshot_before": [before],
+        }
+        ack = {"command_id": command_id, "state": "FILLED", "filled_volume": 0.03, "ack_at_ms": ack_at}
+        exit_deal = {
+            "deal_ticket": 1236554451, "order_ticket": 1438330669,
+            "position_id": 1438304329, "magic": 26110201, "symbol": "BTC",
+            "type": 0, "entry": 1, "reason": 5,
+            "time_server_ms": close_utc + server_offset * 1000,
+            "volume": 0.03, "price": 75701.20,
+        }
+        history = {
+            "status": "READY", "truncated": False,
+            "returned_count": 1, "history_matching_total": 1,
+            "server_utc_offset_seconds_at_query": server_offset,
+            "deals": [exit_deal],
+        }
+        result = MT5BridgeEngine._reconcile_filled_modify_after_later_close(ack, command, [], history, now)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["status"], "POSITION_CLOSED_AFTER_MODIFY")
+        self.assertEqual(result["close_kind"], "TAKE_PROFIT")
+        self.assertEqual(result["closed_volume"], 0.03)
+        self.assertEqual(result["deal_tickets"], ["1236554451"])
+
+        truncated = {**history, "truncated": True}
+        self.assertIsNone(MT5BridgeEngine._reconcile_filled_modify_after_later_close(ack, command, [], truncated, now))
+        partial = {**history, "deals": [{**exit_deal, "volume": 0.02}]}
+        self.assertIsNone(MT5BridgeEngine._reconcile_filled_modify_after_later_close(ack, command, [], partial, now))
+        self.assertIsNone(MT5BridgeEngine._reconcile_filled_modify_after_later_close(
+            ack, command, [{**before, "volume": 0.01}], history, now))
+        before_ack = {**history, "deals": [{
+            **exit_deal, "time_server_ms": ack_at - 1000 + server_offset * 1000,
+        }]}
+        self.assertIsNone(MT5BridgeEngine._reconcile_filled_modify_after_later_close(
+            ack, command, [], before_ack, now))
+
+    def test_new_command_can_follow_a_modify_target_closed_after_ack(self) -> None:
+        command_id = "MIR-" + "f" * 24
+        next_decision = make_open_decision("MIR-" + "9" * 24)
+        bridge_state = {
+            "status": "CONNECTED", "terminal_connected": True,
+            "execution_enabled": True, "execution_input_enabled": True,
+            "trade_permissions_available": True,
+            "position_reconciliation": {
+                "status": "POSITION_CLOSED_AFTER_MODIFY", "command_id": command_id,
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            (root / "command.json").write_text(json.dumps({
+                "schema": "MIR1", "command_id": command_id,
+                "action": "MODIFY", "symbol": "BTC", "position_ticket": 123456,
+            }), encoding="utf-8")
+            (root / "ack.json").write_text(json.dumps({
+                "schema": "MIR1", "command_id": command_id, "state": "FILLED",
+                "ack_at_ms": int(time.time() * 1000) - 5000,
+            }), encoding="utf-8")
+            engine = MT5BridgeEngine(common_files=temp)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                result = engine.publish_decision(next_decision, bridge_state)
+            self.assertEqual(result["status"], "PUBLISHED")
+            published = json.loads((root / "command.json").read_text(encoding="utf-8"))
+            self.assertEqual(published["command_id"], next_decision["signal_id"])
+
     def test_partial_and_unknown_ack_states_never_count_as_reconciled(self) -> None:
         command = {
             "command_id": "MIR-" + "d" * 24, "action": "BUY", "symbol": "BTC",
@@ -1294,6 +2098,187 @@ class BridgeProtocolTests(unittest.TestCase):
                     command, [], int(time.time() * 1000),
                 )
                 self.assertEqual(result["status"], "ACK_PENDING")
+
+    def test_unknown_duplicate_close_ack_can_be_confirmed_by_exact_broker_deal_history(self) -> None:
+        now = int(time.time() * 1000)
+        command_id = "MIR-" + "c" * 24
+        before = {
+            "ticket": 1434053840, "symbol": "BTC", "type": 0,
+            "magic": 26110201, "volume": 0.01,
+            "stop_loss": 75552.56, "take_profit": 76309.99,
+        }
+        command = {
+            "command_id": command_id, "action": "CLOSE", "symbol": "BTC",
+            "magic_number": 26110201, "position_ticket": 1434053840,
+            "volume": 0.01, "volume_step": 0.01,
+            "created_at_ms": now - 5000, "expires_at_ms": now + 55000,
+            "position_snapshot_before": [before],
+        }
+        ack = {
+            "command_id": command_id, "state": "UNKNOWN", "retcode": 0,
+            "message": "This command ID exists in the persistent ledger. It will not be resent to avoid a duplicate trade.",
+        }
+        deals = {
+            "status": "READY",
+            "server_utc_offset_seconds_at_query": 0,
+            "deals": [
+                {
+                    "deal_ticket": "1234", "order_ticket": "5678",
+                    "position_id": "1434053840", "magic": 26110201,
+                    "symbol": "BTC", "type": 1, "entry": 1, "volume": 0.01,
+                    "time_server_ms": now - 3000, "comment": command_id,
+                }
+            ],
+        }
+        result = MT5BridgeEngine._reconcile_unknown_close_from_deal_history(
+            ack, command, [], deals, now
+        )
+        self.assertEqual(result["status"], "CONFIRMED_FROM_DEAL_HISTORY")
+        self.assertEqual(result["ack_state"], "UNKNOWN")
+        self.assertEqual(result["confirmation_source"], "FRESH_VALIDATED_MT5_DEAL_HISTORY_AND_LATER_POSITIONS")
+        self.assertEqual(result["broker_closed_volume"], 0.01)
+        self.assertEqual(result["observed_reduction"], 0.01)
+        self.assertEqual(result["deal_tickets"], ["1234"])
+
+        # An exact command comment is mandatory; an unrelated exit must not settle it.
+        wrong_comment = {
+            **deals,
+            "deals": [{**deals["deals"][0], "comment": "MIR-" + "d" * 24}],
+        }
+        self.assertIsNone(
+            MT5BridgeEngine._reconcile_unknown_close_from_deal_history(
+                ack, command, [], wrong_comment, now
+            )
+        )
+        # The fresh position snapshot must reflect the broker-deal reduction.
+        still_open = [{**before, "volume": 0.01}]
+        self.assertIsNone(
+            MT5BridgeEngine._reconcile_unknown_close_from_deal_history(
+                ack, command, still_open, deals, now
+            )
+        )
+        # UNKNOWN OPEN acknowledgements are never inferred from deal history.
+        open_command = {**command, "action": "BUY"}
+        self.assertIsNone(
+            MT5BridgeEngine._reconcile_unknown_close_from_deal_history(
+                ack, open_command, [], deals, now
+            )
+        )
+        # Generic connection-loss UNKNOWN ACKs are not inferred from the ledger text.
+        generic_unknown_ack = {**ack, "message": "Connection lost while waiting for broker result."}
+        self.assertIsNone(
+            MT5BridgeEngine._reconcile_unknown_close_from_deal_history(
+                generic_unknown_ack, command, [], deals, now
+            )
+        )
+
+    def test_partial_open_ack_reconciles_the_actual_filled_volume(self) -> None:
+        now = int(time.time() * 1000)
+        command = {
+            "command_id": "MIR-" + "e" * 24, "action": "BUY", "symbol": "BTC",
+            "magic_number": 26110201, "volume": 0.2, "volume_step": 0.01,
+            "position_snapshot_before": [],
+        }
+        ack = {
+            "command_id": command["command_id"], "state": "PARTIAL",
+            "filled_volume": 0.08, "ack_at_ms": now - 1500,
+        }
+        result = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack,
+            command,
+            [{"ticket": 22, "symbol": "BTC", "type": 0, "magic": 26110201, "volume": 0.08}],
+            now,
+        )
+        self.assertEqual(result["status"], "CONFIRMED_PARTIAL")
+        self.assertEqual(result["expected_volume"], 0.08)
+        self.assertEqual(result["observed_volume_delta"], 0.08)
+
+    def test_partial_close_ack_reconciles_the_actual_position_reduction(self) -> None:
+        now = int(time.time() * 1000)
+        before = {
+            "ticket": 654321, "symbol": "BTC", "type": 0, "magic": 26110201,
+            "volume": 0.2, "stop_loss": 90.0, "take_profit": 130.0,
+        }
+        command = {
+            "command_id": "MIR-" + "f" * 24, "action": "CLOSE", "symbol": "BTC",
+            "magic_number": 26110201, "position_ticket": 654321, "volume": 0.1,
+            "volume_step": 0.01, "position_snapshot_before": [before],
+        }
+        ack = {
+            "command_id": command["command_id"], "state": "PARTIAL",
+            "filled_volume": 0.05, "ack_at_ms": now - 1500,
+        }
+        result = MT5BridgeEngine._reconcile_ack_with_positions(
+            ack, command, [{**before, "volume": 0.15}], now
+        )
+        self.assertEqual(result["status"], "CONFIRMED_PARTIAL")
+        self.assertEqual(result["expected_reduction"], 0.05)
+        self.assertEqual(result["observed_reduction"], 0.05)
+
+    def test_new_command_can_follow_a_reconciled_partial_fill(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            previous_id = "MIR-" + "1" * 24
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            previous = {
+                "schema": "MIR1", "command_id": previous_id, "action": "BUY",
+                "symbol": "BTC", "market_symbol": "BTCUSDT", "volume": 0.2,
+            }
+            (root / "command.json").write_text(json.dumps(previous), encoding="utf-8")
+            (root / "ack.json").write_text(json.dumps({
+                "schema": "MIR1", "command_id": previous_id, "state": "PARTIAL",
+                "filled_volume": 0.08,
+            }), encoding="utf-8")
+            decision = make_open_decision("MIR-" + "2" * 24)
+            bridge_state = {
+                "status": "CONNECTED", "terminal_connected": True,
+                "execution_enabled": True, "execution_input_enabled": True,
+                "trade_permissions_available": True, "magic_number": 26110201,
+                "symbol_spec": {"tick_size": 0.01, "volume_step": 0.01},
+                "positions": [],
+                "position_reconciliation": {
+                    "status": "CONFIRMED_PARTIAL", "command_id": previous_id,
+                },
+            }
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                result = engine.publish_decision(decision, bridge_state)
+            self.assertEqual(result["status"], "PUBLISHED")
+            current = json.loads((root / "command.json").read_text(encoding="utf-8"))
+            self.assertEqual(current["command_id"], decision["signal_id"])
+
+    def test_new_command_can_follow_unknown_ack_confirmed_by_exact_deal_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            engine = MT5BridgeEngine(common_files=temp)
+            previous_id = "MIR-" + "3" * 24
+            root = Path(temp) / "MirsadBTC"
+            root.mkdir()
+            (root / "command.json").write_text(json.dumps({
+                "schema": "MIR1", "command_id": previous_id, "action": "CLOSE",
+                "symbol": "BTC", "market_symbol": "BTCUSDT", "volume": 0.01,
+                "position_ticket": 123456,
+            }), encoding="utf-8")
+            (root / "ack.json").write_text(json.dumps({
+                "schema": "MIR1", "command_id": previous_id, "state": "UNKNOWN",
+            }), encoding="utf-8")
+            bridge_state = {
+                "status": "CONNECTED", "terminal_connected": True,
+                "execution_enabled": True, "execution_input_enabled": True,
+                "trade_permissions_available": True, "magic_number": 26110201,
+                "symbol_spec": {"tick_size": 0.01, "volume_step": 0.01},
+                "positions": [],
+                "position_reconciliation": {
+                    "status": "CONFIRMED_FROM_DEAL_HISTORY",
+                    "command_id": previous_id,
+                    "confirmation_source": "FRESH_VALIDATED_MT5_DEAL_HISTORY_AND_LATER_POSITIONS",
+                },
+            }
+            decision = make_open_decision("MIR-" + "4" * 24)
+            with patch.object(bridge_module, "ENABLE_ORDER_PUBLISH", True):
+                result = engine.publish_decision(decision, bridge_state)
+            self.assertEqual(result["status"], "PUBLISHED")
+            replacement = json.loads((root / "command.json").read_text(encoding="utf-8"))
+            self.assertEqual(replacement["command_id"], decision["signal_id"])
 
     def test_bridge_reads_live_magic_and_position_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1320,3 +2305,4 @@ class BridgeProtocolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
