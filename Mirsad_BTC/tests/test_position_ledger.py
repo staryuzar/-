@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from mirsad.engines.position_ledger import aggregate_position_cycles
+from mirsad.engines.position_ledger import aggregate_position_cycles, build_position_management_history
 
 
 def deal(
@@ -46,6 +46,7 @@ class PositionLedgerTests(unittest.TestCase):
         cycle = result[0]
         self.assertEqual(cycle["state"], "CLOSED")
         self.assertEqual(cycle["direction"], "FLAT")
+        self.assertEqual(cycle["entry_direction"], "LONG")
         self.assertEqual(cycle["remaining_signed_volume"], 0.0)
         self.assertEqual(cycle["deal_count"], 2)
         self.assertAlmostEqual(cycle["realized_deal_profit"], 8.0)
@@ -72,6 +73,7 @@ class PositionLedgerTests(unittest.TestCase):
         cycle = aggregate_position_cycles(rows)[0]
         self.assertEqual(cycle["state"], "CLOSED")
         self.assertEqual(cycle["direction"], "FLAT")
+        self.assertEqual(cycle["entry_direction"], "SHORT")
         self.assertEqual(cycle["remaining_signed_volume"], 0.0)
 
     def test_netting_reversal_preserves_the_remaining_short_volume(self) -> None:
@@ -92,6 +94,41 @@ class PositionLedgerTests(unittest.TestCase):
         self.assertEqual(cycle["state"], "INCOMPLETE_HISTORY")
         self.assertFalse(cycle["history_starts_with_entry"])
 
+    def test_management_history_requires_recent_complete_history(self) -> None:
+        rows = [deal("1", "501", 1000, 0, 0, 0.10)]
+        positions = [{"position_id": 501, "magic": 26110201, "volume": 0.10}]
+        ready = build_position_management_history(
+            rows, positions, expected_magic=26110201, history_status="READY",
+            truncated=False, queried_at_utc_ms=1000, now_ms=2000,
+        )
+        self.assertEqual(ready["status"], "READY")
+        self.assertIn("501", ready["cycles"])
+
+        stale = build_position_management_history(
+            rows, positions, expected_magic=26110201, history_status="READY",
+            truncated=False, queried_at_utc_ms=1000, now_ms=200000,
+        )
+        self.assertEqual(stale["status"], "UNAVAILABLE")
+
+        truncated = build_position_management_history(
+            rows, positions, expected_magic=26110201, history_status="READY",
+            truncated=True, queried_at_utc_ms=1000, now_ms=2000,
+        )
+        self.assertEqual(truncated["status"], "UNAVAILABLE")
+
+    def test_management_history_ignores_non_mirsad_positions(self) -> None:
+        rows = [deal("1", "501", 1000, 0, 0, 0.10)]
+        positions = [
+            {"position_id": 501, "magic": 26110201},
+            {"position_id": 777, "magic": 12345},
+        ]
+        result = build_position_management_history(
+            rows, positions, expected_magic=26110201, history_status="READY",
+            truncated=False, queried_at_utc_ms=1000, now_ms=2000,
+        )
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(list(result["cycles"]), ["501"])
+
     def test_invalid_and_non_position_deals_are_ignored(self) -> None:
         rows = [
             deal("1", "0", 1000, 0, 0, 0.02),
@@ -104,3 +141,4 @@ class PositionLedgerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
