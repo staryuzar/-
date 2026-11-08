@@ -15,7 +15,7 @@ input int    InpDeviationPoints    = 20;
 input int    InpHistoryDays         = 90;          // Bounded broker deal history window
 input int    InpHistoryDealLimit    = 1000;         // Maximum recent Mirsad deals retained after filtering
 input int    InpDealHistoryRefreshSeconds = 60;     // Full history scan interval; heartbeat remains one second
-input bool   InpAllowExecution     = false;        // Explicitly enable only after all Mirsad acceptance gates pass
+input bool   InpAllowExecution     = true;         // User-requested default: command-driven trading enabled
 
 string g_broker_symbol = "";
 bool   g_processing = false;
@@ -103,19 +103,47 @@ long JsonLong(const string json, const string key)
 
 bool WriteCommonText(const string file_name, const string data)
 {
-   int handle = FileOpen(CommonPath(file_name),
+   // Stage the complete snapshot at a sibling path. Readers continue to see
+   // the previous valid JSON until FileMove publishes the flushed replacement.
+   string temporary_name = file_name + ".tmp";
+   int handle = FileOpen(CommonPath(temporary_name),
                          FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON,
                          0, CP_UTF8);
    if(handle == INVALID_HANDLE)
    {
-      PrintFormat("Mirsad: cannot open Common Files/%s for write. Error=%d",
-                  file_name, GetLastError());
+      PrintFormat("Mirsad: cannot open Common Files/%s for staged write. Error=%d",
+                  temporary_name, GetLastError());
       return false;
    }
-   FileWriteString(handle, data);
+
+   uint written = FileWriteString(handle, data);
    FileFlush(handle);
    FileClose(handle);
-   return true;
+   if(written == 0 && StringLen(data) > 0)
+   {
+      PrintFormat("Mirsad: staged write produced no bytes for %s.", file_name);
+      return false;
+   }
+
+   // Never fall back to truncating the published file. If a reader briefly
+   // holds the destination, retry the atomic replacement with bounded backoff.
+   for(int attempt = 0; attempt < 6; attempt++)
+   {
+      ResetLastError();
+      if(FileMove(CommonPath(temporary_name), FILE_COMMON,
+                  CommonPath(file_name), FILE_COMMON | FILE_REWRITE))
+         return true;
+
+      int error_code = GetLastError();
+      PrintFormat("Mirsad: atomic publish retry %d for %s failed. Error=%d",
+                  attempt + 1, file_name, error_code);
+      if(attempt < 5)
+         Sleep(15 * (attempt + 1));
+   }
+
+   PrintFormat("Mirsad: atomic publish failed for %s; previous snapshot was preserved.",
+               file_name);
+   return false;
 }
 
 string ReadCommonText(const string file_name)
@@ -173,18 +201,117 @@ bool SaveLastCommandId(const string command_id)
       PrintFormat("Mirsad: cannot seek command ledger. Error=%d", GetLastError());
       return false;
    }
-   FileWriteString(handle, command_id + "\r\n");
+   uint written = FileWriteString(handle, command_id + "\r\n");
    FileFlush(handle);
    FileClose(handle);
+   if(written == 0)
+   {
+      PrintFormat("Mirsad: command ledger write failed for %s.", command_id);
+      return false;
+   }
 
-   // Keep a last-ID marker for compatibility and fast manual diagnostics.
-   WriteCommonText("last_command_id.txt", command_id);
+   // Verify the durable ledger entry before allowing OrderSend. A restart
+   // or uncertain disk write must fail closed rather than risk a duplicate.
+   if(!WasCommandSeen(command_id))
+   {
+      PrintFormat("Mirsad: command ledger read-back failed for %s.", command_id);
+      return false;
+   }
+
+   // Keep the compatibility marker too; a failed marker write blocks send.
+   if(!WriteCommonText("last_command_id.txt", command_id))
+   {
+      PrintFormat("Mirsad: last command marker write failed for %s.", command_id);
+      return false;
+   }
    return true;
 }
 
 long NowUtcMs()
 {
    return (long)TimeGMT() * 1000;
+}
+
+bool AreTradePermissionsAvailable()
+{
+   return (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)
+          && (bool)MQLInfoInteger(MQL_TRADE_ALLOWED)
+          && (bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)
+          && (bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);
+}
+
+bool IsExecutionEnabled()
+{
+   return InpAllowExecution && AreTradePermissionsAvailable();
+}
+
+bool IsSupportedAccountMarginMode(const long margin_mode)
+{
+   return margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_NETTING
+          || margin_mode == ACCOUNT_MARGIN_MODE_EXCHANGE
+          || margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
+}
+
+bool HasOpenNettingSymbolExposure(const string symbol)
+{
+   long margin_mode = AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   if(margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
+      return false;
+   if(margin_mode != ACCOUNT_MARGIN_MODE_RETAIL_NETTING
+      && margin_mode != ACCOUNT_MARGIN_MODE_EXCHANGE)
+      return true; // Unknown accounting mode: fail closed.
+
+   for(int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) return true;
+      if(PositionGetString(POSITION_SYMBOL) == symbol)
+         return true;
+   }
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket == 0) return true;
+      if(OrderGetString(ORDER_SYMBOL) == symbol)
+         return true;
+   }
+   return false;
+}
+
+bool PositionHistoryIsMirsadOwned(const ulong ticket)
+{
+   if(!PositionSelectByTicket(ticket))
+      return false;
+   if((ulong)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber)
+      return false;
+
+   long margin_mode = AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   if(margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
+      return true;
+   if(margin_mode != ACCOUNT_MARGIN_MODE_RETAIL_NETTING
+      && margin_mode != ACCOUNT_MARGIN_MODE_EXCHANGE)
+      return false;
+
+   long position_identifier = PositionGetInteger(POSITION_IDENTIFIER);
+   if(position_identifier <= 0
+      || !HistorySelectByPosition((ulong)position_identifier))
+      return false;
+
+   int deals_total = HistoryDealsTotal();
+   if(deals_total <= 0)
+      return false;
+   for(int i = 0; i < deals_total; i++)
+   {
+      ulong deal_ticket = HistoryDealGetTicket(i);
+      if(deal_ticket == 0)
+         return false;
+      long deal_magic = HistoryDealGetInteger(deal_ticket, DEAL_MAGIC);
+      string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
+      if((ulong)deal_magic != InpMagicNumber || deal_symbol != g_broker_symbol)
+         return false;
+   }
+   return true;
 }
 
 string NumberJson(const double value, const int digits = 10)
@@ -210,15 +337,16 @@ string BuildPositionsJson()
       double tp = PositionGetDouble(POSITION_TP);
       double profit = PositionGetDouble(POSITION_PROFIT);
       long position_magic = PositionGetInteger(POSITION_MAGIC);
+      long position_id = PositionGetInteger(POSITION_IDENTIFIER);
       string currency = AccountInfoString(ACCOUNT_CURRENCY);
 
       if(!first) output += ",";
       first = false;
       output += StringFormat(
-         "{\"ticket\":%I64u,\"symbol\":\"%s\",\"type\":%d,\"magic\":%I64d,\"volume\":%s,"
+         "{\"ticket\":%I64u,\"position_id\":%I64d,\"symbol\":\"%s\",\"type\":%d,\"magic\":%I64d,\"volume\":%s,"
          "\"price_open\":%s,\"stop_loss\":%s,\"take_profit\":%s,"
          "\"profit\":%s,\"profit_currency\":\"%s\"}",
-         ticket, JsonEscape(symbol), (int)type, position_magic,
+         ticket, position_id, JsonEscape(symbol), (int)type, position_magic,
          NumberJson(volume, 8), NumberJson(open_price, 10),
          NumberJson(sl, 10), NumberJson(tp, 10),
          NumberJson(profit, 2), JsonEscape(currency)
@@ -399,12 +527,16 @@ void PublishTelemetry()
    long digits = SymbolInfoInteger(g_broker_symbol, SYMBOL_DIGITS);
    long trade_mode = SymbolInfoInteger(g_broker_symbol, SYMBOL_TRADE_MODE);
 
+   long account_margin_mode = AccountInfoInteger(ACCOUNT_MARGIN_MODE);
    string account = StringFormat(
       "\"account\":{\"login\":%I64d,\"server\":\"%s\",\"currency\":\"%s\","
+      "\"margin_mode\":%I64d,\"hedging_mode\":%s,"
       "\"balance\":%s,\"equity\":%s,\"free_margin\":%s}",
       AccountInfoInteger(ACCOUNT_LOGIN),
       JsonEscape(AccountInfoString(ACCOUNT_SERVER)),
       JsonEscape(AccountInfoString(ACCOUNT_CURRENCY)),
+      account_margin_mode,
+      account_margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING ? "true" : "false",
       NumberJson(AccountInfoDouble(ACCOUNT_BALANCE), 2),
       NumberJson(AccountInfoDouble(ACCOUNT_EQUITY), 2),
       NumberJson(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2)
@@ -434,9 +566,10 @@ void PublishTelemetry()
    );
 
    string payload = StringFormat(
-      "{\"schema\":\"MIR1\",\"terminal_connected\":%s,\"execution_enabled\":%s,\"heartbeat_at_ms\":%I64d,"
+      "{\"schema\":\"MIR1\",\"terminal_connected\":%s,\"execution_enabled\":%s,\"execution_input_enabled\":%s,\"trade_permissions_available\":%s,\"heartbeat_at_ms\":%I64d,"
       "\"symbol\":\"%s\",\"market_symbol\":\"%s\",\"magic_number\":%I64u,%s,%s,%s,\"positions\":%s}",
-      connected ? "true" : "false", InpAllowExecution ? "true" : "false", NowUtcMs(),
+      connected ? "true" : "false", IsExecutionEnabled() ? "true" : "false",
+      InpAllowExecution ? "true" : "false", AreTradePermissionsAvailable() ? "true" : "false", NowUtcMs(),
       JsonEscape(g_broker_symbol), JsonEscape(InpMarketSymbol), InpMagicNumber,
       account, quote, spec, BuildPositionsJson()
    );
@@ -560,10 +693,10 @@ void ProcessCommand()
       return;
    }
 
-   if(!InpAllowExecution)
+   if(!IsExecutionEnabled())
    {
       RejectAndRemember(command_id,
-                        "Execution is disabled in the MT5 EA input; no broker request was sent.");
+                        "Execution is disabled by the EA input or MT5 trading permissions; no broker request was sent.");
       g_processing = false;
       return;
    }
@@ -589,6 +722,22 @@ void ProcessCommand()
    if(action != "BUY" && action != "SELL" && action != "CLOSE" && action != "MODIFY")
    {
       RejectAndRemember(command_id, "Unsupported MIR1 action. Expected BUY, SELL, CLOSE or MODIFY.");
+      g_processing = false;
+      return;
+   }
+
+   long account_margin_mode = AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   if(!IsSupportedAccountMarginMode(account_margin_mode))
+   {
+      RejectAndRemember(command_id, "Unsupported/unknown MT5 account margin mode; no position may be opened or managed.");
+      g_processing = false;
+      return;
+   }
+   if((action == "BUY" || action == "SELL")
+      && account_margin_mode != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING
+      && HasOpenNettingSymbolExposure(command_symbol))
+   {
+      RejectAndRemember(command_id, "Netting account already has an open position or pending order on this symbol; refusing to merge Mirsad exposure with another position.");
       g_processing = false;
       return;
    }
@@ -650,6 +799,12 @@ void ProcessCommand()
       if((ulong)position_magic != InpMagicNumber)
       {
          RejectAndRemember(command_id, "CLOSE/MODIFY is restricted to positions owned by this Mirsad EA magic number.");
+         g_processing = false;
+         return;
+      }
+      if(!PositionHistoryIsMirsadOwned(position_ticket))
+      {
+         RejectAndRemember(command_id, "CLOSE/MODIFY is blocked because the account's position history is mixed, unavailable or not exclusively owned by Mirsad.");
          g_processing = false;
          return;
       }
@@ -839,6 +994,11 @@ void ProcessCommand()
       state = "PARTIAL";
    else if(result.retcode == TRADE_RETCODE_PLACED)
       state = "SUBMITTED";
+   // A lost trade-server connection makes the broker outcome ambiguous.
+   // Keep the command UNKNOWN so a late OnTradeTransaction can confirm it;
+   // never tell the bridge that the order definitely failed.
+   else if(result.retcode == TRADE_RETCODE_CONNECTION)
+      state = "UNKNOWN";
    else if(!sent || result.retcode != 0)
       state = "REJECTED";
 
@@ -875,9 +1035,9 @@ int OnInit()
                   g_broker_symbol);
 
    EventSetTimer(InpTimerSeconds);
-   PrintFormat("Mirsad BTC Execution Bridge started. Broker symbol=%s, market symbol=%s. "
+   PrintFormat("Mirsad BTC Execution Bridge started. Broker symbol=%s, market symbol=%s, execution_enabled=%s. "
                "Commands are accepted only from MIR1; no autonomous signals.",
-               g_broker_symbol, InpMarketSymbol);
+               g_broker_symbol, InpMarketSymbol, IsExecutionEnabled() ? "true" : "false");
 
    PublishTelemetry();
    return INIT_SUCCEEDED;
@@ -920,8 +1080,10 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    if(result.retcode == TRADE_RETCODE_DONE) state = "FILLED";
    else if(result.retcode == TRADE_RETCODE_DONE_PARTIAL) state = "PARTIAL";
    else if(result.retcode == TRADE_RETCODE_PLACED) state = "SUBMITTED";
+   else if(result.retcode == TRADE_RETCODE_CONNECTION) state = "UNKNOWN";
    else if(result.retcode != 0) state = "REJECTED";
 
    PublishAck(ack_id, state, result.retcode, result.order, result.deal,
               result.volume, result.price, result.comment);
 }
+
