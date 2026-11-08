@@ -92,7 +92,54 @@ def evaluate_daily_risk(
     elif not math.isfinite(prior_start) or prior_start <= 0 or prior_baseline_at <= 0:
         reset_reason = "INVALID_PERSISTED_BASELINE"
 
+    # A process first started mid-session cannot infer losses that occurred
+    # before its first snapshot. Only accept a fresh baseline close to UTC
+    # midnight; otherwise lock new entries for the remainder of this UTC day.
+    day_start_ms = int(
+        datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc)
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .timestamp() * 1000
+    )
+    seconds_since_utc_day_start = max(0, timestamp - day_start_ms)
+    baseline_grace_ms = 5 * 60 * 1000
+
+    def pending_baseline(reason_code: str) -> dict[str, Any]:
+        pending_state = {
+            "schema": "MIR-DAILY-RISK-1",
+            "day_utc": day,
+            "account_key_sha256": account_digest,
+            "baseline_pending": True,
+            "baseline_pending_reason": reason_code,
+            "updated_at_ms": timestamp,
+        }
+        return {
+            "report": {
+                "status": "BASELINE_UNAVAILABLE",
+                "mode": "ENABLED",
+                "enabled": True,
+                "day_utc": day,
+                "account_key_sha256": account_digest,
+                "max_daily_loss_fraction": cap,
+                "daily_loss_fraction": None,
+                "locked": True,
+                "new_entries_blocked": True,
+                "baseline_pending": True,
+                "seconds_since_utc_day_start": round(seconds_since_utc_day_start / 1000.0, 3),
+                "baseline_grace_seconds": baseline_grace_ms / 1000.0,
+                "baseline_reset_reason": reason_code,
+                "decision_eligible": False,
+                "reason": (
+                    "No trustworthy UTC-day opening equity baseline is available. "
+                    "New entries remain blocked until a valid baseline can be captured "
+                    "near the next UTC midnight; protective MODIFY and CLOSE remain allowed."
+                ),
+            },
+            "state": pending_state,
+        }
+
     if reset_reason:
+        if seconds_since_utc_day_start > baseline_grace_ms:
+            return pending_baseline(reset_reason)
         starting_equity = equity
         baseline_at_ms = timestamp
     else:
@@ -109,6 +156,8 @@ def evaluate_daily_risk(
         "account_key_sha256": account_digest,
         "starting_equity": round(starting_equity, 8),
         "baseline_at_ms": baseline_at_ms,
+        "baseline_pending": False,
+        "baseline_source": "UTC_DAY_OPEN_EQUITY_SNAPSHOT",
         "updated_at_ms": timestamp,
     }
     remaining_loss_cash = max(0.0, starting_equity * cap - daily_loss_cash)
@@ -129,6 +178,9 @@ def evaluate_daily_risk(
         "new_entries_blocked": locked,
         "baseline_reset_reason": reset_reason,
         "baseline_at_ms": baseline_at_ms,
+        "baseline_pending": False,
+        "baseline_source": "UTC_DAY_OPEN_EQUITY_SNAPSHOT",
+        "seconds_since_utc_day_start": round(seconds_since_utc_day_start / 1000.0, 3),
         "decision_eligible": False,
         "reason": (
             "UTC daily equity drawdown limit reached; new entries are blocked, "
@@ -141,3 +193,4 @@ def evaluate_daily_risk(
 
 
 __all__ = ["evaluate_daily_risk"]
+
