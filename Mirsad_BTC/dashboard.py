@@ -4,23 +4,50 @@ import time
 import hashlib
 import math
 import sqlite3
-import io
 import html
 from pathlib import Path
 import pandas as pd
 import streamlit as st
-from PIL import Image, UnidentifiedImageError
 
 ROOT=Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
-from mirsad.config import (ROOT,DATA_DIR,DB_PATH,CHART_DIR,CHART_METADATA_PATH,SNAPSHOT_PATH,STATUS_PATH,RISK_STATE_PATH,SYMBOL,PROVIDERS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,COLLECT_INTERVAL_SECONDS,RISK_PER_TRADE,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,MARKET_MAX_AGE_SECONDS,MT5_HEARTBEAT_MAX_AGE_SECONDS,MT5_QUOTE_MAX_AGE_SECONDS,MT5_MARKET_DATA_MAX_AGE_SECONDS,MT5_MARKET_DIVERGENCE_MAX_PCT,MT5_MAX_SPREAD_PCT,CHART_MAX_AGE_SECONDS)
-from mirsad.storage import read_json,write_json_atomic,load_mt5_deal_history
+from mirsad.config import (ROOT,DATA_DIR,DB_PATH,SNAPSHOT_PATH,STATUS_PATH,RISK_STATE_PATH,SYMBOL,PROVIDERS,ENABLE_ORDER_PUBLISH,MT5_COMMON_FILES,COLLECT_INTERVAL_SECONDS,RISK_PER_TRADE,DAILY_LOSS_LIMIT_ENABLED,MAX_DAILY_LOSS_FRACTION,MARKET_MAX_AGE_SECONDS,MT5_HEARTBEAT_MAX_AGE_SECONDS,MT5_QUOTE_MAX_AGE_SECONDS,MT5_MARKET_DATA_MAX_AGE_SECONDS,MT5_MARKET_DIVERGENCE_MAX_PCT,MT5_MAX_SPREAD_PCT)
+from mirsad.storage import read_json,load_mt5_deal_history
 from mirsad.engines.position_ledger import aggregate_position_cycles
-from mirsad.engines.visual_knowledge import visual_knowledge_summary
 from mirsad.engines.mt5_bridge import MT5BridgeEngine
 from mirsad.engines.position_management import BREAK_EVEN_TRIGGER_ATR,TRAILING_ACTIVATION_ATR,TRAILING_DISTANCE_ATR,TRAILING_STEP_ATR
 from mirsad.health import build_component_health,summarize_component_health
+
+
+_STREAMLIT_DATAFRAME = st.dataframe
+
+
+def _safe_dataframe(data, **kwargs):
+    """Render mixed-source tables without Arrow type inference failures."""
+    frame = data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
+    frame = frame.copy()
+    kwargs.pop("use_container_width", None)
+    kwargs.setdefault("width", "stretch")
+    for column in frame.columns:
+        series = frame[column]
+        if str(series.dtype) != "object":
+            continue
+        values = [value for value in series.tolist() if value is not None and value is not pd.NA]
+        if not values:
+            frame[column] = series.astype("string")
+            continue
+        if all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+            frame[column] = pd.to_numeric(series, errors="coerce")
+            continue
+        mixed_types = len({type(value) for value in values}) > 1
+        nested_values = any(isinstance(value, (dict, list, tuple, set)) for value in values)
+        if mixed_types or nested_values:
+            frame[column] = series.map(
+                lambda value: "—" if value is None or value is pd.NA else str(value)
+            )
+    return _STREAMLIT_DATAFRAME(frame, **kwargs)
+
 
 st.set_page_config(page_title="مرصاد البيتكوين",page_icon="₿",layout="wide")
 st.markdown("""
@@ -32,6 +59,23 @@ st.markdown("""
  --mirsad-red:#B94E49; --mirsad-safe:#858C8D;
 }
 .stApp {background:var(--mirsad-paper);color:var(--mirsad-ink)}
+/* Arabic-capable font fallback and localized text direction */
+html, body, .stApp, .stApp button, .stApp input, .stApp textarea,
+.stApp select, [data-testid="stAppViewContainer"] {
+ font-family: Tahoma, "Segoe UI", Arial, sans-serif !important;
+}
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3,
+[data-testid="stCaptionContainer"],
+[data-testid="stAlert"] p,
+[data-testid="stWidgetLabel"] p {
+ direction: rtl;
+ text-align: right;
+ unicode-bidi: plaintext;
+}
 [data-testid="stSidebar"] {background:#EAE7DE;border-right:1px solid #D8D4CB}
 .block-container {padding-top:1.45rem;padding-bottom:2.5rem;max-width:1660px}
 h1,h2,h3,p,label,[data-testid="stMarkdownContainer"] {color:var(--mirsad-ink)}
@@ -60,37 +104,103 @@ hr {border-color:var(--mirsad-line)}
  .block-container {padding-left:1rem;padding-right:1rem;padding-top:1rem}
  div[data-testid="stMetric"] {padding:11px;border-radius:13px}
 }
+
+:root {
+ --mirsad-paper:#F3F5F8; --mirsad-surface:#FFFFFF; --mirsad-ink:#0F172A;
+ --mirsad-muted:#64748B; --mirsad-line:#E2E8F0; --mirsad-copper:#B7791F;
+ --mirsad-copper-tint:#FEF3C7; --mirsad-green:#047857; --mirsad-amber:#B45309;
+ --mirsad-red:#BE123C; --mirsad-safe:#64748B;
+}
+.mirsad-simple-decision {
+ background:linear-gradient(135deg,#0F172A 0%,#172554 100%);
+ border:1px solid #1E293B; border-radius:22px; padding:24px 26px;
+ color:#FFFFFF; box-shadow:0 16px 36px rgba(15,23,42,.12); margin:12px 0 20px 0;
+}
+.mirsad-simple-decision * { color:#FFFFFF !important; }
+.mirsad-simple-decision .decision-eyebrow {
+ font-size:12px; font-weight:700; color:#CBD5E1 !important; margin-bottom:10px;
+}
+.mirsad-simple-decision .decision-value {
+ font-size:34px; line-height:1.2; font-weight:900; letter-spacing:-.02em; margin:4px 0 10px 0;
+}
+.mirsad-simple-decision .decision-reason {
+ font-size:14px; line-height:1.9; color:#CBD5E1 !important; max-width:900px;
+}
+.mirsad-simple-decision .decision-tag {
+ display:inline-block; border:1px solid rgba(251,191,36,.4);
+ background:rgba(251,191,36,.12); color:#FDE68A !important;
+ border-radius:99px; padding:5px 11px; font-size:11px; font-weight:800;
+}
+
 </style>
 """,unsafe_allow_html=True)
 
 STATUS_AR={
  "RUNNING":"يعمل","LIVE":"متصل وبياناته حية","PARTIAL":"اتصال جزئي",
  "OFFLINE":"غير متصل","STALE":"بيانات قديمة","READY":"جاهز",
- "NOT_READY":"غير جاهز","WAITING_FOR_IMAGE":"بانتظار صورة الرسم",
- "DETECTED_UNCALIBRATED":"تم كشف الشموع — بانتظار معايرة المحور",
- "LOW_DETECTION":"اكتشاف ضعيف",
- "SKIPPED_UNCALIBRATED":"لم تُشغّل مرجعية الأنماط قبل معايرة الأسعار",
- "UNAVAILABLE":"مكتبة مرجعية غير متاحة",
- "INSUFFICIENT_DATA":"بيانات غير كافية","BLOCKED_QUALITY_GATE":"بوابات جودة الرسم لم تكتمل","IMAGE_METADATA_MISMATCH":"إعدادات المعايرة لا تطابق الصورة","CONNECTED":"جسر الخبير متصل",
+ "BULLISH":"صاعد","BEARISH":"هابط","NEUTRAL":"محايد","UNKNOWN":"غير محدد",
+ "ACTIVE":"نشط","INACTIVE":"غير نشط",
+ "NOT_READY":"غير جاهز","INSUFFICIENT_DATA":"بيانات غير كافية",
+ "UNAVAILABLE":"غير متاح","CONNECTED":"جسر الخبير متصل",
+ "CONFIRMED":"تمت المصالحة",
+ "CONFIRMED_FROM_DEAL_HISTORY":"تأكيد من سجل صفقات MT5",
+ "POSITION_CLOSED_AFTER_MODIFY":"\u0623\u064f\u063a\u0644\u0642 \u0627\u0644\u0645\u0631\u0643\u0632 \u0644\u0627\u062d\u0642\u0627\u064b \u0648\u062a\u0623\u0643\u062f \u0645\u0646 MT5",
+ "ACK_PENDING":"نتيجة الإقرار قيد التحقق",
  "WAITING_FOR_EXPERT":"بانتظار الخبير التنفيذي","NOT_CONFIGURED":"مسار MT5 غير محدد",
  "PUBLISH_DISABLED":"نشر أوامر الخبير معطل","EXECUTION_DISABLED":"تنفيذ خبير MT5 معطّل","EXECUTION_STATE_UNKNOWN":"لم تصل حالة مفتاح تنفيذ الخبير","TERMINAL_NOT_CONNECTED":"طرفية MT5 غير متصلة","PUBLISHED":"أُرسل أمر للجسر",
  "ALREADY_ACKNOWLEDGED":"الأمر له إقرار سابق","ALREADY_PUBLISHED":"الأمر منشور مسبقاً",
  "PENDING_COMMAND_BLOCKED":"أمر سابق ينتظر التسوية","REJECTED":"الأمر مرفوض","ERROR":"خطأ",
- "FULLY_OPERATIONAL":"المحركات الموصولة جاهزة","NOT_REPORTED":"لم ترد حالة تشغيل مستقلة بعد","PARTIAL_OR_WAITING":"تشغيل جزئي — توجد وصلات تنتظر",
- "WAITING_FOR_ENGINE_2":"بانتظار معايرة الرسم","STALE":"بيانات قديمة — يلزم تحديث الصورة",
- "WAITING_FOR_ENGINE_3_QUOTE":"بانتظار سعر MT5 الحي","BLOCKED":"محجوب حتى تكتمل البيانات"}
+ "FULLY_OPERATIONAL":"التشغيل مكتمل؛ الدخول عند تحقق شروط السوق","NOT_REPORTED":"لم ترد حالة تشغيل مستقلة بعد","PARTIAL_OR_WAITING":"تشغيل جزئي — توجد وصلات تنتظر",
+ "WAITING_FOR_ENGINE_2":"بانتظار توافق بنية السعر بين الأطر",
+ "MIXED_TIMEFRAME_DIRECTIONS":"اتجاهات الأطر متعارضة",
+ "BULLISH_STRUCTURE_CONFLUENCE":"توافق بنيوي صاعد",
+ "BEARISH_STRUCTURE_CONFLUENCE":"توافق بنيوي هابط",
+ "NO_CLEAR_STRUCTURE_CONFLUENCE":"لا يوجد توافق بنيوي واضح",
+ "WAITING_FOR_ENGINE_2_PRICE_ACTION_CONFLUENCE":"بانتظار توافق بنية السعر من المحرك الثاني",
+ "WAITING_FOR_ENGINE_2_CANDLE_PATTERN_CONFLUENCE":"بانتظار توافق نماذج الشموع",
+ "CANDLE_PATTERN_DIRECTION_CONFLICT":"نمط الشموع يعارض اتجاه البنية",
+ "MIXED_CANDLE_PATTERN_EVIDENCE":"أدلة نماذج الشموع متعارضة",
+ "MIXED_OR_NO_CONFLUENCE":"لا يوجد توافق بنيوي كافٍ",
+ "INSUFFICIENT_DIRECTIONAL_FRAME_COVERAGE":"تغطية الأطر ذات الاتجاه المؤكد غير كافية",
+ "INSUFFICIENT_STRUCTURE_EVIDENCE_QUALITY":"جودة أدلة بنية السعر غير كافية",
+ "WAITING_FOR_ENGINE_3_QUOTE":"بانتظار سعر MT5 الحي",
+ "WAITING_FOR_ENGINE_5_QUOTE":"يلزم سعر MT5 حي ومواصفات الرمز لحساب الحجم",
+ "NOT_REQUIRED":"غير مطلوب في هذه الدورة",
+ "DISABLED_FOR_DEVELOPMENT":"معطّل بإعداد التطوير",
+ "NOT_AVAILABLE":"غير متاح لدى المصدر",
+ "FRESHNESS_UNKNOWN":"حداثة البيانات غير معروفة",
+ "REPORTED_DISABLED":"أبلغ الخبير أن التنفيذ معطّل",
+ "INCOMPLETE_HISTORY":"سجل تاريخي غير مكتمل",
+ "PASS":"اجتاز الفحص","FAIL":"فشل الفحص",
+ "WAITING":"بانتظار البيانات","UNKNOWN":"غير معروف",
+ "MITIGATED":"تمت ملامسة المنطقة بعد تكوّنها",
+ "UNMITIGATED_AT_SAMPLE_END":"لم تُلامس حتى نهاية العينة",
+ "INVALIDATED":"أُبطلت المنطقة",
+ "NO_OPPOSING_CANDLE":"لا توجد شمعة معاكسة",
+ "BLOCKED":"محجوب حتى تكتمل البيانات"}
 def ar(value):
  return STATUS_AR.get(str(value),str(value or "غير متاح"))
 def age_text(ts):
  if not ts: return "لا توجد إشارة حياة"
  return f"آخر نبض منذ {max(0,int(time.time()*1000)-int(ts))/1000:.1f} ثانية"
 
+def utc_ms_text(value):
+ try:
+  stamp=float(value)
+  if not math.isfinite(stamp) or stamp<=0:
+   return "—"
+  return time.strftime("%Y-%m-%d %H:%M:%S UTC",time.gmtime(stamp/1000.0))
+ except (TypeError,ValueError,OverflowError,OSError):
+  return "—"
+
 def render_component_health(state:dict)->None:
- items=state.get("component_health") or build_component_health(state)
- summary=state.get("component_health_summary") or summarize_component_health(items)
+ # Rebuild from the latest status snapshot so source metadata and health
+ # classifications cannot remain stale in a persisted component summary.
+ items=build_component_health(state)
+ summary=summarize_component_health(items)
  st.markdown('<div class="mirsad-kicker">COMMAND CENTER / ENGINE HEALTH</div>',unsafe_allow_html=True)
  st.subheader("مركز مراقبة المحركات والأدوات")
- st.caption("الحالة من آخر دورة تشغيل فعلية؛ غياب القياس يظهر كحالة انتظار، واختلاف هوية الصورة أو تقادم البيانات يظهر كتنبيه.")
+ st.caption("الحالة من آخر دورة تشغيل فعلية؛ غياب القياس يظهر كحالة انتظار، واختلاف رمز الوسيط أو مصدر البيانات أو تقادم الشموع والسعر يظهر كتنبيه.")
  totals=st.columns(4)
  total_cards=[
   ("مكونات تعمل فعلياً","healthy",summary.get("healthy",0),"#E6F0E9","#2D7254","✓"),
@@ -111,7 +221,7 @@ def render_component_health(state:dict)->None:
  groups=[
   "التشغيل",
   "المحرك الأول — استخبارات السوق",
-  "المحرك الثاني — التحليل البصري والسعري",
+  "المحرك الثاني — الشموع وبنية السعر الأصلية",
   "المحرك الثالث — المؤشرات",
   "المحرك الرابع — القرار وإدارة الصفقات",
   "المحرك الخامس — جسر التواصل مع MT5",
@@ -234,12 +344,15 @@ def render_execution_console(state:dict)->None:
   ("اتصال طرفية MT5","متصل" if terminal_connected else "غير مثبت",terminal_connected),
   ("مفتاح الخبير InpAllowExecution","مفعّل" if expert_execution is True else "معطّل" if expert_execution is False else "غير معروف",expert_execution is True),
   ("جاهزية المحرك الرابع","جاهز" if command_ready and command_preview else "لا يوجد أمر معتمد",bool(command_ready and command_preview)),
-  ("مصالحة آخر أمر","مؤكدة" if reconciliation.get("status")=="CONFIRMED" else ar(reconciliation.get("status","NOT_REPORTED")),reconciliation.get("status")=="CONFIRMED"),
+  ("\u0645\u0635\u0627\u0644\u062d\u0629 \u0622\u062e\u0631 \u0623\u0645\u0631", "\u0645\u063a\u0644\u0642\u0629 \u0644\u0627\u062d\u0642\u0627\u064b \u0648\u0645\u0624\u0643\u062f\u0629 \u0645\u0646 MT5" if reconciliation.get("status")=="POSITION_CLOSED_AFTER_MODIFY" else "\u0645\u0624\u0643\u062f\u0629 \u0645\u0646 MT5" if reconciliation.get("status")=="CONFIRMED_FROM_DEAL_HISTORY" else "\u0645\u0624\u0643\u062f\u0629" if reconciliation.get("status")=="CONFIRMED" else ar(reconciliation.get("status","NOT_REPORTED")), reconciliation.get("status") in {"CONFIRMED","CONFIRMED_FROM_DEAL_HISTORY","POSITION_CLOSED_AFTER_MODIFY","NO_PENDING_COMMAND"}),
  ]
  for col,(label,value,ok) in zip(gate_cols,gate_values):
   with col:
    st.metric(label,value)
-   st.caption("اجتاز" if ok else "لم يجتز / غير متاح")
+   if label=="مصالحة آخر أمر" and reconciliation.get("status")=="NO_PENDING_COMMAND":
+    st.caption("لا يوجد أمر معلّق — حالة طبيعية")
+   else:
+    st.caption("اجتاز" if ok else "لم يجتز / غير متاح")
 
  tabs=st.tabs(["أوامر MIR1 والتحكم","معاينة الأمر والإرسال","الحساب ومواصفات الرمز","المراكز المفتوحة","الإقرارات والمصالحة","سجل الأحداث","إعدادات النظام والحدود"])
  with tabs[0]:
@@ -250,7 +363,7 @@ def render_execution_console(state:dict)->None:
    {"الرمز":"CLOSE","الاسم":"إغلاق كامل أو جزئي","مصدر القرار":"المحرك الرابع لمركز معاكس","البيانات الإلزامية":"position_ticket والحجم المستهدف","سلوك الخبير":"يقيّد الإغلاق بمركز مرصاد ورقم Magic الخاص به"},
    {"الرمز":"MODIFY","الاسم":"تعديل وقف الحماية","مصدر القرار":"إدارة الوقف الوقائي في المحرك الرابع","البيانات الإلزامية":"position_ticket وSL الجديد وTP الحالي","سلوك الخبير":"لا يسمح بتخفيف الوقف أو تغيير الهدف"},
   ]
-  st.dataframe(pd.DataFrame(command_rows),use_container_width=True,hide_index=True)
+  _safe_dataframe(pd.DataFrame(command_rows),width="stretch",hide_index=True)
   st.markdown("**حالات دورة حياة الأمر وإقرار MT5**")
   st.write("RECEIVED: استلم الخبير الأمر · SUBMITTED: أرسل طلب الوسيط · PARTIAL: تنفيذ جزئي · FILLED: أقر الوسيط بالملء · REJECTED: رفض · CANCELLED: أُلغي · EXPIRED: انتهت صلاحيته · UNKNOWN: النتيجة غير محسومة.")
   st.info("لا يوجد أمر CANCEL مستقل أو أوامر Pending / Limit / Stop في MIR1 الحالي. لا توجد أزرار إلغاء شكلية؛ الأوامر المدعومة حالياً هي BUY وSELL وCLOSE وMODIFY فقط.")
@@ -296,7 +409,7 @@ def render_execution_console(state:dict)->None:
     clicked=st.button(
      "تمرير "+target,
      key=publish_button_key+"_"+target,
-     use_container_width=True,
+     width="stretch",
      disabled=not (gates_ok and confirmation and active_action==target),
      help=("لا يُفعّل إلا عندما يكون هذا النوع هو قرار المحرك الرابع الحالي واجتاز كل البوابات."),
     )
@@ -306,7 +419,7 @@ def render_execution_console(state:dict)->None:
    st.button(
     "CANCEL · غير مدعوم",
     key=publish_button_key+"_CANCEL",
-    use_container_width=True,
+    width="stretch",
     disabled=True,
     help="بروتوكول MIR1 الحالي لا يعرّف أمر إلغاء.",
    )
@@ -352,7 +465,7 @@ def render_execution_console(state:dict)->None:
    {"المواصفة":"Filling / Execution mode","القيمة":f"{specs.get('filling_mode','—')} / {specs.get('execution_mode','—')}"},
    {"المواصفة":"Trade mode","القيمة":specs.get("trade_mode","—")},
   ]
-  st.dataframe(pd.DataFrame(spec_rows),use_container_width=True,hide_index=True)
+  _safe_dataframe(pd.DataFrame(spec_rows),width="stretch",hide_index=True)
   st.caption("هذه الحقول يقرأها الجسر من status.json الصادر من الخبير. لا يستنتج المحرك الرصيد أو tick value أو حدود الحجم.")
 
  with tabs[3]:
@@ -373,7 +486,7 @@ def render_execution_console(state:dict)->None:
      "وقف الخسارة":item.get("stop_loss"),
      "الهدف":item.get("take_profit"),
     })
-   st.dataframe(pd.DataFrame(position_rows),use_container_width=True,hide_index=True)
+   _safe_dataframe(pd.DataFrame(position_rows),width="stretch",hide_index=True)
   else:
    st.info("لا توجد مراكز أبلغ عنها الخبير في آخر نبضة، أو أن نبضة الخبير لم تصل بعد.")
   plan=decision.get("management_plan") if isinstance(decision.get("management_plan"),dict) else {}
@@ -411,7 +524,7 @@ def render_execution_console(state:dict)->None:
     "الحالة":item.get("state",item.get("status","—")),
     "التفاصيل":item.get("message",item.get("reason","—")),
    } for item in events]
-   st.dataframe(pd.DataFrame(event_rows),use_container_width=True,hide_index=True)
+   _safe_dataframe(pd.DataFrame(event_rows),width="stretch",hide_index=True)
   else:
    st.info("ملف events.jsonl غير موجود أو لا يحتوي أحداثاً قابلة للقراءة.")
   paths=bridge.get("common_files_files") if isinstance(bridge.get("common_files_files"),dict) else {}
@@ -425,7 +538,7 @@ def render_execution_console(state:dict)->None:
    else:
     status_label="موجود"
    file_rows.append({"الملف":name,"الحالة":status_label})
-  st.dataframe(pd.DataFrame(file_rows),use_container_width=True,hide_index=True)
+  _safe_dataframe(pd.DataFrame(file_rows),width="stretch",hide_index=True)
   st.caption("Common Files / MirsadBTC: status.json · command.json · ack.json · positions.json · events.jsonl")
 
  with tabs[6]:
@@ -435,8 +548,6 @@ def render_execution_console(state:dict)->None:
    {"الإعداد":"SQLite database","القيمة":str(DB_PATH),"المعنى":"قاعدة بيانات السوق والتاريخ والأرشفة."},
    {"الإعداد":"system_status.json","القيمة":str(STATUS_PATH),"المعنى":"ملف الحالة الموحد الذي تقرأ منه لوحة القيادة."},
    {"الإعداد":"latest_market.json","القيمة":str(SNAPSHOT_PATH),"المعنى":"آخر لقطة سوق كتبها runtime."},
-   {"الإعداد":"chart images directory","القيمة":str(CHART_DIR),"المعنى":"مجلد صور الرسوم المرفقة أو الملتقطة للمحرك الثاني."},
-   {"الإعداد":"chart_metadata.json","القيمة":str(CHART_METADATA_PATH),"المعنى":"إعدادات الصورة ومعايرة محور السعر وبصمة ملف الصورة."},
    {"الإعداد":"daily_risk_state.json","القيمة":str(RISK_STATE_PATH),"المعنى":"خط أساس حد الخسارة اليومية وحالته المستمرة."},
    {"الإعداد":"MIRSAD_ENABLE_ORDER_PUBLISH","القيمة":"1" if publish_enabled else "0","المعنى":"يسمح للبرنامج بكتابة command.json عند اكتمال القرار."},
    {"الإعداد":"InpAllowExecution داخل الخبير","القيمة":"TRUE" if expert_execution is True else "FALSE" if expert_execution is False else "غير معروف","المعنى":"يسمح للخبير بإرسال طلب الوسيط بعد فحوصه الداخلية."},
@@ -449,19 +560,19 @@ def render_execution_console(state:dict)->None:
    {"الإعداد":"MIRSAD_MT5_HEARTBEAT_MAX_AGE","القيمة":MT5_HEARTBEAT_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لنبضة الخبير."},
    {"الإعداد":"MIRSAD_MT5_MARKET_DATA_MAX_AGE","القيمة":MT5_MARKET_DATA_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لبيانات المؤشرات والشموع المستخدمة لإدارة الوقف."},
    {"الإعداد":"MIRSAD_MARKET_MAX_AGE","القيمة":MARKET_MAX_AGE_SECONDS,"المعنى":"أقصى عمر للبيانات السوقية."},
-   {"الإعداد":"MIRSAD_CHART_MAX_AGE","القيمة":CHART_MAX_AGE_SECONDS,"المعنى":"أقصى عمر لصورة الشارت."},
    {"الإعداد":"MIRSAD_COLLECT_SECONDS","القيمة":COLLECT_INTERVAL_SECONDS,"المعنى":"الفاصل بين دورات runtime بالثانية."},
    {"الإعداد":"MIRSAD_MT5_COMMON_FILES","القيمة":MT5_COMMON_FILES or "غير مضبوط","المعنى":"المجلد الأب الذي يضم Common Files/MirsadBTC بين البرنامج والخبير."},
    {"الإعداد":"InpMagicNumber","القيمة":bridge.get("magic_number","—"),"المعنى":"معرّف المراكز والأوامر التي يملكها خبير مرصاد."},
    {"الإعداد":"مصادر البحث والمقارنة","القيمة":"، ".join(PROVIDERS.keys()),"المعنى":"مصادر بحث/تقييم مهيأة في الكود؛ مصدر القرار والتشغيل الحي يبقى MT5 وفق عقود المحركات."},
   ]
-  st.dataframe(pd.DataFrame(settings_rows),use_container_width=True,hide_index=True)
+  _safe_dataframe(pd.DataFrame(settings_rows),width="stretch",hide_index=True)
   daily_cols=st.columns(4)
-  daily_cols[0].metric("حالة حد الخسارة اليومية",ar(daily.get("status","NOT_REPORTED")))
+  daily_status=("DISABLED_FOR_DEVELOPMENT" if daily.get("enabled") is False or daily.get("mode")=="DISABLED_FOR_DEVELOPMENT" else daily.get("status","NOT_REPORTED"))
+  daily_cols[0].metric("حالة حد الخسارة اليومية",ar(daily_status))
   daily_cols[1].metric("مفعّل","نعم" if daily.get("enabled") else "لا")
   daily_cols[2].metric("قفل فتح المراكز","نعم" if daily.get("locked") else "لا")
   daily_cols[3].metric("الخسارة اليومية %",f"{float(daily.get('daily_loss_fraction'))*100:.3f}" if daily.get("daily_loss_fraction") is not None else "—")
-  st.caption(daily.get("reason") or "حد الخسارة اليومية معطل خلال التطوير؛ بقية ضوابط المخاطر لا تزال قائمة.")
+  st.caption(daily.get("reason") or "حد الخسارة اليومية معطّل بإعداد التطوير، لذلك لا يُحتسب حاجز حماية نشطاً. وتُعرض بقية ضوابط المخاطر بحسب حالتها ونتيجة فحصها في الدورة الحالية.")
   st.markdown("**إدارة الوقف الوقائي ATR — خطة المحرك الرابع**")
   trail_rows=[
    {"المعلمة":"نقل الوقف إلى سعر الدخول بعد حركة مواتية","القيمة":f"{BREAK_EVEN_TRIGGER_ATR} ATR"},
@@ -469,17 +580,22 @@ def render_execution_console(state:dict)->None:
    {"المعلمة":"مسافة الوقف المتتبع","القيمة":f"{TRAILING_DISTANCE_ATR} ATR"},
    {"المعلمة":"أقل خطوة بين تحديثين","القيمة":f"{TRAILING_STEP_ATR} ATR"},
   ]
-  st.dataframe(pd.DataFrame(trail_rows),use_container_width=True,hide_index=True)
+  _safe_dataframe(pd.DataFrame(trail_rows),width="stretch",hide_index=True)
   st.caption("إدارة الوقف لا توسع المخاطرة ولا تعدل الهدف؛ تقترح تحديثاً واحداً فقط في الدورة وتبقى خاضعة لتطابق Tick وStops/Freeze لدى الوسيط.")
 
-def render_engine_dashboard():
+def render_detailed_engine_dashboard():
  state=read_json(STATUS_PATH,{})
  market=read_json(SNAPSHOT_PATH,{})
  st.title("₿ مرصاد البيتكوين")
- st.caption("مرصاد منظومة بخمسة محركات مترابطة: استخبارات سوق مستقلة، شموع وحركة سعر من OHLC الأصلي، مؤشرات فنية، قرار ومخاطر، وجسر MT5. صور المخططات اختيارية للتشخيص فقط ولا تدخل التصويت أو القرار.")
+ st.caption("مرصاد منظومة بخمسة محركات مترابطة: استخبارات سوق مستقلة، شموع وحركة سعر من OHLC الأصلي، مؤشرات فنية، قرار ومخاطر، وجسر MT5.")
  if state:
   st.metric("الحالة العامة",ar(state.get("overall_status","PARTIAL_OR_WAITING")))
   st.caption(age_text(state.get("heartbeat_at_ms")))
+  runtime_error=str(state.get("runtime_error") or "").strip()
+  if runtime_error:
+   st.error("سبب فشل آخر دورة تشغيل: "+runtime_error)
+  elif str(state.get("overall_status") or "").upper()=="ERROR":
+   st.error("أعلن البرنامج فشل آخر دورة تشغيل، لكن لم تصل تفاصيل الخطأ في ملف الحالة.")
  else:
   st.warning("خدمة البرنامج لم تبدأ بعد. شغّل run_mirsad.py لتشغيل محركات البيانات والتحليل.")
  if state:
@@ -510,8 +626,8 @@ def render_engine_dashboard():
   rows=[]
   for name,row in market.get("venues",{}).items():
    pulse=row.get("microstructure") or {}
-   rows.append({"المصدر":name,"الاتصال":ar(row.get("status")),"معدل التحديث/دقيقة":pulse.get("tick_rate_per_minute"),"توازن عروض الأسعار":pulse.get("quote_direction_balance"),"السبريد %":pulse.get("current_spread_pct"),"الخطأ":row.get("error") or "—"})
-  if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+   rows.append({"المصدر":name,"الاتصال":ar(row.get("status")),"معدل التحديث/دقيقة":pulse.get("tick_rate_per_minute"),"توازن عروض الأسعار":pulse.get("quote_direction_balance"),"سبريد مراقب MT5 الحالي %":pulse.get("current_spread_pct"),"الخطأ":row.get("error") or "—"})
+  if rows: _safe_dataframe(pd.DataFrame(rows),width="stretch",hide_index=True)
   for name,row in market.get("venues",{}).items():
    if row.get("status")=="LIVE":
     with st.expander(f"تفاصيل نبض سعر الوسيط — {name}"):
@@ -537,7 +653,7 @@ def render_engine_dashboard():
   i1.metric("حالة الاستخبارات",ar(intel.get("status")))
   i2.metric("السيناريو السياقي",scenario.get("label",intel.get("direction","UNKNOWN")))
   i3.metric("درجة السياق",score_label)
-  i4.metric("تغطية الأدلة",f"{float(intel.get('evidence_coverage',0) or 0)*100:.0f}%")
+  i4.metric("تغطية مكونات التصويت",f"{float(intel.get('evidence_coverage',0) or 0)*100:.0f}%",help="نسبة أوزان مكونات استخبارات السوق المتاحة (المشتقات والأخبار والخوف والطمع)، وليست اكتمال كل حقل أو كل مزود بيانات.")
   i5.metric("الثقة التفسيرية",f"{float(intel.get('confidence',0) or 0)*100:.0f}%")
   risk_assessment=intel.get("market_risk_assessment",{}) if isinstance(intel.get("market_risk_assessment"),dict) else {}
   r1,r2,r3=st.columns(3)
@@ -552,16 +668,16 @@ def render_engine_dashboard():
   source_rows=[{"المصدر":name,"الحالة":ar(status)} for name,status in source_statuses.items()]
   if source_rows:
    st.markdown("**صحة مصادر استخبارات السوق**")
-   st.dataframe(pd.DataFrame(source_rows),use_container_width=True,hide_index=True)
+   _safe_dataframe(pd.DataFrame(source_rows),width="stretch",hide_index=True)
   news_data=intel.get("news",{}) if isinstance(intel.get("news"),dict) else {}
   feed_statuses=news_data.get("sources",{}) if isinstance(news_data.get("sources"),dict) else {}
   if feed_statuses:
    st.markdown("**حالة كل موجز إخباري**")
    feed_rows=[{"الموجز":name,"الحالة":ar(status)} for name,status in feed_statuses.items()]
-   st.dataframe(pd.DataFrame(feed_rows),use_container_width=True,hide_index=True)
+   _safe_dataframe(pd.DataFrame(feed_rows),width="stretch",hide_index=True)
   components=intel.get("components",{}) if isinstance(intel.get("components"),dict) else {}
   comp_rows=[{"المكوّن":name,"الحالة":ar(value.get("status")),"الدرجة":value.get("score"),"الوزن":value.get("weight"),"الثقة":value.get("confidence"),"يساهم في السياق":("نعم" if value.get("contributes") else "لا")} for name,value in components.items() if isinstance(value,dict)]
-  if comp_rows: st.dataframe(pd.DataFrame(comp_rows),use_container_width=True,hide_index=True)
+  if comp_rows: _safe_dataframe(pd.DataFrame(comp_rows),width="stretch",hide_index=True)
   derivatives=intel.get("derivatives",{}) if isinstance(intel.get("derivatives"),dict) else {}
   derivative_rows=[]
   venue_scores=derivatives.get("venue_scores",{}) if isinstance(derivatives.get("venue_scores"),dict) else {}
@@ -576,7 +692,7 @@ def render_engine_dashboard():
     derivative_rows.append({"المنصة":name,"الحالة":ar(row.get("status")),"حداثة الدرجة":ar(diagnostic.get("directional_status","NOT_REPORTED")),"حالة التمويل":ar(diagnostic.get("funding_directional_status","NOT_REPORTED")),"عمر التمويل ث":funding_age,"حالة Long/Short":ar(diagnostic.get("long_short_directional_status","NOT_REPORTED")),"عمر Long/Short ث":ratio_age,"عمر الدليل ث":diagnostic.get("age_seconds"),"درجة المساهمة":diagnostic.get("directional_score"),"Funding Rate":row.get("funding_rate"),"أساس التمويل":row.get("funding_basis",""),"Open Interest":row.get("open_interest"),"وحدة OI":row.get("open_interest_unit",""),"Open Interest USD":row.get("open_interest_usd"),"تغير OI %":row.get("open_interest_change_pct_35m"),"Long/Short":row.get("long_short_ratio"),"Mark Price":row.get("mark_price"),"حالة نقاط API":row.get("endpoint_statuses",{}),"أخطاء API":row.get("endpoint_errors",{})})
   if derivative_rows:
    st.markdown("**المشتقات والتموضع — ليس دفتر أوامر السوق الفوري**")
-   st.dataframe(pd.DataFrame(derivative_rows),use_container_width=True,hide_index=True)
+   _safe_dataframe(pd.DataFrame(derivative_rows),width="stretch",hide_index=True)
   sentiment=intel.get("fear_greed",{}) if isinstance(intel.get("fear_greed"),dict) else {}
   global_metrics=intel.get("global_metrics",{}) if isinstance(intel.get("global_metrics"),dict) else {}
   metrics=global_metrics.get("metrics",{}) if isinstance(global_metrics.get("metrics"),dict) else {}
@@ -595,8 +711,8 @@ def render_engine_dashboard():
    if not isinstance(item,dict): continue
    published=item.get("published_at_ms")
    published_label=time.strftime("%Y-%m-%d %H:%M UTC",time.gmtime(published/1000)) if isinstance(published,(int,float)) and published>0 else "وقت غير متاح"
-   news_rows.append({"وقت النشر":published_label,"الناشرون":"، ".join(item.get("sources") or [item.get("source","")]),"التكرار":item.get("duplicate_count",1),"العنوان":item.get("title"),"قراءة الكلمات":item.get("sentiment_score"),"علامات المخاطر":", ".join(item.get("risk_flags",[])) or "—","الرابط":item.get("url")})
-  if news_rows: st.dataframe(pd.DataFrame(news_rows),use_container_width=True,hide_index=True)
+   news_rows.append({"وقت النشر":published_label,"الناشرون":"، ".join(item.get("sources") or [item.get("source","")]),"التكرار":item.get("duplicate_count",1),"العنوان":item.get("title"),"درجة نبرة العنوان":item.get("sentiment_score"),"علامات المخاطر":", ".join(item.get("risk_flags",[])) or "—","الرابط":item.get("url")})
+  if news_rows: _safe_dataframe(pd.DataFrame(news_rows),width="stretch",hide_index=True)
   else: st.info("لم تصل عناوين أخبار صالحة من المصادر المستقلة بعد.")
   calendar=intel.get("economic_calendar",{}) if isinstance(intel.get("economic_calendar"),dict) else {}
   c_events=calendar.get("events",[]) if isinstance(calendar.get("events"),list) else []
@@ -604,372 +720,139 @@ def render_engine_dashboard():
    st.caption("تغطية التقويم الاقتصادي المستقل: "+"، ".join(calendar.get("countries_covered",[])))
   st.caption("مصادر التقويم: "+", ".join(f"{name}: {ar(status)}" for name,status in (calendar.get("sources",{}) or {}).items()))
   if c_events:
-   st.markdown("**الأحداث الاقتصادية القادمة والحديثة**")
+   st.markdown("**الأحداث الاقتصادية — القادمة والسابقة**")
    event_rows=[]
+   now_ms=int(time.time()*1000)
    for event in c_events[:30]:
     stamp=event.get("event_time_utc_ms")
-    event_rows.append({"الحدث":event.get("name"),"المصدر":event.get("provider"),"الدولة":event.get("country"),"العملة":event.get("currency"),"الأهمية":event.get("importance"),"وقت UTC":time.strftime("%Y-%m-%d %H:%M",time.gmtime(stamp/1000)) if isinstance(stamp,(int,float)) else "—","التوقع":event.get("forecast"),"السابق":event.get("previous"),"الفعلي":event.get("actual"),"جهة الإصدار":event.get("source")})
-   st.dataframe(pd.DataFrame(event_rows),use_container_width=True,hide_index=True)
+    event_stage=("قادم" if stamp>=now_ms else "وقع بالفعل") if isinstance(stamp,(int,float)) else "وقت غير محدد"
+    event_rows.append({"الحالة الزمنية":event_stage,"الحدث":event.get("name"),"المصدر":event.get("provider"),"الدولة":event.get("country"),"العملة":event.get("currency"),"الأهمية":event.get("importance"),"وقت UTC":utc_ms_text(stamp),"التوقع":event.get("forecast"),"السابق":event.get("previous"),"الفعلي":event.get("actual"),"جهة الإصدار":event.get("source")})
+   _safe_dataframe(pd.DataFrame(event_rows),width="stretch",hide_index=True)
   if calendar.get("high_impact_window_active"):
    st.error("حاجز الحدث الاقتصادي عالي الأهمية نشط: المحرك الرابع يوقف المداخل الجديدة مؤقتاً، ولا يوقف الإغلاق أو الحماية.")
   st.caption("حدود الاستخبارات: لا تقرأ شموعاً أو مؤشرات أو صوراً؛ الأخبار تُقيّم بكلمات مفتاحية قابلة للفحص ولا تعني التحقق من صحة الخبر.")
 
  if state:
-  chart=state.get("chart",{})
-  st.subheader("المحرك الثاني — تحليل الرسوم والصور")
-  c1,c2,c3,c4,c5=st.columns(5)
-  c1.metric("حالة التحليل",ar(chart.get("status")))
-  c2.metric("شموع مكتشفة",chart.get("detected_bar_count",0))
-  c3.metric("شموع معايرة سعرياً",chart.get("calibrated_bar_count",0))
-  c4.metric("شموع مؤكدة",chart.get("confirmed_bar_count",chart.get("calibrated_bar_count",0)))
-  c5.metric("الميل المرئي",chart.get("visual_bias","—"))
-  latest_state="مغلقة" if chart.get("last_candle_closed") else "قيد التكوين / غير مؤكدة"
-  st.caption(f"حالة آخر شمعة: {latest_state} | الشمعة غير المؤكدة تبقى معروضة، لكنها لا تدخل في قياس الاتجاه والبنية المؤكدين.")
-  a1,a2,a3=st.columns(3)
-  a1.metric("درجة المحلل",f"{chart.get('analysis_score',0)*100:.1f} / 100")
-  a2.metric("مؤشر جودة الأدلة",f"{chart.get('analysis_confidence',0)*100:.1f}%")
-  a2.caption("مؤشر إرشادي وليس احتمالاً إحصائياً لصحة التوقع.")
-  a3.metric("الزخم البصري",chart.get("momentum",{}).get("score","—"))
-  structure=chart.get("market_structure",{})
-  st.caption(
-   f"بنية السوق في الصورة: {structure.get('direction','غير كافية')} | "
-   f"دعم مرئي: {structure.get('support','—')} | مقاومة مرئية: {structure.get('resistance','—')}"
-  )
-  event_labels={
-   "BOS_BULLISH":"كسر بنية صاعد","BOS_BEARISH":"كسر بنية هابط",
-   "CHOCH_BULLISH":"تغير بنية إلى صاعد","CHOCH_BEARISH":"تغير بنية إلى هابط",
-   "HIGH_LIQUIDITY_SWEEP":"كنس سيولة فوق قمة","LOW_LIQUIDITY_SWEEP":"كنس سيولة تحت قاع",
-  }
-  structural_rows=[
-   {"الحدث":event_labels.get(item.get("event"),item.get("event")),"الاتجاه":item.get("side"),
-    "المستوى":item.get("level"),"شمعة التأكيد":item.get("confirmation_index"),
-    "شرط التأكيد":item.get("confirmation")}
-   for item in structure.get("structure_events",[])
-  ]
-  if structural_rows:
-   st.markdown("**أحداث بنية السعر المؤكدة**")
-   st.dataframe(pd.DataFrame(structural_rows),use_container_width=True,hide_index=True)
-  sweep_rows=[
-   {"الحدث":event_labels.get(item.get("event"),item.get("event")),"الأثر":item.get("side"),
-    "المستوى":item.get("level"),"شمعة التأكيد":item.get("confirmation_index")}
-   for item in structure.get("liquidity_sweeps",[])
-  ]
-  if sweep_rows:
-   st.markdown("**عمليات كنس السيولة من الذيل والإغلاق**")
-   st.dataframe(pd.DataFrame(sweep_rows),use_container_width=True,hide_index=True)
-  equal_rows=[
-   {"المنطقة":"قمم متساوية","من":zone.get("lower"),"إلى":zone.get("upper"),
-    "اللمسات":zone.get("touches"),"المسافة %":zone.get("distance_pct")}
-   for zone in structure.get("equal_high_zones",[])
-  ]+[
-   {"المنطقة":"قيعان متساوية","من":zone.get("lower"),"إلى":zone.get("upper"),
-    "اللمسات":zone.get("touches"),"المسافة %":zone.get("distance_pct")}
-   for zone in structure.get("equal_low_zones",[])
-  ]
-  if equal_rows:
-   st.markdown("**مناطق القمم والقيعان المتساوية**")
-   st.dataframe(pd.DataFrame(equal_rows),use_container_width=True,hide_index=True)
-  watch_rows=[]
-  if structure.get("entry_zone"):
-   zone=structure["entry_zone"]
-   watch_rows.append({"المنطقة":"مراقبة دخول","النوع":zone.get("kind"),"من":zone.get("lower"),"إلى":zone.get("upper"),"الحالة":zone.get("status")})
-  if structure.get("exit_zone"):
-   zone=structure["exit_zone"]
-   watch_rows.append({"المنطقة":"مراقبة خروج","النوع":zone.get("kind"),"من":zone.get("lower"),"إلى":zone.get("upper"),"الحالة":zone.get("status")})
-  if watch_rows:
-   st.markdown("**مناطق المراقبة التي حددها المحلل**")
-   st.dataframe(pd.DataFrame(watch_rows),use_container_width=True,hide_index=True)
-  components=chart.get("analysis_components",{})
-  st.caption(
-   f"مكونات قراءة المحلل - اتجاه: {components.get('trend','—')} | "
-   f"بنية: {components.get('structure','—')} | زخم: {components.get('momentum','—')} | "
-   f"أنماط: {components.get('patterns','—')}"
-  )
-  if chart.get("input_age_seconds") is not None:
-   st.caption(f"عمر صورة الشارت: {chart['input_age_seconds']} ثانية")
-  if chart.get("pattern_candidates"):
-   st.markdown("**أنماط الرؤية الهندسية من الصورة**")
-   st.dataframe(pd.DataFrame(chart["pattern_candidates"]),use_container_width=True,hide_index=True)
-  header_ocr=chart.get("header_ocr") or {}
-  if header_ocr.get("status") not in {None,"DISABLED"}:
-   header_status_ar={
-    "SUGGESTIONS_FOUND":"تم استخراج اقتراحات",
-    "NO_METADATA":"لم تُقرأ بيانات تعريف واضحة",
-    "OCR_UNAVAILABLE":"خدمة OCR غير متاحة",
-    "INVALID_IMAGE":"صورة غير صالحة",
-    "INVALID_HEADER_REGION":"منطقة عنوان غير صالحة",
-   }.get(header_ocr.get("status"),header_ocr.get("status"))
-   st.caption(
-    f"حالة قراءة عنوان الصورة: {header_status_ar} | "
-    f"ثقة OCR النصية المتوسطة: {header_ocr.get('mean_ocr_score','—')}"
-   )
-   st.caption(
-    f"اقتراحات بيانات عنوان الصورة: الرمز {header_ocr.get('symbol_suggestion') or 'غير واضح'} | "
-    f"الإطار {header_ocr.get('timeframe_suggestion') or 'غير واضح'} | "
-    f"البورصة {header_ocr.get('exchange_suggestion') or 'غير واضحة'} | "
-    f"مطابقة رمز السوق: {header_ocr.get('expected_symbol_match','—')}"
-   )
-   st.caption("هذه اقتراحات OCR للمراجعة فقط؛ لا تستبدل البيانات المدخلة، ولا تستخدم لمعايرة السعر أو أهلية القرار.")
-  reference_patterns=chart.get("reference_patterns") or {}
-  st.markdown("**مرجع الأنماط الحسابي المستقل — TA-Lib على OHLC المعاير**")
-  st.caption(
-   f"الحالة: {ar(reference_patterns.get('status','NOT_AVAILABLE'))} | "
-   f"التعريفات: {reference_patterns.get('pattern_definition_count',0)} | "
-   f"الأحداث: {reference_patterns.get('event_count',0)} | "
-   f"مكتبة: {reference_patterns.get('version','—')}"
-  )
-  st.caption("هذه مطابقة حسابية ثانية للأنماط وليست تصويتاً إضافياً أو احتمال نجاح. اختلافها عن الرؤية الهندسية يظهر للمراجعة.")
-  if reference_patterns.get("events"):
-   ref_rows=[{
-    "النمط":item.get("pattern"),
-    "الاتجاه":item.get("side"),
-    "الحالة":item.get("state"),
-    "شمعة الحدث":item.get("bar_index"),
-    "قيمة TA-Lib":item.get("talib_value"),
-    "حد الإبطال":item.get("invalidation_level"),
-    "سبب الإبطال":item.get("invalidation_reason"),
-   } for item in reference_patterns["events"]]
-   st.dataframe(pd.DataFrame(ref_rows),use_container_width=True,hide_index=True)
-  elif reference_patterns.get("error"):
-   st.caption(reference_patterns["error"])
-  extraction=chart.get("extraction_diagnostics") or {}
-  slot_extraction=extraction.get("slot_guided_extraction") or {}
-  st.caption(
-   f"مسار استخراج الشموع: {extraction.get('segmentation_mode','projection_groups')} | "
-   f"الشموع المستخرجة: {chart.get('detected_bar_count',0)} | "
-   f"المواضع التي أعطت دليلاً: {slot_extraction.get('occupied_slots',0)} من "
-   f"{slot_extraction.get('slots_considered',0)}"
-  )
-  if slot_extraction:
-   st.caption(
-    f"استخدام التقسيم الموجّه: {'نعم' if slot_extraction.get('adopted') else 'لا'} | "
-    f"نقاوة ألوانه المتوسطة: {slot_extraction.get('mean_colour_purity','—')} | "
-    f"المواضع المرفوضة لضعف الدليل: {slot_extraction.get('rejected_component_quality',0) + slot_extraction.get('rejected_low_activity',0)}"
-   )
-  st.markdown("**قاعدة معرفة المحرك البصري — الشموع وبنية السوق**")
-  knowledge_db=chart.get("visual_knowledge_database") or {}
-  # Research runs may be launched outside the live collector process. Read the
-  # SQLite summary on each dashboard refresh so their new records appear here.
-  try:
-   knowledge_db={**knowledge_db,**visual_knowledge_summary()}
-  except Exception as exc:
-   knowledge_db={**knowledge_db,"live_summary_status":"ERROR",
-    "live_summary_error":f"{type(exc).__name__}: {exc}"}
-  k1,k2,k3,k4=st.columns(4)
-  k1.metric("تعريفات الشموع",knowledge_db.get("candle_pattern_definitions",0))
-  k2.metric("تعريفات بنية السوق",knowledge_db.get("market_structure_definitions",0))
-  k3.metric("رصدات الأنماط",knowledge_db.get("pattern_observations",0))
-  k4.metric("تقييمات تجريبية متحققة",knowledge_db.get("validated_evaluation_records",0))
-  st.caption(
-   f"إصدار القاعدة: {knowledge_db.get('version','—')} | "
-   f"الحالة التجريبية: {knowledge_db.get('empirical_status','UNVALIDATED')} | "
-   "التعريفات الموثقة لا تعني أن فعاليتها على BTC قد ثبتت."
-  )
-  st.caption(
-   f"سجلات تقييم الأنماط: {knowledge_db.get('pattern_evaluation_records',0)} | "
-   "لا تتحول التعريفات إلى نتائج متحققة إلا بعلامات بشرية واختبار مستقل."
-  )
-  recent_evaluations=knowledge_db.get("recent_pattern_evaluations") or []
-  if recent_evaluations:
-   evaluation_rows=[{
-    "النمط":item.get("pattern_id"),
-    "الرمز":item.get("symbol"),
-    "الإطار":item.get("timeframe"),
-    "النظام السوقي":item.get("market_regime"),
-    "العينات":item.get("sample_count"),
-    "Precision":item.get("precision"),
-    "Recall":item.get("recall"),
-    "F1":item.get("f1"),
-    "العائد بعد التكاليف %":item.get("fee_adjusted_expectancy_pct"),
-    "أفق القياس (شموع)":item.get("primary_horizon_bars"),
-    "الحالة":item.get("validation_status"),
-   } for item in recent_evaluations]
-   st.dataframe(pd.DataFrame(evaluation_rows),use_container_width=True,hide_index=True)
-  else:
-   st.caption("لم تُسجل بعد نتائج تقييم إحصائي لأنماط الشموع.")
-
-  st.markdown("**دراسة نتائج التراكيب السعرية التاريخية — سجل المحرك الثاني**")
-  s1,s2,s3=st.columns(3)
-  s1.metric("سجلات تقييم التراكيب",knowledge_db.get("structure_evaluation_records",0))
-  s2.metric("نوافذ Train / Validation / Test",knowledge_db.get("evaluation_split_windows",0))
-  s3.metric("سجلات متحققة",knowledge_db.get("validated_structure_evaluations",0))
-  st.caption(
-   f"الحالة التجريبية للتراكيب: {knowledge_db.get('structure_empirical_status','UNVALIDATED')} | "
-   "الدراسة وصفية، ولا تعد اختبار محفظة أو إشارة تداول."
-  )
-  recent_structure=knowledge_db.get("recent_structure_evaluations") or []
-  if recent_structure:
-   structure_rows=[{
-    "التركيب":item.get("structure_id"),
-    "الرمز":item.get("symbol"),
-    "المنصة":item.get("venue"),
-    "الإطار":item.get("timeframe"),
-    "التقسيم":item.get("data_split"),
-    "العينات":item.get("sample_count"),
-    "أفق القياس":item.get("primary_horizon_bars"),
-    "متوسط العائد %":item.get("mean_return_pct"),
-    "متوسط العائد الصافي %":item.get("fee_adjusted_expectancy_pct"),
-    "الحالة":item.get("validation_status"),
-   } for item in recent_structure]
-   st.dataframe(pd.DataFrame(structure_rows),use_container_width=True,hide_index=True)
-  else:
-   st.caption("لا توجد حتى الآن سجلات تقييم محفوظة للتراكيب السعرية؛ شغّل scripts/run_structure_study.py بعد اكتمال أرشيف الشموع.")
-
-  split_windows=knowledge_db.get("recent_evaluation_split_windows") or []
-  if split_windows:
-   st.markdown("**سجل نوافذ تقسيم البيانات وبصماتها**")
-   split_rows=[{
-    "مجموعة البيانات":item.get("dataset_id"),
-    "الرمز":item.get("symbol"),
-    "المنصة":item.get("venue"),
-    "الإطار":item.get("timeframe"),
-    "التقسيم":item.get("data_split"),
-    "بداية النافذة ms":item.get("split_start_ms"),
-    "نهاية النافذة ms":item.get("split_end_ms"),
-    "شموع الحظر":item.get("embargo_bars"),
-   } for item in split_windows]
-   st.dataframe(pd.DataFrame(split_rows),use_container_width=True,hide_index=True)
-
-  candle_knowledge=chart.get("candle_knowledge") or {}
-  st.caption(
-   f"محلل OHLC المعرفي: {ar(candle_knowledge.get('status','NOT_AVAILABLE'))} | "
-   f"مرشحات الأنماط: {candle_knowledge.get('count',0)}"
-  )
-  if candle_knowledge.get("detected"):
-   pattern_rows=[{
-    "النمط":item.get("pattern_id"),
-    "الاتجاه الوصفي":item.get("direction"),
-   "العائلة":item.get("family"),
-   "بنية الحدود":item.get("geometry"),
-    "اتجاه سابق":item.get("prior_trend"),
-    "مطابقة السياق":item.get("context_match"),
-    "حالة الشمعة":item.get("confirmation_state"),
-    "من شمعة":item.get("start_index"),
-    "إلى شمعة":item.get("end_index"),
-   } for item in candle_knowledge["detected"]]
-   st.dataframe(pd.DataFrame(pattern_rows),use_container_width=True,hide_index=True)
-  advanced=chart.get("advanced_structure_knowledge") or {}
-  st.caption(
-   f"تحليل بنية السوق متعدد المقاييس: {ar(advanced.get('status','NOT_AVAILABLE'))} | "
-   f"الاتجاه البنيوي: {advanced.get('structure_direction','—')} | "
-   f"أحداث BOS/CHOCH: {len(advanced.get('bos_choch_events',[]))} | "
-   f"سحب السيولة: {len(advanced.get('liquidity_sweeps',[]))} | "
-   f"فجوات سعرية: {len(advanced.get('fair_value_gaps',[]))} | "
-   f"أنماط سعرية متعددة القمم: {len(advanced.get('classical_patterns',[]))}"
-  )
-  classical_rows=[{
-   "النمط":{
-    "double_top":"قمة مزدوجة",
-    "double_bottom":"قاع مزدوج",
-    "head_and_shoulders":"الرأس والكتفين",
-    "inverse_head_and_shoulders":"الرأس والكتفين المعكوس",
-    "ascending_triangle":"مثلث صاعد",
-    "descending_triangle":"مثلث هابط",
-    "symmetrical_triangle":"مثلث متماثل",
-    "rising_wedge":"وتد صاعد",
-    "falling_wedge":"وتد هابط",
-    "rising_channel":"قناة صاعدة",
-    "falling_channel":"قناة هابطة",
-    "horizontal_channel":"قناة أفقية",
-    "bull_flag":"علم صاعد",
-    "bear_flag":"علم هابط",
-    "bull_pennant":"راية صاعدة",
-    "bear_pennant":"راية هابطة",
-   }.get(item.get("pattern_id"),item.get("pattern_id")),
-   "الحالة":ar(item.get("status","—")),
-   "الاتجاه الوصفي":item.get("direction"),
-   "قمم/قيعان التكوين":", ".join(str(x) for x in item.get("pivot_indices",[])),
-   "اكتمال تأكيد القمم":item.get("formation_confirmed_at"),
-   "شمعة كسر خط العنق":item.get("confirmation_index"),
-   "خط العنق":f"{item.get('neckline_left','—')} → {item.get('neckline_right','—')}",
-   "مستوى الإبطال":item.get("invalidation_level"),
-   "جهة الاختراق":item.get("breakout_direction"),
-   "شمعة الاختراق":item.get("breakout_index"),
-  } for item in advanced.get("classical_patterns",[])]
-  if classical_rows:
-   st.dataframe(pd.DataFrame(classical_rows),use_container_width=True,hide_index=True)
-   st.caption("هذه الأنماط هندسية وصفية فقط؛ اتجاه المثلث أو الوتد لا يتنبأ بجهة الاختراق. لا تدخل النتائج في قرار التداول ولم تثبت فائدتها الإحصائية على BTC بعد.")
-  else:
-   st.caption("لم يتأكد تكوين قمة/قاع مزدوج أو رأس وكتفين في بيانات الشموع المؤكدة الحالية.")
-  st.caption(
-   f"كتل أوامر مرشحة مرتبطة بكسر مؤكد: {len(advanced.get('order_block_candidates',[]))} "
-   "| هذه مناطق سعرية مرشحة وليست دليلاً على أوامر مؤسسات."
-  )
-  block_rows=[{
-   "الاتجاه":item.get("direction"),
-   "الحالة":item.get("status"),
-   "شمعة المصدر":item.get("source_candle_index"),
-   "شمعة الكسر":item.get("break_index"),
-   "منطقة السعر":f"{item.get('zone_low','—')} – {item.get('zone_high','—')}",
-  } for item in advanced.get("order_block_candidates",[]) if item.get("structure_id")]
-  if block_rows:
-   st.dataframe(pd.DataFrame(block_rows),use_container_width=True,hide_index=True)
-  scale_rows=[{
-   "المقياس داخل الإطار":"داخلي" if key=="internal" else "تأرجح" if key=="swing" else "خارجي",
-   "الحالة":value.get("status"),
-   "قمم محورية":len(value.get("swing_highs",[])),
-   "قيعان محورية":len(value.get("swing_lows",[])),
-   "التسلسل":value.get("direction"),
-  } for key,value in (advanced.get("scales") or {}).items()]
-  if scale_rows:
-   st.dataframe(pd.DataFrame(scale_rows),use_container_width=True,hide_index=True)
-  archive=chart.get("visual_observation_archive") or {}
-  st.caption(
-   f"أرشيف هذه الصورة: {archive.get('status','DISABLED')} | "
-   f"رصدات شموع مسجلة: {archive.get('pattern_observations_written',0)} | "
-   f"رصدات بنية مسجلة: {archive.get('structure_observations_written',0)}"
-  )
-  if advanced.get("limitations"):
-   st.caption("حدود التحليل البنيوي: "+" | ".join(advanced["limitations"]))
-
-  engine2_mtf=state.get("engine_2_multi_timeframe_structure") or chart.get("engine_2_multi_timeframe_structure") or {}
-  st.markdown("**بنية السعر متعددة الأطر — من سجل شموع المحرك الثاني الأصلي في MT5**")
-  mtf_alignment=engine2_mtf.get("alignment","INSUFFICIENT_TIMEFRAME_CONFLUENCE")
-  mtf_alignment_ar={
-   "BULLISH_TIMEFRAME_CONFLUENCE":"توافق بنيوي صاعد",
-   "BEARISH_TIMEFRAME_CONFLUENCE":"توافق بنيوي هابط",
-   "MIXED_TIMEFRAME_STRUCTURE":"تضارب بين الأطر الزمنية",
-   "INSUFFICIENT_TIMEFRAME_CONFLUENCE":"بيانات غير كافية للتوافق",
-  }.get(mtf_alignment,mtf_alignment)
-  st.caption(
-   f"الحالة: {ar(engine2_mtf.get('status','NOT_AVAILABLE'))} | "
-   f"المصدر: {engine2_mtf.get('source','—')} | "
-   f"الأطر المؤهلة: {', '.join(engine2_mtf.get('eligible_timeframes',[])) or '—'} | "
-   f"النتيجة: {mtf_alignment_ar}"
-  )
-  mtf_rows=[]
-  for tf,frame in (engine2_mtf.get("timeframe_reports") or {}).items():
-   mtf_rows.append({
-    "الإطار":tf,
-    "الحالة":frame.get("status"),
-    "الشموع المؤكدة":frame.get("confirmed_bars",0),
-    "الاتجاه البنيوي":frame.get("structure_direction","—"),
-    "انتظام الشموع":"متصل" if frame.get("data_continuity")=="CONTIGUOUS" else "فجوات",
-    "عدد الفجوات":len(frame.get("candle_gaps",[])),
-    "عمر آخر إغلاق (ث)":round(frame.get("staleness_ms",0)/1000,1),
+  price_action=state.get("engine_2_price_action",{}) if isinstance(state.get("engine_2_price_action"),dict) else {}
+  summary=price_action.get("summary",{}) if isinstance(price_action.get("summary"),dict) else {}
+  candle_state=state.get("engine_2_candles",{}) if isinstance(state.get("engine_2_candles"),dict) else {}
+  st.subheader("المحرك الثاني — تحليل الشموع وبنية السعر من OHLC الأصلي")
+  p1,p2,p3,p4,p5=st.columns(5)
+  p1.metric("حالة التحليل",ar(price_action.get("status","NOT_REPORTED")))
+  p2.metric("الاتجاه البنيوي",ar(price_action.get("direction","NOT_REPORTED")))
+  score=price_action.get("structure_score")
+  p3.metric("درجة أدلة السعر",f"{float(score):+.3f}" if isinstance(score,(int,float)) else "—")
+  p4.metric("اتجاه البنية بين الأطر",ar(summary.get("timeframe_alignment","NOT_REPORTED")))
+  p5.metric("أطر التحليل المكتمل",f"{summary.get('eligible_timeframe_count',0)}/6")
+  st.caption(f"توفر بيانات الأطر للتحليل: {summary.get('eligible_timeframe_count',0)}/6 · الأطر ذات اتجاه بنيوي مؤكد: {summary.get('directional_frame_count',0)} · نسبة اتفاق الاتجاهات المؤكدة: {float(summary.get('directional_structure_agreement',0) or 0)*100:.0f}%.")
+  if summary.get("timeframe_alignment")=="MIXED_TIMEFRAME_DIRECTIONS":
+   st.warning("اكتمل تحليل الأطر، لكن الاتجاهات البنيوية المؤكدة متعارضة؛ لذلك لا تتحول جاهزية التحليل إلى إشارة دخول.")
+  st.caption("التحليل من شموع MT5 المكتملة فقط. القمم والقيعان المؤكدة هي الأساس، وتساندها كسر/تغير البنية ونماذج الشموع وعمليات سحب السيولة؛ لا صور أو مؤشرات فنية داخل المحرك الثاني.")
+  if price_action.get("reason"):
+   st.caption(price_action["reason"])
+  evidence_weights=summary.get("directional_evidence_weights",{})
+  if evidence_weights:
+   st.caption("الأوزان الداخلية لأدلة المحرك الثاني: "+" · ".join(
+    f"{name}: {float(weight)*100:.0f}%"
+    for name,weight in evidence_weights.items()
+   ))
+  timeframe_rows=[]
+  candle_rows=[]
+  event_rows=[]
+  sweep_rows=[]
+  zone_rows=[]
+  for timeframe,frame in (price_action.get("timeframes") or {}).items():
+   structure=frame.get("structure") or {}
+   candle_analysis=frame.get("candle_analysis") or {}
+   data_quality=frame.get("data_quality") or {}
+   timeframe_rows.append({
+    "الإطار":timeframe,
+    "الحالة":ar(frame.get("status")),
+    "الاتجاه البنيوي":frame.get("structure_direction",frame.get("direction","—")),
+    "درجة أدلة الإطار":frame.get("directional_evidence_score"),
+    "الشموع المستخدمة في تحليل البنية":frame.get("closed_bars",0),
+    "قوة التأرجح":frame.get("structure_strength","—"),
+    "فجوات البيانات":data_quality.get("gap_count",0),
    })
-  if mtf_rows:
-   st.dataframe(pd.DataFrame(mtf_rows),use_container_width=True,hide_index=True)
-  mtf_errors=engine2_mtf.get("errors") or {}
-  if mtf_errors:
-   st.caption("أطر مستبعدة من التوافق: "+" | ".join(f"{tf}: {reason}" for tf,reason in mtf_errors.items()))
-  st.caption("هذا توافق بنيوي وصفي من شموع MT5 الأصلية، وليس إشارة تداول مستقلة.")
- 
-  axis_ocr=chart.get("axis_ocr") or {}
-  calibration_info=chart.get("calibration") or {}
-  st.caption(f"معايرة محور السعر: {calibration_info.get('source','غير متاح')} | نوع المحور: {calibration_info.get('price_scale_type','—')}")
-  if axis_ocr:
-   fit_info=axis_ocr.get("fit") or {}
-   st.caption(f"OCR المحور: {axis_ocr.get('status','—')} | تدريجات مقروءة: {len(axis_ocr.get('ticks',[]))} | ثقة الملاءمة: {fit_info.get('confidence','—')} | {axis_ocr.get('reason','') or fit_info.get('reason','')}")
-   if axis_ocr.get("ticks"):
-    st.dataframe(pd.DataFrame(axis_ocr["ticks"]),use_container_width=True,hide_index=True)
-  if chart.get("quality_gates"):
-   gate_rows=[{"بوابة الجودة":name,"النتيجة":"اجتازت" if passed else "لم تجتز"} for name,passed in chart["quality_gates"].items()]
-   st.dataframe(pd.DataFrame(gate_rows),use_container_width=True,hide_index=True)
-  if chart.get("confidence_components"):
-   st.caption("تفصيل مؤشر جودة الأدلة: "+ " | ".join(f"{k}: {v}" for k,v in chart["confidence_components"].items()))
-  if chart.get("limitations"):
-   st.caption("حدود التحليل: "+" | ".join(chart["limitations"]))
+   for item in candle_analysis.get("latest_candle_patterns",[]):
+    candle_rows.append({
+     "الإطار":timeframe,
+     "النمط":item.get("pattern_id"),
+     "الاتجاه":item.get("direction"),
+     "سياق الاتجاه":item.get("context_match"),
+     "حالة التأكيد":item.get("confirmation_state"),
+    })
+   for item in (structure.get("bos_choch_events") or [])[-5:]:
+    event_name=str(item.get("event") or "")
+    event_direction=(
+     "صاعد" if event_name.endswith("_BULLISH")
+     else "هابط" if event_name.endswith("_BEARISH")
+     else item.get("side","—")
+    )
+    event_label={
+     "BOS_BULLISH":"كسر بنية صاعد","BOS_BEARISH":"كسر بنية هابط",
+     "CHOCH_BULLISH":"تغير بنية صاعد","CHOCH_BEARISH":"تغير بنية هابط",
+    }.get(event_name,event_name or "—")
+    event_rows.append({
+     "الإطار":timeframe,
+     "الحدث":event_label,
+     "الاتجاه":event_direction,
+     "المستوى":item.get("level"),
+     "وقت التأكيد (UTC)":utc_ms_text(item.get("confirmation_time_utc_ms")),
+    })
+   for item in (structure.get("liquidity_sweeps") or [])[-5:]:
+    sweep_name=str(item.get("event") or "")
+    sweep_rows.append({
+     "الإطار":timeframe,
+     "الحدث":{"HIGH_LIQUIDITY_SWEEP":"سحب سيولة من القمم","LOW_LIQUIDITY_SWEEP":"سحب سيولة من القيعان"}.get(sweep_name,sweep_name or "—"),
+     "الاتجاه":{"BULLISH_REJECTION":"رفض صاعد","BEARISH_REJECTION":"رفض هابط"}.get(str(item.get("side") or ""),item.get("side","—")),
+     "المستوى":item.get("level"),
+     "وقت التأكيد (UTC)":utc_ms_text(item.get("confirmation_time_utc_ms")),
+    })
+   for item in (structure.get("fair_value_gaps") or [])[-5:]:
+    fvg_id=str(item.get("structure_id") or "")
+    zone_rows.append({
+     "الإطار":timeframe,"النوع":"FVG",
+     "الاتجاه":{"bullish_fvg":"صاعد","bearish_fvg":"هابط"}.get(fvg_id,"غير محدد"),
+     "الحد الأدنى":item.get("zone_low"),"الحد الأعلى":item.get("zone_high"),
+     "منتصف المنطقة":item.get("midpoint"),
+     "وقت التكوين (UTC)":utc_ms_text(item.get("time_utc_ms")),
+     "الحالة":ar(item.get("status")),
+    })
+   for item in (structure.get("order_block_candidates") or [])[-5:]:
+    zone_rows.append({
+     "الإطار":timeframe,"النوع":"Order Block",
+     "الاتجاه":{"BULLISH":"صاعد","BEARISH":"هابط"}.get(str(item.get("direction") or ""),item.get("direction","—")),
+     "الحد الأدنى":item.get("zone_low"),"الحد الأعلى":item.get("zone_high"),
+     "الحالة":ar(item.get("status")),
+    })
+  if timeframe_rows:
+   st.markdown("**ملخص الأطر الزمنية الستة**")
+   _safe_dataframe(pd.DataFrame(timeframe_rows),width="stretch",hide_index=True)
+   st.caption("عدد الشموع المستخدمة في حساب بنية كل إطار يُعرض منفصلاً عن عدد الشموع المحفوظة في سجل OHLC؛ فهما قياسان مختلفان ولا يُفترض تطابقهما.")
+  if candle_rows:
+   st.markdown("**نماذج الشموع على أحدث شمعة مغلقة**")
+   _safe_dataframe(pd.DataFrame(candle_rows),width="stretch",hide_index=True)
+  if event_rows:
+   st.markdown("**أحداث BOS / CHOCH المؤكدة**")
+   _safe_dataframe(pd.DataFrame(event_rows),width="stretch",hide_index=True)
+  if sweep_rows:
+   st.markdown("**مناطق سحب السيولة المؤكدة**")
+   _safe_dataframe(pd.DataFrame(sweep_rows),width="stretch",hide_index=True)
+  if zone_rows:
+   st.markdown("**الفجوات السعرية وكتل الأوامر المرشحة**")
+   _safe_dataframe(pd.DataFrame(zone_rows),width="stretch",hide_index=True)
+  if summary.get("warnings"):
+   st.caption("تنبيهات جودة الأطر: "+" | ".join(summary.get("warnings",[])))
+  st.markdown("**تغذية الشموع الأصلية التي يملكها المحرك الثاني**")
+  st.metric("حالة سجل OHLC",ar(candle_state.get("status","NOT_REPORTED")))
+  if candle_state.get("timeframes"):
+   _safe_dataframe(pd.DataFrame([{
+    "الإطار":tf,"إجمالي الشموع":count,
+    "الشموع المغلقة في السجل":(candle_state.get("closed_candles") or {}).get(tf,"—")
+   } for tf,count in candle_state["timeframes"].items()]),width="stretch",hide_index=True)
+  if candle_state.get("reason"):
+   st.caption(candle_state["reason"])
 
   indicators=state.get("indicators",{})
   st.subheader("المحرك الثالث — المؤشرات")
@@ -990,7 +873,7 @@ def render_engine_dashboard():
     "الاتجاه":item.get("trend"),"EMA 20":item.get("ema20"),
     "EMA 50":item.get("ema50"),"الشموع المغلقة":item.get("closed_candles")
    } for tf,item in indicators["timeframes"].items()]
-   st.dataframe(pd.DataFrame(indicator_rows),use_container_width=True,hide_index=True)
+   _safe_dataframe(pd.DataFrame(indicator_rows),width="stretch",hide_index=True)
   detailed_indicators=indicators.get("indicators_by_timeframe",{}) if isinstance(indicators.get("indicators_by_timeframe"),dict) else {}
   if detailed_indicators:
    with st.expander("تفاصيل المؤشرات العشرين عبر الأطر الزمنية الستة",expanded=False):
@@ -998,7 +881,7 @@ def render_engine_dashboard():
     for timeframe,values in detailed_indicators.items():
      for indicator_name,value in values.items():
       detail_rows.append({"الإطار":timeframe,"المؤشر":indicator_name,"القيمة":value,"الحالة":"READY" if isinstance(value,(int,float)) and math.isfinite(float(value)) else "INSUFFICIENT"})
-    st.dataframe(pd.DataFrame(detail_rows),use_container_width=True,hide_index=True)
+    _safe_dataframe(pd.DataFrame(detail_rows),width="stretch",hide_index=True)
   signal_frames=indicators.get("signal_components_by_timeframe",{}) if isinstance(indicators.get("signal_components_by_timeframe"),dict) else {}
   if signal_frames:
    with st.expander("تفصيل التصويت الفني حسب العائلات والأطر الزمنية",expanded=False):
@@ -1007,7 +890,7 @@ def render_engine_dashboard():
      for group_name,details in (signal.get("groups",{}) or {}).items():
       group_rows.append({"الإطار":timeframe,"عائلة الدليل":group_name,"الدرجة":details.get("score"),"التغطية":details.get("coverage"),"الوزن الأساسي":details.get("base_weight"),"الوزن الفعال":details.get("effective_weight"),"الحالة":ar(signal.get("status"))})
     if group_rows:
-     st.dataframe(pd.DataFrame(group_rows),use_container_width=True,hide_index=True)
+     _safe_dataframe(pd.DataFrame(group_rows),width="stretch",hide_index=True)
     group_weights=indicators.get("signal_group_weights",{})
     if isinstance(group_weights,dict):
      st.caption("الأوزان الداخلية: "+" · ".join(f"{name}: {float(weight)*100:.0f}%" for name,weight in group_weights.items()))
@@ -1016,12 +899,25 @@ def render_engine_dashboard():
   if indicators.get("missing_signal_timeframes"):
    st.warning("تغطية التصويت الفني غير مكتملة في: "+", ".join(indicators.get("missing_signal_timeframes",[])))
   native_indicators=state.get("mt5_native_indicators",{}) if isinstance(state.get("mt5_native_indicators"),dict) else {}
+  parity_report=indicators.get("mt5_native_parity",{}) if isinstance(indicators.get("mt5_native_parity"),dict) else {}
+  parity_frames=parity_report.get("timeframes",{}) if isinstance(parity_report.get("timeframes"),dict) else {}
+  parity_passed=sum(
+   1 for frame in parity_frames.values()
+   for metric in (frame.get("metrics",{}) or {}).values()
+   if isinstance(metric,dict) and metric.get("status")=="PASS"
+  )
+  parity_total=sum(
+   len((frame.get("metrics",{}) or {}))
+   for frame in parity_frames.values() if isinstance(frame,dict)
+  )
+  parity_label=f"{parity_passed}/{parity_total} · {ar(parity_report.get('status','NOT_REPORTED'))}" if parity_total else ar(parity_report.get("status","NOT_REPORTED"))
   st.markdown("**التحقق المستقل من مؤشرات MT5 الأصلية — CopyBuffer**")
-  n1,n2,n3,n4=st.columns(4)
+  n1,n2,n3,n4,n5=st.columns(5)
   n1.metric("تغذية MT5",ar(native_indicators.get("status","NOT_REPORTED")))
   n2.metric("الأطر الجاهزة",f"{native_indicators.get('ready_timeframe_count',0)}/6")
   n3.metric("تزامن الشموع",ar(native_indicators.get("bar_alignment_status","NOT_CHECKED")))
-  n4.metric("عمر اللقطة (ث)",native_indicators.get("age_seconds","—"))
+  n4.metric("تطابق Engine 3 / MT5",parity_label)
+  n5.metric("عمر اللقطة (ث)",native_indicators.get("age_seconds","—"))
   native_frames=native_indicators.get("timeframes",{}) if isinstance(native_indicators.get("timeframes"),dict) else {}
   native_alignment=native_indicators.get("bar_alignment",{}) if isinstance(native_indicators.get("bar_alignment"),dict) else {}
   if native_frames:
@@ -1031,48 +927,12 @@ def render_engine_dashboard():
     ready_count=sum(1 for value in values.values() if isinstance(value,dict) and value.get("status")=="READY")
     missing=", ".join(frame.get("missing_required_indicators",[])) or "—"
     native_rows.append({"الإطار":timeframe,"حالة الإطار":ar(frame.get("status")),"المؤشرات الجاهزة":f"{ready_count}/20","المؤشرات الأساسية الناقصة":missing,"مطابقة توقيت الشمعة":ar((native_alignment.get(timeframe) or {}).get("status","NOT_CHECKED"))})
-   st.dataframe(pd.DataFrame(native_rows),use_container_width=True,hide_index=True)
+   _safe_dataframe(pd.DataFrame(native_rows),width="stretch",hide_index=True)
   if native_indicators.get("reason"):
    st.caption(native_indicators["reason"])
   st.caption(indicators.get("reason") or "المؤشرات تحسب من سجل الشموع المغلقة الذي يملكه المحرك الثاني؛ CopyBuffer للمقارنة المستقلة فقط ولا يصدر أوامر أو تصويتاً مستقلاً.")
  
-  candle_state=state.get("engine_2_candles",{})
-  st.subheader("تغذية الشموع الأصلية — ملكية المحرك الثاني")
-  st.metric("حالة سجل الشموع",ar(candle_state.get("status","NOT_REPORTED")))
-  if candle_state.get("timeframes"):
-   st.dataframe(pd.DataFrame([{"الإطار":tf,"عدد الشموع":count,"الشموع المغلقة":(candle_state.get("closed_candles") or {}).get(tf,"—")} for tf,count in candle_state["timeframes"].items()]),use_container_width=True,hide_index=True)
-  if candle_state.get("reason"):
-   st.caption(candle_state["reason"])
-
-  observer=state.get("chart_observer",{})
-  observer_pipeline=observer.get("pipeline_component","engine2_mt5_chart_image_pipeline")
-  visual_result=chart
-  st.subheader("صور المخططات — مسار تشخيصي اختياري خارج القرار")
-  st.caption(f"المكوّن المسؤول: {observer_pipeline} | مصدر الصور: مجلد خبير MT5 الحالي | لا تؤثر هذه الصورة في تصويت المحركات أو جاهزية تحليل OHLC.")
-  o1,o2,o3,o4=st.columns(4)
-  o1.metric("حالة حزمة الصورة",ar(observer.get("status","NOT_CONFIGURED")))
-  o2.metric("عمر آخر لقطة (ثانية)",observer.get("age_seconds","—"))
-  o3.metric("الرمز / الإطار",f"{observer.get('chart',{}).get('symbol','—')} / {observer.get('chart',{}).get('timeframe','—')}")
-  o4.metric("شموع OHLC المرفقة",observer.get("bar_count","—"))
-  st.caption(
-   f"نتيجة تحليل الصورة داخل المحرك الثاني: {ar(visual_result.get('status','NOT_REPORTED'))} | "
-   f"أهلية الصورة للقرار: {'نعم' if visual_result.get('decision_eligible') else 'لا'}"
-  )
-  if observer.get("capture_id"):
-   st.caption(f"Capture ID: {observer.get('capture_id')} | SHA-256: {observer.get('image_sha256','—')}")
-  if observer.get("status")=="READY_FOR_ENGINE_2_VALIDATION":
-   st.caption("اجتازت الصورة فحص النقل وفك الترميز؛ وتُعرض أهلية التحليل بصورة مستقلة أعلاه بعد المعايرة ومطابقة مرساة OHLC.")
-  elif observer.get("status") not in {"WAITING_FOR_CAPTURE","NOT_CONFIGURED"}:
-   st.warning(observer.get("message") or observer.get("reason") or "أحدث حزمة صور لم تجتز التحقق؛ لم يُسمح بالرجوع إلى لقطة أقدم.")
-  else:
-   st.caption(observer.get("message") or observer.get("reason") or "بانتظار وصول أول صورة من خبير MT5.")
-  image_path=observer.get("image_path")
-  if image_path and Path(image_path).is_file():
-   st.image(image_path,width=520,caption="الصورة الأخيرة المستلمة من مجلد خبير MT5")
-  if observer.get("image_directory"):
-   st.caption(f"مجلد الصور الذي يقرأه المحرك الثاني: {observer.get('image_directory')}")
- 
-  bridge=state.get("bridge",{})
+  bridge=state.get("bridge") if isinstance(state.get("bridge"),dict) else {}
   st.subheader("المحرك الخامس — جسر التواصل بين البرنامج والخبير")
   b1,b2,b3=st.columns(3)
   b1.metric("حالة الجسر",ar(bridge.get("status")))
@@ -1089,7 +949,7 @@ def render_engine_dashboard():
   deal_store=state.get("mt5_deal_ledger",{}) if isinstance(state.get("mt5_deal_ledger"),dict) else {}
   l1,l2,l3,l4=st.columns(4)
   l1.metric("حالة سجل الوسيط",ar(deal_meta.get("status","NOT_REPORTED")))
-  l2.metric("إجمالي صفقات Mirsad ضمن الفترة",deal_meta.get("history_matching_total",deal_meta.get("deal_count",0)))
+  l2.metric("إجمالي تنفيذات Mirsad ضمن الفترة",deal_meta.get("history_matching_total",deal_meta.get("deal_count",0)))
   st.caption(f"الصفقات المعادة حالياً: {deal_meta.get('deal_count',0)} | الحد الأقصى للعرض من MT5: 1000 صفقة | نافذة السجل: 90 يوماً حسب إعداد الخبير.")
   l3.metric("حفظ SQLite",ar(deal_store.get("status","NOT_REPORTED")))
   l4.metric("التاريخ مقطوع؟","نعم" if deal_meta.get("truncated") else "لا")
@@ -1117,8 +977,9 @@ def render_engine_dashboard():
        "OPEN_FROM_CAPTURED_ENTRY":"مفتوح — من دخول مرصود",
        "INCOMPLETE_HISTORY":"سجل ناقص — لا يُستنتج الإغلاق",
       }).fillna("غير محدد")
-      cycle_frame["الاتجاه"]=cycle_frame["direction"].map({
-       "LONG":"شراء","SHORT":"بيع","FLAT":"مغلق",
+      cycle_direction=(cycle_frame["entry_direction"] if "entry_direction" in cycle_frame.columns else cycle_frame["direction"])
+      cycle_frame["الاتجاه"]=cycle_direction.map({
+       "LONG":"شراء","SHORT":"بيع",
       }).fillna("غير محدد")
       cycle_columns={
        "position_id":"معرّف المركز","حالة المركز":"الحالة","الاتجاه":"الاتجاه",
@@ -1130,10 +991,11 @@ def render_engine_dashboard():
        "deal_count":"عدد التنفيذات",
       }
       st.subheader("دورات المراكز المستنتجة من سجل الوسيط")
-      st.dataframe(
+      _safe_dataframe(
        cycle_frame.rename(columns=cycle_columns)[list(cycle_columns.values())].head(50),
-       use_container_width=True,hide_index=True,
+       width="stretch",hide_index=True,
       )
+      st.caption(f"عدد دورات المراكز في السجل المحفوظ: {len(cycles)} · عدد التنفيذات ضمن هذه الدورات: {sum(int(row.get('deal_count',0) or 0) for row in cycles)}. الدورة المغلقة تحتفظ باتجاه الدخول الأصلي؛ أما FLAT فيصف صافي الحجم بعد الإغلاق وليس اتجاه الصفقة.")
       st.caption("الدورة المفتوحة تعرض أرباح التنفيذات المحققة حتى الآن فقط ولا تشمل الربح العائم. السجل الذي يبدأ بخروج دون دخول مرصود يُعلّم كسجل ناقص ولا يُعرض كدورة مكتملة.")
      deal_frame=pd.DataFrame(deal_rows)
      deal_frame["أساس الوقت"]=deal_frame["time_basis"].map({"MT5_SERVER_TIME":"توقيت خادم MT5","LEGACY_UTC_NORMALIZED":"UTC — سجل قديم"}).fillna("غير محدد")
@@ -1145,7 +1007,7 @@ def render_engine_dashboard():
      total_net=float(deal_frame["صافي التدفق"].fillna(0).sum())
      st.metric(f"صافي التدفقات في السجل المحفوظ (حتى 1000 صفقة) — {currency}",f"{total_net:,.2f}")
      display_columns=["وقت السجل","أساس الوقت","deal_ticket","position_id","نوع العملية","نوع الدخول","volume","price","profit","commission","swap","fee","صافي التدفق","currency"]
-     st.dataframe(deal_frame.sort_values("time_server_ms",ascending=False)[display_columns].head(50),use_container_width=True,hide_index=True)
+     _safe_dataframe(deal_frame.sort_values("time_server_ms",ascending=False)[display_columns].head(50),width="stretch",hide_index=True)
      st.caption("يعرض الدفتر الصفقات المرتبطة برقم Magic الخاص بمرصاد والرمز المحدد فقط، ولا يضم الصفقات اليدوية أو مستشاري الخبراء الآخرين. يظهر أساس الوقت لكل صف، حتى لا تختلط سجلات UTC القديمة بأوقات خادم MT5 الجديدة.")
      if deal_meta.get("truncated"):
       st.warning("سجل الوسيط محدود من طرف MT5؛ المحصلة المعروضة تخص السجل المحفوظ فقط وليست ضماناً بأنها تشمل كامل التاريخ القديم.")
@@ -1154,17 +1016,71 @@ def render_engine_dashboard():
   else:
    st.caption("سيظهر دفتر الصفقات بعد وصول نبضة MIR1 مكتملة تتضمن رمز الوسيط ورقم Magic.")
 
-  decision=state.get("decision",{})
+  decision=state.get("decision") if isinstance(state.get("decision"),dict) else {}
   st.subheader("المحرك الرابع — اتخاذ القرار ومتابعة الصفقات وإدارة المخاطر")
   d1,d2,d3,d4=st.columns(4)
   action=decision.get("action","WAIT")
   d1.metric("القرار",{"BUY":"شراء","SELL":"بيع","CLOSE":"إغلاق مركز معاكس","HOLD":"الاحتفاظ بالمركز","WAIT":"انتظار"}.get(action,action))
   d2.metric("الإشارة من السوق والتحليل",{"BUY":"شراء","SELL":"بيع","WAIT":"انتظار"}.get(decision.get("candidate_action"),"انتظار"))
-  d3.metric("درجة توافق الأطر",decision.get("trend_score","—"))
+  trend_score=decision.get("trend_score")
+  d3.metric("اتجاه EMA للمحرك الثالث",f"{float(trend_score):+.3f}" if isinstance(trend_score,(int,float)) and math.isfinite(float(trend_score)) else "—",help="درجة اتجاه EMA الموزونة عبر الأطر في المحرك الثالث؛ ليست نسبة توافق بنية الأطر في المحرك الثاني.")
   d4.metric("جاهزية أمر الخبير","جاهز" if decision.get("command_ready") else "غير جاهز")
-  scores=decision.get("decision_scores",{})
-  weights=decision.get("decision_weights",{})
-  configured=weights.get("configured",{})
+  engine2_context=decision.get("engine_2_native_price_action_context") if isinstance(decision.get("engine_2_native_price_action_context"),dict) else {}
+  def _decision_fraction(value):
+   try:
+    number=float(value)
+   except (TypeError,ValueError,OverflowError):
+    return "—"
+   return f"{number*100:.0f}%" if math.isfinite(number) and 0.0<=number<=1.0 else "—"
+  e2a,e2b,e2c,e2d=st.columns(4)
+  raw_structure_score=engine2_context.get("structure_score")
+  e2a.metric("درجة بنية OHLC قبل بوابة الأهلية",f"{float(raw_structure_score):+.3f}" if isinstance(raw_structure_score,(int,float)) and math.isfinite(float(raw_structure_score)) else "—")
+  e2b.metric("اتفاق الاتجاهات البنيوية المؤكدة — محرك 2",_decision_fraction(engine2_context.get("directional_structure_agreement")))
+  e2c.metric("تغطية الأطر ذات الاتجاه المؤكد — محرك 2",_decision_fraction(engine2_context.get("directional_frame_coverage")))
+  e2d.metric("تغطية أدلة بنية OHLC — محرك 2",_decision_fraction(engine2_context.get("directional_evidence_coverage")))
+  st.caption("درجة OHLC الخام لا تدخل في الوزن الفعّال إلا بعد اجتياز بوابة الأهلية. نسبة الاتفاق تُحسب بين الأطر ذات الاتجاه المؤكد فقط؛ التغطية تقيس نسبتها من الأطر القابلة للتحليل، وجودة الأدلة تقيس اكتمال أدلة OHLC.")
+  engine2_report=state.get("engine_2_price_action") if isinstance(state.get("engine_2_price_action"),dict) else {}
+  watch=engine2_report.get("early_setup_watch") if isinstance(engine2_report.get("early_setup_watch"),dict) else {}
+  watch_frames=watch.get("timeframes") if isinstance(watch.get("timeframes"),dict) else {}
+  if watch.get("status") == "WATCH_ACTIVE" and watch_frames:
+   watch_rows=[]
+   for timeframe, item in watch_frames.items():
+    if not isinstance(item,dict): continue
+    side={"BEARISH":"\u0645\u0631\u0627\u0642\u0628\u0629 \u0628\u064a\u0639","BULLISH":"\u0645\u0631\u0627\u0642\u0628\u0629 \u0634\u0631\u0627\u0621","MIXED":"\u0645\u0631\u0627\u0642\u0628\u0629 \u0645\u062a\u0639\u0627\u0631\u0636\u0629"}.get(item.get("direction"),str(item.get("direction","?")))
+    drop=item.get("sell_drop_pct"); rise=item.get("buy_rise_pct")
+    move=(f"\u0647\u0628\u0648\u0637 {float(drop):.3f}%" if item.get("direction")=="BEARISH" and isinstance(drop,(int,float)) else f"\u0635\u0639\u0648\u062f {float(rise):.3f}%" if isinstance(rise,(int,float)) else "?")
+    data_quality="\u0641\u062c\u0648\u0627\u062a \u0645\u0648\u062c\u0648\u062f\u0629" if item.get("material_gap_count",0) else "\u0628\u064a\u0627\u0646\u0627\u062a \u0645\u062a\u0635\u0644\u0629"
+    timing="\u0627\u0646\u062a\u0638\u0627\u0631 \u0625\u0639\u0627\u062f\u0629 \u0627\u0644\u0627\u062e\u062a\u0628\u0627\u0631" if item.get("entry_timing")=="WAIT_FOR_PULLBACK_OR_RETEST" else "\u0645\u0631\u0627\u0642\u0628\u0629 \u0627\u0644\u062a\u0623\u0643\u064a\u062f"
+    age=item.get("setup_age_in_observed_bars")
+    age_valid=isinstance(age,(int,float)) and math.isfinite(float(age)) and age>=0
+    age_count=f"{int(age)} \u0634\u0645\u0639\u0629" if age_valid else "\u063a\u064a\u0631 \u0645\u062a\u0627\u062d"
+    age_phase="\u062d\u062f\u064a\u062b\u0629" if age_valid and age<=3 else "\u0645\u0645\u062a\u062f\u0629" if age_valid else "\u063a\u064a\u0631 \u0645\u062d\u062f\u062f\u0629"
+    age_label=f"{age_phase} \u00b7 {age_count}"
+    support_label="\u0643\u0633\u0631 \u062f\u0639\u0645 \u0645\u0631\u0635\u0648\u062f" if item.get("support_break_observed") else "\u0644\u0627 \u064a\u0648\u062c\u062f \u0643\u0633\u0631 \u0645\u0624\u0643\u062f"
+    watch_rows.append({"\u0627\u0644\u0625\u0637\u0627\u0631":timeframe,"\u0627\u0644\u0645\u0631\u0627\u0642\u0628\u0629":side,"\u0627\u0644\u062d\u0631\u0643\u0629":move,"\u0639\u0645\u0631 \u0627\u0644\u062d\u0631\u0643\u0629":age_label,"\u062f\u0644\u064a\u0644 \u0627\u0644\u0633\u0639\u0631":support_label,"\u062c\u0648\u062f\u0629 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a":data_quality,"\u0627\u0644\u062a\u0648\u062c\u064a\u0647":timing})
+   st.warning("\u0645\u0631\u0627\u0642\u0628\u0629 \u0645\u0628\u0643\u0631\u0629 \u0644\u062d\u0631\u0643\u0629 \u0642\u0635\u064a\u0631\u0629 \u0627\u0644\u0623\u062c\u0644. \u0647\u0630\u0647 \u0645\u0644\u0627\u062d\u0638\u0629 \u0648\u0644\u064a\u0633\u062a \u0623\u0645\u0631 \u062a\u062f\u0627\u0648\u0644; \u0634\u0631\u0648\u0637 \u0627\u0644\u062a\u0646\u0641\u064a\u0630 \u0648\u0627\u0644\u0645\u062e\u0627\u0637\u0631 \u0645\u0633\u062a\u0642\u0644\u0629.")
+   if watch_rows: _safe_dataframe(pd.DataFrame(watch_rows),width="stretch",hide_index=True)
+  else:
+   st.caption("\u0644\u0627 \u064a\u0648\u062c\u062f \u062d\u0627\u0644\u064a\u0627\u064b \u0625\u0639\u062f\u0627\u062f \u0642\u0635\u064a\u0631 \u0627\u0644\u0623\u062c\u0644 \u0642\u064a\u062f \u0627\u0644\u0645\u0631\u0627\u0642\u0628\u0629.")
+  macro_gate=decision.get("macro_event_gate") if isinstance(decision.get("macro_event_gate"),dict) else {}
+  active_macro_events=macro_gate.get("active_events") if isinstance(macro_gate.get("active_events"),list) else []
+  m1,m2,m3=st.columns(3)
+  m1.metric("حاجز الأحداث عالية الأهمية",ar(macro_gate.get("status","NOT_REPORTED")))
+  m2.metric("المداخل الجديدة","متوقفة مؤقتاً" if macro_gate.get("new_entries_paused") else "غير محجوبة")
+  m3.metric("رصدات الأحداث النشطة",len(active_macro_events))
+  if active_macro_events:
+   macro_rows=[]
+   for event in active_macro_events:
+    if not isinstance(event,dict): continue
+    minutes=event.get("minutes_to_event")
+    relative=(f"قبل {float(minutes):.1f} دقيقة" if float(minutes)>=0 else f"بعد {abs(float(minutes)):.1f} دقيقة") if isinstance(minutes,(int,float)) and math.isfinite(float(minutes)) else "وقت غير محدد"
+    macro_rows.append({"الحدث":event.get("name","غير محدد"),"العملة":event.get("currency","—"),"المصدر":event.get("provider","—"),"وقت UTC":utc_ms_text(event.get("event_time_utc_ms")),"التوقيت النسبي":relative})
+   if macro_rows: _safe_dataframe(pd.DataFrame(macro_rows),width="stretch",hide_index=True)
+  if macro_gate.get("new_entries_paused"):
+   st.caption("الحاجز يوقف فتح المراكز الجديدة خلال نافذة الحدث؛ تبقى أوامر الإغلاق وتحديثات الوقف الوقائي متاحة وفق ضوابط التنفيذ.")
+  scores=decision.get("decision_scores") if isinstance(decision.get("decision_scores"),dict) else {}
+  weights=decision.get("decision_weights") if isinstance(decision.get("decision_weights"),dict) else {}
+  configured=weights.get("configured") if isinstance(weights.get("configured"),dict) else {}
   def _score_label(value):
    return f"{float(value)*100:.1f} / 100" if isinstance(value,(int,float)) else "غير متاح"
   def _weight_label(name):
@@ -1180,36 +1096,57 @@ def render_engine_dashboard():
    _score_label(scores.get("engine_3_indicators")),
    help="المؤشرات المحسوبة من سجل الشموع المغلقة الذي يملكه المحرك الثاني.")
   s4.metric("النتيجة المركبة",_score_label(scores.get("combined_score")))
-  engine2_internal=weights.get("engine_2_internal",{})
-  e2_configured=engine2_internal.get("configured",{})
-  e2_applied=engine2_internal.get("applied",{})
-  st.caption(
-   "النسب الأساسية: المحرك 1 = 20%، المحرك 2 = 50%، المحرك 3 = 30%. "
-   "الأوزان الفعالة تتغير بحسب جودة وتغطية الدليل وتُعاد معايرتها إلى 100%. "
-   f"داخل المحرك 2: التوزيع المطبق OHLC {float(e2_applied.get('native_ohlc_price_action',1.0))*100:.0f}% "
-   f"/ الصورة المعايرة {float(e2_applied.get('calibrated_visual_chart',0.0))*100:.0f}% "
-   f"(الأساس {float(e2_configured.get('native_ohlc_price_action',1.0))*100:.0f}% / "
-   f"{float(e2_configured.get('calibrated_visual_chart',0.0))*100:.0f}%). الصور خارج معادلة القرار."
-  )
+  def _configured_weight_text(name):
+   value=configured.get(name)
+   return f"{float(value)*100:.0f}%" if isinstance(value,(int,float)) else "غير وارد"
+  base_weight_text="، ".join((
+   f"المحرك 1 = {_configured_weight_text('engine_1_market_intelligence')}",
+   f"المحرك 2 = {_configured_weight_text('engine_2_price_action')}",
+   f"المحرك 3 = {_configured_weight_text('engine_3_indicators')}",
+  ))
+  st.caption("الأوزان الأساسية الفعلية الواردة من المحرك الرابع: "+base_weight_text+". تُعرض الأوزان الداخلية لأدلة OHLC في قسم المحرك الثاني؛ لا يوجد تصويت بصري.")
   e1,e2,e3,e4=st.columns(4)
   e1.metric("دخول مرجعي",f"{decision.get('entry_reference'):,.2f}" if decision.get("entry_reference") else "—")
   e2.metric("وقف الخسارة",f"{decision.get('stop_loss'):,.2f}" if decision.get("stop_loss") else "—")
   e3.metric("الهدف",f"{decision.get('take_profit'):,.2f}" if decision.get("take_profit") else "—")
-  e4.metric("بوابة الرسم",decision.get("chart_gate","—"))
+  e4.metric("بوابة أهلية بنية السعر",ar(decision.get("engine_2_confluence_gate") or decision.get("chart_gate","NOT_REPORTED")))
+  if decision.get("status") == "WAITING_FOR_ENGINE_2":
+   gate_code = engine2_context.get("gate") or decision.get("engine_2_confluence_gate") or decision.get("chart_gate")
+   gate_messages = {
+    "MIXED_OR_NO_CONFLUENCE": "اتجاهات البنية المؤكدة بين الأطر ليست متوافقة بما يسمح بتصويت اتجاهي للمحرك الثاني.",
+    "INSUFFICIENT_DIRECTIONAL_FRAME_COVERAGE": "عدد الأطر ذات الاتجاه البنيوي المؤكد أقل من الحد المطلوب.",
+    "INSUFFICIENT_STRUCTURE_EVIDENCE_QUALITY": "جودة أو اكتمال أدلة بنية OHLC أقل من الحد المطلوب.",
+    "CANDLE_PATTERN_DIRECTION_CONFLICT": "نمط الشموع الأخير يعارض اتجاه البنية البنيوية.",
+    "MIXED_CANDLE_PATTERN_EVIDENCE": "أدلة نماذج الشموع الأخيرة متعارضة بين الأطر.",
+   }
+   pattern_code = engine2_context.get("latest_candle_pattern_alignment")
+   pattern_message = {
+    "MIXED_CANDLE_PATTERN_EVIDENCE": "أدلة نماذج الشموع متعارضة بين الأطر.",
+    "BEARISH_CANDLE_PATTERN_EVIDENCE": "نماذج الشموع الأخيرة تميل للهبوط.",
+    "BULLISH_CANDLE_PATTERN_EVIDENCE": "نماذج الشموع الأخيرة تميل للصعود.",
+    "NO_DIRECTIONAL_CANDLE_PATTERN": "لا توجد نماذج شموع اتجاهية حديثة مؤكدة.",
+   }.get(pattern_code, ar(pattern_code) if pattern_code else "لم يرد ملخص مستقل لنماذج الشموع.")
+   st.warning("سبب انتظار المحرك الرابع: " + gate_messages.get(gate_code, ar(gate_code)) + " حالة نماذج الشموع: " + pattern_message)
   q1,q2,q3,q4=st.columns(4)
   divergence=decision.get("broker_market_price_divergence_pct")
   spread=decision.get("broker_spread_pct")
   quote=decision.get("broker_quote") or {}
   q1.metric("فرق سعر MT5 عن السوق",f"{divergence:.3f}%" if divergence is not None else "—")
-  q2.metric("سبريد MT5",f"{spread:.3f}%" if spread is not None else "—")
+  q2.metric("سبريد جسر تنفيذ MT5",f"{spread:.3f}%" if spread is not None else "—")
   q3.metric("عمر سعر الوسيط",f"{quote.get('tick_age_seconds')} ثانية" if quote.get("tick_age_seconds") is not None else "—")
-  q4.metric("رمز الوسيط",state.get("bridge",{}).get("symbol") or "—")
-  risk=decision.get("risk_plan",{})
-  st.write("حساب المخاطر وحجم المركز داخل البرنامج:",ar(risk.get("status","WAITING_FOR_ENGINE_5_BRIDGE")))
-  if risk.get("volume") is not None:
-   st.write(f"الحجم المحسوب: {risk['volume']} | المخاطرة النقدية: {risk.get('risk_cash')} | الخسارة التقديرية عند الوقف: {risk.get('estimated_loss')}")
-  st.caption(risk.get("reason") or decision.get("reason",""))
-  publication=state.get("command_publish",{})
+  q4.metric("رمز الوسيط",bridge.get("symbol") or "—")
+  risk=decision.get("risk_plan")
+  if isinstance(risk,dict):
+   st.write("حساب المخاطر وحجم المركز داخل البرنامج:",ar(risk.get("status","NOT_REPORTED")))
+   if risk.get("volume") is not None:
+    st.write(f"الحجم: {risk['volume']} | ميزانية المخاطرة: {risk.get('risk_cash')} | خسارة السعر: {risk.get('estimated_stop_loss')} | العمولة: {risk.get('estimated_commission')} | الإجمالي مع العمولة: {risk.get('estimated_loss')}")
+   st.caption(risk.get("reason") or decision.get("open_block_reason") or "")
+  else:
+   st.write("حساب المخاطر وحجم المركز داخل البرنامج:","لم يبدأ — لا توجد إشارة دخول مؤهلة")
+   if action in {"BUY","SELL"}:
+    st.error("خطة المخاطر غير متاحة؛ لن يُمرّر أمر دخول قبل اكتمالها.")
+   st.caption(decision.get("open_block_reason") or "تُحسب الكمية والمخاطرة بعد اجتياز بوابة الاتجاه وتوافر سعر MT5 ومواصفات الرمز.")
+  publication=state.get("command_publish") if isinstance(state.get("command_publish"),dict) else {}
   st.write("**حالة تمرير الأمر عبر الجسر:**",ar(publication.get("status","NOT_READY")))
   st.caption(publication.get("message","لا يوجد أمر جاهز للإرسال."))
   if decision.get("open_block_reason"): st.caption(decision["open_block_reason"])
@@ -1221,115 +1158,17 @@ def render_engine_dashboard():
  render_execution_console(state)
 
  st.divider()
- st.subheader("تهيئة المسار البصري الاختياري للمخطط")
- st.caption("رفع الصورة ومعايرتها مخصصان للتشخيص ومراجعة الاستخراج البصري فقط. لا تدخل نتائج الصورة في تصويت المحركات أو قرار التداول؛ ويستمر تحليل OHLC الأصلي دون الحاجة إلى صورة.")
- saved_meta=read_json(CHART_METADATA_PATH,{})
- with st.form("chart_calibration_form",clear_on_submit=False):
-  uploaded=st.file_uploader("صورة الرسم",type=["png","jpg","jpeg","webp"])
-  symbol_default=(market.get("symbol") if market else "BTCUSDT")
-  syms=st.text_input("رمز الشارت كما يظهر على الصورة",value=saved_meta.get("symbol",symbol_default))
-  options=["1m","5m","15m","1h","4h","1d","1w"]
-  old_tf=saved_meta.get("timeframe","1m")
-  timeframe=st.selectbox("الإطار الزمني الظاهر بالصورة",options,index=options.index(old_tf) if old_tf in options else 0)
-  palette_labels={
-   "auto":"تلقائي: أخضر/تركوازي/أزرق مقابل أحمر/برتقالي",
-   "green_red":"أخضر مقابل أحمر",
-   "blue_orange":"أزرق مقابل برتقالي",
-   "teal_magenta":"تركوازي مقابل أرجواني",
-  }
-  palette_keys=list(palette_labels)
-  old_palette=saved_meta.get("palette_mode","auto")
-  palette_mode=st.selectbox(
-   "ألوان الشموع في هذا الشارت",
-   palette_keys,
-   index=palette_keys.index(old_palette) if old_palette in palette_keys else 0,
-   format_func=lambda key:palette_labels[key],
-  )
-  scale_labels={"linear":"خطي","logarithmic":"لوغاريتمي"}
-  scale_keys=list(scale_labels)
-  old_scale=saved_meta.get("price_scale_type","linear")
-  price_scale_type=st.selectbox(
-   "نوع مقياس الأسعار على المحور",scale_keys,
-   index=scale_keys.index(old_scale) if old_scale in scale_keys else 0,
-   format_func=lambda key:scale_labels[key],
-  )
-  auto_axis_ocr=st.checkbox(
-   "استخراج تدريجات محور السعر تلقائياً من الصورة (OCR)",
-   value=bool(saved_meta.get("auto_axis_ocr",True)),
-   help="يحتاج المحرك إلى أربع تدريجات رقمية متناسقة على الأقل. عند فشل القراءة لن يخمّن الأسعار.",
-  )
-  auto_header_ocr=st.checkbox(
-   "اقتراح الرمز والإطار الزمني من شريط عنوان الصورة (OCR)",
-   value=bool(saved_meta.get("auto_header_ocr",False)),
-   help="قراءة مساعدة من أعلى الصورة فقط. لا تستبدل الرمز أو الفاصل المدخلين ولا تستخدم لمعايرة السعر أو قرار التداول.",
-  )
-  last_candle_closed=st.checkbox(
-   "آخر شمعة في الصورة مغلقة ومكتملة",
-   value=bool(saved_meta.get("last_candle_closed",False)),
-   help="اتركه غير محدد إن لم تكن متأكداً؛ سيصنف المحرك الأنماط على آخر شمعة كأنها قيد التكوين حتى لا يؤكد شمعة مفتوحة.",
-  )
-  persist_knowledge_observations=st.checkbox(
-   "أرشفة نتائج المحلل البصري لهذه الصورة في قاعدة المعرفة",
-   value=bool(saved_meta.get("persist_knowledge_observations",True)),
-   help="يحفظ رصدات الشموع والبنية مع بصمة للصورة. لا يحوّل المرشحات إلى نتائج إحصائية متحققة.",
-  )
-  expected_candle_count=st.number_input(
-   "عدد الشموع الظاهرة تقريباً (0 = غير معروف)",
-   min_value=0,max_value=500,value=int(saved_meta.get("expected_candle_count",0) or 0),step=1,
-  )
-  p1,p2=st.columns(2)
-  with p1: top_price=st.number_input("أعلى سعر ظاهر على المحور",min_value=0.0,value=float(saved_meta.get("price_top",0.0)),format="%.2f")
-  with p2: bottom_price=st.number_input("أدنى سعر ظاهر على المحور",min_value=0.0,value=float(saved_meta.get("price_bottom",0.0)),format="%.2f")
-  st.caption("حدود منطقة الرسم بالبكسل (اختيارية). صفر يعني حافة الصورة.")
-  q1,q2,q3,q4=st.columns(4)
-  with q1: plot_left=st.number_input("يسار",min_value=0,value=int(saved_meta.get("plot_left_px",0)),step=1)
-  with q2: plot_top=st.number_input("أعلى",min_value=0,value=int(saved_meta.get("plot_top_px",0)),step=1)
-  with q3: plot_right=st.number_input("يمين",min_value=0,value=int(saved_meta.get("plot_right_px",0)),step=1)
-  with q4: plot_bottom=st.number_input("أسفل",min_value=0,value=int(saved_meta.get("plot_bottom_px",0)),step=1)
-  submitted=st.form_submit_button("حفظ الصورة وإعدادات المعايرة")
- if submitted:
-  if uploaded is None: st.error("اختر صورة حقيقية أولاً.")
-  elif len(uploaded.getvalue())>8*1024*1024: st.error("حجم الصورة أكبر من 8 ميغابايت.")
-  elif (top_price>0 or bottom_price>0) and not (top_price>bottom_price>0): st.error("أدخل أعلى وأدنى سعر صحيحين، أو اترك الاثنين صفراً لتفعيل OCR.")
-  elif top_price==0 and bottom_price==0 and not auto_axis_ocr: st.error("أدخل نطاق المحور يدوياً أو فعّل استخراج تدريجات السعر تلقائياً.")
-  elif syms.strip().upper()!=symbol_default:
-   st.error(f"رمز الصورة ({syms}) يجب أن يطابق رمز محرك السوق ({symbol_default}) حتى لا نخلط بيانات أداة بأخرى.")
-  else:
-   payload=uploaded.getvalue()
-   try:
-    with Image.open(io.BytesIO(payload)) as preview:
-     image_width,image_height=preview.size
-     preview.verify()
-    if image_width<64 or image_height<64 or image_width*image_height>40_000_000:
-     raise ValueError("أبعاد الصورة خارج حدود التحليل الآمن.")
-   except (UnidentifiedImageError,OSError,ValueError) as exc:
-    st.error(f"الصورة غير صالحة للتحليل: {exc}")
-    payload=None
-   if payload is not None:
-    CHART_DIR.mkdir(parents=True,exist_ok=True)
-    target=CHART_DIR/("active_chart"+Path(uploaded.name).suffix.lower())
-    target.write_bytes(payload)
-    metadata={"schema_version":2,"symbol":syms.strip().upper(),"timeframe":timeframe,
-     "price_top":float(top_price),"price_bottom":float(bottom_price),
-     "price_scale_type":price_scale_type,"auto_axis_ocr":bool(auto_axis_ocr),"auto_header_ocr":bool(auto_header_ocr),"last_candle_closed":bool(last_candle_closed),
-     "persist_knowledge_observations":bool(persist_knowledge_observations),"expected_candle_count":int(expected_candle_count),
-     "plot_left_px":int(plot_left),"plot_top_px":int(plot_top),
-     "plot_right_px":int(plot_right),"plot_bottom_px":int(plot_bottom),
-     "source_filename":uploaded.name,"source_sha256":hashlib.sha256(payload).hexdigest(),
-     "palette_mode":palette_mode,"saved_at_ms":int(time.time()*1000)}
-    write_json_atomic(CHART_METADATA_PATH,metadata)
-    st.success("تم حفظ الصورة والتحقق من سلامتها ومعايرة مقياسها. ستدخل نتيجة التحليل في الدورة التالية.")
-
  with st.expander("قواعد وضوابط النظام"):
-  st.write("المحرك 1 يجمع استخبارات السوق والتقويمات العامة والأخبار والمشتقات بصورة مستقلة، ولا يقرأ MT5 أو الشموع أو المؤشرات. المحرك 2 يملك الشموع الأصلية OHLC وبنية السعر والقمم والقيعان والأنماط؛ الصور مسار تشخيص اختياري لا يدخل القرار. المحرك 3 يحسب المؤشرات من الشموع المكتملة للمحرك 2. المحرك 4 يدمج أوزان 20/50/30 ويتخذ القرار ويدير المخاطر والمراكز. المحرك 5 يملك تغذية سعر الوسيط وجسر MIR1 وسجل صفقات Mirsad.")
-  st.write("لا يوجد نموذج توليدي أو نموذج ذكاء اصطناعي لاتخاذ قرار التداول. RapidOCR المحلي يقرأ تدريجات محور السعر عند تفعيله، ويمكنه اقتراح بيانات عنوان الصورة اختيارياً؛ لا يعتمد المحرك السعر أو القرار على هذه الاقتراحات. الاتجاه والأنماط تُحلّل بقواعد هندسية واضحة.")
+  st.write("المحرك 1 يجمع استخبارات السوق والتقويمات العامة والأخبار والمشتقات بصورة مستقلة. المحرك 2 يحلل شموع OHLC الأصلية والقمم والقيعان وكسر البنية ونماذج الشموع والسيولة. المحرك 3 يحسب المؤشرات من الشموع المغلقة للمحرك الثاني. المحرك 4 يدمج الأوزان الأساسية 20/55/25 (المحرك 1/2/3) ويتخذ القرار ويدير المخاطر والمراكز. المحرك 5 يملك تغذية سعر الوسيط وجسر MIR1 وسجل صفقات Mirsad.")
+  st.write("لا يستخدم مرصاد نموذجاً توليدياً لاتخاذ قرار التداول؛ يعتمد التحليل على بيانات السوق والشموع والمؤشرات الأصلية وقواعد قابلة للفحص.")
 
  st.divider()
  st.subheader("تقرير الإنجاز والتدقيق التفصيلي")
  report_path=Path(__file__).resolve().parent/"reports"/"MIRSAD_PROGRESS_REPORT_AR_20261102.md"
- with st.expander("فتح تقرير مرصاد الكامل - 2 نوفمبر 2026",expanded=False):
+ with st.expander("الأرشيف التاريخي لتقرير مرصاد — 2 نوفمبر 2026",expanded=False):
   if report_path.is_file():
    report_text=report_path.read_text(encoding="utf-8")
+   st.info("هذه نسخة مؤرخة من سجل التقدم السابق، وليست تقرير الحالة الحية للبرنامج.")
    st.markdown(report_text)
    st.download_button(
     "تنزيل التقرير بصيغة Markdown",
@@ -1340,22 +1179,251 @@ def render_engine_dashboard():
    )
   else:
    st.error("ملف تقرير الإنجاز غير موجود في مجلد reports.")
- research_path=Path(__file__).resolve().parent/"reports"/"OPEN_SOURCE_VISUAL_ENGINE_RESEARCH_AR_20261102.md"
- with st.expander("نتائج البحث الخارجي عن أدوات ومشاريع جاهزة للمحرك البصري",expanded=False):
-  if research_path.is_file():
-   research_text=research_path.read_text(encoding="utf-8")
-   st.markdown(research_text)
-   st.download_button(
-    "تنزيل تقرير البحث الخارجي",
-    data=research_text,
-    file_name="OPEN_SOURCE_VISUAL_ENGINE_RESEARCH_AR_20261102.md",
-    mime="text/markdown",
-    key="mirsad_visual_research_download",
-   )
-  else:
-   st.warning("تقرير البحث الخارجي غير موجود في مجلد reports.")
+
+
+
+
+
+def _simple_number(value, digits=2, suffix=""):
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return "\u063a\u064a\u0631 \u0645\u062a\u0627\u062d"
+    if not math.isfinite(number):
+        return "\u063a\u064a\u0631 \u0645\u062a\u0627\u062d"
+    return f"{number:,.{digits}f}{suffix}"
+
+
+def _simple_direction_score(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return "\u063a\u064a\u0631 \u0645\u062a\u0627\u062d"
+    if not math.isfinite(number):
+        return "\u063a\u064a\u0631 \u0645\u062a\u0627\u062d"
+    if number <= -0.15:
+        direction = "\u0645\u064a\u0644 \u0647\u0627\u0628\u0637"
+    elif number >= 0.15:
+        direction = "\u0645\u064a\u0644 \u0635\u0627\u0639\u062f"
+    else:
+        direction = "\u0645\u062d\u0627\u064a\u062f"
+    return f"{number:+.2f} \u2014 {direction}"
+
+
+def render_simple_dashboard():
+    state = read_json(STATUS_PATH, {})
+    state = state if isinstance(state, dict) else {}
+    market = read_json(SNAPSHOT_PATH, {})
+    market = market if isinstance(market, dict) else {}
+
+    st.title("\u20bf \u0645\u0631\u0635\u0627\u062f \u0627\u0644\u0628\u064a\u062a\u0643\u0648\u064a\u0646")
+    st.caption("\u0644\u0648\u062d\u0629 \u0645\u0628\u0633\u0637\u0629 \u0644\u0645\u062a\u0627\u0628\u0639\u0629 \u062d\u0627\u0644\u0629 \u0627\u0644\u0645\u062d\u0631\u0643\u0627\u062a \u0648\u0642\u0631\u0627\u0631 \u0627\u0644\u062a\u062f\u0627\u0648\u0644 \u0648\u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0648\u062d\u0645\u0627\u064a\u0629 \u0627\u0644\u062d\u0633\u0627\u0628.")
+
+    if not state:
+        st.error("\u0644\u0645 \u062a\u0635\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u062a\u0634\u063a\u064a\u0644 \u0627\u0644\u0645\u0631\u0635\u0627\u062f \u0628\u0639\u062f. \u062a\u0623\u0643\u062f \u0645\u0646 \u062a\u0634\u063a\u064a\u0644 \u0627\u0644\u0628\u0631\u0646\u0627\u0645\u062c.")
+        return
+
+    overall = str(state.get("overall_status") or "PARTIAL_OR_WAITING").upper()
+    if overall == "FULLY_OPERATIONAL":
+        st.success("\u0627\u0644\u0628\u0631\u0646\u0627\u0645\u062c \u064a\u0639\u0645\u0644\u061b \u0641\u062a\u062d \u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0645\u0634\u0631\u0648\u0637 \u0628\u062a\u062d\u0642\u0642 \u0627\u0644\u0625\u0634\u0627\u0631\u0629 \u0648\u062c\u0645\u064a\u0639 \u0636\u0648\u0627\u0628\u0637 \u0627\u0644\u062d\u0645\u0627\u064a\u0629.")
+    elif overall == "ERROR":
+        st.error("\u062d\u062f\u062b \u062e\u0637\u0623 \u0641\u064a \u062f\u0648\u0631\u0629 \u0627\u0644\u062a\u0634\u063a\u064a\u0644. \u0631\u0627\u062c\u0639 \u0627\u0644\u062a\u0641\u0627\u0635\u064a\u0644 \u0627\u0644\u0641\u0646\u064a\u0629 \u0642\u0628\u0644 \u0627\u0644\u0627\u0639\u062a\u0645\u0627\u062f \u0639\u0644\u0649 \u0627\u0644\u062d\u0627\u0644\u0629.")
+    else:
+        st.warning("\u0627\u0644\u0628\u0631\u0646\u0627\u0645\u062c \u064a\u0639\u0645\u0644\u060c \u0644\u0643\u0646 \u062a\u0648\u062c\u062f \u0634\u0631\u0648\u0637 \u0623\u0648 \u0627\u062a\u0635\u0627\u0644\u0627\u062a \u062a\u0646\u062a\u0638\u0631 \u0627\u0644\u0627\u0643\u062a\u0645\u0627\u0644. \u0644\u0627 \u064a\u0639\u0646\u064a \u0630\u0644\u0643 \u0648\u062c\u0648\u062f \u0625\u0634\u0627\u0631\u0629 \u062f\u062e\u0648\u0644.")
+    st.caption(age_text(state.get("heartbeat_at_ms")))
+
+    engines = state.get("engines") if isinstance(state.get("engines"), dict) else {}
+    engine_items = [
+        ("\u0627\u0644\u0645\u062d\u0631\u0643 1 \u00b7 \u0627\u0633\u062a\u062e\u0628\u0627\u0631\u0627\u062a \u0627\u0644\u0633\u0648\u0642", "engine_1_market_intelligence"),
+        ("\u0627\u0644\u0645\u062d\u0631\u0643 2 \u00b7 \u062d\u0631\u0643\u0629 \u0627\u0644\u0633\u0639\u0631", "engine_2_price_action"),
+        ("\u0627\u0644\u0645\u062d\u0631\u0643 3 \u00b7 \u0627\u0644\u0645\u0624\u0634\u0631\u0627\u062a", "engine_3_indicators"),
+        ("\u0627\u0644\u0645\u062d\u0631\u0643 4 \u00b7 \u0627\u0644\u0642\u0631\u0627\u0631", "engine_4_decision"),
+        ("\u0627\u0644\u0645\u062d\u0631\u0643 5 \u00b7 \u0627\u062a\u0635\u0627\u0644 MT5", "engine_5_communication_bridge"),
+    ]
+    engine_translation = {
+        "READY": "\u062c\u0627\u0647\u0632",
+        "CONNECTED": "\u0645\u062a\u0635\u0644",
+        "LIVE": "\u0628\u064a\u0627\u0646\u0627\u062a \u062d\u064a\u0629",
+        "WAITING_FOR_ENGINE_2": "\u064a\u0646\u062a\u0638\u0631 \u062a\u0648\u0627\u0641\u0642 \u0627\u0644\u0633\u0639\u0631",
+        "LOCKED": "\u0627\u0644\u062d\u0645\u0627\u064a\u0629 \u0645\u0641\u0639\u0651\u0644\u0629",
+        "WAIT": "\u0627\u0646\u062a\u0638\u0627\u0631",
+        "NOT_STARTED": "\u0644\u0645 \u064a\u0628\u062f\u0623",
+        "PARTIAL": "\u062c\u0632\u0626\u064a",
+        "ERROR": "\u062e\u0637\u0623",
+    }
+    columns = st.columns(5)
+    for col, (label, key) in zip(columns, engine_items):
+        value = engines.get(key)
+        if key == "engine_5_communication_bridge" and value is None:
+            value = engines.get("engine_3_mt5_bridge", engines.get("engine_5_mt5_bridge"))
+        shown = engine_translation.get(str(value or "NOT_REPORTED").upper(), ar(value or "NOT_REPORTED"))
+        with col:
+            st.metric(label, shown)
+
+    st.divider()
+    decision = state.get("decision") if isinstance(state.get("decision"), dict) else {}
+    bridge = state.get("bridge") if isinstance(state.get("bridge"), dict) else {}
+    daily = state.get("daily_risk") if isinstance(state.get("daily_risk"), dict) else {}
+    account = bridge.get("account") if isinstance(bridge.get("account"), dict) else {}
+    positions = bridge.get("positions") if isinstance(bridge.get("positions"), list) else []
+    quote = bridge.get("quote") if isinstance(bridge.get("quote"), dict) else {}
+
+    action = str(decision.get("action") or "WAIT").upper()
+    action_label = {
+        "BUY": "\u0634\u0631\u0627\u0621",
+        "SELL": "\u0628\u064a\u0639",
+        "CLOSE": "\u0625\u063a\u0644\u0627\u0642",
+        "MODIFY": "\u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0648\u0642\u0641 \u0623\u0648 \u0627\u0644\u0647\u062f\u0641",
+        "HOLD": "\u0627\u0644\u0627\u062d\u062a\u0641\u0627\u0638 \u0628\u0627\u0644\u0635\u0641\u0642\u0629",
+        "WAIT": "\u0627\u0646\u062a\u0638\u0627\u0631",
+    }.get(action, action)
+    context = decision.get("engine_2_native_price_action_context")
+    context = context if isinstance(context, dict) else {}
+    gate = str(context.get("gate") or decision.get("engine_2_confluence_gate") or decision.get("chart_gate") or "").upper()
+    wait_explanations = {
+        "CANDLE_PATTERN_DIRECTION_CONFLICT": "\u0646\u0645\u0648\u0630\u062c \u0627\u0644\u0634\u0645\u0648\u0639 \u0627\u0644\u0623\u062e\u064a\u0631 \u0644\u0627 \u064a\u062a\u0641\u0642 \u0645\u0639 \u0627\u062a\u062c\u0627\u0647 \u0628\u0646\u064a\u0629 \u0627\u0644\u0633\u0639\u0631\u061b \u0644\u0630\u0644\u0643 \u064a\u0646\u062a\u0638\u0631 \u0627\u0644\u0645\u0631\u0635\u0627\u062f \u0648\u0644\u0627 \u064a\u0641\u062a\u062d \u0635\u0641\u0642\u0629 \u062c\u062f\u064a\u062f\u0629.",
+        "MIXED_CANDLE_PATTERN_EVIDENCE": "\u0623\u062f\u0644\u0629 \u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0634\u0645\u0648\u0639 \u0645\u062a\u0639\u0627\u0631\u0636\u0629\u061b \u064a\u0646\u062a\u0638\u0631 \u0627\u0644\u0645\u0631\u0635\u0627\u062f \u062d\u062a\u0649 \u062a\u062a\u0636\u062d \u0627\u0644\u0625\u0634\u0627\u0631\u0629.",
+        "MIXED_OR_NO_CONFLUENCE": "\u0627\u0644\u0623\u0637\u0631 \u0627\u0644\u0632\u0645\u0646\u064a\u0629 \u0644\u0627 \u062a\u0642\u062f\u0645 \u062a\u0648\u0627\u0641\u0642\u0627\u064b \u0643\u0627\u0641\u064a\u0627\u064b \u0641\u064a \u062d\u0631\u0643\u0629 \u0627\u0644\u0633\u0639\u0631.",
+        "INSUFFICIENT_DIRECTIONAL_FRAME_COVERAGE": "\u0639\u062f\u062f \u0627\u0644\u0623\u0637\u0631 \u0627\u0644\u0632\u0645\u0646\u064a\u0629 \u0630\u0627\u062a \u0627\u0644\u0627\u062a\u062c\u0627\u0647 \u0627\u0644\u0645\u0624\u0643\u062f \u063a\u064a\u0631 \u0643\u0627\u0641\u064d.",
+        "INSUFFICIENT_STRUCTURE_EVIDENCE_QUALITY": "\u0627\u0643\u062a\u0645\u0627\u0644 \u0623\u062f\u0644\u0629 \u062d\u0631\u0643\u0629 \u0627\u0644\u0633\u0639\u0631 \u0623\u0648 \u062c\u0648\u062f\u062a\u0647\u0627 \u063a\u064a\u0631 \u0643\u0627\u0641\u064d \u0644\u0644\u062f\u062e\u0648\u0644.",
+        "WAITING_FOR_ENGINE_2": "\u0627\u0644\u0645\u062d\u0631\u0643 \u0627\u0644\u0631\u0627\u0628\u0639 \u064a\u0646\u062a\u0638\u0631 \u062a\u0623\u0643\u064a\u062f \u062d\u0631\u0643\u0629 \u0627\u0644\u0633\u0639\u0631 \u0645\u0646 \u0627\u0644\u0645\u062d\u0631\u0643 \u0627\u0644\u062b\u0627\u0646\u064a.",
+        "WAITING_FOR_ENGINE_3_QUOTE": "\u064a\u0646\u062a\u0638\u0631 \u0627\u0644\u0645\u0631\u0635\u0627\u062f \u0633\u0639\u0631\u0627\u064b \u062d\u062f\u064a\u062b\u0627\u064b \u0645\u0646 MT5 \u0642\u0628\u0644 \u0627\u0639\u062a\u0645\u0627\u062f \u0627\u0644\u0642\u0631\u0627\u0631.",
+        "WAITING_FOR_ENGINE_5_QUOTE": "\u064a\u0646\u062a\u0638\u0631 \u0627\u0644\u0645\u0631\u0635\u0627\u062f \u0633\u0639\u0631\u0627\u064b \u062d\u064a\u0627\u064b \u0648\u0645\u0648\u0627\u0635\u0641\u0627\u062a \u0627\u0644\u0631\u0645\u0632 \u0645\u0646 MT5.",
+    }
+
+
+    if action == "WAIT":
+        decision_message = wait_explanations.get(gate, "\u0644\u0627 \u062a\u0648\u062c\u062f \u062d\u0627\u0644\u064a\u0627\u064b \u0625\u0634\u0627\u0631\u0629 \u062f\u062e\u0648\u0644 \u0627\u062c\u062a\u0627\u0632\u062a \u062c\u0645\u064a\u0639 \u0634\u0631\u0648\u0637 \u0645\u0631\u0635\u0627\u062f. \u0627\u0644\u0627\u0646\u062a\u0638\u0627\u0631 \u0642\u0631\u0627\u0631 \u0645\u0642\u0635\u0648\u062f \u0644\u062d\u0645\u0627\u064a\u0629 \u0627\u0644\u062d\u0633\u0627\u0628.")
+        decision_tag = "\u0644\u0627 \u064a\u0648\u062c\u062f \u0623\u0645\u0631 \u062c\u062f\u064a\u062f \u062c\u0627\u0647\u0632"
+    elif action in {"BUY", "SELL"}:
+        decision_message = "\u0635\u062f\u0631\u062a \u0625\u0634\u0627\u0631\u0629 \u062f\u062e\u0648\u0644. \u064a\u062c\u0628 \u0623\u0646 \u062a\u062c\u062a\u0627\u0632 \u0628\u0648\u0627\u0628\u0627\u062a \u0627\u0644\u0645\u062e\u0627\u0637\u0631 \u0648\u0627\u0644\u062a\u0646\u0641\u064a\u0630 \u0642\u0628\u0644 \u0625\u0631\u0633\u0627\u0644\u0647\u0627 \u0644\u0640 MT5."
+        decision_tag = "\u0625\u0634\u0627\u0631\u0629 \u062a\u062d\u062a\u0627\u062c \u0644\u0644\u062a\u062d\u0642\u0642 \u0645\u0646 \u062c\u0627\u0647\u0632\u064a\u0629 \u0627\u0644\u062a\u0646\u0641\u064a\u0630"
+    elif action in {"CLOSE", "MODIFY"}:
+        decision_message = "\u0647\u0646\u0627\u0643 \u0625\u062c\u0631\u0627\u0621 \u0644\u0625\u062f\u0627\u0631\u0629 \u0645\u0631\u0643\u0632 \u0642\u0627\u0626\u0645."
+        decision_tag = "\u0625\u062f\u0627\u0631\u0629 \u0645\u0631\u0643\u0632"
+    else:
+        decision_message = "\u0644\u0627 \u064a\u0648\u062c\u062f \u0625\u062c\u0631\u0627\u0621 \u062c\u062f\u064a\u062f \u0645\u0637\u0644\u0648\u0628 \u062d\u0627\u0644\u064a\u0627\u064b."
+        decision_tag = "\u0645\u0631\u0627\u0642\u0628\u0629"
+
+    safe_action = html.escape(action_label, quote=True)
+    safe_message = html.escape(decision_message, quote=True)
+    safe_tag = html.escape(decision_tag, quote=True)
+    st.markdown(
+        f"""
+        <section class="mirsad-simple-decision">
+          <div class="decision-eyebrow">\u0642\u0631\u0627\u0631 \u0627\u0644\u0645\u062d\u0631\u0643 \u0627\u0644\u0631\u0627\u0628\u0639 \u0627\u0644\u0622\u0646</div>
+          <span class="decision-tag">{safe_tag}</span>
+          <div class="decision-value">{safe_action}</div>
+          <div class="decision-reason">{safe_message}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    scores = decision.get("decision_scores") if isinstance(decision.get("decision_scores"), dict) else {}
+    intelligence = state.get("market_intelligence") if isinstance(state.get("market_intelligence"), dict) else {}
+    price_action = state.get("engine_2_price_action") if isinstance(state.get("engine_2_price_action"), dict) else {}
+    indicators = state.get("indicators") if isinstance(state.get("indicators"), dict) else {}
+    score_rows = [
+        {"\u0627\u0644\u0645\u062d\u0631\u0643": "1 \u00b7 \u0627\u0633\u062a\u062e\u0628\u0627\u0631\u0627\u062a \u0627\u0644\u0633\u0648\u0642", "\u062f\u0631\u062c\u0629 \u0627\u0644\u0627\u062a\u062c\u0627\u0647": _simple_direction_score(scores.get("engine_1_market_intelligence", intelligence.get("directional_score"))), "\u0627\u0644\u0645\u0639\u0646\u0649": "\u0627\u0644\u0623\u062e\u0628\u0627\u0631 \u0648\u0627\u0644\u0645\u0634\u062a\u0642\u0627\u062a \u0648\u0627\u0644\u0633\u064a\u0627\u0642 \u0627\u0644\u0639\u0627\u0645"},
+        {"\u0627\u0644\u0645\u062d\u0631\u0643": "2 \u00b7 \u0628\u0646\u064a\u0629 \u0627\u0644\u0633\u0639\u0631", "\u062f\u0631\u062c\u0629 \u0627\u0644\u0627\u062a\u062c\u0627\u0647": _simple_direction_score(scores.get("engine_2_native_ohlc_score", price_action.get("structure_score"))), "\u0627\u0644\u0645\u0639\u0646\u0649": "\u0645\u064a\u0644 \u0628\u0646\u064a\u0629 \u0627\u0644\u0634\u0645\u0648\u0639 \u0642\u0628\u0644 \u0628\u0648\u0627\u0628\u0629 \u0627\u0644\u062f\u062e\u0648\u0644"},
+        {"\u0627\u0644\u0645\u062d\u0631\u0643": "3 \u00b7 \u0627\u0644\u0645\u0624\u0634\u0631\u0627\u062a", "\u062f\u0631\u062c\u0629 \u0627\u0644\u0627\u062a\u062c\u0627\u0647": _simple_direction_score(scores.get("engine_3_indicators", indicators.get("signal_score"))), "\u0627\u0644\u0645\u0639\u0646\u0649": "\u0645\u064a\u0644 \u0627\u0644\u0645\u0624\u0634\u0631\u0627\u062a \u0627\u0644\u0645\u062d\u0633\u0648\u0628\u0629 \u0645\u0646 \u0627\u0644\u0634\u0645\u0648\u0639"},
+    ]
+    with st.expander("\u0634\u0631\u062d \u062f\u0631\u062c\u0627\u062a \u0627\u0644\u0645\u062d\u0631\u0643\u0627\u062a \u0648\u0627\u0644\u0623\u0631\u0642\u0627\u0645 \u0627\u0644\u0633\u0627\u0644\u0628\u0629", expanded=False):
+        _safe_dataframe(pd.DataFrame(score_rows), width="stretch", hide_index=True)
+        st.info("\u0627\u0644\u0633\u0627\u0644\u0628 \u0641\u064a \u062f\u0631\u062c\u0629 \u0627\u0644\u0645\u062d\u0631\u0643 \u064a\u0639\u0646\u064a \u0645\u064a\u0644\u0627\u064b \u0647\u0627\u0628\u0637\u0627\u064b\u060c \u0648\u0627\u0644\u0645\u0648\u062c\u0628 \u064a\u0639\u0646\u064a \u0645\u064a\u0644\u0627\u064b \u0635\u0627\u0639\u062f\u0627\u064b\u060c \u0648\u0627\u0644\u0642\u0631\u064a\u0628 \u0645\u0646 \u0627\u0644\u0635\u0641\u0631 \u064a\u0639\u0646\u064a \u062d\u064a\u0627\u062f\u0627\u064b. \u0647\u0630\u0647 \u062f\u0631\u062c\u0627\u062a \u062a\u062d\u0644\u064a\u0644 \u0648\u0644\u064a\u0633\u062a \u062f\u0648\u0644\u0627\u0631\u0627\u062a \u0623\u0648 \u0646\u0633\u0628 \u0646\u062c\u0627\u062d \u0623\u0648 \u0627\u062d\u062a\u0645\u0627\u0644\u0627\u062a \u0631\u0628\u062d. \u0644\u0627 \u064a\u0635\u062f\u0631 \u0627\u0644\u0645\u0631\u0635\u0627\u062f \u0623\u0645\u0631 \u0634\u0631\u0627\u0621 \u0623\u0648 \u0628\u064a\u0639 \u0625\u0644\u0627 \u0628\u0639\u062f \u0627\u062c\u062a\u064a\u0627\u0632 \u0628\u0648\u0627\u0628\u0627\u062a \u0627\u0644\u0623\u0647\u0644\u064a\u0629.")
+
+    st.divider()
+    st.subheader("\u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u0641\u062a\u0648\u062d\u0629 \u0627\u0644\u0622\u0646")
+    currency = str(account.get("currency") or "USD")
+    if positions:
+        position_rows = []
+        floating_by_currency = {}
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+            position_currency = str(position.get("profit_currency") or currency)
+            try:
+                floating = float(position.get("profit", 0) or 0)
+            except (TypeError, ValueError, OverflowError):
+                floating = float("nan")
+            if math.isfinite(floating):
+                floating_by_currency[position_currency] = floating_by_currency.get(position_currency, 0.0) + floating
+            raw_type = position.get("type", position.get("direction", ""))
+            side = "\u0634\u0631\u0627\u0621" if raw_type in (0, "0", "BUY", "LONG") else "\u0628\u064a\u0639" if raw_type in (1, "1", "SELL", "SHORT") else str(raw_type or "\u063a\u064a\u0631 \u0645\u062d\u062f\u062f")
+            position_rows.append({
+                "\u0627\u0644\u0627\u062a\u062c\u0627\u0647": side,
+                "\u0627\u0644\u062d\u062c\u0645": position.get("volume", "\u2014"),
+                "\u0633\u0639\u0631 \u0627\u0644\u062f\u062e\u0648\u0644": _simple_number(position.get("price_open")),
+                "\u0648\u0642\u0641 \u0627\u0644\u062e\u0633\u0627\u0631\u0629": _simple_number(position.get("stop_loss")),
+                "\u0627\u0644\u0647\u062f\u0641": _simple_number(position.get("take_profit")),
+                "\u0627\u0644\u0631\u0628\u062d \u0623\u0648 \u0627\u0644\u062e\u0633\u0627\u0631\u0629 \u0627\u0644\u0639\u0627\u0626\u0645\u0629": f"{floating:+.2f} {position_currency}" if math.isfinite(floating) else "\u063a\u064a\u0631 \u0645\u062a\u0627\u062d",
+                "\u0631\u0642\u0645 \u0627\u0644\u0645\u0631\u0643\u0632": position.get("ticket", position.get("position_id", "\u2014")),
+            })
+        position_cols = st.columns(3)
+        position_cols[0].metric("\u0639\u062f\u062f \u0645\u0631\u0627\u0643\u0632 \u0645\u0631\u0635\u0627\u062f \u0627\u0644\u0645\u0641\u062a\u0648\u062d\u0629", len(position_rows))
+        for index, (ccy, total) in enumerate(sorted(floating_by_currency.items())[:2]):
+            position_cols[index + 1].metric(f"\u0627\u0644\u0631\u0628\u062d \u0623\u0648 \u0627\u0644\u062e\u0633\u0627\u0631\u0629 \u0627\u0644\u0639\u0627\u0626\u0645\u0629 \u00b7 {ccy}", f"{total:+,.2f}", help="\u0646\u062a\u064a\u062c\u0629 \u063a\u064a\u0631 \u0645\u062d\u0642\u0642\u0629 \u062a\u062a\u063a\u064a\u0631 \u0645\u0639 \u0627\u0644\u0633\u0648\u0642 \u062d\u062a\u0649 \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0645\u0631\u0643\u0632.")
+        _safe_dataframe(pd.DataFrame(position_rows), width="stretch", hide_index=True)
+        st.caption("\u0627\u0644\u0633\u0627\u0644\u0628 \u0647\u0646\u0627 \u064a\u0639\u0646\u064a \u062e\u0633\u0627\u0631\u0629 \u0639\u0627\u0626\u0645\u0629 \u062d\u0627\u0644\u064a\u0629\u060c \u0648\u0627\u0644\u0645\u0648\u062c\u0628 \u064a\u0639\u0646\u064a \u0631\u0628\u062d\u0627\u064b \u0639\u0627\u0626\u0645\u0627\u064b. \u0647\u0630\u0647 \u0627\u0644\u0646\u062a\u064a\u062c\u0629 \u062a\u062a\u063a\u064a\u0631 \u0645\u0639 \u062d\u0631\u0643\u0629 \u0627\u0644\u0633\u0648\u0642 \u0648\u0644\u064a\u0633\u062a \u0646\u0647\u0627\u0626\u064a\u0629.")
+    else:
+        st.info("\u0644\u0627 \u062a\u0648\u062c\u062f \u0645\u0631\u0627\u0643\u0632 \u0645\u0641\u062a\u0648\u062d\u0629 \u0645\u0633\u062c\u0644\u0629 \u0628\u0627\u0633\u0645 \u0645\u0631\u0635\u0627\u062f \u062d\u0627\u0644\u064a\u0627\u064b.")
+
+    st.subheader("\u0645\u0644\u062e\u0635 \u0627\u0644\u062d\u0633\u0627\u0628")
+    account_cols = st.columns(3)
+    account_cols[0].metric("\u0631\u0635\u064a\u062f \u0627\u0644\u062d\u0633\u0627\u0628", f"{_simple_number(account.get('balance'))} {currency}")
+    account_cols[1].metric("\u0642\u064a\u0645\u0629 \u0627\u0644\u062d\u0633\u0627\u0628 \u0627\u0644\u062d\u0627\u0644\u064a\u0629", f"{_simple_number(account.get('equity'))} {currency}")
+    account_cols[2].metric("\u0627\u0644\u0647\u0627\u0645\u0634 \u0627\u0644\u062d\u0631", f"{_simple_number(account.get('free_margin'))} {currency}")
+    if quote:
+        st.caption(f"سعر MT5 الحالي: Bid {_simple_number(quote.get('bid'))} · Ask {_simple_number(quote.get('ask'))} · عمر آخر سعر: {_simple_number(quote.get('tick_age_seconds'), 1)} ثانية")
+
+    st.divider()
+    st.subheader("\u062d\u0645\u0627\u064a\u0629 \u0627\u0644\u062d\u0633\u0627\u0628 \u2014 \u062d\u062f \u0627\u0644\u062e\u0633\u0627\u0631\u0629 \u0627\u0644\u064a\u0648\u0645\u064a\u0629")
+    daily_fraction = daily.get("max_daily_loss_fraction", MAX_DAILY_LOSS_FRACTION)
+    try:
+        limit_pct = float(daily_fraction) * 100.0
+    except (TypeError, ValueError, OverflowError):
+        limit_pct = MAX_DAILY_LOSS_FRACTION * 100.0
+    risk_cols = st.columns(3)
+    risk_cols[0].metric("\u062d\u062f \u0627\u0644\u062e\u0633\u0627\u0631\u0629 \u0627\u0644\u064a\u0648\u0645\u064a", f"{limit_pct:.0f}%")
+    risk_cols[1].metric("\u0627\u0644\u062d\u0645\u0627\u064a\u0629 \u0645\u0641\u0639\u0651\u0644\u0629", "\u0646\u0639\u0645" if daily.get("enabled", DAILY_LOSS_LIMIT_ENABLED) else "\u0644\u0627")
+    recorded_loss = daily.get("daily_loss_fraction")
+    if isinstance(recorded_loss, (int, float)) and math.isfinite(float(recorded_loss)):
+        loss_label = f"{float(recorded_loss) * 100:.2f}%"
+    else:
+        loss_label = "\u0644\u0645 \u064a\u064f\u062d\u0633\u0628 \u0628\u0639\u062f"
+    risk_cols[2].metric("\u0627\u0644\u062e\u0633\u0627\u0631\u0629 \u0627\u0644\u064a\u0648\u0645\u064a\u0629 \u0627\u0644\u0645\u0633\u062c\u0644\u0629", loss_label)
+
+    if daily.get("baseline_pending") or daily.get("status") == "BASELINE_UNAVAILABLE":
+        st.warning("\u062d\u062f \u0627\u0644\u062e\u0633\u0627\u0631\u0629 \u0627\u0644\u064a\u0648\u0645\u064a 20% \u0645\u0641\u0639\u0651\u0644\u060c \u0644\u0643\u0646 \u0642\u064a\u0645\u0629 \u0627\u0644\u062d\u0633\u0627\u0628 \u0639\u0646\u062f \u0628\u062f\u0627\u064a\u0629 \u0627\u0644\u064a\u0648\u0645 \u0644\u0645 \u062a\u064f\u0633\u062c\u0651\u0644 \u0628\u0635\u0648\u0631\u0629 \u0645\u0648\u062b\u0648\u0642\u0629 \u0628\u0639\u062f. \u0644\u0630\u0644\u0643 \u064a\u0645\u0646\u0639 \u0627\u0644\u0628\u0631\u0646\u0627\u0645\u062c \u0641\u062a\u062d \u0635\u0641\u0642\u0627\u062a \u062c\u062f\u064a\u062f\u0629 \u0645\u0624\u0642\u062a\u0627\u064b \u062d\u062a\u0649 \u0628\u062f\u0627\u064a\u0629 \u064a\u0648\u0645 UTC \u0627\u0644\u062a\u0627\u0644\u064a. \u0647\u0630\u0627 \u0644\u0627 \u064a\u0639\u0646\u064a \u0623\u0646\u0643 \u062e\u0633\u0631\u062a 20%.")
+    elif daily.get("new_entries_blocked") or daily.get("locked"):
+        st.warning("\u0627\u0644\u062d\u0645\u0627\u064a\u0629 \u062a\u0645\u0646\u0639 \u0641\u062a\u062d \u0635\u0641\u0642\u0627\u062a \u062c\u062f\u064a\u062f\u0629 \u062d\u0627\u0644\u064a\u0627\u064b. \u0631\u0627\u062c\u0639 \u0627\u0644\u062a\u0641\u0627\u0635\u064a\u0644 \u0627\u0644\u0641\u0646\u064a\u0629 \u0644\u0645\u0639\u0631\u0641\u0629 \u0627\u0644\u0633\u0628\u0628.")
+    elif daily.get("enabled"):
+        st.success("\u062d\u0645\u0627\u064a\u0629 \u0627\u0644\u062e\u0633\u0627\u0631\u0629 \u0627\u0644\u064a\u0648\u0645\u064a\u0629 \u0645\u0641\u0639\u0651\u0644\u0629 \u0648\u062e\u0637 \u0627\u0644\u0623\u0633\u0627\u0633 \u0627\u0644\u064a\u0648\u0645\u064a \u0645\u062a\u0648\u0641\u0631.")
+    else:
+        st.error("\u062a\u0646\u0628\u064a\u0647: \u062d\u062f \u0627\u0644\u062e\u0633\u0627\u0631\u0629 \u0627\u0644\u064a\u0648\u0645\u064a\u0629 \u063a\u064a\u0631 \u0645\u0641\u0639\u0651\u0644.")
+
+    with st.expander("\u0623\u062f\u0648\u0627\u062a \u0627\u0644\u062a\u062d\u0643\u0645 \u0648\u0627\u0644\u062a\u0646\u0641\u064a\u0630 \u0641\u064a MT5", expanded=False):
+        st.caption("\u0647\u0630\u0647 \u0627\u0644\u0623\u062f\u0648\u0627\u062a \u0644\u0627 \u062a\u0646\u0634\u0626 \u0642\u0631\u0627\u0631\u0627\u064b \u062c\u062f\u064a\u062f\u0627\u064b\u061b \u062a\u0639\u0631\u0636 \u0642\u0631\u0627\u0631 \u0627\u0644\u0645\u062d\u0631\u0643 \u0627\u0644\u0631\u0627\u0628\u0639 \u0648\u062a\u062a\u064a\u062d \u062a\u0623\u0643\u064a\u062f \u062a\u0645\u0631\u064a\u0631\u0647 \u0628\u0639\u062f \u0627\u062c\u062a\u064a\u0627\u0632 \u0628\u0648\u0627\u0628\u0627\u062a \u0627\u0644\u062a\u0646\u0641\u064a\u0630.")
+        render_execution_console(state)
+
+
+def render_engine_dashboard():
+    view = st.radio(
+        "\u0637\u0631\u064a\u0642\u0629 \u0639\u0631\u0636 \u0627\u0644\u0644\u0648\u062d\u0629",
+        ["\u0627\u0644\u0648\u0627\u062c\u0647\u0629 \u0627\u0644\u0645\u0628\u0633\u0637\u0629", "\u0627\u0644\u062a\u0641\u0627\u0635\u064a\u0644 \u0627\u0644\u0641\u0646\u064a\u0629 \u0627\u0644\u0643\u0627\u0645\u0644\u0629"],
+        horizontal=True,
+        key="mirsad_dashboard_view_mode",
+    )
+    if view == "\u0627\u0644\u062a\u0641\u0627\u0635\u064a\u0644 \u0627\u0644\u0641\u0646\u064a\u0629 \u0627\u0644\u0643\u0627\u0645\u0644\u0629":
+        render_detailed_engine_dashboard()
+    else:
+        render_simple_dashboard()
+
+
 
 @st.fragment(run_every=10)
 def live_fragment():
  render_engine_dashboard()
 live_fragment()
+
