@@ -12,6 +12,11 @@ $loginConfig = $null
 $terminalProcess = $null
 $credentialRaw = [string]$env:MT5_CREDENTIALS
 $accountPassword = $null
+$keepObserverTerminal = $env:MIRSAD_KEEP_OBSERVER_TERMINAL -eq 'true'
+$observerReadyFile = [string]$env:MIRSAD_OBSERVER_READY_FILE
+$observerStopFile = [string]$env:MIRSAD_OBSERVER_STOP_FILE
+$directFeedsReady = $false
+$commonFilesRoot = $null
 
 function Add-Report([string]$Line) {
     $Line | Add-Content -LiteralPath $report -Encoding utf8
@@ -311,19 +316,9 @@ try {
     $compileLog = Join-Path $expertsDir 'Mirsad_ChartObserver.log'
     # The repository now defaults image capture to false. Accept that safe
     # state as-is; only rewrite an explicitly true input for older revisions.
-    $directOnlySourceText = $sourceText
-    $imageEnabledPattern = '(?m)^([ \t]*input[ \t]+bool[ \t]+InpEnableImageCapture[ \t]*=[ \t]*)true([ \t]*;)'
-    $imageDisabledPattern = '(?m)^[ \t]*input[ \t]+bool[ \t]+InpEnableImageCapture[ \t]*=[ \t]*false[ \t]*;'
-    if ($sourceText -match $imageEnabledPattern) {
-        $directOnlySourceText = [regex]::Replace(
-            $sourceText, $imageEnabledPattern, '${1}false${2}', 1
-        )
-    }
-    if ($directOnlySourceText -notmatch $imageDisabledPattern) {
-        throw 'Direct-only EA build requires an explicit InpEnableImageCapture=false input.'
-    }
-    [IO.File]::WriteAllText($eaSource, $directOnlySourceText, [Text.UTF8Encoding]::new($false))
-    Add-Report 'PASS — Direct-only Observer build verified InpEnableImageCapture=false (source default or forced override).'
+    # Observer is now a native market/OHLC/CopyBuffer publisher with no image capture code.
+    [IO.File]::WriteAllText($eaSource, $sourceText, [Text.UTF8Encoding]::new($false))
+    Add-Report 'PASS — Native-feed-only Observer source verified; no screenshot input or override is required.'
 
     # Remove stale outputs and invoke MetaEditor with separately quoted arguments.
     Remove-Item -LiteralPath $compileLog,$eaBinary -Force -ErrorAction SilentlyContinue
@@ -423,7 +418,7 @@ Period=$observerTimeframe
     $terminalProcess = Start-Process -FilePath $terminal.FullName -ArgumentList @('/portable', "/config:$loginConfig", "/login:$login") -WorkingDirectory $installDir -PassThru
     Add-Report ("MT5 terminal launched with the read-only Observer on {0},{1}. Automated trading permission is disabled." -f $observerSymbol, $observerTimeframe)
 
-    # Maximize the hosted terminal before the Observer's delayed first capture.
+    # Maximize the hosted terminal before the Observer's first native-feed publication.
     if (-not ("MirsadNativeWindow" -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
@@ -697,6 +692,7 @@ public static class MirsadNativeWindow {
     Add-Report 'PASS — No chart PNGs or capture manifests were created during the direct-only test.'
 
     $commonFilesRoot = Split-Path -Parent (Split-Path -Parent $observerDir)
+    $commonFilesRoot = [IO.Path]::GetFullPath($commonFilesRoot)
     $validator = Join-Path $env:GITHUB_WORKSPACE 'Mirsad_BTC\scripts\validate_mt5_direct_feed.py'
     $directOutput = Join-Path $evidence 'direct-feed-validation.json'
     if (!(Test-Path -LiteralPath $validator)) {
@@ -866,8 +862,9 @@ public static class MirsadNativeWindow {
     $priceActionSummary = Get-Content -LiteralPath $priceActionOutput -Raw | ConvertFrom-Json
     Add-Report ("PASS — Engine 2 price-action direction={0}; structure score={1}; alignment={2}; eligible frames={3}." -f $priceActionSummary.direction,$priceActionSummary.summary.structure_score,$priceActionSummary.summary.timeframe_alignment,($priceActionSummary.summary.eligible_timeframes -join ','))
     Add-Report 'PASS — Candle formations and price structure were computed from completed native OHLC only; no chart image was used.'
-    Add-Report 'PASS — Native MT5 data path validated with InpEnableImageCapture=false; no screenshot is needed.'
+    Add-Report 'PASS — Native MT5 market, candle and indicator feeds were validated; no screenshot path exists.'
     Add-Report 'Safety — Read-only Observer only; automated trading permission disabled; no execution EA, order API or MIR1 command.'
+    $directFeedsReady = $true
     Add-Report ("UTC finish: {0}" -f [DateTime]::UtcNow.ToString('o'))
     Get-Content -LiteralPath $report
 }
@@ -879,6 +876,45 @@ catch {
     throw
 }
 finally {
+    $keepAliveError = $null
+    if ($keepObserverTerminal -and $directFeedsReady) {
+        try {
+            if ([string]::IsNullOrWhiteSpace($observerReadyFile) -or [string]::IsNullOrWhiteSpace($observerStopFile)) {
+                throw 'Observer keepalive requires ready-file and stop-file paths.'
+            }
+            if (!$terminalProcess -or $terminalProcess.HasExited) {
+                throw 'Observer terminal exited before the integrated runtime could attach.'
+            }
+            $readyParent = Split-Path -Parent $observerReadyFile
+            if ($readyParent) { New-Item -ItemType Directory -Path $readyParent -Force | Out-Null }
+            $readyPayload = [ordered]@{
+                status = 'READY'
+                common_files_root = $commonFilesRoot
+                observer_dir = $observerDir
+                terminal_pid = $terminalProcess.Id
+                created_at_utc = [DateTime]::UtcNow.ToString('o')
+            }
+            [IO.File]::WriteAllText($observerReadyFile,($readyPayload | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+            Add-Report ("PASS — Observer terminal held for integrated runtime; common files root={0}." -f $commonFilesRoot)
+            $holdDeadline = [DateTime]::UtcNow.AddSeconds(900)
+            while ([DateTime]::UtcNow -lt $holdDeadline) {
+                $terminalProcess.Refresh()
+                if ($terminalProcess.HasExited) { throw 'Observer terminal exited during integrated runtime.' }
+                if (Test-Path -LiteralPath $observerStopFile) { break }
+                Start-Sleep -Seconds 2
+            }
+            if (!(Test-Path -LiteralPath $observerStopFile)) { throw 'Integrated runtime did not release Observer within 900 seconds.' }
+            Add-Report 'PASS — Integrated runtime released the shared Observer terminal.'
+        } catch {
+            $keepAliveError = $_.Exception.Message
+            if (![string]::IsNullOrWhiteSpace($observerReadyFile)) {
+                try {
+                    $failedPayload = [ordered]@{ status='FAILED'; reason=$keepAliveError }
+                    [IO.File]::WriteAllText($observerReadyFile,($failedPayload | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+                } catch {}
+            }
+        }
+    }
     if ($terminalProcess -and !$terminalProcess.HasExited) {
         Stop-Process -Id $terminalProcess.Id -Force -ErrorAction SilentlyContinue
     }
@@ -887,4 +923,6 @@ finally {
     }
     $accountPassword = $null
     $credentialRaw = $null
+    if ($keepAliveError) { throw $keepAliveError }
 }
+
