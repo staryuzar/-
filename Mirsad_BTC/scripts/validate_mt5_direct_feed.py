@@ -18,7 +18,7 @@ from mirsad.engines.mt5_native_indicators import (
     TIMEFRAMES,
     MT5NativeIndicatorHistory,
 )
-from mirsad.engines.indicators import IndicatorsEngine
+from mirsad.engines.indicators import IndicatorsEngine, validate_native_indicator_parity
 
 
 def validate(
@@ -53,6 +53,7 @@ def validate(
         symbol=market_symbol,
     ).collect(candle_history=candles)
     calculated_indicators = IndicatorsEngine().analyze(candles)
+    numeric_parity = validate_native_indicator_parity(candles, indicators)
 
     engine2_failures: list[str] = []
     engine3_warnings: list[str] = []
@@ -99,6 +100,11 @@ def validate(
         engine3_warnings.append(
             "calculated Engine 3 signal: "
             f"{calculated_indicators.get('status')} — {calculated_indicators.get('reason')}"
+        )
+    if numeric_parity.get("status") != "PASS":
+        engine3_warnings.append(
+            "Engine 3 numeric parity with native MT5 CopyBuffer did not pass: "
+            + "; ".join(str(item) for item in numeric_parity.get("failures", [])[:5])
         )
 
     candle_frames = candles.get("timeframes") or {}
@@ -155,7 +161,7 @@ def validate(
         },
         "engine3": {
             "status": engine3_status,
-            "source": "ENGINE2_CLOSED_OHLC_WITH_MT5_COPYBUFFER_PARITY",
+            "source": "ENGINE2_CLOSED_OHLC_WITH_MT5_COPYBUFFER_NUMERIC_PARITY",
             "native_status": indicators.get("status"),
             "calculated_status": calculated_indicators.get("status"),
             "signal_score": calculated_indicators.get("signal_score"),
@@ -166,6 +172,13 @@ def validate(
             "signal_volume_basis": calculated_indicators.get("signal_volume_basis"),
             "signal_components_by_timeframe": calculated_indicators.get("signal_components_by_timeframe", {}),
             "missing_signal_timeframes": calculated_indicators.get("missing_signal_timeframes", []),
+            "numeric_parity": {
+                "status": numeric_parity.get("status"),
+                "passed_metrics": numeric_parity.get("passed_metrics"),
+                "total_metrics": numeric_parity.get("total_metrics"),
+                "minimum_closed_bars_per_timeframe": numeric_parity.get("minimum_closed_bars_per_timeframe"),
+                "failures": numeric_parity.get("failures", [])[:20],
+            },
             "warnings": engine3_warnings,
         },
         "image_capture_enabled": False,
@@ -261,6 +274,8 @@ def main() -> int:
         "engine3_signal_quality": report["engine3"]["signal_quality"],
         "engine3_signal_volume_basis": report["engine3"]["signal_volume_basis"],
         "engine3_calculated_status": report["engine3"]["calculated_status"],
+        "engine3_numeric_parity_status": report["engine3"]["numeric_parity"]["status"],
+        "engine3_numeric_parity_metrics": f'{report["engine3"]["numeric_parity"]["passed_metrics"]}/{report["engine3"]["numeric_parity"]["total_metrics"]}',
     }, ensure_ascii=False))
     # Integrated validation requires both Engine 2's native OHLC history and
     # Engine 3's calculated signal plus native MT5 buffer readiness.
@@ -269,3 +284,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
