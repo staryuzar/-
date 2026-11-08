@@ -62,7 +62,7 @@ class MT5MarketDataEngineTests(unittest.TestCase):
         return {
             "status": "CONNECTED", "symbol": "BTC", "market_symbol": "BTCUSDT",
             "account": {"server": "Headway-Demo"},
-            "quote": {"bid": 90_000.0, "ask": 90_001.0}, "quote_age_seconds": 1.0,
+            "quote": {"bid": 90_000.0, "ask": 90_001.0, "tick_age_seconds": 1.0}, "quote_age_seconds": 1.0,
         }
 
     def test_reads_fresh_mt5_execution_quote_pulse_without_calendar_or_candles(self) -> None:
@@ -172,6 +172,10 @@ class MT5MarketDataEngineTests(unittest.TestCase):
             self._write_snapshot(directory, payload)
             market = self._engine(directory).collect()
         self.assertEqual(market["status"], "STALE_QUOTE")
+        self.assertEqual(market["feed_health"]["broker_symbol"], "BTC")
+        self.assertEqual(market["feed_health"]["market_symbol"], "BTCUSDT")
+        self.assertEqual(market["feed_health"]["account_server"], "Headway-Demo")
+        self.assertFalse(market["feed_health"]["quote_fresh"])
 
     def test_bridge_server_mismatch_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -185,9 +189,22 @@ class MT5MarketDataEngineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             self._write_snapshot(directory, make_snapshot())
             bridge = self._bridge()
-            bridge["quote"] = {"bid": 91_000.0, "ask": 91_001.0}
+            bridge["quote"] = {"bid": 91_000.0, "ask": 91_001.0, "tick_age_seconds": 1.0}
             market = self._engine(directory).collect(bridge=bridge)
         self.assertEqual(market["status"], "QUOTE_DIVERGENCE")
+
+    def test_stale_bridge_tick_is_rejected_even_when_heartbeat_is_fresh(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            self._write_snapshot(directory, make_snapshot())
+            bridge = self._bridge()
+            bridge["quote"]["tick_age_seconds"] = 30.0
+            # A recent quote.time_ms/heartbeat must not mask an old broker tick.
+            bridge["quote"]["time_ms"] = int(time.time() * 1000)
+            market = self._engine(directory).collect(bridge=bridge)
+        self.assertEqual(market["status"], "BRIDGE_QUOTE_STALE")
+        self.assertEqual(market["feed_health"]["broker_symbol"], "BTC")
+        self.assertEqual(market["feed_health"]["account_server"], "Headway-Demo")
+        self.assertEqual(market["feed_health"]["bridge_quote_check"]["status"], "STALE")
 
     def test_invalid_tick_history_is_not_silently_used_for_direction(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -215,3 +232,4 @@ class MT5MarketDataEngineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
