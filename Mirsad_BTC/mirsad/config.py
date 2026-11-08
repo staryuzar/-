@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 DATA_DIR=Path(os.getenv("MIRSAD_DATA_DIR",str(ROOT/"data"))).expanduser()
 DB_PATH=DATA_DIR/"mirsad.sqlite3"
+DECISION_CALIBRATION_DB_PATH=DATA_DIR/"decision_calibration.sqlite3"
 STATUS_PATH=DATA_DIR/"system_status.json"
 SNAPSHOT_PATH=DATA_DIR/"latest_market.json"
 CHART_DIR=DATA_DIR/"charts"
@@ -32,16 +33,37 @@ MT5_MARKET_DIVERGENCE_MAX_PCT=max(0.001,float(os.getenv("MIRSAD_MT5_MARKET_DIVER
 MT5_MAX_SPREAD_PCT=max(0.0001,float(os.getenv("MIRSAD_MT5_MAX_SPREAD_PCT","0.003")))
 CHART_MAX_AGE_SECONDS=max(30,int(os.getenv("MIRSAD_CHART_MAX_AGE","300")))
 RISK_PER_TRADE=float(os.getenv("MIRSAD_RISK_PER_TRADE","0.005"))
-# Daily drawdown protection is enabled by default. Disable only explicitly
-# for isolated development tests; order publishing remains separately OFF by default.
+# Observed Headway-Demo BTC commission: USD 0.25 per 0.01 lot (USD 25 per lot).
+# Override when the broker account/symbol commission schedule differs.
+COMMISSION_PER_LOT=float(os.getenv("MIRSAD_COMMISSION_PER_LOT","25.0"))
+# Production default: enforce a persistent UTC-day equity drawdown cap of 20%.
+# An explicit environment override may disable/change it for deliberate testing.
 DAILY_LOSS_LIMIT_ENABLED=os.getenv("MIRSAD_DAILY_LOSS_LIMIT_ENABLED","1").strip().lower() in {"1","true","yes","on"}
-MAX_DAILY_LOSS_FRACTION=float(os.getenv("MIRSAD_MAX_DAILY_LOSS_FRACTION","0.02"))
+MAX_DAILY_LOSS_FRACTION=float(os.getenv("MIRSAD_MAX_DAILY_LOSS_FRACTION","0.20"))
 RISK_STATE_PATH=DATA_DIR/"daily_risk_state.json"
-MT5_COMMON_FILES=os.getenv("MIRSAD_MT5_COMMON_FILES","").strip()
-ENABLE_ORDER_PUBLISH=os.getenv("MIRSAD_ENABLE_ORDER_PUBLISH","0")=="1"
+_mt5_common_files_override = os.getenv("MIRSAD_MT5_COMMON_FILES", "").strip()
+_mt5_common_files_default = (
+    Path(os.environ["APPDATA"]) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+    if os.environ.get("APPDATA") else None
+)
+if _mt5_common_files_override:
+    MT5_COMMON_FILES = _mt5_common_files_override
+elif (
+    _mt5_common_files_default is not None
+    and (_mt5_common_files_default / "MirsadBTC" / "status.json").is_file()
+):
+    # Auto-detect the standard MT5 shared folder on Windows when the user
+    # has not configured MIRSAD_MT5_COMMON_FILES explicitly.
+    MT5_COMMON_FILES = str(_mt5_common_files_default)
+else:
+    MT5_COMMON_FILES = ""
+# User-requested default: publish Engine 4 commands when a decision is ready and the MT5 bridge reports execution enabled.
+# Set MIRSAD_ENABLE_ORDER_PUBLISH=0 only for an intentional read-only run.
+ENABLE_ORDER_PUBLISH=os.getenv("MIRSAD_ENABLE_ORDER_PUBLISH","1").strip().lower() in {"1","true","yes","on"}
 
 PROVIDERS={
  "Binance Spot":"https://api.binance.com",
  "Bybit Spot":"https://api.bybit.com",
  "OKX Spot":"https://www.okx.com",
 }
+
