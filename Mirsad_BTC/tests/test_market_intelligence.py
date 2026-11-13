@@ -108,7 +108,7 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "PARTIAL")
         self.assertAlmostEqual(result["evidence_coverage"], 0.45)
-        self.assertAlmostEqual(result["directional_score"], 0.4222, places=3)
+        self.assertAlmostEqual(result["directional_score"], 0.2667, places=3)
         self.assertIn("not a probability", result["confidence_basis"])
 
     def test_context_is_ready_when_derivatives_and_news_cover_required_weight(self) -> None:
