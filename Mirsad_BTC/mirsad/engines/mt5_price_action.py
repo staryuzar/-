@@ -14,13 +14,16 @@ TIMEFRAME_MS = {
     "4h": 14_400_000,
     "1d": 86_400_000,
 }
+DECISION_TIMEFRAMES = ("1m", "5m", "15m", "1h")
+CONTEXT_TIMEFRAMES = ("4h", "1d")
+# Only M1/M5/M15/H1 contribute direction. H4/D1 remain contextual.
 TIMEFRAME_WEIGHTS = {
-    "1m": 4.0,
-    "5m": 8.0,
-    "15m": 18.0,
-    "1h": 25.0,
-    "4h": 30.0,
-    "1d": 15.0,
+    "1m": 15.0,
+    "5m": 20.0,
+    "15m": 30.0,
+    "1h": 35.0,
+    "4h": 0.0,
+    "1d": 0.0,
 }
 MIN_CLOSED_BARS = 24
 MAX_STALENESS_INTERVALS = 1
@@ -942,31 +945,65 @@ def analyze_mt5_native_price_action(
                 report.get("reason") or health.get("reason") or "Timeframe analysis is partial."
             )
 
-    eligible = [
+    ready_timeframes = [
         timeframe for timeframe, report in reports.items()
         if report.get("status") == "READY"
     ]
+    # The four execution frames are the only directional votes. H4/D1 are
+    # retained separately as context and can never outweigh or reverse votes.
+    eligible = [tf for tf in DECISION_TIMEFRAMES if tf in ready_timeframes]
+    context_eligible = [tf for tf in CONTEXT_TIMEFRAMES if tf in ready_timeframes]
     bullish = [tf for tf in eligible if reports[tf]["direction"] == "BULLISH"]
     bearish = [tf for tf in eligible if reports[tf]["direction"] == "BEARISH"]
     mixed = [tf for tf in eligible if reports[tf]["direction"] not in {"BULLISH", "BEARISH"}]
 
-    short_frames = ["1m", "5m", "15m"]
-    higher_frames = ["15m", "1h", "4h", "1d"]
+    short_frames = ["1m", "5m"]
+    higher_frames = ["15m", "1h"]
     short_score = _weighted_structure_score(reports, short_frames)
     higher_score = _weighted_structure_score(reports, higher_frames)
-    overall_score = _weighted_structure_score(reports, list(TIMEFRAME_MS))
+    overall_score = _weighted_structure_score(reports, list(DECISION_TIMEFRAMES))
     swing_structure_score = _weighted_structure_score(
-        reports, list(TIMEFRAME_MS), score_key="swing_structure_score"
+        reports, list(DECISION_TIMEFRAMES), score_key="swing_structure_score"
     )
     short_direction = _direction(short_score)
     higher_direction = _direction(higher_score)
 
+    context_scores = [
+        _valid_number(reports[tf].get("directional_evidence_score"))
+        for tf in context_eligible
+    ]
+    context_scores = [value for value in context_scores if value is not None]
+    context_score = sum(context_scores) / len(context_scores) if context_scores else None
+    context_swing_scores = [
+        _valid_number(reports[tf].get("swing_structure_score"))
+        for tf in context_eligible
+    ]
+    context_swing_scores = [value for value in context_swing_scores if value is not None]
+    context_swing_score = (
+        sum(context_swing_scores) / len(context_swing_scores)
+        if context_swing_scores else None
+    )
+    long_term_context_direction = _direction(context_score)
+    context_directions = [
+        reports[tf].get("direction") for tf in context_eligible
+        if reports[tf].get("direction") in {"BULLISH", "BEARISH"}
+    ]
+    context_alignment = (
+        "ALIGNED_BULLISH_CONTEXT"
+        if len(context_eligible) == 2 and context_directions == ["BULLISH", "BULLISH"]
+        else "ALIGNED_BEARISH_CONTEXT"
+        if len(context_eligible) == 2 and context_directions == ["BEARISH", "BEARISH"]
+        else "MIXED_CONTEXT"
+        if len(context_directions) >= 2
+        else "PARTIAL_CONTEXT"
+    )
+
     required_context = (
         "15m" in eligible
         and "1h" in eligible
-        and bool({"4h", "1d"} & set(eligible))
+        and bool(context_eligible)
     )
-    enough_frames = len(eligible) >= 4
+    enough_frames = len(eligible) >= 3 and bool({"1m", "5m"} & set(eligible))
     analysis_ready = enough_frames and required_context
     directional_total = len(bullish) + len(bearish)
     mixed_total = len(mixed)
@@ -1016,7 +1053,7 @@ def analyze_mt5_native_price_action(
             else "BEARISH_STRUCTURE_CONFLUENCE" if bearish and not bullish and len(bearish) >= 3
             else "NO_CLEAR_STRUCTURE_CONFLUENCE"
         )
-    expected_weight = sum(TIMEFRAME_WEIGHTS.values())
+    expected_weight = sum(TIMEFRAME_WEIGHTS[name] for name in DECISION_TIMEFRAMES)
     available_weight = sum(TIMEFRAME_WEIGHTS[name] for name in eligible)
     weight_coverage = available_weight / expected_weight if expected_weight else 0.0
     evidence_coverage = (
@@ -1059,7 +1096,9 @@ def analyze_mt5_native_price_action(
     if pattern_alignment == "MIXED_CANDLE_PATTERN_EVIDENCE":
         warnings.append("Latest candle-pattern candidates conflict across timeframes.")
     if not required_context:
-        warnings.append("The higher-timeframe structural context is incomplete.")
+        warnings.append("At least one valid H4/D1 context frame is required, but context frames never vote.")
+    if context_alignment == "MIXED_CONTEXT":
+        warnings.append("H4/D1 context frames disagree; context is diagnostic and does not alter directional voting.")
 
     watch_reports = {
         timeframe: reports[timeframe].get("early_setup_watch")
@@ -1116,6 +1155,13 @@ def analyze_mt5_native_price_action(
             "timeframe_alignment": alignment,
             "eligible_timeframes": eligible,
             "eligible_timeframe_count": len(eligible),
+            "ready_timeframes": ready_timeframes,
+            "decision_timeframes": list(DECISION_TIMEFRAMES),
+            "context_timeframes": context_eligible,
+            "long_term_context_direction": long_term_context_direction,
+            "context_score": round(context_score, 4) if context_score is not None else None,
+            "context_swing_structure_score": round(context_swing_score, 4) if context_swing_score is not None else None,
+            "context_alignment": context_alignment,
             "bullish_structure_timeframes": bullish,
             "bearish_structure_timeframes": bearish,
             "mixed_or_unconfirmed_timeframes": mixed,
@@ -1137,7 +1183,7 @@ def analyze_mt5_native_price_action(
         "timeframes": reports,
         "timeframe_errors": timeframe_errors,
         "historical_gap_timeframes": [
-            timeframe for timeframe in eligible
+            timeframe for timeframe in ready_timeframes
             if (reports[timeframe].get("data_quality") or {}).get("historical_gaps_excluded") is True
         ],
         "multi_timeframe_structure": {
@@ -1148,10 +1194,15 @@ def analyze_mt5_native_price_action(
             "bullish_timeframes": bullish,
             "bearish_timeframes": bearish,
             "mixed_or_unconfirmed_timeframes": mixed,
+            "decision_timeframes": list(DECISION_TIMEFRAMES),
+            "context_timeframes": context_eligible,
+            "long_term_context_direction": long_term_context_direction,
+            "context_alignment": context_alignment,
         },
         "evidence_quality": {
             "eligible_timeframe_count": len(eligible),
-            "expected_timeframe_count": len(TIMEFRAME_MS),
+            "expected_timeframe_count": len(DECISION_TIMEFRAMES),
+            "ready_context_timeframe_count": len(context_eligible),
             "timeframe_weight_coverage": round(weight_coverage, 4),
             "directional_structure_agreement": round(agreement, 4),
             "directional_evidence_coverage": round(evidence_coverage, 4),
@@ -1159,8 +1210,8 @@ def analyze_mt5_native_price_action(
         },
         "warnings": warnings,
         "reason": None if analysis_ready else (
-            "A multi-timeframe structural direction requires at least four ready frames, "
-            "including 15m, 1h and at least one of 4h/1d."
+            "A directional decision requires at least three of M1/M5/M15/H1, including M15 and H1, "
+            "plus at least one valid H4/D1 context frame. H4/D1 do not vote."
         ),
         "safety": {
             "read_only": True,
@@ -1176,7 +1227,7 @@ def analyze_mt5_native_price_action(
             "liquidity_candidates": "Equal highs/lows and wick-through-then-close-back rejection around confirmed swing levels; latest confirmed sweep is a low-weight supporting component.",
             "directional_evidence_weights": dict(DIRECTIONAL_EVIDENCE_WEIGHTS),
             "price_zones": "Three-candle price gaps, opposing-candle zones tied to a confirmed break, and premium/discount range context.",
-            "direction": "Higher-high/higher-low or lower-high/lower-low swing sequence; aggregated across timeframes with higher-frame weights.",
+            "direction": "Only M1/M5/M15/H1 vote with weights 15/20/30/35. H4/D1 are contextual summaries and have zero directional weight.",
             "forming_candles": "Reported separately for context only and excluded from all pattern and structural direction calculations.",
         },
         "limitations": [

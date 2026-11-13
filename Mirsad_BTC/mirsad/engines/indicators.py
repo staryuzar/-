@@ -3,7 +3,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
-TIMEFRAME_WEIGHTS = {"1m": 4.0, "5m": 8.0, "15m": 18.0, "1h": 25.0, "4h": 30.0, "1d": 15.0}
+TIMEFRAME_WEIGHTS = {"1m": 15.0, "5m": 20.0, "15m": 30.0, "1h": 35.0, "4h": 0.0, "1d": 0.0}
+DECISION_TIMEFRAMES = ("1m", "5m", "15m", "1h")
+CONTEXT_TIMEFRAMES = ("4h", "1d")
 REQUIRED_TIMEFRAMES = ("1m", "5m", "15m")
 CORE_INDICATORS = ("ema20", "ema50", "rsi14", "atr14")
 INDICATOR_SIGNAL_GROUP_WEIGHTS = {
@@ -649,6 +651,23 @@ class IndicatorsEngine:
                 else 0
             )
         trend_score = weighted / weight_total if weight_total else None
+        ready_context_trends = [
+            timeframes[tf]["trend"]
+            for tf in CONTEXT_TIMEFRAMES
+            if timeframes[tf].get("status") == "READY"
+            and timeframes[tf].get("trend") in {"BULLISH", "BEARISH"}
+        ]
+        context_trend_direction = (
+            ready_context_trends[0]
+            if ready_context_trends and len(set(ready_context_trends)) == 1
+            else "MIXED_OR_UNCONFIRMED"
+            if ready_context_trends
+            else "UNKNOWN"
+        )
+        ready_context_timeframes = [
+            tf for tf in CONTEXT_TIMEFRAMES
+            if timeframes[tf].get("status") == "READY"
+        ]
         signal_weighted = 0.0
         signal_weight_total = 0.0
         signal_timeframe_weight = 0.0
@@ -694,6 +713,9 @@ class IndicatorsEngine:
             "indicators_by_timeframe": indicators_by_timeframe,
             "values": values,
             "trend_score": trend_score,
+            "context_trend_direction": context_trend_direction,
+            "context_timeframes": ready_context_timeframes,
+            "decision_timeframes": list(DECISION_TIMEFRAMES),
             "signal_score": round(signal_score, 6) if signal_score is not None else None,
             "signal_quality": round(signal_quality, 6),
             "signal_timeframe_weight_coverage": round(signal_timeframe_coverage, 6),
@@ -909,6 +931,8 @@ def validate_native_indicator_parity(
 
 __all__ = [
     "TIMEFRAME_WEIGHTS",
+    "DECISION_TIMEFRAMES",
+    "CONTEXT_TIMEFRAMES",
     "REQUIRED_TIMEFRAMES",
     "CORE_INDICATORS",
     "INDICATOR_SIGNAL_GROUP_WEIGHTS",

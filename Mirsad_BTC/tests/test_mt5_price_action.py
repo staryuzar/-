@@ -4,6 +4,9 @@ import unittest
 
 from mirsad.engines.mt5_price_action import (
     DIRECTIONAL_EVIDENCE_WEIGHTS,
+    DECISION_TIMEFRAMES,
+    CONTEXT_TIMEFRAMES,
+    TIMEFRAME_WEIGHTS,
     _directional_evidence_score,
     _early_setup_watch,
     analyze_mt5_native_price_action,
@@ -206,7 +209,13 @@ class MT5NativePriceActionTests(unittest.TestCase):
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["direction"], "BULLISH")
         self.assertEqual(result["summary"]["higher_timeframe_direction"], "BULLISH")
-        self.assertEqual(set(result["summary"]["eligible_timeframes"]), set(DURATIONS))
+        self.assertEqual(set(result["summary"]["eligible_timeframes"]), set(DECISION_TIMEFRAMES))
+        self.assertEqual(set(result["summary"]["context_timeframes"]), set(CONTEXT_TIMEFRAMES))
+        self.assertEqual(set(result["summary"]["ready_timeframes"]), set(DURATIONS))
+        self.assertEqual(TIMEFRAME_WEIGHTS, {
+            "1m": 15.0, "5m": 20.0, "15m": 30.0, "1h": 35.0,
+            "4h": 0.0, "1d": 0.0,
+        })
         for timeframe in DURATIONS:
             structure = result["timeframes"][timeframe]["structure"]["swing"]
             self.assertGreaterEqual(len(structure["swing_highs"]), 2)
@@ -228,14 +237,15 @@ class MT5NativePriceActionTests(unittest.TestCase):
         }
         result = analyze_mt5_native_price_action(make_history(directions=directions))
         self.assertEqual(result["status"], "READY")
-        self.assertEqual(result["direction"], "MIXED_TIMEFRAME_DIRECTIONS")
+        self.assertEqual(result["direction"], "BEARISH")
         self.assertEqual(result["summary"]["short_term_direction"], "BEARISH")
-        self.assertEqual(result["summary"]["higher_timeframe_direction"], "BULLISH")
+        self.assertEqual(result["summary"]["higher_timeframe_direction"], "MIXED_OR_UNCONFIRMED")
+        self.assertEqual(result["summary"]["long_term_context_direction"], "BULLISH")
 
     def test_weighted_majority_confluence_accepts_three_of_four_directional_frames(self) -> None:
         directions = {
-            "1m": "flat", "5m": "down", "15m": "flat",
-            "1h": "down", "4h": "down", "1d": "up",
+            "1m": "down", "5m": "down", "15m": "flat",
+            "1h": "down", "4h": "up", "1d": "up",
         }
         result = analyze_mt5_native_price_action(make_history(directions=directions))
         summary = result["summary"]
@@ -245,13 +255,26 @@ class MT5NativePriceActionTests(unittest.TestCase):
         self.assertTrue(summary["weighted_majority_consensus"])
         self.assertEqual(summary["majority_direction"], "BEARISH")
         self.assertEqual(summary["weighted_direction"], "BEARISH")
-        self.assertEqual(summary["directional_frame_count"], 4)
-        self.assertAlmostEqual(summary["directional_frame_coverage"], 4 / 6, places=4)
-        self.assertAlmostEqual(summary["directional_structure_agreement"], 0.75, places=4)
+        self.assertEqual(summary["directional_frame_count"], 3)
+        self.assertAlmostEqual(summary["directional_frame_coverage"], 3 / 4, places=4)
+        self.assertAlmostEqual(summary["directional_structure_agreement"], 1.0, places=4)
+
+    def test_h4_d1_context_cannot_reverse_four_decision_frame_votes(self) -> None:
+        directions = {
+            "1m": "up", "5m": "up", "15m": "up", "1h": "up",
+            "4h": "down", "1d": "down",
+        }
+        result = analyze_mt5_native_price_action(make_history(directions=directions))
+        self.assertEqual(result["status"], "READY")
+        self.assertEqual(result["direction"], "BULLISH")
+        self.assertEqual(result["summary"]["long_term_context_direction"], "BEARISH")
+        self.assertEqual(result["summary"]["context_alignment"], "ALIGNED_BEARISH_CONTEXT")
+        self.assertEqual(result["summary"]["eligible_timeframes"], ["1m", "5m", "15m", "1h"])
+
 
     def test_two_way_directional_tie_is_never_promoted_to_weighted_consensus(self) -> None:
         directions = {
-            "1m": "down", "5m": "down", "15m": "down",
+            "1m": "down", "5m": "down", "15m": "up",
             "1h": "up", "4h": "up", "1d": "up",
         }
         result = analyze_mt5_native_price_action(make_history(directions=directions))
@@ -267,12 +290,12 @@ class MT5NativePriceActionTests(unittest.TestCase):
         result = analyze_mt5_native_price_action(make_history(directions=directions))
         summary = result["summary"]
         self.assertEqual(result["status"], "READY")
-        self.assertEqual(result["direction"], "MIXED_TIMEFRAME_DIRECTIONS")
-        self.assertEqual(summary["directional_frame_count"], 4)
-        self.assertAlmostEqual(summary["directional_frame_coverage"], 4 / 6, places=4)
-        self.assertEqual(summary["mixed_or_unconfirmed_frame_count"], 2)
-        self.assertAlmostEqual(summary["mixed_or_unconfirmed_frame_coverage"], 2 / 6, places=4)
-        self.assertAlmostEqual(summary["directional_structure_agreement"], 0.5)
+        self.assertEqual(result["direction"], "BULLISH")
+        self.assertEqual(summary["directional_frame_count"], 3)
+        self.assertAlmostEqual(summary["directional_frame_coverage"], 3 / 4, places=4)
+        self.assertEqual(summary["mixed_or_unconfirmed_frame_count"], 1)
+        self.assertAlmostEqual(summary["mixed_or_unconfirmed_frame_coverage"], 1 / 4, places=4)
+        self.assertAlmostEqual(summary["directional_structure_agreement"], 2 / 3, places=4)
 
     def test_forming_candle_spike_does_not_change_price_action_result(self) -> None:
         normal = analyze_mt5_native_price_action(make_history())

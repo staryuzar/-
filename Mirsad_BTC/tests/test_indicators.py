@@ -204,8 +204,17 @@ class IndicatorsEngineTests(unittest.TestCase):
         result = IndicatorsEngine().analyze(make_chart_candles(direction="up"))
         self.assertEqual(result["status"], "READY")
         self.assertAlmostEqual(sum(INDICATOR_SIGNAL_GROUP_WEIGHTS.values()), 1.0)
+        self.assertEqual(INDICATOR_SIGNAL_GROUP_WEIGHTS, {
+            "trend": 0.30, "momentum": 0.25, "directional_strength": 0.20,
+            "oscillator": 0.15, "volume_flow": 0.10,
+        })
         self.assertGreater(result["signal_score"], 0.25)
         self.assertAlmostEqual(result["signal_quality"], 1.0)
+        self.assertEqual(result["timeframe_weights"], {
+            "1m": 15.0, "5m": 20.0, "15m": 30.0, "1h": 35.0,
+            "4h": 0.0, "1d": 0.0,
+        })
+        self.assertEqual(result["context_trend_direction"], "BULLISH")
         self.assertIn("tick_volume", result["signal_volume_basis"])
         self.assertIn("not consolidated executed-trade volume", result["signal_volume_basis"])
         groups = result["signal_components_by_timeframe"]["1m"]["groups"]
