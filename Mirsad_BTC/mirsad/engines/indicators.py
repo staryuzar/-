@@ -8,9 +8,9 @@ REQUIRED_TIMEFRAMES = ("1m", "5m", "15m")
 CORE_INDICATORS = ("ema20", "ema50", "rsi14", "atr14")
 INDICATOR_SIGNAL_GROUP_WEIGHTS = {
     "trend": 0.30,
-    "momentum": 0.30,
+    "momentum": 0.25,
     "directional_strength": 0.20,
-    "oscillator": 0.10,
+    "oscillator": 0.15,
     "volume_flow": 0.10,
 }
 INDICATOR_SIGNAL_FEATURE_WEIGHTS = {
