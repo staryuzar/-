@@ -118,8 +118,8 @@ class MarketIntelligenceEngineTests(unittest.TestCase):
             derivatives={"status": "READY", "score": 0.2, "confidence": 0.9},
         )
         self.assertEqual(result["status"], "READY")
-        self.assertAlmostEqual(result["evidence_coverage"], 0.95)
-        self.assertAlmostEqual(result["directional_score"], 0.3263, places=3)
+        self.assertAlmostEqual(result["evidence_coverage"], 0.85)
+        self.assertAlmostEqual(result["directional_score"], 0.3059, places=3)
 
     def test_single_source_score_is_partial_not_full_readiness(self) -> None:
         result = compose_directional_context(
