@@ -57,5 +57,25 @@ class DecisionIntegrityTests(unittest.TestCase):
         self.assertIn("OPEN_RISK_PLAN_INVALID", result["errors"])
 
 
+    def test_missing_engine_is_normal_wait_not_integrity_failure(self) -> None:
+        missing = publish_engine_share(
+            "engine_1_market_intelligence", status="OFFLINE",
+            score=None, quality=0.0, eligible=False,
+        )
+        coordinator = build_final_decision(
+            missing,
+            vote("engine_2_price_action", 0.9),
+            vote("engine_3_indicators", 0.9),
+        )
+        result = validate_decision_integrity(
+            coordinator,
+            {"candidate_action": "WAIT", "action": "WAIT", "command_ready": False},
+        )
+        self.assertEqual(coordinator["status"], "WAITING_FOR_ENGINE_DECISIONS")
+        self.assertEqual(result["status"], "PASS")
+        self.assertTrue(result["valid"])
+        self.assertFalse(result["execution_eligible"])
+
+
 if __name__ == "__main__":
     unittest.main()

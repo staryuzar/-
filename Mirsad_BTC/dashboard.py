@@ -1096,6 +1096,31 @@ def render_detailed_engine_dashboard():
    _score_label(scores.get("engine_3_indicators")),
    help="المؤشرات المحسوبة من سجل الشموع المغلقة الذي يملكه المحرك الثاني.")
   s4.metric("النتيجة المركبة",_score_label(scores.get("combined_score")))
+
+  coordinator=decision.get("decision_coordinator") if isinstance(decision.get("decision_coordinator"),dict) else {}
+  coordinator_totals=coordinator.get("directional_shares_percent") if isinstance(coordinator.get("directional_shares_percent"),dict) else {}
+  coordinator_state=str(coordinator.get("status","NOT_REPORTED")).upper()
+  integrity=decision.get("decision_integrity") if isinstance(decision.get("decision_integrity"),dict) else {}
+  integrity_state=str(integrity.get("status","NOT_REPORTED")).upper()
+  alloc_cols=st.columns(4)
+  alloc_cols[0].metric("منسق الحصص 20/55/25",coordinator_state)
+  for col,key,label in [
+   (alloc_cols[1],"BUY","حصة الشراء"),
+   (alloc_cols[2],"SELL","حصة البيع"),
+   (alloc_cols[3],"NEUTRAL","حصة الحياد"),
+  ]:
+   value=coordinator_totals.get(key)
+   col.metric(label,f"{float(value):.2f}%" if isinstance(value,(int,float)) else "غير متاح")
+  coordinator_rows=coordinator.get("decision_table_rows")
+  if isinstance(coordinator_rows,list) and coordinator_rows:
+   with st.expander("تفاصيل حصص المحركات الثلاثة",expanded=False):
+    _safe_dataframe(pd.DataFrame(coordinator_rows),width="stretch",hide_index=True)
+  if coordinator_state!="READY":
+   st.info("المنسق ينتظر اكتمال حصص المحركات. تبقى حصة المحرك غير المتاح دون إعادة توزيع، ولذلك لا تُفتح صفقة جديدة.")
+  if integrity_state=="BLOCKED":
+   st.error("بوابة نزاهة القرار حجبت الأمر: "+", ".join(integrity.get("errors",[])))
+  elif integrity_state=="PASS":
+   st.caption("سلامة القرار وأمر MIR1: PASS · تحقق من الاتساق والحجم والأسعار قبل النشر.")
   def _configured_weight_text(name):
    value=configured.get(name)
    return f"{float(value)*100:.0f}%" if isinstance(value,(int,float)) else "غير وارد"

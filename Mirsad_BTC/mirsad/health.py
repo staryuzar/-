@@ -69,7 +69,7 @@ def _label(value: Any) -> str:
 def _health(value: Any) -> str:
     status = str(value or "NOT_REPORTED").strip().upper()
     if status in {
-        "RUNNING", "LIVE", "READY", "READY_FOR_ENGINE_2_VALIDATION",
+        "RUNNING", "LIVE", "READY", "READY_FOR_ENGINE_2_VALIDATION", "PASS",
         "CONNECTED", "CONFIRMED", "CONFIRMED_FROM_DEAL_HISTORY", "POSITION_CLOSED_AFTER_MODIFY",
         "NO_PENDING_COMMAND", "NO_OPEN_POSITIONS",
         "VERIFIED", "STORED", "ALREADY_STORED", "NOT_REQUIRED", "DIRECTIONAL_SAMPLES_AVAILABLE",
@@ -81,7 +81,7 @@ def _health(value: Any) -> str:
         status in {
             "ERROR", "FAILED", "STALE", "OFFLINE", "INVALID", "REJECTED",
             "IDENTITY_MISMATCH", "HASH_MISMATCH", "OBSERVER_REFERENCE_NOT_VERIFIED",
-            "NOT_VERIFIED", "SYMBOL_MISMATCH", "CANDLE_IDENTITY_MISMATCH",
+            "NOT_VERIFIED", "BLOCKED", "SYMBOL_MISMATCH", "CANDLE_IDENTITY_MISMATCH",
             "BRIDGE_IDENTITY_MISMATCH", "BLOCKED_QUALITY_GATE",
         }
         or status.startswith(("ERROR_", "FAILED_", "INVALID_", "MISMATCH_", "REJECTED_", "OBSERVER_"))
@@ -340,6 +340,38 @@ def build_component_health(state: dict[str, Any] | None, *, now_ms: int | None =
             f"جاهزية الأمر: {'نعم' if decision.get('command_ready') else 'لا'} | {decision.get('reason') or 'ستظهر تفاصيل القرار بعد اكتمال مدخلات المحركات.'}"
         )
     add("المحرك الرابع — القرار وإدارة الصفقات", "محرك القرار المركزي", decision_status, decision_detail)
+
+    coordinator = _dict(decision.get("decision_coordinator"))
+    coordinator_status = str(coordinator.get("status", "NOT_REPORTED")).upper()
+    coordinator_totals = _dict(coordinator.get("directional_shares_percent"))
+    coordinator_detail = (
+        f"شراء {coordinator_totals.get('BUY', '—')}% | بيع {coordinator_totals.get('SELL', '—')}% | "
+        f"حياد {coordinator_totals.get('NEUTRAL', '—')}% | "
+        f"حصة مستلمة {coordinator.get('received_share_percent', '—')}% من 100% | "
+        f"المحركات المنتظرة: {', '.join(coordinator.get('pending_engines', [])) or 'لا يوجد'}. "
+        "لا يعاد توزيع حصة المحرك الغائب."
+    )
+    add(
+        "المحرك الرابع — القرار وإدارة الصفقات",
+        "منسق الحصص الثابتة 20/55/25",
+        coordinator_status,
+        coordinator_detail,
+    )
+
+    integrity = _dict(decision.get("decision_integrity"))
+    integrity_status = str(integrity.get("status", "NOT_REPORTED")).upper()
+    integrity_detail = (
+        f"التحقق: {'اجتاز' if integrity.get('valid') is True else 'لم يجتز'} | "
+        f"الإجراء: {integrity.get('engine4_action', decision.get('action', 'WAIT'))} | "
+        f"أسباب الحجب: {', '.join(integrity.get('errors', [])) or 'لا توجد'} | "
+        "سلامة عقد الأمر لا تعني ضمان تنفيذ الوسيط."
+    )
+    add(
+        "المحرك الرابع — القرار وإدارة الصفقات",
+        "سلامة القرار وأمر MIR1",
+        integrity_status,
+        integrity_detail,
+    )
     calibration = _dict(state.get("decision_calibration_persistence"))
     calibration_archive = _dict(state.get("decision_calibration_archive"))
     calibration_count = calibration.get("sample_count", calibration.get("write_reported_sample_count", "—"))
