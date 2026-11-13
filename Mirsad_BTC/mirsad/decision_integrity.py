@@ -23,14 +23,29 @@ def validate_decision_integrity(
     decision = decision if isinstance(decision, dict) else {}
     errors: list[str] = []
 
-    if coordinator.get("schema") != "MIR-DECISION-COORDINATOR-1":
-        errors.append("COORDINATOR_SCHEMA_INVALID")
-    if coordinator.get("status") != "READY" or coordinator.get("all_engine_decisions_received") is not True:
-        errors.append("ENGINE_DECISIONS_INCOMPLETE")
+    candidate = str(decision.get("candidate_action", "WAIT")).upper()
+    action = str(decision.get("action", "WAIT")).upper()
+    coordinator_action = str(coordinator.get("action", "WAIT")).upper()
+    requires_directional_coordinator = (
+        candidate in {"BUY", "SELL"} or action in {"BUY", "SELL"}
+    )
+
+    # Missing Engine 1/2/3 inputs are an expected WAIT state, not a corrupt
+    # execution command. The complete 100% allocation is mandatory only when
+    # Engine 4 proposes new directional exposure.
+    if requires_directional_coordinator:
+        if coordinator.get("schema") != "MIR-DECISION-COORDINATOR-1":
+            errors.append("COORDINATOR_SCHEMA_INVALID")
+        if (
+            coordinator.get("status") != "READY"
+            or coordinator.get("all_engine_decisions_received") is not True
+        ):
+            errors.append("ENGINE_DECISIONS_INCOMPLETE")
 
     configured = coordinator.get("configured_shares")
     if not isinstance(configured, dict):
-        errors.append("CONFIGURED_SHARES_MISSING")
+        if requires_directional_coordinator:
+            errors.append("CONFIGURED_SHARES_MISSING")
     else:
         for name, expected in ENGINE_SHARES.items():
             actual = _finite(configured.get(name))
@@ -41,17 +56,15 @@ def validate_decision_integrity(
 
     distribution = coordinator.get("directional_shares_percent")
     if not isinstance(distribution, dict):
-        errors.append("DIRECTIONAL_DISTRIBUTION_MISSING")
+        if requires_directional_coordinator:
+            errors.append("DIRECTIONAL_DISTRIBUTION_MISSING")
         distribution = {}
     values = {name: _finite(distribution.get(name)) for name in DIRECTIONS}
-    if any(value is None or value < 0 for value in values.values()):
-        errors.append("DIRECTIONAL_DISTRIBUTION_INVALID")
-    elif abs(sum(float(values[name]) for name in DIRECTIONS) - 100.0) > 0.02:
-        errors.append("DIRECTIONAL_DISTRIBUTION_DOES_NOT_TOTAL_100_PERCENT")
-
-    candidate = str(decision.get("candidate_action", "WAIT")).upper()
-    action = str(decision.get("action", "WAIT")).upper()
-    coordinator_action = str(coordinator.get("action", "WAIT")).upper()
+    if requires_directional_coordinator:
+        if any(value is None or value < 0 for value in values.values()):
+            errors.append("DIRECTIONAL_DISTRIBUTION_INVALID")
+        elif abs(sum(float(values[name]) for name in DIRECTIONS) - 100.0) > 0.02:
+            errors.append("DIRECTIONAL_DISTRIBUTION_DOES_NOT_TOTAL_100_PERCENT")
     if candidate in {"BUY", "SELL"} and coordinator_action != candidate:
         errors.append("CANDIDATE_DIRECTION_DIFFERS_FROM_COORDINATOR")
     if action in {"BUY", "SELL"} and (
