@@ -69,6 +69,22 @@ def make_engine2_price_action(direction: str = "BULLISH", score: float = 0.80) -
     }
 
 
+def make_engine1_market_intelligence(score: float = 0.80) -> dict:
+    """Deterministic, fully covered Engine 1 fixture for coordinator contract tests."""
+    return {
+        "status": "READY",
+        "direction": "BULLISH" if score > 0 else "BEARISH" if score < 0 else "NEUTRAL",
+        "directional_score": score,
+        "confidence": 1.0,
+        "evidence_coverage": 1.0,
+        "economic_calendar": {
+            "status": "EMPTY",
+            "high_impact_window_active": False,
+            "events": [],
+        },
+    }
+
+
 def make_open_decision(command_id: str = "MIR-" + "a" * 24) -> dict:
     return {
         "status": "READY",
@@ -348,6 +364,7 @@ class ThreeEngineDecisionIntegrationTests(unittest.TestCase):
             "status": "READY",
             "directional_score": 0.5,
             "confidence": 0.9,
+            "evidence_coverage": 1.0,
             "economic_calendar": {
                 "status": "READY",
                 "high_impact_window_active": True,
@@ -484,6 +501,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         result = DecisionEngine().analyze(
             self._market(), chart, {}, indicators,
             engine2_price_action=make_engine2_price_action(),
+            market_intelligence=make_engine1_market_intelligence(),
         )
         self.assertEqual(result["engine_3_indicator_status"], "READY")
         self.assertEqual(result["engine_inputs"]["indicators_from_engine_3"], "READY")
@@ -516,6 +534,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         accepted = DecisionEngine().analyze(
             self._market(), chart, {}, indicators,
             engine2_price_action=make_engine2_price_action(),
+            market_intelligence=make_engine1_market_intelligence(),
             require_mt5_native_parity=True,
         )
         self.assertEqual(accepted["candidate_action"], "BUY")
@@ -600,6 +619,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         })
         intelligence = {
             "status": "PARTIAL",
+            "directional_score": 0.80,
+            "confidence": 1.0,
+            "evidence_coverage": 1.0,
             "economic_calendar": {
                 "status": "EMPTY",
                 "high_impact_window_active": False,
@@ -657,6 +679,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         })
         intelligence = {
             "status": "PARTIAL",
+            "directional_score": 0.80,
+            "confidence": 1.0,
+            "evidence_coverage": 1.0,
             "economic_calendar": {
                 "status": "EMPTY",
                 "high_impact_window_active": False,
@@ -881,6 +906,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
     def test_market_snapshot_time_does_not_change_order_signal_identity(self) -> None:
         intelligence = {
             "status": "PARTIAL",
+            "directional_score": 0.80,
+            "confidence": 1.0,
+            "evidence_coverage": 1.0,
             "economic_calendar": {"status": "EMPTY", "high_impact_window_active": False, "events": []},
         }
         engine2_data = self._chart()
@@ -923,14 +951,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         result = DecisionEngine().analyze(
             self._market(), chart, self._daily_risk_bridge(locked=True), indicators,
             engine2_price_action=make_engine2_price_action(),
-            market_intelligence={
-                "status": "PARTIAL",
-                "economic_calendar": {
-                    "status": "EMPTY",
-                    "high_impact_window_active": False,
-                    "events": [],
-                },
-            },
+            market_intelligence=make_engine1_market_intelligence(),
         )
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertEqual(result["action"], "WAIT")
@@ -956,6 +977,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         # A valid EMPTY calendar means the provider responded successfully
         # and confirmed there are no current high-impact events.
         verified_empty_calendar = {
+            **make_engine1_market_intelligence(),
             "status": "PARTIAL",
             "economic_calendar": {
                 "status": "EMPTY",
@@ -991,6 +1013,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         result = DecisionEngine().analyze(
             self._market(), chart, bridge, indicators,
             engine2_price_action=make_engine2_price_action(),
+            market_intelligence=make_engine1_market_intelligence(),
         )
         self.assertEqual(result["action"], "CLOSE")
         self.assertTrue(result["command_ready"])
@@ -1005,6 +1028,7 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         result = DecisionEngine().analyze(
             self._market(), chart, bridge, indicators,
             engine2_price_action=make_engine2_price_action(),
+            market_intelligence=make_engine1_market_intelligence(),
         )
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertEqual(result["action"], "WAIT")
@@ -1125,7 +1149,9 @@ class Engine2Engine3Engine4ContractTests(unittest.TestCase):
         }
 
         result = DecisionEngine().analyze(
-            market, chart, {}, indicators, engine2_price_action=price_action
+            market, chart, {}, indicators,
+            engine2_price_action=price_action,
+            market_intelligence=make_engine1_market_intelligence(),
         )
         self.assertEqual(result["candidate_action"], "BUY")
         self.assertEqual(result["status"], "READY")
