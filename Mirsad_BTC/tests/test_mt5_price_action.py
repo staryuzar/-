@@ -251,7 +251,7 @@ class MT5NativePriceActionTests(unittest.TestCase):
         summary = result["summary"]
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["direction"], "BEARISH")
-        self.assertEqual(summary["timeframe_alignment"], "BEARISH_WEIGHTED_STRUCTURE_MAJORITY")
+        self.assertEqual(summary["timeframe_alignment"], "BEARISH_STRUCTURE_CONFLUENCE")
         self.assertTrue(summary["weighted_majority_consensus"])
         self.assertEqual(summary["majority_direction"], "BEARISH")
         self.assertEqual(summary["weighted_direction"], "BEARISH")
