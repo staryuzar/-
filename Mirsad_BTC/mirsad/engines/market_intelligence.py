@@ -36,7 +36,7 @@ CACHE_PROVIDER_TIMESTAMPS: dict[str, int | None] = {}
 CACHE_LOCK = threading.Lock()
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_HEADLINES = 40
-COMPONENT_WEIGHTS = {"derivatives": 0.55, "news": 0.40, "fear_greed": 0.05}
+COMPONENT_WEIGHTS = {"derivatives": 0.55, "news": 0.30, "fear_greed": 0.15}
 DERIVATIVE_SIGNAL_WEIGHTS = {"funding_rate": 0.55, "long_short_ratio": 0.45}
 
 _POSITIVE_TERMS = (
