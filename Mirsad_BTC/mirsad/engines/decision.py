@@ -12,6 +12,8 @@ from .indicators import (
     _ema, _rsi, _atr, _timeframe_trend,
 )
 from .position_management import plan_atr_stop_update, plan_partial_take_profit
+from ..decision_coordinator import build_final_decision, publish_engine_share
+from ..decision_integrity import validate_decision_integrity
 
 
 def _aggregate_orderflow(venues: dict[str, Any]) -> dict[str, Any]:
@@ -837,6 +839,39 @@ class DecisionEngine:
         # coverage. A fully clean M1/M5/M15 set must not masquerade as a full
         # six-timeframe vote when higher-timeframe indicator data are absent.
         engine3_quality = min(signal_quality, signal_timeframe_coverage)
+        # Publish fixed 20/55/25 shares after each source engine has completed
+        # its own analysis and quality checks. The coordinator only adds shares.
+        engine_vote_reports = {
+            "engine_1_market_intelligence": publish_engine_share(
+                "engine_1_market_intelligence",
+                status=str(intelligence.get("status", "UNAVAILABLE")),
+                score=engine1_score,
+                quality=engine1_quality,
+                eligible=engine1_score is not None,
+                source="ENGINE1_STANDALONE_REPORT",
+            ),
+            "engine_2_price_action": publish_engine_share(
+                "engine_2_price_action",
+                status="READY" if engine2_decision_eligible else engine2_analysis_status,
+                score=engine2_score,
+                quality=engine2_quality,
+                eligible=engine2_decision_eligible,
+                source="NATIVE_MT5_CLOSED_OHLC",
+            ),
+            "engine_3_indicators": publish_engine_share(
+                "engine_3_indicators",
+                status=str(indicator_data.get("status", "UNAVAILABLE")),
+                score=engine3_score,
+                quality=engine3_quality,
+                eligible=indicator_data.get("status") == "READY",
+                source="ENGINE2_CLOSED_CANDLES_INDICATORS",
+            ),
+        }
+        decision_coordinator = build_final_decision(
+            engine_vote_reports["engine_1_market_intelligence"],
+            engine_vote_reports["engine_2_price_action"],
+            engine_vote_reports["engine_3_indicators"],
+        )
         weighted_score, effective_weights = _weighted_three_engine_score(
             engine1_score=engine1_score,
             engine2_score=engine2_score,
@@ -850,8 +885,12 @@ class DecisionEngine:
         combined_score = weighted_score if engine2_decision_eligible else None
 
         candidate = "WAIT"
+        # The coordinator must have all three fixed allocations and its
+        # three-way winner must agree with the structural direction.
         if (
-            engine2_decision_eligible
+            decision_coordinator.get("status") == "READY"
+            and decision_coordinator.get("action") == "BUY"
+            and engine2_decision_eligible
             and engine2_direction == "BULLISH"
             and engine2_score is not None
             and engine2_score >= MIN_ENGINE2_DIRECTION_SCORE
@@ -860,7 +899,9 @@ class DecisionEngine:
         ):
             candidate = "BUY"
         elif (
-            engine2_decision_eligible
+            decision_coordinator.get("status") == "READY"
+            and decision_coordinator.get("action") == "SELL"
+            and engine2_decision_eligible
             and engine2_direction == "BEARISH"
             and engine2_score is not None
             and engine2_score <= -MIN_ENGINE2_DIRECTION_SCORE
@@ -1038,6 +1079,28 @@ class DecisionEngine:
                 or (action == "CLOSE" and close_ticket is not None and close_volume is not None)
             )
         )
+        decision_integrity = validate_decision_integrity(
+            decision_coordinator,
+            {
+                "candidate_action": candidate,
+                "action": action,
+                "command_ready": command_ready,
+                "position_ticket": close_ticket,
+                "entry_reference": entry if action in {"BUY", "SELL"} else 0.0,
+                "stop_loss": stop_loss if action in {"BUY", "SELL"} else 0.0,
+                "take_profit": take_profit if action in {"BUY", "SELL"} else 0.0,
+                "risk_plan": size,
+            },
+        )
+        integrity_blocked_action = None
+        if decision_integrity.get("status") != "PASS" and action in {"BUY", "SELL", "CLOSE"}:
+            integrity_blocked_action = action
+            action = "WAIT"
+            command_ready = False
+            open_block_reason = (
+                "Decision integrity blocked command publication: "
+                + ", ".join(decision_integrity.get("errors", []))
+            )
 
         return {
             **base,
@@ -1065,6 +1128,11 @@ class DecisionEngine:
             "engine_3_signal_score": round(signal_score, 4),
             "engine_3_signal_quality": round(signal_quality, 4),
             "timeframes": timeframe_data,
+            "decision_coordinator": decision_coordinator,
+            "decision_integrity": {
+                **decision_integrity,
+                "integrity_blocked_action": integrity_blocked_action,
+            },
             "decision_weights": {
                 **effective_weights,
                 "configured": {
